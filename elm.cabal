@@ -208,6 +208,7 @@ Executable elm
         Watchtower.Annotate
         Watchtower.StaticAssets
         Watchtower.Live
+        Watchtower.Details
         Llamadera
         StandaloneInstances
 
