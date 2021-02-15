@@ -47,6 +47,7 @@ Executable elm
         builder/src
         terminal/impl
         terminal/src
+        watchtower/server/src
 
     other-extensions:
         TemplateHaskell
@@ -202,13 +203,27 @@ Executable elm
         Type.UnionFind
         Paths_elm
 
+        -- @WATCHTOWER
+        Watchtower
+        Watchtower.Annotate
+        Watchtower.StaticAssets
+        Watchtower.Live
+        Llamadera
+        StandaloneInstances
+
+        
+
     Build-depends:
-        ansi-terminal >= 0.8 && < 0.9,
+        ansi-terminal,
+        -- @WATCHTOWER
+        -- >= 0.8 && < 0.9,
         ansi-wl-pprint >= 0.6.8 && < 0.7,
         base >=4.11 && <5,
         binary >= 0.8 && < 0.9,
         bytestring >= 0.9 && < 0.11,
-        containers >= 0.5.8.2 && < 0.6,
+        containers,
+        -- @WATCHTOWER
+        -- >= 0.5.8.2 && < 0.6,
         directory >= 1.2.3.0 && < 2.0,
         edit-distance >= 0.2 && < 0.3,
         file-embed,
@@ -235,4 +250,13 @@ Executable elm
         unordered-containers,
         utf8-string,
         vector,
-        zip-archive
+        zip-archive,
+        
+
+        -- @WATCHTOWER
+        text,
+        unicode-show,
+
+        websockets,
+        websockets-snap,
+        broadcast-chan

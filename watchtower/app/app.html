@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+    Use a content security policy to only allow loading images from https or from our extension directory,
+    and only allow scripts that have a specific nonce.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src vscode-resource: https:; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script nonce="${nonce}" src="${scriptUri}"></script>
+    <title>Live View</title>
+  </head>
+  <body>
+    <script nonce="${nonce}">
+      var app = Elm.Main.init();
+
+      // Handle messages from the watchtower
+      window.addEventListener("message", (event) => {
+        const message = event.data; // The json data that the extension sent
+        app.ports.editorChange.send(message);
+      });
+
+      app.ports.notify.subscribe(function (message) {
+        // Post message to web socket
+      });
+    </script>
+  </body>
+</html>
