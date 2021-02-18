@@ -66,7 +66,7 @@ import qualified Json.Encode
 import qualified File
 
 
--- -- Show
+-- Show
 
 deriving instance Show AST.Optimized.Global
 deriving instance Show AST.Optimized.GlobalGraph
@@ -91,7 +91,7 @@ deriving instance Eq AST.Optimized.Path
 deriving instance Show AST.Canonical.Type
 deriving instance Show AST.Canonical.FieldType
 deriving instance Show AST.Canonical.AliasType
--- -- deriving instance Show AST.Canonical.Decls
+-- deriving instance Show AST.Canonical.Decls
 deriving instance Show AST.Canonical.Def
 deriving instance Show AST.Canonical.Pattern_
 deriving instance Show AST.Canonical.Union
@@ -116,15 +116,15 @@ deriving instance Show AST.Canonical.Effects
 deriving instance Show AST.Canonical.Port
 deriving instance Show AST.Canonical.Manager
 
--- -- deriving instance Eq AST.Canonical.Type
--- -- deriving instance Eq AST.Canonical.FieldType
--- -- deriving instance Eq AST.Canonical.AliasType
--- -- deriving instance Eq AST.Canonical.Decls
+-- deriving instance Eq AST.Canonical.Type
+-- deriving instance Eq AST.Canonical.FieldType
+-- deriving instance Eq AST.Canonical.AliasType
+-- deriving instance Eq AST.Canonical.Decls
 deriving instance Eq AST.Canonical.Def
 deriving instance Eq AST.Canonical.Pattern_
--- -- deriving instance Eq AST.Canonical.Union
--- -- deriving instance Eq AST.Canonical.Ctor
--- -- deriving instance Eq AST.Canonical.CtorOpts
+-- deriving instance Eq AST.Canonical.Union
+-- deriving instance Eq AST.Canonical.Ctor
+-- deriving instance Eq AST.Canonical.CtorOpts
 deriving instance Eq AST.Canonical.PatternCtorArg
 deriving instance Eq AST.Canonical.Expr_
 deriving instance Eq AST.Canonical.CaseBranch
@@ -160,31 +160,31 @@ deriving instance Show AST.Utils.Shader.Types
 deriving instance Show AST.Utils.Shader.Type
 deriving instance Show Parse.Primitives.Snippet
 
--- -- deriving instance Eq AST.Source.Module
--- -- deriving instance Eq AST.Source.Exposing
--- -- deriving instance Eq AST.Source.Exposed
--- -- deriving instance Eq AST.Source.Privacy
--- -- deriving instance Eq AST.Source.Docs
--- -- deriving instance Eq AST.Source.Comment
--- -- deriving instance Eq AST.Source.Import
--- -- deriving instance Eq AST.Source.Value
--- -- deriving instance Eq AST.Source.Pattern_
--- -- deriving instance Eq AST.Source.Expr_
--- -- deriving instance Eq AST.Source.Type_
--- -- deriving instance Eq AST.Source.Union
--- -- deriving instance Eq AST.Source.Alias
--- -- deriving instance Eq AST.Source.Infix
--- -- deriving instance Eq AST.Source.Effects
--- -- deriving instance Eq AST.Source.Port
--- -- deriving instance Eq AST.Source.Manager
--- -- deriving instance Eq AST.Source.VarType
--- -- deriving instance Eq AST.Source.Def
--- --
+-- deriving instance Eq AST.Source.Module
+-- deriving instance Eq AST.Source.Exposing
+-- deriving instance Eq AST.Source.Exposed
+-- deriving instance Eq AST.Source.Privacy
+-- deriving instance Eq AST.Source.Docs
+-- deriving instance Eq AST.Source.Comment
+-- deriving instance Eq AST.Source.Import
+-- deriving instance Eq AST.Source.Value
+-- deriving instance Eq AST.Source.Pattern_
+-- deriving instance Eq AST.Source.Expr_
+-- deriving instance Eq AST.Source.Type_
+-- deriving instance Eq AST.Source.Union
+-- deriving instance Eq AST.Source.Alias
+-- deriving instance Eq AST.Source.Infix
+-- deriving instance Eq AST.Source.Effects
+-- deriving instance Eq AST.Source.Port
+-- deriving instance Eq AST.Source.Manager
+-- deriving instance Eq AST.Source.VarType
+-- deriving instance Eq AST.Source.Def
+--
 instance Eq AST.Utils.Shader.Source where
   (==) _ _ = False
 deriving instance Eq AST.Utils.Shader.Types
 deriving instance Eq AST.Utils.Shader.Type
--- -- deriving instance Eq Parse.Primitives.Snippet
+deriving instance Eq Parse.Primitives.Snippet
 
 
 
@@ -192,17 +192,18 @@ deriving instance Eq AST.Utils.Shader.Type
 instance Show Elm.Float.Float where
   show = T.unpack . T.decodeUtf8 . BSL.toStrict . B.toLazyByteString . Elm.Float.toBuilder
 
--- deriving instance (Show a) => Show (Json.Decode.Error a)
--- deriving instance (Show a) => Show (Json.Decode.Problem a)
--- deriving instance Show (Json.Decode.ParseError)
--- deriving instance Show (Json.Decode.StringProblem)
--- deriving instance Show (Json.Decode.DecodeExpectation)
+deriving instance (Show a) => Show (Json.Decode.Error a)
+deriving instance (Show a) => Show (Json.Decode.Problem a)
+deriving instance Show (Json.Decode.ParseError)
+deriving instance Show (Json.Decode.StringProblem)
+deriving instance Show (Json.Decode.DecodeExpectation)
 deriving instance Show Reporting.Annotation.Region
 deriving instance Show Reporting.Annotation.Position
 
 -- deriving instance (Show a) => Show (Reporting.Annotation.Located a)
 instance (Show a) => Show (Reporting.Annotation.Located a) where
-  show (Reporting.Annotation.At region a) = "(a (" ++ show a ++ "))"
+  show (Reporting.Annotation.At region a) =
+      "(a (" ++ show a ++ "))"
 
 instance (Eq a) => Eq (Reporting.Annotation.Located a) where
   -- Comparison that ignores the actual regions – this is helpful to us in our generation checking
@@ -213,87 +214,89 @@ instance (Eq a) => Eq (Reporting.Annotation.Located a) where
 --   (==) a b = show (Reporting.Annotation.At region a) = "(a (" ++ show a ++ "))"
 
 
--- deriving instance Show Reporting.Exit.DetailsBadDep
--- deriving instance Show Reporting.Exit.PackageProblem
--- deriving instance Show Reporting.Exit.Outline
--- deriving instance Show Reporting.Exit.OutlineProblem
+deriving instance Show Reporting.Exit.DetailsBadDep
+deriving instance Show Reporting.Exit.PackageProblem
+deriving instance Show Reporting.Exit.Outline
+deriving instance Show Reporting.Exit.OutlineProblem
 
--- deriving instance Show Reporting.Exit.Install
--- deriving instance Show Reporting.Exit.RegistryProblem
--- deriving instance Show Reporting.Exit.Solver
--- deriving instance Show Reporting.Exit.Details
+deriving instance Show Reporting.Exit.Install
+deriving instance Show Reporting.Exit.RegistryProblem
+deriving instance Show Reporting.Exit.Solver
+deriving instance Show Reporting.Exit.Details
 
--- -- need constructor
--- -- deriving instance Show Reporting.Exit.Help.Report
+-- MISSING CONSTRUCTOR
+-- deriving instance Show Reporting.Exit.Help.Report
+instance Show Reporting.Exit.Help.Report where
+  show v = "<Reporting.Exit.Help.Report>"
 
--- deriving instance Show Reporting.Error.Module
--- deriving instance Show Reporting.Error.Error
+deriving instance Show Reporting.Error.Module
+deriving instance Show Reporting.Error.Error
 
--- deriving instance Show Reporting.Error.Syntax.Error
--- deriving instance Show Reporting.Error.Syntax.Module
--- deriving instance Show Reporting.Error.Syntax.Space
--- deriving instance Show Reporting.Error.Syntax.Exposing
--- -- deriving instance Show Reporting.Error.Syntax.BadOperator
--- deriving instance Show Reporting.Error.Syntax.Decl
--- deriving instance Show Reporting.Error.Syntax.Port
--- deriving instance Show Reporting.Error.Syntax.Type
--- deriving instance Show Reporting.Error.Syntax.DeclType
--- deriving instance Show Reporting.Error.Syntax.TRecord
--- deriving instance Show Reporting.Error.Syntax.TypeAlias
--- deriving instance Show Reporting.Error.Syntax.CustomType
--- deriving instance Show Reporting.Error.Syntax.TTuple
--- deriving instance Show Reporting.Error.Syntax.DeclDef
--- deriving instance Show Reporting.Error.Syntax.Pattern
--- deriving instance Show Reporting.Error.Syntax.PRecord
--- deriving instance Show Reporting.Error.Syntax.PTuple
--- deriving instance Show Reporting.Error.Syntax.Char
--- deriving instance Show Reporting.Error.Syntax.Escape
--- deriving instance Show Reporting.Error.Syntax.PList
--- deriving instance Show Reporting.Error.Syntax.Expr
--- deriving instance Show Reporting.Error.Syntax.Let
--- deriving instance Show Reporting.Error.Syntax.String
--- deriving instance Show Reporting.Error.Syntax.Def
--- deriving instance Show Reporting.Error.Syntax.Case
--- deriving instance Show Reporting.Error.Syntax.Number
--- deriving instance Show Reporting.Error.Syntax.Destruct
--- deriving instance Show Reporting.Error.Syntax.If
--- deriving instance Show Reporting.Error.Syntax.List
--- deriving instance Show Reporting.Error.Syntax.Record
--- deriving instance Show Reporting.Error.Syntax.Tuple
--- deriving instance Show Reporting.Error.Syntax.Func
+deriving instance Show Reporting.Error.Syntax.Error
+deriving instance Show Reporting.Error.Syntax.Module
+deriving instance Show Reporting.Error.Syntax.Space
+deriving instance Show Reporting.Error.Syntax.Exposing
+-- deriving instance Show Reporting.Error.Syntax.BadOperator
+deriving instance Show Reporting.Error.Syntax.Decl
+deriving instance Show Reporting.Error.Syntax.Port
+deriving instance Show Reporting.Error.Syntax.Type
+deriving instance Show Reporting.Error.Syntax.DeclType
+deriving instance Show Reporting.Error.Syntax.TRecord
+deriving instance Show Reporting.Error.Syntax.TypeAlias
+deriving instance Show Reporting.Error.Syntax.CustomType
+deriving instance Show Reporting.Error.Syntax.TTuple
+deriving instance Show Reporting.Error.Syntax.DeclDef
+deriving instance Show Reporting.Error.Syntax.Pattern
+deriving instance Show Reporting.Error.Syntax.PRecord
+deriving instance Show Reporting.Error.Syntax.PTuple
+deriving instance Show Reporting.Error.Syntax.Char
+deriving instance Show Reporting.Error.Syntax.Escape
+deriving instance Show Reporting.Error.Syntax.PList
+deriving instance Show Reporting.Error.Syntax.Expr
+deriving instance Show Reporting.Error.Syntax.Let
+deriving instance Show Reporting.Error.Syntax.String
+deriving instance Show Reporting.Error.Syntax.Def
+deriving instance Show Reporting.Error.Syntax.Case
+deriving instance Show Reporting.Error.Syntax.Number
+deriving instance Show Reporting.Error.Syntax.Destruct
+deriving instance Show Reporting.Error.Syntax.If
+deriving instance Show Reporting.Error.Syntax.List
+deriving instance Show Reporting.Error.Syntax.Record
+deriving instance Show Reporting.Error.Syntax.Tuple
+deriving instance Show Reporting.Error.Syntax.Func
 
--- deriving instance Show Reporting.Error.Import.Error
--- deriving instance Show Reporting.Error.Import.Problem
+deriving instance Show Reporting.Error.Import.Error
+deriving instance Show Reporting.Error.Import.Problem
 
--- -- deriving instance
+-- deriving instance
 
--- deriving instance Show Parse.Symbol.BadOperator
+deriving instance Show Parse.Symbol.BadOperator
 
--- instance Show Reporting.Error.Canonicalize.Error where
---   show _ = "\"<Reporting.Error.Canonicalize.Error>\""
+instance Show Reporting.Error.Canonicalize.Error where
+  show _ = "\"<Reporting.Error.Canonicalize.Error>\""
 
--- instance Show Reporting.Render.Type.Localizer.Localizer where
---   show _ = "\"<Reporting.Render.Type.Localizer.Localizer>\""
+instance Show Reporting.Render.Type.Localizer.Localizer where
+  show _ = "\"<Reporting.Render.Type.Localizer.Localizer>\""
 
--- instance Show Reporting.Error.Type.Error where
---   show _ = "\"<Reporting.Error.Type.Error>\""
+instance Show Reporting.Error.Type.Error where
+  show _ = "\"<Reporting.Error.Type.Error>\""
 
--- instance Show Reporting.Error.Main.Error where
---   show _ = "\"<Reporting.Error.Main.Error>\""
+instance Show Reporting.Error.Main.Error where
+  show _ = "\"<Reporting.Error.Main.Error>\""
 
--- instance Show Reporting.Error.Docs.Error where
---   show _ = "\"<Reporting.Error.Docs.Error>\""
+instance Show Reporting.Error.Docs.Error where
+  show _ = "\"<Reporting.Error.Docs.Error>\""
 
--- instance Show Nitpick.PatternMatches.Error where
---   show _ = "\"<Nitpick.PatternMatches.Error>\""
+instance Show Nitpick.PatternMatches.Error where
+  show _ = "\"<Nitpick.PatternMatches.Error>\""
 
--- instance Show File.Time where
---   show _ = "\"<File.Time>\""
+instance Show File.Time where
+  show _ = "\"<File.Time>\""
 
 
--- deriving instance Show Elm.Version.Version
+deriving instance Show Elm.Version.Version
 
--- deriving instance Show Http.Error
+deriving instance Show Http.Error
 
 
 instance Show Data.Name.Name where
@@ -304,34 +307,36 @@ instance Show Elm.Package.Name where
   show (Elm.Package.Name author project) =
     "Name " ++ (quoted . Utf8.toChars) author <> " " <> (quoted . Utf8.toChars) project
 
--- deriving instance Show Elm.Interface.Interface
+deriving instance Show Elm.Interface.Interface
 
--- instance Show Elm.Interface.Binop where
---   show _ = "\"<Elm.Interface.Binop>\""
+instance Show Elm.Interface.Binop where
+  show _ = "\"<Elm.Interface.Binop>\""
 
--- instance Show Elm.Interface.DependencyInterface where
---   show _ = "\"<Elm.Interface.DependencyInterface>\""
+instance Show Elm.Interface.DependencyInterface where
+  show _ = "\"<Elm.Interface.DependencyInterface>\""
 
 instance Show Elm.Kernel.Chunk where
   show _ = "\"<Elm.Kernel.CHunk>\""
 
--- deriving instance Show Elm.Interface.Union
--- deriving instance Show Elm.Interface.Alias
+deriving instance Show Elm.Interface.Union
+deriving instance Show Elm.Interface.Alias
 
 
+-- MISSING CONSTRUCTOR
+-- deriving instance Show Elm.Constraint.Constraint
+instance Show Elm.Constraint.Constraint where
+  show v = "<Elm.Constraint.Constraint>"
 
--- -- deriving instance Show Elm.Constraint.Constraint
+deriving instance Show Elm.Constraint.Error
 
--- deriving instance Show Elm.Constraint.Error
+deriving instance Show Elm.Outline.Outline
+deriving instance Show Elm.Outline.AppOutline
+deriving instance Show Elm.Outline.SrcDir
+deriving instance Show Elm.Outline.PkgOutline
+deriving instance Show Elm.Outline.Exposed
 
--- deriving instance Show Elm.Outline.Outline
--- deriving instance Show Elm.Outline.AppOutline
--- deriving instance Show Elm.Outline.SrcDir
--- deriving instance Show Elm.Outline.PkgOutline
--- deriving instance Show Elm.Outline.Exposed
-
--- instance Show Elm.Licenses.License where
---   show _ = "\"<Elm.Licenses.License>\""
+instance Show Elm.Licenses.License where
+  show _ = "\"<Elm.Licenses.License>\""
 
 quoted :: String -> String
 quoted s = "\"" ++ s ++ "\""
@@ -339,63 +344,69 @@ quoted s = "\"" ++ s ++ "\""
 instance Show (Elm.String.String) where
   show = quoted . Elm.String.toChars
 
--- -- deriving instance Show ModuleName.Canonical
+-- deriving instance Show ModuleName.Canonical
 instance Show ModuleName.Canonical where
   -- show (ModuleName.Canonical pkg moduleName) = quoted $ show pkg ++ ":" ++ Utf8.toChars moduleName
   show (ModuleName.Canonical pkg moduleName) = "(Module.Canonical (" ++ show pkg ++ ") " ++ show moduleName ++ ")"
 
 
--- instance (Show a) => Show (Data.NonEmptyList.List a) where
---   show = show . Data.NonEmptyList.toList
+instance (Show a) => Show (Data.NonEmptyList.List a) where
+  show = show . Data.NonEmptyList.toList
 
--- instance (Show a) => Show (Data.OneOrMore.OneOrMore a) where
---   show = show . Data.OneOrMore.destruct (\v acc -> acc ++ [v])
+instance (Show a) => Show (Data.OneOrMore.OneOrMore a) where
+  show = show . Data.OneOrMore.destruct (\v acc -> acc ++ [v])
 
 
 
 instance Show Data.Index.ZeroBased where
---   show (Data.Index.ZeroBased 0) = "Index.first"
---   show (Data.Index.ZeroBased 1) = "Index.second"
---   show (Data.Index.ZeroBased 2) = "Index.third"
---   show (Data.Index.ZeroBased n) = "(Index.ZeroBased " ++ show n ++ ")"
-    show _ = "Index"
+  -- show (Data.Index.ZeroBased 0) = "Index.first"
+  -- show (Data.Index.ZeroBased 1) = "Index.second"
+  -- show (Data.Index.ZeroBased 2) = "Index.third"
+  -- show (Data.Index.ZeroBased n) = "(Index.ZeroBased " ++ show n ++ ")"
+  show _ = "Index"
 
+deriving instance Show Type.Type.Constraint
+deriving instance Show Type.Type.Type
+-- deriving instance Show Type.Type.Variable
+instance Show Type.Type.Variable where
+  show v = "<Type.Type.Variable>"
 
--- deriving instance Show Type.Type.Constraint
--- deriving instance Show Type.Type.Type
--- -- deriving instance Show Type.Type.Variable
--- deriving instance (Show a) => Show (Reporting.Error.Type.Expected a)
--- deriving instance (Show a) => Show (Reporting.Error.Type.PExpected a)
--- deriving instance Show Reporting.Error.Type.Context
--- deriving instance Show Reporting.Error.Type.PContext
--- deriving instance Show Reporting.Error.Type.MaybeName
--- deriving instance Show Reporting.Error.Type.SubContext
--- deriving instance Show Reporting.Error.Type.Category
--- deriving instance Show Reporting.Error.Type.PCategory
--- deriving instance Show Type.Type.Descriptor
--- -- deriving instance (Show a) => Show (Type.UnionFind.Point a)
--- deriving instance Show Type.Type.Content
--- deriving instance Show Type.Type.SuperType
--- deriving instance Show Type.Type.FlatType
--- -- deriving instance Show Type.Type.Mark
+deriving instance (Show a) => Show (Reporting.Error.Type.Expected a)
+deriving instance (Show a) => Show (Reporting.Error.Type.PExpected a)
+deriving instance Show Reporting.Error.Type.Context
+deriving instance Show Reporting.Error.Type.PContext
+deriving instance Show Reporting.Error.Type.MaybeName
+deriving instance Show Reporting.Error.Type.SubContext
+deriving instance Show Reporting.Error.Type.Category
+deriving instance Show Reporting.Error.Type.PCategory
+deriving instance Show Type.Type.Descriptor
+-- deriving instance (Show a) => Show (Type.UnionFind.Point a)
+deriving instance Show Type.Type.Content
+deriving instance Show Type.Type.SuperType
+deriving instance Show Type.Type.FlatType
 
-
-
--- instance Show (GHC.IORef.IORef a) where
---   show _ = "\"<IORef>\""
-
-
--- deriving instance Show Deps.Registry.KnownVersions
-
-
--- deriving instance Show Json.Encode.Value
-
--- instance Show B.Builder where
---   show = T.unpack . T.decodeUtf8 . BSL.toStrict . B.toLazyByteString
+-- MISSING CONSTRUCTOR
+-- deriving instance Show Type.Type.Mark
+instance Show Type.Type.Mark where
+  show v = "<Type.Type.Mark>"
 
 
 
--- -- IsString
+instance Show (GHC.IORef.IORef a) where
+  show _ = "\"<IORef>\""
+
+
+deriving instance Show Deps.Registry.KnownVersions
+
+
+deriving instance Show Json.Encode.Value
+
+instance Show B.Builder where
+  show = T.unpack . T.decodeUtf8 . BSL.toStrict . B.toLazyByteString
+
+
+
+-- IsString
 
 instance IsString Elm.Package.Project where
   fromString = Utf8.fromChars

@@ -13,7 +13,7 @@ data Status
 data Location =
     Location 
         { _path :: FilePath
-        , _range :: Ann.Region
+        , _range :: Ann.Position
         }
 
 data Position = Position

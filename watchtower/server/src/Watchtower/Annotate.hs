@@ -1,6 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Annotate where
+module Watchtower.Annotate
+    ( run
+    , listMissingAnnotations
+    , printListMissingAnnotations
+    , printFindDefinition
+    , annotation
+    , printAnnotation
+    , callgraph
+    , printCallGraph
+    ) where
 
 import qualified System.Directory as Dir
 import qualified Data.ByteString.Builder as B
@@ -40,6 +49,7 @@ import Data.Function ((&))
 
 
 import qualified Llamadera
+import StandaloneInstances
 
 
 {-
@@ -63,7 +73,7 @@ run (Args file expressionName) () = do
 
   elmHome <- PerUserCache.getElmHome
   root <- Llamadera.getProjectRoot
-  printAnnotations root file expressionName
+  printAnnotation root file expressionName
 
 
 {- For editors to add a button that prompts to insert a missing type annotation, they need to know which annotations are missing.
@@ -72,8 +82,8 @@ run (Args file expressionName) () = do
 This will list those annotations as well as their coordinates
 
 -}
-listMissingAnnotations :: FilePath -> FilePath -> IO ()
-listMissingAnnotations root file = do
+printListMissingAnnotations :: FilePath -> FilePath -> IO ()
+printListMissingAnnotations root file = do
   (source, mod) <- Llamadera.loadFileSource root file
 
   let values = mod
@@ -99,6 +109,37 @@ listMissingAnnotations root file = do
 
   pure ()
 
+
+{- For editors to add a button that prompts to insert a missing type annotation, they need to know which annotations are missing.
+
+
+This will list those annotations as well as their coordinates
+
+-}
+listMissingAnnotations :: FilePath -> FilePath -> IO Json.Encode.Value
+listMissingAnnotations root file = do
+  (source, mod) <- Llamadera.loadFileSource root file
+
+  let values = mod
+        & Src._values
+        & fmap
+            (\val ->
+              case A.toValue val of
+                Src.Value locatedName _ _ Nothing ->
+                      Json.Encode.object
+                          [ "name" ==> nameToJsonString (A.toValue locatedName)
+                          , "region" ==> encodeRegion (A.toRegion locatedName)
+                          ]
+                          & Just
+                      
+                _ ->
+                    Nothing
+            )
+        & Maybe.catMaybes
+        & Json.Encode.list (\a -> a)
+
+  pure values
+
 {- Copied from Reporting/Error.hs ...-}
 encodeRegion :: A.Region -> Json.Encode.Value
 encodeRegion (A.Region (A.Position sr sc) (A.Position er ec)) =
@@ -121,8 +162,8 @@ encodeRegion (A.Region (A.Position sr sc) (A.Position er ec)) =
 
 
 -}
-printAnnotations :: FilePath -> FilePath -> Name.Name -> IO ()
-printAnnotations root file expressionName = do
+printAnnotation :: FilePath -> FilePath -> Name.Name -> IO ()
+printAnnotation root file expressionName = do
   (source, modul) <- Llamadera.loadFileSource root file
 
   Dir.withCurrentDirectory root $ do
@@ -142,6 +183,38 @@ printAnnotations root file expressionName = do
         putStrLn "Oops! Something went wrong!"
 
   pure ()
+
+{-  Print a type signature!
+
+
+-}
+annotation :: FilePath -> FilePath -> Name.Name -> IO Json.Encode.Value
+annotation root file expressionName = do
+  (source, modul) <- Llamadera.loadFileSource root file
+
+  Dir.withCurrentDirectory root $ do
+      (Compile.Artifacts canonical annotations objects) <- Llamadera.loadSingleArtifacts file
+
+      case annotations & Map.lookup expressionName of
+        Just annotation -> do
+          let imports = modul & Src._imports
+              selfName = modul & Src.getName
+        
+          pure 
+            (Json.Encode.object
+              ["signature" 
+                  ==> (Json.Encode.string 
+                        (Json.String.fromChars 
+                          (T.unpack (canonicalAnnotationToString selfName imports annotation))
+                        )
+                      )
+              ]
+            )
+            
+
+        Nothing ->
+          pure (Json.Encode.string (Json.String.fromChars "Not found"))
+        
 
 
 -- Args helpers
@@ -490,19 +563,29 @@ canonicalTypeToMultilineString self imports tipe =
 
 {-| 
   Given file name and coords (line and char)
-  1. Find Canonical.Expr.Call (VarQual or Var)
-  2. Resolve to actual module for defintion
-    - Look up same named thing in Opt.Expr(?) (starting with Node Name/Value Name)
-  3. Find location in other file (with multiple source dirs, oof)
+  1. Find which name is at the coordinates
+  
+  2. Resolve definition source
 
+    2.a Qualified call 
+        -> resolve Qualification to full module name
+        -> resolve full module name to file path
+        -> read file, get coordinates of definition
+
+    2.b Unqualified call
+        -> Check variables in local scope
+        -> Else, check top level values in file
+        -> Else, check interface for modules with exposed values
 
 
 -}
-findDefinition :: FilePath -> FilePath -> Word16 -> Word16 -> IO ()
-findDefinition root path row col = do
+printFindDefinition :: FilePath -> FilePath -> Integer -> Integer -> IO ()
+printFindDefinition root path row col = do
   (source, modul) <- Llamadera.loadFileSource root path
+
+  -- Llamadera.formatHaskellValue "Source" source
   let 
-      point = A.Position row col
+      point = A.Position (fromIntegral row) (fromIntegral col)
       maybeValue =
         modul
           & Src._values
@@ -510,14 +593,10 @@ findDefinition root path row col = do
               (\(A.At region (Src.Value (A.At _ name_) params expr typeM)) ->
                   withinRegion point region 
               )
-  
-          -- & (\v ->
-          --   case v of
-          --     Just (A.At region (Src.Value (A.At _ name_) params expr typeM)) -> region
-          --     _ ->
-          --       error $ "Unexpected result in loadFileSourceValue" <> show v
-          -- )
-          -- & 
+          >>= (getExpressionNameAt point)
+            
+          
+  Llamadera.formatHaskellValue "Source" maybeValue
   Dir.withCurrentDirectory root $ do
     (Compile.Artifacts canonical annotations objects) <- Llamadera.loadSingleArtifacts path
     -- Llamadera.formatHaskellValue ("Found") maybeValue
@@ -525,6 +604,65 @@ findDefinition root path row col = do
     pure ()
 
   pure ()
+
+
+getExpressionNameAt point (v@(A.At region (Src.Value (A.At _ name_) params expr typeM))) =
+  getExpressionNameAtHelper point expr
+
+
+getExpressionNameAtHelper :: A.Position -> Src.Expr -> Maybe (Src.VarType, Maybe Name.Name, Name.Name)
+getExpressionNameAtHelper point expr =
+  if not (withinRegion point (A.toRegion expr)) then
+    Nothing
+  
+  else
+    case A.toValue expr of
+      Src.Chr str ->
+        Nothing
+      Src.Str str ->
+        Nothing
+      Src.Int i ->
+        Nothing
+      Src.Float f ->
+        Nothing
+      Src.Var vType name ->
+        Just (vType, Nothing, name)
+      Src.VarQual vType qual name ->
+        Just (vType, Just qual, name)
+      Src.List exps ->
+        Nothing
+      Src.Op name ->
+        Nothing
+      Src.Negate exp ->
+        Nothing
+      Src.Binops ops expr ->
+        Nothing
+      Src.Lambda patterns expr ->
+        Nothing
+      Src.Call call with ->
+        Nothing
+      Src.If conditions elseExpr ->
+        Nothing
+      Src.Let defs expr ->
+        Nothing
+      Src.Case caseExpr patterns ->
+        Nothing
+      Src.Accessor name ->
+        Nothing
+      Src.Access expr locatedName ->
+        Nothing
+      Src.Update name fields ->
+        Nothing
+      Src.Record fields ->
+        Nothing
+      Src.Unit ->
+        Nothing
+      Src.Tuple one two listThree ->
+        Nothing
+      Src.Shader src types ->
+        Nothing
+  
+  
 
 findFirst fn vals =
   case vals of
@@ -542,7 +680,27 @@ withinRegion (A.Position row col) (A.Region (A.Position startRow startCol) (A.Po
   row >= startRow && row <= endRow
 
 
+{-|
 
+-}
+callgraph :: FilePath -> FilePath -> Name.Name -> IO Json.Encode.Value
+callgraph root file expressionName = do
+  Dir.withCurrentDirectory root $ do
+    Llamadera.debug_ "Getting artifacts..."
+
+    (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) <- Llamadera.loadSingleArtifacts file
+    let moduleName =
+            case mod of
+                Can.Module modName _ _ _ _ _ _ _ ->
+                    modName
+    
+    case graph & Map.lookup (Opt.Global moduleName expressionName) of  
+      Just annotation -> do
+        pure (graphToJson graph (Opt.Global moduleName expressionName))
+
+      Nothing ->
+        pure (Json.Encode.string (Json.String.fromChars "Not found"))
+    
 
 {-|
 

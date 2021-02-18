@@ -16,6 +16,7 @@ import qualified Reporting.Annotation as Ann
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Live
 import qualified Watchtower.Details
+import qualified Watchtower.Questions
 
 data Flags =
   Flags
@@ -32,26 +33,13 @@ serve (Flags maybePort) =
         serveAssets
     --     <|> serveDirectoryWith directoryConfig "."
     --     <|> serveAssets
+            <|> Watchtower.Questions.serve
             <|> Watchtower.Live.websocket liveState
             <|> error404
             -- <|> serveWebsocket liveState
 
 
 
--- One off questions and answers you might have/want.
-data Questions
-    = CallgraphPlease Watchtower.Details.Location
-    | ListMissingSignaturesPlease FilePath
-    | SignaturePlease Watchtower.Details.Location
-    | FindDefinitionPlease Watchtower.Details.Location
-    | FindAllInstancesPlease Watchtower.Details.Location
-
-data Answers
-    = CallgraphReturned Watchtower.Details.Callgraph
-    | ListMissingSignaturesReturned [ Watchtower.Details.Location ]
-    | SignatureReturned Watchtower.Details.Location String
-    | FindDefinitionReturned Watchtower.Details.Location
-    | FindAllInstancesReturned 
 
 
 
