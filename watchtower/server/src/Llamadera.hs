@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Llamadera (getProjectRoot, loadFileSource, loadSingleArtifacts, formatHaskellValue, debug_) where
+module Llamadera (allInterfaces, getProjectRoot, loadFileSource, loadSingleArtifacts, formatHaskellValue, debug_) where
 
 import qualified System.Directory as Dir
 import Prelude hiding (lookup)
@@ -42,6 +42,7 @@ import qualified Build
 import qualified Stuff
 import System.FilePath as FP ((</>), joinPath, splitDirectories, takeDirectory)
 import Data.Function ((&))
+import StandaloneInstances
 
 
 {- INTERFACES -}
@@ -185,6 +186,7 @@ cachedHelp name ciMvar = do
 
 
 {- END INTERFACES -}
+
 
 
 

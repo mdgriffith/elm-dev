@@ -40,6 +40,8 @@ dict =
     , cssPath      ==> (css     , "text/css")
     , codeFontPath ==> (codeFont, "font/ttf")
     , sansFontPath ==> (sansFont, "font/ttf")
+    , elmLivePanePath ==> (livePane, "text/html")
+    , elmLivePaneJsPath ==> (livePaneJs, "application/javascript")
     ]
 
 
@@ -50,6 +52,16 @@ dict =
 
 
 -- PATHS
+
+
+elmLivePanePath :: FilePath
+elmLivePanePath =
+   "live"
+
+
+elmLivePaneJsPath :: FilePath
+elmLivePaneJsPath =
+   "live" </> "live.js"
 
 
 faviconPath :: FilePath
@@ -121,3 +133,18 @@ sansFont =
 favicon :: BS.ByteString
 favicon =
   $(bsToExp =<< runIO (Build.readAsset "favicon.ico"))
+
+
+-- LIVE PANE
+
+
+
+livePane :: BS.ByteString
+livePane =
+  $(bsToExp =<< runIO (BS.readFile ("watchtower" </> "app" </> "app.html")))
+
+
+
+livePaneJs :: BS.ByteString
+livePaneJs =
+  $(bsToExp =<< runIO (BS.readFile ("watchtower" </> "app" </> "live.js")))

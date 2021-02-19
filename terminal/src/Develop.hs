@@ -47,14 +47,15 @@ data Flags =
 run :: () -> Flags -> IO ()
 run () (Flags maybePort) =
   -- @WATCHTOWER
-  do  let port = maybe 8000 id maybePort
-      putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
-      httpServe (config port) $
-        serveFiles
-        <|> serveDirectoryWith directoryConfig "."
-        <|> serveAssets
-        <|> error404
-  -- Watchtower.serve (Watchtower.Flags maybePort)
+  Watchtower.serve (Watchtower.Flags maybePort)
+  -- do  let port = maybe 8000 id maybePort
+  --     putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
+  --     httpServe (config port) $
+  --       serveFiles
+  --       <|> serveDirectoryWith directoryConfig "."
+  --       <|> serveAssets
+  --       <|> error404
+
 
 
 config :: Int -> Config Snap a

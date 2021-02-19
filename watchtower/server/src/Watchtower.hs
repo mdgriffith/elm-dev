@@ -29,16 +29,10 @@ serve (Flags maybePort) =
       putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
       liveState <- liftIO $ Watchtower.Live.init
       httpServe (config port) $
-        -- serveFiles
         serveAssets
-    --     <|> serveDirectoryWith directoryConfig "."
-    --     <|> serveAssets
             <|> Watchtower.Questions.serve
             <|> Watchtower.Live.websocket liveState
             <|> error404
-            -- <|> serveWebsocket liveState
-
-
 
 
 
