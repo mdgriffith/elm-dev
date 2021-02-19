@@ -76,6 +76,25 @@ run (Args file expressionName) () = do
   printAnnotation root file expressionName
 
 
+
+getTopLevelNameAt :: A.Position -> Src.Module -> Maybe Name.Name
+getTopLevelNameAt position mod =
+  mod
+    & Src._values
+    & findFirstJust
+        (\val ->
+          case A.toValue val of
+            Src.Value locatedName _ _ Nothing ->
+                if (withinRegion position (A.toRegion locatedName)) then
+                  Just (A.toValue locatedName)
+                else
+                  Nothing
+
+                  
+            _ ->
+                Nothing
+        )
+
 {- For editors to add a button that prompts to insert a missing type annotation, they need to know which annotations are missing.
 
 
@@ -598,8 +617,10 @@ printFindDefinition root path row col = do
           
   Llamadera.formatHaskellValue "Source" maybeValue
   Dir.withCurrentDirectory root $ do
+    -- interfaces <- Llamadera.allInterfaces [path]
     (Compile.Artifacts canonical annotations objects) <- Llamadera.loadSingleArtifacts path
-    -- Llamadera.formatHaskellValue ("Found") maybeValue
+    -- Llamadera.formatHaskellValue ("Interfaces") interfaces
+    Llamadera.formatHaskellValue ("Interfaces") annotations
 
     pure ()
 
@@ -673,6 +694,19 @@ findFirst fn vals =
         Just top
       else
         findFirst fn remain
+
+findFirstJust fn vals =
+  case vals of
+    [] ->
+      Nothing
+    top : remain ->
+      case fn top of
+        Nothing ->
+          findFirstJust fn remain
+        
+        otherwise ->
+            otherwise
+     
 
 
 withinRegion :: A.Position -> A.Region -> Bool
