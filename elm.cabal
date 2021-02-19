@@ -50,6 +50,8 @@ Executable elmx
         -- elmx
         ext-common
         ext-sentry
+        -- watchtower
+        ext-watchtower
 
     other-extensions:
         TemplateHaskell
@@ -213,6 +215,9 @@ Executable elmx
         -- ext-sentry
         Ext.Sentry
         Ext.Filewatch
+
+        -- watchtower
+        Watchtower.Server
 
 
     Build-depends:
