@@ -52,7 +52,6 @@ Executable elmx
         ext-sentry
         -- watchtower
         ext-watchtower
-        watchtower/server/src
 
     other-extensions:
         TemplateHaskell
