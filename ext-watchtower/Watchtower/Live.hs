@@ -15,8 +15,10 @@ import qualified Reporting.Annotation as Ann
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Details
 
-import qualified Network.WebSockets
-import qualified Network.WebSockets.Snap
+import qualified Data.Text as T
+
+import qualified Network.WebSockets      as WS
+import qualified Network.WebSockets.Snap as WS
 
 
 
@@ -31,105 +33,25 @@ init =
 
 websocket :: State -> Snap ()
 websocket _ =
---   do  file <- getSafePath
---       guard (file == "_w")
---       mKey <- getHeader "sec-websocket-key" <$> getRequest
---       mSid <- getCookie "sid"
-
---       randBytes <- liftIO $ getEntropy 20
---       let newSid = BSL.toStrict $ B.toLazyByteString $ B.byteStringHex randBytes
-
---       sessionId <-
---         case mSid of
---           Nothing -> do
---             let cookie = Cookie "sid" newSid Nothing Nothing Nothing False False
---             modifyResponse $ addResponseCookie cookie
-
---             pure $ T.decodeUtf8 $ newSid
-
---           Just sid_ ->
---             pure $ T.decodeUtf8 $ cookieValue sid_
-
---       case mKey of
---         Just key -> do
---           let onJoined clientId totalClients = do
---                 leaderChanged <- atomically $ do
---                   leader <- readTVar mLeader
---                   case leader of
---                     Just leaderId ->
---                       -- No change
---                       pure False
-
---                     Nothing -> do
---                       -- If there's no leader, become the leader
---                       writeTVar mLeader (Just clientId)
---                       pure True
-
---                 onlyWhen leaderChanged $ do
---                   sendToLeader mClients mLeader (\leader -> do
---                       -- Tell the new leader about the backend state they need
---                       atomically $ readTVar beState
---                     )
---                   -- Tell everyone about the new leader (also causes actual leader to go active as leader)
---                   broadcastLeader mClients mLeader
-
---                 SocketServer.broadcastImpl mClients $ "{\"t\":\"c\",\"s\":\"" <> sessionId <> "\",\"c\":\""<> clientId <> "\"}"
-
---                 leader <- atomically $ readTVar mLeader
---                 case leader of
---                   Just leaderId ->
---                     pure $ Just $ "{\"t\":\"s\",\"c\":\"" <> clientId <> "\",\"l\":\"" <> leaderId <> "\"}"
-
---                   Nothing ->
---                     -- Impossible
---                     pure Nothing
-
---               onReceive clientId text = do
---                 if Text.isPrefixOf "{\"t\":\"envMode\"," text
---                   then do
---                     root <- liftIO $ getProjectRoot
---                     -- This is a bit dodge, but avoids needing to pull in all of Aeson
---                     setEnvMode root $ (Text.splitOn "\"" text) !! 7
-
---                     -- Touch the src/Env.elm file to make sure it gets recompiled
---                     touch $ root </> "src" </> "Env.elm"
-
---                     -- Mode has changed, force a refresh
---                     -- Actually not needed, because the touch will do this for us!
---                     -- SocketServer.broadcastImpl mClients "{\"t\":\"r\"}"
-
---                   else if Text.isSuffixOf "\"t\":\"p\"}" text
---                     then do
---                       debug "[backendSt] 💾"
---                       atomically $ writeTVar beState text
---                       onlyWhen (textContains "force" text) $ do
---                         debug "[refresh  ] 🔄 "
---                         -- Force due to backend reset, force a refresh
---                         SocketServer.broadcastImpl mClients "{\"t\":\"r\"}"
-
---                     else if Text.isPrefixOf "{\"t\":\"ToBackend\"," text
-
---                       then do
---                         sendToLeader mClients mLeader (\l -> pure text)
+    route 
+        [ ("/ws", WS.runWebSocketsSnap $ handleWebSocket echo)
+        ]
+    
 
 
---                     else if Text.isPrefixOf "{\"t\":\"qr\"," text
-
---                       then do
-
---                         debugT $ "🍕  rpc response:" <> text
---                         -- Query response, send it to the chan for pickup by awaiting HTTP endpoint
---                         liftIO $ writeBChan mChan text
---                         pure ()
-
---                     else
---                       SocketServer.broadcastImpl mClients text
-
---           Network.WebSockets.Snap.runWebSocketsSnap $ SocketServer.socketHandler mClients mLeader beState onJoined onReceive (T.decodeUtf8 key) sessionId
+handleWebSocket :: (WS.Connection -> T.Text -> IO ()) -> WS.PendingConnection -> IO ()
+handleWebSocket onReceive pending = do
+    conn <- WS.acceptRequest pending
+    msg <- WS.receiveData conn
+    putStrLn "Received"
+    putStrLn (T.unpack msg)
+    onReceive conn msg
 
 
---         Nothing ->
-          error404
+echo :: WS.Connection -> T.Text -> IO ()
+echo conn msg =
+    WS.sendTextData conn msg
+
 
 
 error404 :: Snap ()

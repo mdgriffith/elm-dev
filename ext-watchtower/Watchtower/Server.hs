@@ -30,8 +30,8 @@ serve (Flags maybePort) =
       liveState <- liftIO $ Watchtower.Live.init
       httpServe (config port) $
         serveAssets
-            <|> Watchtower.Questions.serve
             <|> Watchtower.Live.websocket liveState
+            <|> Watchtower.Questions.serve
             <|> error404
 
 

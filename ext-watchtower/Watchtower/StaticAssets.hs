@@ -56,12 +56,12 @@ dict =
 
 elmLivePanePath :: FilePath
 elmLivePanePath =
-   "live"
+   "app"
 
 
 elmLivePaneJsPath :: FilePath
 elmLivePaneJsPath =
-   "live" </> "live.js"
+   "app" </> "live.js"
 
 
 faviconPath :: FilePath
