@@ -25,7 +25,7 @@ import qualified Publish
 import qualified Repl
 
 
-import qualified Watchtower.Server
+import qualified Watchtower
 
 -- MAIN
 
@@ -41,7 +41,7 @@ main =
     , bump
     , diff
     , publish
-    , Watchtower.Server.start
+    , Watchtower.start
     ]
 
 

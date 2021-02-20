@@ -1,56 +1,68 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Server where
+module Watchtower.Server (Flags(..),serve) where
 
-import Terminal (Command(..), noArgs, Summary(..), flag, Parser(..), (|--), flags)
-import Terminal.Helpers
-import Text.Read (readMaybe)
-import qualified Text.PrettyPrint.ANSI.Leijen as P
+import Control.Applicative ((<|>))
+import Control.Monad.Trans (MonadIO(liftIO))
+import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
+import Snap.Core hiding (path)
+import Snap.Http.Server
+import Snap.Util.FileServe
 
+
+import qualified Develop.Generate.Help
+import qualified Json.Encode
+import qualified Reporting.Annotation as Ann
+import qualified Watchtower.StaticAssets
+import qualified Watchtower.Live
+import qualified Watchtower.Details
+import qualified Watchtower.Questions
 
 data Flags =
   Flags
     { _port :: Maybe Int
     }
 
-
-start :: Terminal.Command
-start =
-  let
-    summary =
-      "The watchtower development experience dreams are made of."
-
-    details =
-      "The `start` command starts the watchtower server on your computer:"
-
-    example =
-      reflow
-        "After running that command, watchtower is listening at <http://localhost:9000>\
-        \ and ready to be connected to."
-
-    reactorFlags =
-      flags Flags
-        |-- flag "port" port_ "The port of the watchtower server (default: 9000)"
-  in
-  Terminal.Command "start" (Common summary) details example noArgs reactorFlags run
+serve :: Flags -> IO ()
+serve (Flags maybePort) =
+  do  let port = maybe 8000 id maybePort
+      putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
+      liveState <- liftIO $ Watchtower.Live.init
+      httpServe (config port) $
+        serveAssets
+            <|> Watchtower.Questions.serve
+            <|> Watchtower.Live.websocket liveState
+            <|> error404
 
 
-port_ :: Parser Int
-port_ =
-  Parser
-    { _singular = "port"
-    , _plural = "ports"
-    , _parser = readMaybe
-    , _suggest = \_ -> return []
-    , _examples = \_ -> return ["9000"]
-    }
 
 
-reflow :: String -> P.Doc
-reflow string =
-  P.fillSep $ map P.text $ words string
+config :: Int -> Config Snap a
+config port =
+  setVerbose False $ setPort port $
+    setAccessLog ConfigNoLog $ setErrorLog ConfigNoLog $ defaultConfig
 
 
-run :: () -> Flags -> IO ()
-run _ (Flags port) =
-  putStrLn $ "todo! port:" <> show port
+-- SERVE STATIC ASSETS
+
+
+serveAssets :: Snap ()
+serveAssets =
+  do  path <- getSafePath
+      case Watchtower.StaticAssets.lookup path of
+        Nothing ->
+          pass
+
+        Just (content, mimeType) ->
+          do  modifyResponse (setContentType (mimeType <> ";charset=utf-8"))
+              writeBS content
+
+
+-- NOT FOUND
+
+
+error404 :: Snap ()
+error404 =
+  do  modifyResponse $ setResponseStatus 404 "Not Found"
+      modifyResponse $ setContentType "text/html;charset=utf-8"
+      writeBuilder $ Develop.Generate.Help.makePageHtml "NotFound" Nothing
