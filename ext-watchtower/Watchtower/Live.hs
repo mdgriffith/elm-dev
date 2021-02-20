@@ -8,27 +8,36 @@ import Snap.Core hiding (path)
 import Snap.Http.Server
 import Snap.Util.FileServe
 
+import qualified Data.Text as T
+import qualified Network.WebSockets      as WS
+import qualified Network.WebSockets.Snap as WS
 
 import qualified Develop.Generate.Help
 import qualified Json.Encode
 import qualified Reporting.Annotation as Ann
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Details
-
-import qualified Data.Text as T
-
-import qualified Network.WebSockets      as WS
-import qualified Network.WebSockets.Snap as WS
+import qualified Ext.Sentry
 
 
 
-data State = State
-        -- (TVar [Client], TVar (Maybe ClientId), BroadcastChan In Text, TVar Text)
+data State = 
+        State
+            { cache :: Ext.Sentry.Cache
+            , clients :: [ Client ]
+            }
+
+type ClientId = T.Text
+
+type Client = (ClientId, WS.Connection)
 
 
 init :: IO State
 init =
-    pure State
+    fmap 
+        (\cache -> 
+            State cache []
+        ) Ext.Sentry.init
 
 
 websocket :: State -> Snap ()

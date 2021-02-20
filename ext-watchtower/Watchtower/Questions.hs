@@ -48,12 +48,7 @@ serve =
     route 
         [ ("/:action", actionHandler)
         ]
-    -- modifyResponse $ setResponseStatus 404 "Not Found"
-    --   modifyResponse $ setContentType "text/html;charset=utf-8"
-    --   writeBuilder $ Develop.Generate.Help.makePageHtml "NotFound" Nothing
-
-
-
+  
 questionHandler :: FilePath -> Question -> Snap ()
 questionHandler root question =
     do
