@@ -274,7 +274,7 @@ Executable elmx
         clock,
         fold-debounce,
         formatting,
-        fsnotify
+        fsnotify,
         
 
         -- @WATCHTOWER
