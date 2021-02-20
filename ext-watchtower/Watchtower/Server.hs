@@ -25,7 +25,7 @@ data Flags =
 
 serve :: Flags -> IO ()
 serve (Flags maybePort) =
-  do  let port = maybe 8000 id maybePort
+  do  let port = maybe 9000 id maybePort
       putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
       liveState <- liftIO $ Watchtower.Live.init
       httpServe (config port) $
