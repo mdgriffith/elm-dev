@@ -32,7 +32,7 @@ import qualified Reporting
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Stuff
-
+import qualified Watchtower
 
 
 -- RUN THE DEV SERVER
@@ -46,13 +46,16 @@ data Flags =
 
 run :: () -> Flags -> IO ()
 run () (Flags maybePort) =
-  do  let port = maybe 8000 id maybePort
-      putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
-      httpServe (config port) $
-        serveFiles
-        <|> serveDirectoryWith directoryConfig "."
-        <|> serveAssets
-        <|> error404
+  -- @WATCHTOWER
+  Watchtower.serve (Watchtower.Flags maybePort)
+  -- do  let port = maybe 8000 id maybePort
+  --     putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
+  --     httpServe (config port) $
+  --       serveFiles
+  --       <|> serveDirectoryWith directoryConfig "."
+  --       <|> serveAssets
+  --       <|> error404
+
 
 
 config :: Int -> Config Snap a

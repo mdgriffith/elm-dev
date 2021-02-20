@@ -52,6 +52,7 @@ Executable elmx
         ext-sentry
         -- watchtower
         ext-watchtower
+        watchtower/server/src
 
     other-extensions:
         TemplateHaskell
@@ -218,6 +219,14 @@ Executable elmx
 
         -- watchtower
         Watchtower.Server
+        Watchtower
+        Watchtower.Annotate
+        Watchtower.StaticAssets
+        Watchtower.Live
+        Watchtower.Questions
+        Watchtower.Details
+        Llamadera
+        StandaloneInstances
 
 
     Build-depends:
@@ -266,3 +275,10 @@ Executable elmx
         fold-debounce,
         formatting,
         fsnotify
+        
+
+        -- @WATCHTOWER
+        unicode-show,
+        websockets,
+        websockets-snap,
+        broadcast-chan
