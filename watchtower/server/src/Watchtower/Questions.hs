@@ -29,6 +29,7 @@ data Question
     | SignaturePlease FilePath Name.Name
     | FindDefinitionPlease Watchtower.Details.Location
     | FindAllInstancesPlease Watchtower.Details.Location
+    | ListAllRoots
 
 -- data Answer
 --     = CallgraphReturned Watchtower.Details.Callgraph
@@ -176,14 +177,19 @@ ask root question =
                 & fmap Json.Encode.encodeUgly
 
         SignaturePlease file name ->
-              Watchtower.Annotate.annotation root file name
+            Watchtower.Annotate.annotation root file name
                 & fmap Json.Encode.encodeUgly
 
         FindDefinitionPlease location ->
-              pure (Data.ByteString.Builder.byteString ("NOTDONE"))
+            pure (Data.ByteString.Builder.byteString ("NOTDONE"))
 
         FindAllInstancesPlease location ->
-              pure (Data.ByteString.Builder.byteString ("NOTDONE"))
+            pure (Data.ByteString.Builder.byteString ("NOTDONE"))
+
+        ListAllRoots ->
+            -- Recursively list all instances of elm.json within the current directory.
+            -- useufl for multi-elm app projects.
+            pure (Data.ByteString.Builder.byteString ("NOTDONE"))
 
 
 
