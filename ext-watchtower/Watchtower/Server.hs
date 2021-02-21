@@ -18,7 +18,6 @@ import Control.Monad (guard)
 import Control.Applicative ((<|>))
 import Text.Read (readMaybe)
 
-
 import Snap.Core
 import Snap.Http.Server
 import Snap.Util.FileServe
@@ -42,7 +41,7 @@ data Flags =
 
 serve :: Flags -> IO ()
 serve (Flags maybePort) =
-  do  let port = maybe 9000 id maybePort
+  do  let port = withDefault 9000 maybePort
       putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
       liveState <- liftIO $ Watchtower.Live.init
       httpServe (config port) $
@@ -50,8 +49,6 @@ serve (Flags maybePort) =
             <|> Watchtower.Live.websocket liveState
             <|> Watchtower.Questions.serve
             <|> error404
-
-
 
 
 config :: Int -> Config Snap a
@@ -73,45 +70,6 @@ serveAssets =
         Just (content, mimeType) ->
           do  modifyResponse (setContentType (mimeType <> ";charset=utf-8"))
               writeBS content
-
-
--- NOT FOUND
-
-
-run :: () -> Flags -> IO ()
-run _ (Flags port) = do
-  httpServe (config (withDefault 9000 port)) $
-    serveWebsockets
-    <|> error404
-
-
-config :: Int -> Config Snap a
-config port =
-  setVerbose False $ setPort port $
-    setAccessLog ConfigNoLog $ setErrorLog ConfigNoLog $ defaultConfig
-
-
-serveWebsockets = do
-  file <- getSafePath
-  guard (file == "_w")
-  mKey <- getHeader "sec-websocket-key" <$> getRequest
-
-  case mKey of
-    Just key -> do
-      mClients <- liftIO $ newTVarIO []
-
-      let
-        onJoined clientId totalClients = do
-          putStrLn "onJoined todo"
-          pure Nothing
-
-        onReceive clientId text = do
-          putStrLn "onReceive todo"
-
-      Websocket.runWebSocketsSnap $ Websocket.socketHandler mClients onJoined onReceive (T.decodeUtf8 key)
-
-    Nothing ->
-      error404
 
 
 error404 :: Snap ()
