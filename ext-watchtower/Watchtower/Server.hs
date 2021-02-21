@@ -2,42 +2,30 @@
 
 module Watchtower.Server (Flags(..),serve) where
 
-
 import Control.Applicative ((<|>))
 import Control.Monad.Trans (MonadIO(liftIO))
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
+
 import Snap.Core hiding (path)
 import Snap.Http.Server
 import Snap.Util.FileServe
 
-import qualified Data.Text as Text
-import qualified Data.Text.Encoding as T
-
-import Control.Concurrent.STM
-import Control.Monad (guard)
-import Control.Applicative ((<|>))
-import Text.Read (readMaybe)
-
-import Snap.Core
-import Snap.Http.Server
-import Snap.Util.FileServe
-
-import qualified Watchtower.Websocket as Websocket
-import Watchtower.Duplicates
-
-
 import qualified Develop.Generate.Help
 import qualified Json.Encode
 import qualified Reporting.Annotation as Ann
-import qualified Watchtower.StaticAssets
-import qualified Watchtower.Live
+
 import qualified Watchtower.Details
+import qualified Watchtower.Live
 import qualified Watchtower.Questions
+import qualified Watchtower.StaticAssets
+import Watchtower.Duplicates
+
 
 data Flags =
   Flags
     { _port :: Maybe Int
     }
+
 
 serve :: Flags -> IO ()
 serve (Flags maybePort) =
