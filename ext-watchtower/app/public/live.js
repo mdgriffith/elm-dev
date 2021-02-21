@@ -5387,9 +5387,14 @@ var $author$project$Editor$decodeWorkspaceFolder = A3(
 var $elm$core$Debug$log = _Debug_log;
 var $author$project$Ports$incomingDecoder = A2(
 	$elm$json$Json$Decode$andThen,
-	function (command) {
-		var _v0 = A2($elm$core$Debug$log, 'found command', command);
+	function (msg) {
+		var _v0 = A2($elm$core$Debug$log, 'found msg', msg);
 		switch (_v0) {
+			case 'Status':
+				return A2(
+					$elm$json$Json$Decode$map,
+					$author$project$Ports$Errors,
+					A2($elm$json$Json$Decode$field, 'details', $author$project$Elm$decodeError));
 			case 'VisibleEditorsUpdated':
 				return A2(
 					$elm$json$Json$Decode$map,
@@ -5426,11 +5431,6 @@ var $author$project$Ports$incomingDecoder = A2(
 						$elm$json$Json$Decode$list($author$project$Editor$selection)));
 			case 'ActiveEditorUpdated':
 				return A2($elm$json$Json$Decode$map, $author$project$Ports$ActiveEditorUpdated, $author$project$Editor$decodeEditor);
-			case 'Errors':
-				return A2(
-					$elm$json$Json$Decode$map,
-					$author$project$Ports$Errors,
-					A2($elm$json$Json$Decode$field, 'json', $author$project$Elm$decodeError));
 			case 'WorkspaceFolders':
 				return A2(
 					$elm$json$Json$Decode$map,
@@ -5440,11 +5440,11 @@ var $author$project$Ports$incomingDecoder = A2(
 						'folders',
 						$elm$json$Json$Decode$list($author$project$Editor$decodeWorkspaceFolder)));
 			default:
-				var _v1 = A2($elm$core$Debug$log, 'UNRECOGNIZED COMMAND', command);
-				return $elm$json$Json$Decode$fail('UNRECOGNIZED COMMAND');
+				var _v1 = A2($elm$core$Debug$log, 'UNRECOGNIZED INCOMING MSG', msg);
+				return $elm$json$Json$Decode$fail('UNRECOGNIZED INCOMING MSG');
 		}
 	},
-	A2($elm$json$Json$Decode$field, 'command', $elm$json$Json$Decode$string));
+	A2($elm$json$Json$Decode$field, 'msg', $elm$json$Json$Decode$string));
 var $author$project$Ports$incoming = function (toMsg) {
 	return $author$project$Ports$editorChange(
 		A2(
@@ -5680,6 +5680,7 @@ var $author$project$Main$viewEditorFocusToken = function (viewing) {
 								_List_Nil,
 								_List_fromArray(
 									[
+										$elm$html$Html$text('Watchtower: '),
 										$elm$html$Html$text(
 										$author$project$Main$viewFileName(selected.fileName))
 									]))

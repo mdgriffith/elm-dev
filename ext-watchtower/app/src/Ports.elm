@@ -70,10 +70,14 @@ encodeOutgoing out =
 
 incomingDecoder : Decode.Decoder Incoming
 incomingDecoder =
-    Decode.field "command" Decode.string
+    Decode.field "msg" Decode.string
         |> Decode.andThen
-            (\command ->
-                case Debug.log "found command" command of
+            (\msg ->
+                case Debug.log "found msg" msg of
+                    "Status" ->
+                        Decode.map Errors
+                            (Decode.field "details" Elm.decodeError)
+
                     "VisibleEditorsUpdated" ->
                         Decode.map VisiblEditorsUpdated
                             (Decode.field "visible"
@@ -106,10 +110,6 @@ incomingDecoder =
                         Decode.map ActiveEditorUpdated
                             Editor.decodeEditor
 
-                    "Errors" ->
-                        Decode.map Errors
-                            (Decode.field "json" Elm.decodeError)
-
                     "WorkspaceFolders" ->
                         Decode.map WorkspaceFolders
                             (Decode.field "folders" (Decode.list Editor.decodeWorkspaceFolder))
@@ -117,7 +117,7 @@ incomingDecoder =
                     _ ->
                         let
                             _ =
-                                Debug.log "UNRECOGNIZED COMMAND" command
+                                Debug.log "UNRECOGNIZED INCOMING MSG" msg
                         in
-                        Decode.fail "UNRECOGNIZED COMMAND"
+                        Decode.fail "UNRECOGNIZED INCOMING MSG"
             )

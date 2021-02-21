@@ -190,7 +190,8 @@ viewEditorFocusToken viewing =
             Just selected ->
                 Html.div []
                     [ Html.div []
-                        [ Html.text
+                        [ Html.text "Watchtower: "
+                        , Html.text
                             (viewFileName selected.fileName)
                         ]
 
