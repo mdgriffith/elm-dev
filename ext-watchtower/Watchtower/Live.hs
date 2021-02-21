@@ -23,6 +23,7 @@ import qualified Watchtower.Details
 import qualified Ext.Sentry
 
 import qualified Watchtower.Websocket as Websocket
+import qualified Watchtower.Compile
 import qualified Data.Text.Encoding as T
 
 data State =
@@ -60,7 +61,14 @@ websocket state = do
           pure Nothing
 
         onReceive clientId text = do
-          putStrLn "onReceive todo"
+
+          res <- Watchtower.Compile.compileToBuilder (T.unpack text)
+          case res of
+            Left errors ->
+              Websocket.broadcastImpl mClients (T.decodeUtf8 errors)
+
+            Right jsoutput ->
+              Websocket.broadcastImpl mClients ("{\"status\": \"ok\"}")
 
       Websocket.runWebSocketsSnap $ Websocket.socketHandler mClients onJoined onReceive (T.decodeUtf8 key)
 

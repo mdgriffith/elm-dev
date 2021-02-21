@@ -217,13 +217,14 @@ Executable elmx
         Ext.Filewatch
 
         -- watchtower
-        Watchtower.Server
         Watchtower
         Watchtower.Annotate
-        Watchtower.StaticAssets
+        Watchtower.Compile
+        Watchtower.Details
         Watchtower.Live
         Watchtower.Questions
-        Watchtower.Details
+        Watchtower.Server
+        Watchtower.StaticAssets
         Watchtower.Websocket
         Llamadera
         StandaloneInstances
