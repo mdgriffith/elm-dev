@@ -34,7 +34,7 @@ Flag dev {
 }
 
 
-Executable elmx
+Executable watchtower
     if flag(dev)
         ghc-options: -O0 -Wall -Werror
     else
@@ -217,13 +217,15 @@ Executable elmx
         Ext.Filewatch
 
         -- watchtower
-        Watchtower.Server
         Watchtower
         Watchtower.Annotate
-        Watchtower.StaticAssets
+        Watchtower.Compile
+        Watchtower.Details
         Watchtower.Live
         Watchtower.Questions
-        Watchtower.Details
+        Watchtower.Server
+        Watchtower.StaticAssets
+        Watchtower.Websocket
         Llamadera
         StandaloneInstances
 
@@ -274,10 +276,9 @@ Executable elmx
         fold-debounce,
         formatting,
         fsnotify,
-        
 
-        -- @WATCHTOWER
+        -- watchtower
+        stm,
         unicode-show,
         websockets,
-        websockets-snap,
-        broadcast-chan
+        websockets-snap

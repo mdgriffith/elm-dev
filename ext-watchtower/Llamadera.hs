@@ -2,10 +2,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Llamadera (allInterfaces, getProjectRoot, loadFileSource, loadSingleArtifacts, formatHaskellValue, debug_) where
+module Llamadera (allInterfaces, getProjectRoot, loadFileSource, loadSingleArtifacts, formatHaskellValue, debug_, withDefault) where
 
 import qualified System.Directory as Dir
 import Prelude hiding (lookup)
+
 
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
@@ -13,7 +14,7 @@ import qualified Data.NonEmptyList as NE
 import qualified Data.OneOrMore as OneOrMore
 import System.IO.Unsafe (unsafePerformIO)
 import Control.Concurrent.MVar
-import Control.Monad (liftM2)
+import Control.Monad (liftM2, unless)
 
 import qualified System.Environment as Env
 import qualified System.Process
@@ -200,7 +201,7 @@ loadSingleArtifacts path = do
         Right artifacts ->
           pure artifacts
 
-        Left err -> error $ "error!" 
+        Left err -> error $ "error!"
           -- ++ show err
 
     Left err ->
@@ -256,7 +257,7 @@ getProjectRootFor path = do
       System.Exit.exitFailure
 
 
-  
+
 {-|
 
 Useful when trying to understand AST values or just unknown values in general.
@@ -325,7 +326,7 @@ debug_ str = do
   case debugM of
     Just _ -> atomicPutStrLn $ "DEBUG: " ++ str ++ "\n"
     Nothing -> pure ()
-  
+
 atomicPutStrLn :: String -> IO ()
 atomicPutStrLn str =
   withMVar printLock (\_ -> hPutStr stdout (str <> "\n") >> hFlush stdout)
@@ -335,3 +336,16 @@ atomicPutStrLn str =
 {-# NOINLINE printLock #-}
 printLock :: MVar ()
 printLock = unsafePerformIO $ newMVar ()
+
+
+-- Inversion of `unless` that runs IO only when condition is True
+onlyWhen :: Monad f => Bool -> f () -> f ()
+onlyWhen condition io =
+  unless (not condition) io
+
+
+withDefault :: a -> Maybe a -> a
+withDefault default_ m =
+  case m of
+    Just v -> v
+    Nothing -> default_
