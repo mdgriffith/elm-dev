@@ -22,7 +22,7 @@ import qualified Watchtower.StaticAssets
 import qualified Watchtower.Details
 import qualified Ext.Sentry
 
-import qualified Watchtower.Websocket as Websocket
+import qualified Watchtower.Websocket
 import qualified Watchtower.Compile
 import qualified Data.Text.Encoding as T
 import Ext.Common
@@ -57,27 +57,33 @@ websocket state =
 websocket_ :: State -> Snap ()
 websocket_ state = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
-
   case mKey of
     Just key -> do
       mClients <- liftIO $ newTVarIO []
 
       let
         onJoined clientId totalClients = do
+          debug $ "So and so joined"
           pure Nothing
 
         onReceive clientId text = do
-          res <- Watchtower.Compile.compileToBuilder (T.unpack text)
+          
+          let (root, path) = T.span (\c -> c /= ':') text
+
+          debug $ "Received " <> (T.unpack root) <> "  @ " <> (T.unpack (T.drop 1 path))
+          
+          res <- Watchtower.Compile.compileToBuilder ((T.unpack root) <> "/") (T.unpack (T.drop 1 path))
           case res of
             Left errors -> do
               debug $ "got error: " <> (T.unpack $ T.decodeUtf8 errors)
-              Websocket.broadcastImpl mClients (T.decodeUtf8 errors)
+              Watchtower.Websocket.broadcastImpl mClients (T.decodeUtf8 errors)
 
             Right jsoutput -> do
               debug $ "got js output!"
-              Websocket.broadcastImpl mClients ("{\"status\": \"ok\"}")
+              -- jsoutput is the ultimate result of the compiler.  i.e. js or html
+              Watchtower.Websocket.broadcastImpl mClients ("{\"status\": \"ok\"}")
 
-      Websocket.runWebSocketsSnap $ Websocket.socketHandler mClients onJoined onReceive (T.decodeUtf8 key)
+      Watchtower.Websocket.runWebSocketsSnap $ Watchtower.Websocket.socketHandler mClients onJoined onReceive (T.decodeUtf8 key)
 
     Nothing ->
       error404

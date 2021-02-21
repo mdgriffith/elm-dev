@@ -43,11 +43,11 @@ import qualified Json.Encode as Encode
 import StandaloneInstances
 
 
-compileToBuilder :: FilePath -> IO (Either BS.ByteString BS.ByteString)
-compileToBuilder path =
+compileToBuilder :: FilePath -> FilePath -> IO (Either BS.ByteString BS.ByteString)
+compileToBuilder root path =
   do
       let toBS = BSL.toStrict . B.toLazyByteString
-      result <- Dir.withCurrentDirectory "/Users/mario/dev/projects/lamdera-compiler/test/scenario-interpreter/" $ compile path
+      result <- Dir.withCurrentDirectory root $ compile path
 
       pure $
         case result of
