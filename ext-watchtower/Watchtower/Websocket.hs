@@ -5,6 +5,7 @@
 
 module Watchtower.Websocket where
 
+import Control.Monad.Trans (liftIO)
 import Data.Monoid           ((<>))
 import Data.List             (find)
 import Control.Exception     (finally)
@@ -127,5 +128,5 @@ send_ clients clientId text =
 
 broadcast_ :: [Client] -> T.Text -> IO ()
 broadcast_ clients message = do
-  -- debug ("[websocket] ◀️  " <> T.pack (show $ length clients) <> ":" <> T.take 130 message)
+  debug (T.unpack ("[websocket] ◀️  " <> T.pack (show $ length clients) <> ":" <> T.take 130 message))
   forM_ clients $ \(_, conn) -> WS.sendTextData conn message

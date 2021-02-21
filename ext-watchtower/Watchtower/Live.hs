@@ -3,13 +3,15 @@
 module Watchtower.Live where
 
 import Control.Concurrent.STM
-import Control.Applicative ((<|>))
+import Control.Applicative ((<|>), (<$>), (<*>))
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
 import Snap.Core hiding (path)
 import Snap.Http.Server
 import Snap.Util.FileServe
 import Control.Monad.Trans (liftIO)
 import Control.Monad (guard)
+import Control.Concurrent.STM
+
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
 
@@ -31,10 +33,12 @@ import qualified Watchtower.Compile
 import qualified Data.Text.Encoding as T
 import Ext.Common
 
+
+
 data State =
         State
             { cache :: Ext.Sentry.Cache
-            , clients :: [ Client ]
+            , clients :: (TVar [Client])
             }
 
 type ClientId = T.Text
@@ -44,10 +48,9 @@ type Client = (ClientId, WS.Connection)
 
 init :: IO State
 init =
-    fmap
-        (\cache ->
-            State cache []
-        ) Ext.Sentry.init
+    State 
+      <$> Ext.Sentry.init
+      <*> Watchtower.Websocket.clientsInit
 
 
 
@@ -59,15 +62,13 @@ websocket state =
 
 
 websocket_ :: State -> Snap ()
-websocket_ state = do
+websocket_ (State cache mClients) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
-      mClients <- liftIO $ newTVarIO []
-
       let
         onJoined clientId totalClients = do
-          debug $ "So and so joined"
+          debug (T.unpack ("Total clients " <> T.pack (show totalClients)))
           pure Nothing
 
         onReceive clientId text = do
