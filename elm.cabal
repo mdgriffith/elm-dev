@@ -224,8 +224,11 @@ Executable elmx
         Watchtower.Live
         Watchtower.Questions
         Watchtower.Details
+        Watchtower.Websocket
         Llamadera
         StandaloneInstances
+
+        Watchtower.Duplicates
 
 
     Build-depends:
@@ -274,10 +277,9 @@ Executable elmx
         fold-debounce,
         formatting,
         fsnotify,
-        
 
-        -- @WATCHTOWER
+        -- watchtower
+        stm,
         unicode-show,
         websockets,
-        websockets-snap,
-        broadcast-chan
+        websockets-snap

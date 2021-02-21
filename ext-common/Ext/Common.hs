@@ -11,8 +11,8 @@ import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout, hClose, openTempFi
 -}
 
 
-debug_ :: String -> IO ()
-debug_ str = do
+debug :: String -> IO ()
+debug str = do
   debugM <- Env.lookupEnv "DEBUG"
   case debugM of
     Just _ -> atomicPutStrLn $ "DEBUG: " ++ str ++ "\n"
@@ -59,7 +59,7 @@ trackGhciThread :: ThreadId -> IO ()
 trackGhciThread threadId =
   modifyMVar_ ghciThreads
     (\threads -> do
-      debug_ $ "Tracking GHCI thread:" ++ show threadId
+      debug $ "Tracking GHCI thread:" ++ show threadId
       pure $ threadId:threads
     )
 
@@ -70,10 +70,10 @@ killTrackedThreads = do
     (\threads -> do
       case threads of
         [] -> do
-          debug_ $ "No tracked GHCI threads to kill."
+          debug $ "No tracked GHCI threads to kill."
           pure []
         threads -> do
-          debug_ $ "Killing tracked GHCI threads: " ++ show threads
+          debug $ "Killing tracked GHCI threads: " ++ show threads
           mapM killThread threads
           pure []
     )
