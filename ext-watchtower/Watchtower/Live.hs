@@ -10,6 +10,8 @@ import Snap.Http.Server
 import Snap.Util.FileServe
 import Control.Monad.Trans (liftIO)
 import Control.Monad (guard)
+import qualified Data.ByteString.Builder
+import qualified Data.ByteString.Lazy
 
 import qualified Data.Text as T
 import qualified Network.WebSockets      as WS
@@ -17,6 +19,8 @@ import qualified Network.WebSockets.Snap as WS
 
 import qualified Develop.Generate.Help
 import qualified Json.Encode
+import qualified Json.String
+import Json.Encode ((==>))
 import qualified Reporting.Annotation as Ann
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Details
@@ -72,21 +76,25 @@ websocket_ state = do
 
           debug $ "Received " <> (T.unpack root) <> "  @ " <> (T.unpack (T.drop 1 path))
           
-          res <- Watchtower.Compile.compileToBuilder ((T.unpack root) <> "/") (T.unpack (T.drop 1 path))
-          case res of
+          eitherStatusJson <- Watchtower.Compile.compileToJson ((T.unpack root) <> "/") (T.unpack (T.drop 1 path))
+          case eitherStatusJson of
             Left errors -> do
-              debug $ "got error: " <> (T.unpack $ T.decodeUtf8 errors)
-              Watchtower.Websocket.broadcastImpl mClients (T.decodeUtf8 errors)
+              debug $ "got errors"-- <> (T.unpack $ T.decodeUtf8 errors)
+              Watchtower.Websocket.broadcastImpl mClients (builderToString (encodeOutgoing (ElmStatus errors)))
 
             Right jsoutput -> do
-              debug $ "got js output!"
-              -- jsoutput is the ultimate result of the compiler.  i.e. js or html
-              Watchtower.Websocket.broadcastImpl mClients ("{\"status\": \"ok\"}")
+              debug $ "success!"
+              -- Watchtower.Websocket.broadcastImpl mClients ("{\"status\": \"ok\"}")
+              Watchtower.Websocket.broadcastImpl mClients (builderToString (encodeOutgoing (ElmStatus jsoutput)))
 
       Watchtower.Websocket.runWebSocketsSnap $ Watchtower.Websocket.socketHandler mClients onJoined onReceive (T.decodeUtf8 key)
 
     Nothing ->
       error404
+
+builderToString =
+  T.decodeUtf8 . Data.ByteString.Lazy.toStrict . Data.ByteString.Builder.toLazyByteString
+
 
 
 error404 :: Snap ()
@@ -133,4 +141,24 @@ data Outgoing
     | FwdJumpTo Watchtower.Details.Location
 
     -- new information is available
-    | ElmStatus Watchtower.Details.Status
+    | ElmStatus Json.Encode.Value
+
+
+encodeOutgoing :: Outgoing -> Data.ByteString.Builder.Builder
+encodeOutgoing out =
+  Json.Encode.encodeUgly $
+    case out of
+      FwdEditorsVisible locs ->
+        Json.Encode.null
+
+      FwdEditorActive loc pos ->
+        Json.Encode.null
+
+      FwdJumpTo loc ->
+        Json.Encode.null
+
+      ElmStatus js ->
+        Json.Encode.object
+            [ "msg" ==> Json.Encode.string (Json.String.fromChars "Status")
+            , "details" ==> js
+            ]

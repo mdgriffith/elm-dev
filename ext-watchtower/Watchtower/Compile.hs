@@ -39,8 +39,39 @@ import qualified Ext.Sentry as Sentry
 import Control.Concurrent.STM (atomically, newTVarIO, readTVar, writeTVar, TVar)
 
 import qualified Json.Encode as Encode
+import Json.Encode ((==>))
 
 import StandaloneInstances
+
+
+
+
+
+compileToJson :: FilePath -> FilePath -> IO (Either Encode.Value Encode.Value)
+compileToJson root path =
+  do
+      let toBS = BSL.toStrict . B.toLazyByteString
+      result <- Dir.withCurrentDirectory root $ compile path
+
+      pure $
+        case result of
+            Right builder ->
+              Right $
+                Encode.object
+                  [ "compiled" ==> (Encode.bool True)
+                  ]
+
+            Left exit -> do
+              -- @LAMDERA because we do AST injection, sometimes we might get
+              -- an error that actually cannot be displayed, i.e, the reactorToReport
+              -- function itself throws an exception, mainly due to use of unsafe
+              -- functions like Prelude.last and invariants that for some reason haven't
+              -- held with our generated code (usually related to subsequent type inference)
+              -- We print out a less-processed version here in debug mode to aid with
+              -- debugging in these scenarios, as the browser will just get zero bytes
+              -- debugPass "serveElm error" (Exit.reactorToReport exit) (pure ())
+              -- Help.makePageHtml "Errors" $ Just $
+              Left $ Exit.toJson $ Exit.reactorToReport exit
 
 
 compileToBuilder :: FilePath -> FilePath -> IO (Either BS.ByteString BS.ByteString)
