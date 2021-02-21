@@ -34,7 +34,7 @@ Flag dev {
 }
 
 
-Executable elmx
+Executable watchtower
     if flag(dev)
         ghc-options: -O0 -Wall -Werror
     else

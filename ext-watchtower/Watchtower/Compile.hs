@@ -47,7 +47,7 @@ compileToBuilder :: FilePath -> IO (Either BS.ByteString BS.ByteString)
 compileToBuilder path =
   do
       let toBS = BSL.toStrict . B.toLazyByteString
-      result <- compile path
+      result <- Dir.withCurrentDirectory "/Users/mario/dev/projects/lamdera-compiler/test/scenario-interpreter/" $ compile path
 
       pure $
         case result of

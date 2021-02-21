@@ -25,6 +25,7 @@ import qualified Ext.Sentry
 import qualified Watchtower.Websocket as Websocket
 import qualified Watchtower.Compile
 import qualified Data.Text.Encoding as T
+import Ext.Common
 
 data State =
         State
@@ -45,10 +46,16 @@ init =
         ) Ext.Sentry.init
 
 
+
 websocket :: State -> Snap ()
-websocket state = do
-  file <- getSafePath
-  guard (file == "/ws")
+websocket state =
+  route
+      [ ("/ws", websocket_ state)
+      ]
+
+
+websocket_ :: State -> Snap ()
+websocket_ state = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
 
   case mKey of
@@ -57,17 +64,17 @@ websocket state = do
 
       let
         onJoined clientId totalClients = do
-          putStrLn "onJoined todo"
           pure Nothing
 
         onReceive clientId text = do
-
           res <- Watchtower.Compile.compileToBuilder (T.unpack text)
           case res of
-            Left errors ->
+            Left errors -> do
+              debug $ "got error: " <> (T.unpack $ T.decodeUtf8 errors)
               Websocket.broadcastImpl mClients (T.decodeUtf8 errors)
 
-            Right jsoutput ->
+            Right jsoutput -> do
+              debug $ "got js output!"
               Websocket.broadcastImpl mClients ("{\"status\": \"ok\"}")
 
       Websocket.runWebSocketsSnap $ Websocket.socketHandler mClients onJoined onReceive (T.decodeUtf8 key)

@@ -13,9 +13,9 @@ import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout, hClose, openTempFi
 
 debug :: String -> IO ()
 debug str = do
-  debugM <- Env.lookupEnv "DEBUG"
+  debugM <- Env.lookupEnv "LDEBUG"
   case debugM of
-    Just _ -> atomicPutStrLn $ "DEBUG: " ++ str ++ "\n"
+    Just _ -> atomicPutStrLn $ "LDEBUG: " ++ str ++ "\n"
     Nothing -> pure ()
 
 

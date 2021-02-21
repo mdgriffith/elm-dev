@@ -44,11 +44,11 @@ data Question
 
 serve :: Snap ()
 serve =
-  do  
-    route 
+  do
+    route
         [ ("/:action", actionHandler)
         ]
-  
+
 questionHandler :: FilePath -> Question -> Snap ()
 questionHandler root question =
     do
@@ -67,10 +67,10 @@ actionHandler =
                     case maybeFile of
                         Nothing ->
                             writeBS "Needs location"
-                        
+
                         Just file -> do
                             questionHandler "." (ListMissingSignaturesPlease (Data.ByteString.Char8.unpack file))
-                           
+
 
             Just "signature" ->
                 do
@@ -78,23 +78,23 @@ actionHandler =
                     maybeName   <- getQueryParam "name"
                     case (maybeFile, maybeName) of
                         (Just file, Just name) ->
-                            questionHandler "." 
-                                (SignaturePlease 
+                            questionHandler "."
+                                (SignaturePlease
                                     (Data.ByteString.Char8.unpack file)
                                     (Name.fromChars (Data.ByteString.Char8.unpack name))
                                 )
 
                         _ ->
                             writeBS "Needs location"
-                               
+
             Just "callgraph" ->
                 do
                     maybeFile   <- getQueryParam "file"
                     maybeName   <- getQueryParam "name"
                     case (maybeFile, maybeName) of
                         (Just file, Just name) ->
-                            questionHandler "." 
-                                (CallgraphPlease 
+                            questionHandler "."
+                                (CallgraphPlease
                                     (Data.ByteString.Char8.unpack file)
                                     (Name.fromChars (Data.ByteString.Char8.unpack name))
                                 )
@@ -108,7 +108,7 @@ actionHandler =
             --         case maybeLocation of
             --             Nothing ->
             --                 writeBS "Needs location"
-                        
+
             --             Just location ->
             --                 questionHandler "." (FindDefinitionPlease location)
 
@@ -118,7 +118,7 @@ actionHandler =
             --         case maybeLocation of
             --             Nothing ->
             --                 writeBS "Needs location"
-                        
+
             --             Just location ->
             --                 questionHandler "." (FindAllInstancesPlease location)
 
@@ -134,15 +134,15 @@ getLocation =
        let maybeLocation =
             case (maybeFilePath, maybePosition) of
                 (Just path, Just position) ->
-                    Just 
+                    Just
                         (Watchtower.Details.Location
-                            (Data.ByteString.Char8.unpack path) 
+                            (Data.ByteString.Char8.unpack path)
                             position
                         )
-                    
+
                 _ ->
                     Nothing
-       
+
        pure maybeLocation
 
 
@@ -151,7 +151,7 @@ getPosition =
     do
         maybeRow <- getQueryParam "row"
         maybeCol <- getQueryParam "col"
-        let position = 
+        let position =
                 (\row col ->
                     Reporting.Annotation.Position 0 0
                 )
@@ -193,7 +193,7 @@ ask root question =
 -- answerToJsonByteString :: Answer -> Data.ByteString.Builder.Builder
 -- answerToJsonByteString answer =
 --     Json.Encode.encodeUgly (answerToJson answer)
-            
+
 
 
 -- answerToJson :: Answer -> Json.Encode.Value
@@ -201,4 +201,3 @@ ask root question =
 --     case answer of
 --         _ ->
 --             Json.Encode.null
-            
