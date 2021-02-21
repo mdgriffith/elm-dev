@@ -18,7 +18,7 @@ import qualified Watchtower.Details
 import qualified Watchtower.Live
 import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
-import Watchtower.Duplicates
+import Llamadera
 
 
 data Flags =

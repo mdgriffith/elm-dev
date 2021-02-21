@@ -228,8 +228,6 @@ Executable elmx
         Llamadera
         StandaloneInstances
 
-        Watchtower.Duplicates
-
 
     Build-depends:
         ansi-terminal,

@@ -18,7 +18,7 @@ import Control.Concurrent.STM
 import Data.Text (Text)
 
 import Ext.Common
-import Watchtower.Duplicates
+import Llamadera
 
 
 runWebSocketsSnap :: MonadSnap m => WS.ServerApp -> m ()
