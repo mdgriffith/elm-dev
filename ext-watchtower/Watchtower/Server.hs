@@ -37,7 +37,6 @@ serve (Flags maybePort) =
       root <- getProjectRoot
       Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
-
       httpServe (config port) $
         serveAssets
             <|> Watchtower.Live.websocket liveState

@@ -45,7 +45,7 @@ socketHandler mClients onJoined onReceive clientId pending = do
           clients <- readTVar mClients
           let remainingClients = removeClient client clients
           writeTVar mClients remainingClients
-        pure ()
+        debug $ "[websocket] 🚫 " <> T.unpack clientId
 
   flip finally disconnect $ do
     clientCount <- atomically $ do
