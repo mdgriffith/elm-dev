@@ -57,16 +57,15 @@ init =
 
 
 recompile :: Watchtower.Live.State -> [String] -> IO ()
-recompile (Watchtower.Live.State sentryCache clients) filenames = do
+recompile (Watchtower.Live.State sentryCache mClients) filenames = do
   debug $ "🛫  recompile starting: " ++ show filenames
   trackedForkIO $ do
-    Ext.Sentry.updateCompileResult sentryCache $
+    Ext.Sentry.updateCompileResult sentryCache $ do
 
       -- @TODO what do we do with multiple filenames?
-      Watchtower.Compile.compileToJson (head filenames)
-
-      -- Watchtower.Websocket.broadcastImpl clients
-
+      eitherStatusJson <- Watchtower.Compile.compileToJson (head filenames)
+      eitherStatusBroadcast mClients eitherStatusJson
+      pure eitherStatusJson
 
 
   debug "🛬  recompile done... "
@@ -80,7 +79,7 @@ websocket state =
 
 
 websocket_ :: State -> Snap ()
-websocket_ (State cache mClients) = do
+websocket_ (state@(State cache mClients)) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
@@ -89,10 +88,9 @@ websocket_ (State cache mClients) = do
           debug (T.unpack ("Total clients " <> T.pack (show totalClients)))
           pure Nothing
 
-
       Watchtower.Websocket.runWebSocketsSnap
-          $ Watchtower.Websocket.socketHandler
-                  mClients onJoined (receive mClients) (T.decodeUtf8 key)
+        $ Watchtower.Websocket.socketHandler
+            mClients onJoined (receive state) (T.decodeUtf8 key)
 
     Nothing ->
       error404
@@ -102,7 +100,7 @@ builderToString =
 
 
 
-receive mClients clientId text = do
+receive state clientId text = do
   debug $ (T.unpack "RECVD" <> T.unpack text)
   case Json.Decode.fromByteString decodeIncoming (T.encodeUtf8 text) of
     Left err -> do
@@ -112,12 +110,10 @@ receive mClients clientId text = do
 
     Right action -> do
       debug $ (T.unpack "Action!" <> T.unpack text)
-      receiveAction mClients clientId action
+      receiveAction state clientId action
 
 
-
-
-receiveAction mClients clientId incoming =
+receiveAction state@(State cache mClients) clientId incoming =
   case incoming of
     Visible visible -> do
        debug $ "forwarding visibility"
@@ -132,21 +128,27 @@ receiveAction mClients clientId incoming =
           (builderToString (encodeOutgoing (FwdJumpTo location)))
 
     ElmStatusPlease file -> do
-        eitherStatusJson <- Watchtower.Compile.compileToJson (T.unpack file)
-        case eitherStatusJson of
-          Left errors -> do
-            debug $ "got errors"-- <> (T.unpack $ T.decodeUtf8 errors)
-            Watchtower.Websocket.broadcastImpl
-              mClients
-              (builderToString (encodeOutgoing (ElmStatus errors)))
-
-          Right jsoutput -> do
-            debug $ "success!"
-            Watchtower.Websocket.broadcastImpl
-              mClients
-              (builderToString (encodeOutgoing (ElmStatus jsoutput)))
+      -- eitherStatusJson <- Watchtower.Compile.compileToJson (T.unpack file)
+      -- @TODO do we need an explicit req/resp if we're always going to push instead...?
+      eitherStatusJson <- Ext.Sentry.getCompileResult cache
+      eitherStatusBroadcast mClients eitherStatusJson
+      pure ()
 
 
+eitherStatusBroadcast :: TVar [Client] -> (Either Json.Encode.Value Json.Encode.Value) -> IO ()
+eitherStatusBroadcast mClients eitherStatusJson =
+  case eitherStatusJson of
+    Left errors -> do
+      debug $ "got errors"-- <> (T.unpack $ T.decodeUtf8 errors)
+      Watchtower.Websocket.broadcastImpl
+        mClients
+        (builderToString (encodeOutgoing (ElmStatus errors)))
+
+    Right jsoutput -> do
+      debug $ "success!"
+      Watchtower.Websocket.broadcastImpl
+        mClients
+        (builderToString (encodeOutgoing (ElmStatus jsoutput)))
 
 
 decodeIncoming :: Json.Decode.Decoder T.Text Incoming

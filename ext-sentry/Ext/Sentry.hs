@@ -34,11 +34,12 @@ init = do
 
 updateCompileResult :: Cache -> IO (Either Encode.Value Encode.Value) -> IO ()
 updateCompileResult (Cache _ compileResult) action = do
-  track "updateCompileResult" $
-    modifyMVar_ compileResult
-      (\_ -> action )
-  pure ()
+  modifyMVar_ compileResult (\_ -> action )
 
+
+getCompileResult :: Cache -> IO (Either Encode.Value Encode.Value)
+getCompileResult cache =
+  readMVar $ compileResult cache
 
 
 getJsOutput :: Cache -> IO BS.ByteString
@@ -48,10 +49,7 @@ getJsOutput cache =
 
 updateJsOutput :: Cache -> IO BS.ByteString -> IO ()
 updateJsOutput (Cache mJsOutput _) recompile = do
-  track "recompile" $
-    modifyMVar_ mJsOutput
-      (\_ -> recompile )
-  pure ()
+  modifyMVar_ mJsOutput (\_ -> recompile )
 
 
 track label io = do
