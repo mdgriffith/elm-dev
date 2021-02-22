@@ -38,6 +38,7 @@ import qualified Reporting
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Reporting.Error
+import qualified Reporting.Error.Syntax
 import qualified System.Exit
 import qualified Build
 import qualified Stuff
@@ -186,37 +187,29 @@ cachedHelp name ciMvar = do
 {- END INTERFACES -}
 
 
-
-
-loadSingleArtifacts :: FilePath -> IO Compile.Artifacts
+loadSingleArtifacts :: FilePath -> IO (Either Reporting.Error.Error Compile.Artifacts)
 loadSingleArtifacts path = do
   ifaces <- allInterfaces [path]
   source <- File.readUtf8 path
   case Parse.fromByteString Parse.Application source of
     Right modul ->
-      case Compile.compile Pkg.dummyName ifaces modul of
-        Right artifacts ->
-          pure artifacts
-
-        Left err -> error $ "error!"
-          -- ++ show err
+      pure $ Compile.compile Pkg.dummyName ifaces modul
 
     Left err ->
-      error "bad syntax"
+      pure $ Left $ Reporting.Error.BadSyntax err
 
 
-
-loadFileSource :: FilePath -> FilePath -> IO (BS.ByteString, Src.Module)
+loadFileSource :: FilePath -> FilePath -> IO (Either Reporting.Error.Syntax.Error (BS.ByteString, Src.Module))
 loadFileSource root path = do
   Dir.withCurrentDirectory root $ do
     source <- File.readUtf8 path
     case Parse.fromByteString Parse.Application source of
       Right modul -> do
         -- hindentPrintValue "module source" modul
-        pure $ (source, modul)
+        pure $ Right (source, modul)
 
       Left err ->
-        error "bad syntax"
+        pure $ Left err
 
 
 
