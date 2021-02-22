@@ -56,6 +56,21 @@ init =
       <*> Watchtower.Websocket.clientsInit
 
 
+recompile :: Watchtower.Live.State -> [String] -> IO ()
+recompile (Watchtower.Live.State sentryCache clients) filenames = do
+  debug $ "🛫  recompile starting: " ++ show filenames
+  trackedForkIO $ do
+    Ext.Sentry.updateCompileResult sentryCache $
+
+      -- @TODO what do we do with multiple filenames?
+      Watchtower.Compile.compileToJson (head filenames)
+
+      -- Watchtower.Websocket.broadcastImpl clients
+
+
+
+  debug "🛬  recompile done... "
+
 
 websocket :: State -> Snap ()
 websocket state =

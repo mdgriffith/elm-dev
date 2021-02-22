@@ -45,8 +45,6 @@ import StandaloneInstances
 
 
 
-
-
 compileToJson :: FilePath -> IO (Either Encode.Value Encode.Value)
 compileToJson path =
   do
