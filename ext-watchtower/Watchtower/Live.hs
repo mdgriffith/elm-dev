@@ -64,7 +64,7 @@ recompile (Watchtower.Live.State sentryCache mClients) filenames = do
 
       -- @TODO what do we do with multiple filenames?
       eitherStatusJson <- Watchtower.Compile.compileToJson (head filenames)
-      eitherStatusBroadcast mClients eitherStatusJson
+      Watchtower.Websocket.broadcastImpl mClients $ eitherStatusToText eitherStatusJson
       pure eitherStatusJson
 
 
@@ -86,7 +86,8 @@ websocket_ (state@(State cache mClients)) = do
       let
         onJoined clientId totalClients = do
           debug (T.unpack ("Total clients " <> T.pack (show totalClients)))
-          pure Nothing
+          eitherStatusJson <- Ext.Sentry.getCompileResult cache
+          pure $ Just $ eitherStatusToText eitherStatusJson
 
       Watchtower.Websocket.runWebSocketsSnap
         $ Watchtower.Websocket.socketHandler
@@ -131,24 +132,17 @@ receiveAction state@(State cache mClients) clientId incoming =
       -- eitherStatusJson <- Watchtower.Compile.compileToJson (T.unpack file)
       -- @TODO do we need an explicit req/resp if we're always going to push instead...?
       eitherStatusJson <- Ext.Sentry.getCompileResult cache
-      eitherStatusBroadcast mClients eitherStatusJson
-      pure ()
+      Watchtower.Websocket.broadcastImpl mClients $ eitherStatusToText eitherStatusJson
 
 
-eitherStatusBroadcast :: TVar [Client] -> (Either Json.Encode.Value Json.Encode.Value) -> IO ()
-eitherStatusBroadcast mClients eitherStatusJson =
+eitherStatusToText :: Either Json.Encode.Value Json.Encode.Value -> T.Text
+eitherStatusToText eitherStatusJson =
   case eitherStatusJson of
     Left errors -> do
-      debug $ "got errors"-- <> (T.unpack $ T.decodeUtf8 errors)
-      Watchtower.Websocket.broadcastImpl
-        mClients
-        (builderToString (encodeOutgoing (ElmStatus errors)))
+      builderToString (encodeOutgoing (ElmStatus errors))
 
     Right jsoutput -> do
-      debug $ "success!"
-      Watchtower.Websocket.broadcastImpl
-        mClients
-        (builderToString (encodeOutgoing (ElmStatus jsoutput)))
+      builderToString (encodeOutgoing (ElmStatus jsoutput))
 
 
 decodeIncoming :: Json.Decode.Decoder T.Text Incoming
