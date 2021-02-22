@@ -33,7 +33,7 @@ import qualified Stuff
 -- import Llamdera
 -- import qualified Lamdera.CLI.Live as Live
 -- import qualified Lamdera.ReverseProxy
-import Ext.Common (trackedForkIO)
+import Ext.Common (trackedForkIO, getProjectRootFor)
 import qualified Ext.Filewatch as Filewatch
 import qualified Ext.Sentry as Sentry
 import Control.Concurrent.STM (atomically, newTVarIO, readTVar, writeTVar, TVar)
@@ -47,11 +47,11 @@ import StandaloneInstances
 
 
 
-compileToJson :: FilePath -> FilePath -> IO (Either Encode.Value Encode.Value)
-compileToJson root path =
+compileToJson :: FilePath -> IO (Either Encode.Value Encode.Value)
+compileToJson path =
   do
       let toBS = BSL.toStrict . B.toLazyByteString
-      result <- Dir.withCurrentDirectory root $ compile path
+      result <- compile path
 
       pure $
         case result of
@@ -101,7 +101,7 @@ compileToBuilder root path =
 
 compile :: FilePath -> IO (Either Exit.Reactor B.Builder)
 compile path =
-  do  maybeRoot <- Stuff.findRoot
+  do  maybeRoot <- getProjectRootFor path
       case maybeRoot of
         Nothing ->
           return $ Left $ Exit.ReactorNoOutline
