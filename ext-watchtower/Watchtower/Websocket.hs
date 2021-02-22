@@ -40,7 +40,6 @@ socketHandler mClients onJoined onReceive clientId pending = do
   conn <- WS.acceptRequest pending
 
   let client = (clientId, conn)
-
       disconnect = do
         atomically $ do
           clients <- readTVar mClients

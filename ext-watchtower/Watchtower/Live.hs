@@ -74,22 +74,6 @@ websocket_ (State cache mClients) = do
           debug (T.unpack ("Total clients " <> T.pack (show totalClients)))
           pure Nothing
 
-        -- onReceive clientId text = do
-          
-        --   let (root, path) = T.span (\c -> c /= ':') text
-
-        --   debug $ "Received " <> (T.unpack root) <> "  @ " <> (T.unpack (T.drop 1 path))
-          
-        --   eitherStatusJson <- Watchtower.Compile.compileToJson ((T.unpack root) <> "/") (T.unpack (T.drop 1 path))
-        --   case eitherStatusJson of
-        --     Left errors -> do
-        --       debug $ "got errors"-- <> (T.unpack $ T.decodeUtf8 errors)
-        --       Watchtower.Websocket.broadcastImpl mClients (builderToString (encodeOutgoing (ElmStatus errors)))
-
-        --     Right jsoutput -> do
-        --       debug $ "success!"
-        --       -- Watchtower.Websocket.broadcastImpl mClients ("{\"status\": \"ok\"}")
-        --       Watchtower.Websocket.broadcastImpl mClients (builderToString (encodeOutgoing (ElmStatus jsoutput)))
 
       Watchtower.Websocket.runWebSocketsSnap 
           $ Watchtower.Websocket.socketHandler
@@ -103,11 +87,16 @@ builderToString =
 
 
 
-receive mClients clientId text =
+receive mClients clientId text = do
+  debug $ (T.unpack "RECVD" <> T.unpack text)
   case Json.Decode.fromByteString decodeIncoming (T.encodeUtf8 text) of
-    Left err ->
+    Left err -> do
+      debug $ (T.unpack "Error decoding!" <> T.unpack text)
+      --
       pure ()
-    Right action ->
+    
+    Right action -> do
+      debug $ (T.unpack "Action!" <> T.unpack text)
       receiveAction mClients clientId action
 
 
@@ -115,12 +104,14 @@ receive mClients clientId text =
 
 receiveAction mClients clientId incoming =
   case incoming of
-    Visible visible ->
+    Visible visible -> do
+       debug $ "forwarding visibility"
        Watchtower.Websocket.broadcastImpl 
           mClients 
           (builderToString (encodeOutgoing (FwdVisible visible)))
     
-    JumpTo location ->
+    JumpTo location -> do
+      debug $ "forwarding jump"
       Watchtower.Websocket.broadcastImpl 
           mClients 
           (builderToString (encodeOutgoing (FwdJumpTo location)))
@@ -149,19 +140,20 @@ decodeIncoming =
     >>= (\msg ->
             case msg of
               "StatusPlease" ->
-                  ElmStatusPlease 
+                Json.Decode.field "details"
+                  (ElmStatusPlease 
                     <$> Json.Decode.field "root" ((T.pack . Json.String.toChars) <$> Json.Decode.string)
                     <*> Json.Decode.field "file" ((T.pack . Json.String.toChars) <$> Json.Decode.string)
-
+                  )
+                  
               "Visible" ->
-                  Visible <$> Watchtower.Details.decodeVisible
+                  Visible <$> (Json.Decode.field "details" Watchtower.Details.decodeVisible)
               
               "Jump" ->
-                  JumpTo <$> Watchtower.Details.decodeLocation
+                  JumpTo <$> (Json.Decode.field "details" Watchtower.Details.decodeLocation)
 
               _ ->
                   Json.Decode.failure "Unknown msg"
-          
           
         )
 
