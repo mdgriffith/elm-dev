@@ -11,18 +11,35 @@ import Control.Exception
 import Formatting
 import Formatting.Clock
 import System.Clock
+import Json.Encode ((==>))
+import qualified Json.Encode as Encode
 
 
 data Cache =
   Cache
     { jsOutput :: MVar BS.ByteString
+    -- @TODO in future we could key this by project, so one watchtower for all projects?
+    , compileResult :: MVar (Either Encode.Value Encode.Value)
     }
 
 
 init :: IO Cache
 init = do
   mJsOutput <- newMVar ""
-  pure $ Cache mJsOutput
+  -- @TODO watchtower specific? or invert so its not.
+  mCompileresult <- newMVar $ Right $ Encode.object [ "compiled" ==> (Encode.bool True) ]
+  pure $ Cache mJsOutput mCompileresult
+
+
+
+updateCompileResult :: Cache -> IO (Either Encode.Value Encode.Value) -> IO ()
+updateCompileResult (Cache _ compileResult) action = do
+  modifyMVar_ compileResult (\_ -> action )
+
+
+getCompileResult :: Cache -> IO (Either Encode.Value Encode.Value)
+getCompileResult cache =
+  readMVar $ compileResult cache
 
 
 getJsOutput :: Cache -> IO BS.ByteString
@@ -31,14 +48,8 @@ getJsOutput cache =
 
 
 updateJsOutput :: Cache -> IO BS.ByteString -> IO ()
-updateJsOutput (Cache mJsOutput) recompile = do
-  track "recompile" $
-    modifyMVar_ mJsOutput
-      (\_ -> do
-        bs <- recompile
-        pure bs
-      )
-  pure ()
+updateJsOutput (Cache mJsOutput _) recompile = do
+  modifyMVar_ mJsOutput (\_ -> recompile )
 
 
 track label io = do

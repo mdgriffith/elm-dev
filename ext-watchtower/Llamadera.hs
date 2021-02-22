@@ -42,8 +42,9 @@ import qualified System.Exit
 import qualified Build
 import qualified Stuff
 import System.FilePath as FP ((</>), joinPath, splitDirectories, takeDirectory)
-import Data.Function ((&))
 import StandaloneInstances
+
+import Ext.Common
 
 
 {- INTERFACES -}
@@ -155,10 +156,6 @@ extractInterfaces modu = do
   pure $ Map.fromList $ justs k
 
 
-justs :: [Maybe a] -> [a]
-justs xs = [ x | Just x <- xs ]
-
-
 {- Appropriated from Build.loadInterface -}
 cachedHelp :: ModuleName.Raw -> MVar Build.CachedInterface -> IO (Maybe (ModuleName.Raw, I.Interface))
 cachedHelp name ciMvar = do
@@ -220,41 +217,6 @@ loadFileSource root path = do
 
       Left err ->
         error "bad syntax"
-
-
--- Copy of combined internals of Project.getRoot as it seems to notoriously cause cyclic wherever imported
-getProjectRoot :: IO FilePath
-getProjectRoot = do
-  subDir <- Dir.getCurrentDirectory
-  res <- findHelp "elm.json" (FP.splitDirectories subDir)
-  case res of
-    Just filepath -> pure filepath
-    Nothing -> do
-      putStrLn "Cannot find an elm.json! Make sure you're in a project folder, or run `lamdera init` to start a new one."
-      System.Exit.exitFailure
-
-
-findHelp :: FilePath -> [String] -> IO (Maybe FilePath)
-findHelp name dirs =
-  if Prelude.null dirs then
-    return Nothing
-
-  else
-    do  exists_ <- Dir.doesFileExist (FP.joinPath dirs </> name)
-        if exists_
-          then return (Just (FP.joinPath dirs))
-          else findHelp name (Prelude.init dirs)
-
-
--- Find the project root from an arbitrary fle path
-getProjectRootFor :: FilePath -> IO FilePath
-getProjectRootFor path = do
-  res <- findHelp "elm.json" (FP.splitDirectories $ takeDirectory path)
-  case res of
-    Just filepath -> pure filepath
-    Nothing -> do
-      putStrLn "Cannot find an elm.json! Make sure you're in a project folder, or run `lamdera init` to start a new one."
-      System.Exit.exitFailure
 
 
 
@@ -326,16 +288,6 @@ debug_ str = do
   case debugM of
     Just _ -> atomicPutStrLn $ "DEBUG: " ++ str ++ "\n"
     Nothing -> pure ()
-
-atomicPutStrLn :: String -> IO ()
-atomicPutStrLn str =
-  withMVar printLock (\_ -> hPutStr stdout (str <> "\n") >> hFlush stdout)
-
-
--- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
-{-# NOINLINE printLock #-}
-printLock :: MVar ()
-printLock = unsafePerformIO $ newMVar ()
 
 
 -- Inversion of `unless` that runs IO only when condition is True

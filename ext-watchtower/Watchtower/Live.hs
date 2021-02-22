@@ -51,10 +51,24 @@ type Client = (ClientId, WS.Connection)
 
 init :: IO State
 init =
-    State 
+    State
       <$> Ext.Sentry.init
       <*> Watchtower.Websocket.clientsInit
 
+
+recompile :: Watchtower.Live.State -> [String] -> IO ()
+recompile (Watchtower.Live.State sentryCache mClients) filenames = do
+  debug $ "🛫  recompile starting: " ++ show filenames
+  trackedForkIO $ do
+    Ext.Sentry.updateCompileResult sentryCache $ do
+
+      -- @TODO what do we do with multiple filenames?
+      eitherStatusJson <- Watchtower.Compile.compileToJson (head filenames)
+      Watchtower.Websocket.broadcastImpl mClients $ eitherStatusToText eitherStatusJson
+      pure eitherStatusJson
+
+
+  debug "🛬  recompile done... "
 
 
 websocket :: State -> Snap ()
@@ -65,19 +79,19 @@ websocket state =
 
 
 websocket_ :: State -> Snap ()
-websocket_ (State cache mClients) = do
+websocket_ (state@(State cache mClients)) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
       let
         onJoined clientId totalClients = do
           debug (T.unpack ("Total clients " <> T.pack (show totalClients)))
-          pure Nothing
+          eitherStatusJson <- Ext.Sentry.getCompileResult cache
+          pure $ Just $ eitherStatusToText eitherStatusJson
 
-
-      Watchtower.Websocket.runWebSocketsSnap 
-          $ Watchtower.Websocket.socketHandler
-                  mClients onJoined (receive mClients) (T.decodeUtf8 key)
+      Watchtower.Websocket.runWebSocketsSnap
+        $ Watchtower.Websocket.socketHandler
+            mClients onJoined (receive state) (T.decodeUtf8 key)
 
     Nothing ->
       error404
@@ -87,51 +101,48 @@ builderToString =
 
 
 
-receive mClients clientId text = do
+receive state clientId text = do
   debug $ (T.unpack "RECVD" <> T.unpack text)
   case Json.Decode.fromByteString decodeIncoming (T.encodeUtf8 text) of
     Left err -> do
       debug $ (T.unpack "Error decoding!" <> T.unpack text)
       --
       pure ()
-    
+
     Right action -> do
       debug $ (T.unpack "Action!" <> T.unpack text)
-      receiveAction mClients clientId action
+      receiveAction state clientId action
 
 
-
-
-receiveAction mClients clientId incoming =
+receiveAction state@(State cache mClients) clientId incoming =
   case incoming of
     Visible visible -> do
        debug $ "forwarding visibility"
-       Watchtower.Websocket.broadcastImpl 
-          mClients 
+       Watchtower.Websocket.broadcastImpl
+          mClients
           (builderToString (encodeOutgoing (FwdVisible visible)))
-    
+
     JumpTo location -> do
       debug $ "forwarding jump"
-      Watchtower.Websocket.broadcastImpl 
-          mClients 
+      Watchtower.Websocket.broadcastImpl
+          mClients
           (builderToString (encodeOutgoing (FwdJumpTo location)))
 
-    ElmStatusPlease root file -> do
-        eitherStatusJson <- Watchtower.Compile.compileToJson (T.unpack root) (T.unpack file)
-        case eitherStatusJson of
-          Left errors -> do
-            debug $ "got errors"-- <> (T.unpack $ T.decodeUtf8 errors)
-            Watchtower.Websocket.broadcastImpl 
-              mClients 
-              (builderToString (encodeOutgoing (ElmStatus errors)))
-
-          Right jsoutput -> do
-            debug $ "success!"
-            Watchtower.Websocket.broadcastImpl
-              mClients
-              (builderToString (encodeOutgoing (ElmStatus jsoutput)))
+    ElmStatusPlease file -> do
+      -- eitherStatusJson <- Watchtower.Compile.compileToJson (T.unpack file)
+      -- @TODO do we need an explicit req/resp if we're always going to push instead...?
+      eitherStatusJson <- Ext.Sentry.getCompileResult cache
+      Watchtower.Websocket.broadcastImpl mClients $ eitherStatusToText eitherStatusJson
 
 
+eitherStatusToText :: Either Json.Encode.Value Json.Encode.Value -> T.Text
+eitherStatusToText eitherStatusJson =
+  case eitherStatusJson of
+    Left errors -> do
+      builderToString (encodeOutgoing (ElmStatus errors))
+
+    Right jsoutput -> do
+      builderToString (encodeOutgoing (ElmStatus jsoutput))
 
 
 decodeIncoming :: Json.Decode.Decoder T.Text Incoming
@@ -141,20 +152,19 @@ decodeIncoming =
             case msg of
               "StatusPlease" ->
                 Json.Decode.field "details"
-                  (ElmStatusPlease 
-                    <$> Json.Decode.field "root" ((T.pack . Json.String.toChars) <$> Json.Decode.string)
-                    <*> Json.Decode.field "file" ((T.pack . Json.String.toChars) <$> Json.Decode.string)
+                  (ElmStatusPlease
+                    <$> Json.Decode.field "file" ((T.pack . Json.String.toChars) <$> Json.Decode.string)
                   )
-                  
+
               "Visible" ->
                   Visible <$> (Json.Decode.field "details" Watchtower.Details.decodeVisible)
-              
+
               "Jump" ->
                   JumpTo <$> (Json.Decode.field "details" Watchtower.Details.decodeLocation)
 
               _ ->
                   Json.Decode.failure "Unknown msg"
-          
+
         )
 
 
@@ -189,7 +199,7 @@ data Incoming
     -- forwarding information from a source to somewhere else
     = Visible Watchtower.Details.Visible
     | JumpTo Watchtower.Details.Location
-    | ElmStatusPlease T.Text T.Text
+    | ElmStatusPlease T.Text
 
 
 data Outgoing
