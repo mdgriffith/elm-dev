@@ -5148,23 +5148,11 @@ var $elm$core$Basics$composeL = F3(
 var $elm$json$Json$Decode$decodeValue = _Json_run;
 var $elm$json$Json$Decode$value = _Json_decodeValue;
 var $author$project$Ports$editorChange = _Platform_incomingPort('editorChange', $elm$json$Json$Decode$value);
-var $author$project$Ports$ActiveEditorUpdated = function (a) {
-	return {$: 'ActiveEditorUpdated', a: a};
-};
 var $author$project$Ports$Errors = function (a) {
 	return {$: 'Errors', a: a};
 };
-var $author$project$Ports$SelectionUpdated = function (a) {
-	return {$: 'SelectionUpdated', a: a};
-};
-var $author$project$Ports$VisiblEditorsUpdated = function (a) {
-	return {$: 'VisiblEditorsUpdated', a: a};
-};
-var $author$project$Ports$VisibleRangeUpdated = function (a) {
-	return {$: 'VisibleRangeUpdated', a: a};
-};
-var $author$project$Ports$WorkspaceFolders = function (a) {
-	return {$: 'WorkspaceFolders', a: a};
+var $author$project$Ports$VisibleEditorsUpdated = function (a) {
+	return {$: 'VisibleEditorsUpdated', a: a};
 };
 var $elm$json$Json$Decode$andThen = _Json_andThen;
 var $author$project$Editor$Editor = F3(
@@ -5185,12 +5173,18 @@ var $elm$json$Json$Decode$oneOf = _Json_oneOf;
 var $author$project$Editor$position = A3(
 	$elm$json$Json$Decode$map2,
 	$author$project$Editor$Position,
-	A2($elm$json$Json$Decode$field, 'line', $elm$json$Json$Decode$int),
+	$elm$json$Json$Decode$oneOf(
+		_List_fromArray(
+			[
+				A2($elm$json$Json$Decode$field, 'line', $elm$json$Json$Decode$int),
+				A2($elm$json$Json$Decode$field, 'row', $elm$json$Json$Decode$int)
+			])),
 	$elm$json$Json$Decode$oneOf(
 		_List_fromArray(
 			[
 				A2($elm$json$Json$Decode$field, 'column', $elm$json$Json$Decode$int),
-				A2($elm$json$Json$Decode$field, 'character', $elm$json$Json$Decode$int)
+				A2($elm$json$Json$Decode$field, 'character', $elm$json$Json$Decode$int),
+				A2($elm$json$Json$Decode$field, 'col', $elm$json$Json$Decode$int)
 			])));
 var $author$project$Editor$decodeRegion = A3(
 	$elm$json$Json$Decode$map2,
@@ -5203,19 +5197,24 @@ var $author$project$Editor$Selection = F2(
 	function (anchor, active) {
 		return {active: active, anchor: anchor};
 	});
+var $author$project$Editor$rowColPos = A3(
+	$elm$json$Json$Decode$map2,
+	$author$project$Editor$Position,
+	A2($elm$json$Json$Decode$field, 'row', $elm$json$Json$Decode$int),
+	A2($elm$json$Json$Decode$field, 'col', $elm$json$Json$Decode$int));
 var $author$project$Editor$selection = A3(
 	$elm$json$Json$Decode$map2,
 	$author$project$Editor$Selection,
-	A2($elm$json$Json$Decode$field, 'anchor', $author$project$Editor$position),
-	A2($elm$json$Json$Decode$field, 'active', $author$project$Editor$position));
+	A2($elm$json$Json$Decode$field, 'start', $author$project$Editor$rowColPos),
+	A2($elm$json$Json$Decode$field, 'end', $author$project$Editor$rowColPos));
 var $elm$json$Json$Decode$string = _Json_decodeString;
 var $author$project$Editor$decodeEditor = A4(
 	$elm$json$Json$Decode$map3,
 	$author$project$Editor$Editor,
-	A2($elm$json$Json$Decode$field, 'fileName', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'path', $elm$json$Json$Decode$string),
 	A2(
 		$elm$json$Json$Decode$field,
-		'ranges',
+		'visibleRegions',
 		$elm$json$Json$Decode$list($author$project$Editor$decodeRegion)),
 	A2(
 		$elm$json$Json$Decode$field,
@@ -5375,16 +5374,15 @@ var $author$project$Elm$decodeError = $elm$json$Json$Decode$oneOf(
 			},
 			A2($elm$json$Json$Decode$field, 'type', $author$project$Elm$decodeErrorType))
 		]));
-var $author$project$Editor$Workspace = F2(
-	function (name, path) {
-		return {name: name, path: path};
-	});
-var $author$project$Editor$decodeWorkspaceFolder = A3(
-	$elm$json$Json$Decode$map2,
-	$author$project$Editor$Workspace,
-	A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
-	A2($elm$json$Json$Decode$field, 'path', $elm$json$Json$Decode$string));
 var $elm$core$Debug$log = _Debug_log;
+var $elm$json$Json$Decode$nullable = function (decoder) {
+	return $elm$json$Json$Decode$oneOf(
+		_List_fromArray(
+			[
+				$elm$json$Json$Decode$null($elm$core$Maybe$Nothing),
+				A2($elm$json$Json$Decode$map, $elm$core$Maybe$Just, decoder)
+			]));
+};
 var $author$project$Ports$incomingDecoder = A2(
 	$elm$json$Json$Decode$andThen,
 	function (msg) {
@@ -5395,50 +5393,25 @@ var $author$project$Ports$incomingDecoder = A2(
 					$elm$json$Json$Decode$map,
 					$author$project$Ports$Errors,
 					A2($elm$json$Json$Decode$field, 'details', $author$project$Elm$decodeError));
-			case 'VisibleEditorsUpdated':
+			case 'Visible':
 				return A2(
-					$elm$json$Json$Decode$map,
-					$author$project$Ports$VisiblEditorsUpdated,
-					A2(
-						$elm$json$Json$Decode$field,
-						'visible',
-						$elm$json$Json$Decode$list($author$project$Editor$decodeEditor)));
-			case 'VisibleRangeUpdated':
-				return A3(
-					$elm$json$Json$Decode$map2,
-					F2(
-						function (fileName, ranges) {
-							return $author$project$Ports$VisibleRangeUpdated(
-								{fileName: fileName, ranges: ranges});
-						}),
-					A2($elm$json$Json$Decode$field, 'fileName', $elm$json$Json$Decode$string),
-					A2(
-						$elm$json$Json$Decode$field,
-						'ranges',
-						$elm$json$Json$Decode$list($author$project$Editor$decodeRegion)));
-			case 'SelectionUpdated':
-				return A3(
-					$elm$json$Json$Decode$map2,
-					F2(
-						function (fileName, selections) {
-							return $author$project$Ports$SelectionUpdated(
-								{fileName: fileName, selections: selections});
-						}),
-					A2($elm$json$Json$Decode$field, 'fileName', $elm$json$Json$Decode$string),
-					A2(
-						$elm$json$Json$Decode$field,
-						'selections',
-						$elm$json$Json$Decode$list($author$project$Editor$selection)));
-			case 'ActiveEditorUpdated':
-				return A2($elm$json$Json$Decode$map, $author$project$Ports$ActiveEditorUpdated, $author$project$Editor$decodeEditor);
-			case 'WorkspaceFolders':
-				return A2(
-					$elm$json$Json$Decode$map,
-					$author$project$Ports$WorkspaceFolders,
-					A2(
-						$elm$json$Json$Decode$field,
-						'folders',
-						$elm$json$Json$Decode$list($author$project$Editor$decodeWorkspaceFolder)));
+					$elm$json$Json$Decode$field,
+					'details',
+					A3(
+						$elm$json$Json$Decode$map2,
+						F2(
+							function (active, vis) {
+								return $author$project$Ports$VisibleEditorsUpdated(
+									{active: active, visible: vis});
+							}),
+						A2(
+							$elm$json$Json$Decode$field,
+							'active',
+							$elm$json$Json$Decode$nullable($author$project$Editor$decodeEditor)),
+						A2(
+							$elm$json$Json$Decode$field,
+							'visible',
+							$elm$json$Json$Decode$list($author$project$Editor$decodeEditor))));
 			default:
 				var _v1 = A2($elm$core$Debug$log, 'UNRECOGNIZED INCOMING MSG', msg);
 				return $elm$json$Json$Decode$fail('UNRECOGNIZED INCOMING MSG');
@@ -5461,16 +5434,6 @@ var $author$project$Main$init = _Utils_Tuple2(
 var $author$project$Ports$Goto = function (a) {
 	return {$: 'Goto', a: a};
 };
-var $elm$core$Maybe$map = F2(
-	function (f, maybe) {
-		if (maybe.$ === 'Just') {
-			var value = maybe.a;
-			return $elm$core$Maybe$Just(
-				f(value));
-		} else {
-			return $elm$core$Maybe$Nothing;
-		}
-	});
 var $elm$json$Json$Encode$int = _Json_wrap;
 var $elm$json$Json$Encode$object = function (pairs) {
 	return _Json_wrap(
@@ -5541,53 +5504,12 @@ var $author$project$Main$update = F2(
 			} else {
 				var editorMsg = _v0.a.a;
 				switch (editorMsg.$) {
-					case 'VisiblEditorsUpdated':
+					case 'VisibleEditorsUpdated':
 						var visible = editorMsg.a;
 						return _Utils_Tuple2(
 							_Utils_update(
 								model,
-								{visible: visible}),
-							$elm$core$Platform$Cmd$none);
-					case 'VisibleRangeUpdated':
-						var viewed = editorMsg.a;
-						var updateSelection = function (editor) {
-							return _Utils_eq(viewed.fileName, editor.fileName) ? _Utils_update(
-								editor,
-								{ranges: viewed.ranges}) : editor;
-						};
-						var newViewing = A2($elm$core$Maybe$map, updateSelection, model.active);
-						return _Utils_Tuple2(
-							_Utils_update(
-								model,
-								{
-									active: newViewing,
-									visible: A2($elm$core$List$map, updateSelection, model.visible)
-								}),
-							$elm$core$Platform$Cmd$none);
-					case 'SelectionUpdated':
-						var current = editorMsg.a;
-						var updateSelection = function (editor) {
-							return _Utils_eq(current.fileName, editor.fileName) ? _Utils_update(
-								editor,
-								{selections: current.selections}) : editor;
-						};
-						var newViewing = A2($elm$core$Maybe$map, updateSelection, model.active);
-						return _Utils_Tuple2(
-							_Utils_update(
-								model,
-								{
-									active: newViewing,
-									visible: A2($elm$core$List$map, updateSelection, model.visible)
-								}),
-							$elm$core$Platform$Cmd$none);
-					case 'ActiveEditorUpdated':
-						var current = editorMsg.a;
-						return _Utils_Tuple2(
-							_Utils_update(
-								model,
-								{
-									active: $elm$core$Maybe$Just(current)
-								}),
+								{active: visible.active, visible: visible.visible}),
 							$elm$core$Platform$Cmd$none);
 					case 'Errors':
 						var diags = editorMsg.a;
@@ -5894,6 +5816,16 @@ var $author$project$Main$viewIssue = F2(
 				]));
 	});
 var $elm$html$Html$h3 = _VirtualDom_node('h3');
+var $elm$core$Maybe$map = F2(
+	function (f, maybe) {
+		if (maybe.$ === 'Just') {
+			var value = maybe.a;
+			return $elm$core$Maybe$Just(
+				f(value));
+		} else {
+			return $elm$core$Maybe$Nothing;
+		}
+	});
 var $elm$core$Basics$compare = _Utils_compare;
 var $elm$core$Dict$get = F2(
 	function (targetKey, dict) {

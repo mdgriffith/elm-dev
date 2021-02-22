@@ -31,9 +31,8 @@
 
       // Listen for messages from the watchtower
       socket.addEventListener("message", function (event) {
-        console.log("received", event.data);
-        const message = event.data;
-        app.ports.editorChange.send(message);
+        console.log("received", JSON.parse(event.data));
+        app.ports.editorChange.send(JSON.parse(event.data));
       });
 
       app.ports.notify.subscribe(function (json) {

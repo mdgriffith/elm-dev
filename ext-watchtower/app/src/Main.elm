@@ -49,55 +49,11 @@ update msg model =
 
         Incoming (Ok editorMsg) ->
             case editorMsg of
-                Ports.VisiblEditorsUpdated visible ->
-                    ( { model | visible = visible }
-                    , Cmd.none
-                    )
-
-                Ports.VisibleRangeUpdated viewed ->
-                    let
-                        updateSelection editor =
-                            if viewed.fileName == editor.fileName then
-                                { editor
-                                    | ranges = viewed.ranges
-                                }
-
-                            else
-                                editor
-
-                        newViewing =
-                            Maybe.map updateSelection model.active
-                    in
+                Ports.VisibleEditorsUpdated visible ->
                     ( { model
-                        | active = newViewing
-                        , visible = List.map updateSelection model.visible
+                        | visible = visible.visible
+                        , active = visible.active
                       }
-                    , Cmd.none
-                    )
-
-                Ports.SelectionUpdated current ->
-                    let
-                        updateSelection editor =
-                            if current.fileName == editor.fileName then
-                                { editor
-                                    | selections = current.selections
-                                }
-
-                            else
-                                editor
-
-                        newViewing =
-                            Maybe.map updateSelection model.active
-                    in
-                    ( { model
-                        | active = newViewing
-                        , visible = List.map updateSelection model.visible
-                      }
-                    , Cmd.none
-                    )
-
-                Ports.ActiveEditorUpdated current ->
-                    ( { model | active = Just current }
                     , Cmd.none
                     )
 

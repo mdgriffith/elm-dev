@@ -85,8 +85,8 @@ encodePosition pos =
 decodeEditor : Decode.Decoder Editor
 decodeEditor =
     Decode.map3 Editor
-        (Decode.field "fileName" Decode.string)
-        (Decode.field "ranges" (Decode.list decodeRegion))
+        (Decode.field "path" Decode.string)
+        (Decode.field "visibleRegions" (Decode.list decodeRegion))
         (Decode.field "selections" (Decode.list selection))
 
 
@@ -98,8 +98,8 @@ decodeWorkspaceFolder =
 
 selection =
     Decode.map2 Selection
-        (Decode.field "anchor" position)
-        (Decode.field "active" position)
+        (Decode.field "start" rowColPos)
+        (Decode.field "end" rowColPos)
 
 
 rowColPos =
@@ -110,10 +110,15 @@ rowColPos =
 
 position =
     Decode.map2 Position
-        (Decode.field "line" Decode.int)
+        (Decode.oneOf
+            [ Decode.field "line" Decode.int
+            , Decode.field "row" Decode.int
+            ]
+        )
         (Decode.oneOf
             [ Decode.field "column" Decode.int
             , Decode.field "character" Decode.int
+            , Decode.field "col" Decode.int
             ]
         )
 

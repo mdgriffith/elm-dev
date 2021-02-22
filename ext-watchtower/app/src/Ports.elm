@@ -29,26 +29,10 @@ outgoing out =
 
 
 type Incoming
-    = VisibleRangeUpdated
-        { fileName : String
-        , ranges : List Editor.Range
+    = VisibleEditorsUpdated
+        { active : Maybe Editor.Editor
+        , visible : List Editor.Editor
         }
-    | SelectionUpdated
-        { fileName : String
-        , selections : List Editor.Selection
-        }
-    | ActiveEditorUpdated
-        { fileName : String
-        , ranges : List Editor.Range
-        , selections : List Editor.Selection
-        }
-    | VisiblEditorsUpdated
-        (List
-            { fileName : String
-            , ranges : List Editor.Range
-            , selections : List Editor.Selection
-            }
-        )
     | Errors Elm.Error
     | WorkspaceFolders (List Editor.Workspace)
 
@@ -78,41 +62,22 @@ incomingDecoder =
                         Decode.map Errors
                             (Decode.field "details" Elm.decodeError)
 
-                    "VisibleEditorsUpdated" ->
-                        Decode.map VisiblEditorsUpdated
-                            (Decode.field "visible"
-                                (Decode.list Editor.decodeEditor)
+                    "Visible" ->
+                        Decode.field "details"
+                            (Decode.map2
+                                (\active vis ->
+                                    VisibleEditorsUpdated
+                                        { active = active
+                                        , visible = vis
+                                        }
+                                )
+                                (Decode.field "active"
+                                    (Decode.nullable Editor.decodeEditor)
+                                )
+                                (Decode.field "visible"
+                                    (Decode.list Editor.decodeEditor)
+                                )
                             )
-
-                    "VisibleRangeUpdated" ->
-                        Decode.map2
-                            (\fileName ranges ->
-                                VisibleRangeUpdated
-                                    { fileName = fileName
-                                    , ranges = ranges
-                                    }
-                            )
-                            (Decode.field "fileName" Decode.string)
-                            (Decode.field "ranges" (Decode.list Editor.decodeRegion))
-
-                    "SelectionUpdated" ->
-                        Decode.map2
-                            (\fileName selections ->
-                                SelectionUpdated
-                                    { fileName = fileName
-                                    , selections = selections
-                                    }
-                            )
-                            (Decode.field "fileName" Decode.string)
-                            (Decode.field "selections" (Decode.list Editor.selection))
-
-                    "ActiveEditorUpdated" ->
-                        Decode.map ActiveEditorUpdated
-                            Editor.decodeEditor
-
-                    "WorkspaceFolders" ->
-                        Decode.map WorkspaceFolders
-                            (Decode.field "folders" (Decode.list Editor.decodeWorkspaceFolder))
 
                     _ ->
                         let
