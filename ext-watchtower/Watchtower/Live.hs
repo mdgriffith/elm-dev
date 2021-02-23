@@ -128,11 +128,6 @@ receiveAction state@(State cache mClients) clientId incoming =
           mClients
           (builderToString (encodeOutgoing (FwdJumpTo location)))
 
-    ElmStatusPlease file -> do
-      -- eitherStatusJson <- Watchtower.Compile.compileToJson (T.unpack file)
-      -- @TODO do we need an explicit req/resp if we're always going to push instead...?
-      eitherStatusJson <- Ext.Sentry.getCompileResult cache
-      Watchtower.Websocket.broadcastImpl mClients $ eitherStatusToText eitherStatusJson
 
 
 eitherStatusToText :: Either Json.Encode.Value Json.Encode.Value -> T.Text
@@ -150,12 +145,6 @@ decodeIncoming =
   Json.Decode.field "msg" Json.Decode.string
     >>= (\msg ->
             case msg of
-              "StatusPlease" ->
-                Json.Decode.field "details"
-                  (ElmStatusPlease
-                    <$> Json.Decode.field "file" ((T.pack . Json.String.toChars) <$> Json.Decode.string)
-                  )
-
               "Visible" ->
                   Visible <$> (Json.Decode.field "details" Watchtower.Details.decodeVisible)
 
@@ -199,7 +188,6 @@ data Incoming
     -- forwarding information from a source to somewhere else
     = Visible Watchtower.Details.Visible
     | JumpTo Watchtower.Details.Location
-    | ElmStatusPlease T.Text
 
 
 data Outgoing
