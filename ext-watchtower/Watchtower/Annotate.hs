@@ -31,6 +31,7 @@ import Json.Encode ((==>))
 import qualified Stuff as PerUserCache
 import qualified Reporting
 import qualified Reporting.Doc as D
+import qualified Reporting.Exit as Exit
 import Terminal (Parser(..))
 import qualified Text.Show.Unicode
 
@@ -90,7 +91,7 @@ getTopLevelNameAt position mod =
                 else
                   Nothing
 
-                  
+
             _ ->
                 Nothing
         )
@@ -103,30 +104,33 @@ This will list those annotations as well as their coordinates
 -}
 printListMissingAnnotations :: FilePath -> FilePath -> IO ()
 printListMissingAnnotations root file = do
-  (source, mod) <- Llamadera.loadFileSource root file
+  mSource <- Llamadera.loadFileSource root file
+  case mSource of
+    Left err ->
+      putStrLn $ show err
+    Right (source, modul) -> do
+      let values = modul
+            & Src._values
+            & fmap
+                (\val ->
+                  case A.toValue val of
+                    Src.Value locatedName _ _ Nothing ->
+                          Json.Encode.object
+                              [ "name" ==> nameToJsonString (A.toValue locatedName)
+                              , "region" ==> encodeRegion (A.toRegion locatedName)
+                              ]
+                              & Just
 
-  let values = mod
-        & Src._values
-        & fmap
-            (\val ->
-              case A.toValue val of
-                Src.Value locatedName _ _ Nothing ->
-                      Json.Encode.object
-                          [ "name" ==> nameToJsonString (A.toValue locatedName)
-                          , "region" ==> encodeRegion (A.toRegion locatedName)
-                          ]
-                          & Just
-                      
-                _ ->
-                    Nothing
-            )
-        & Maybe.catMaybes
-        & Json.Encode.list (\a -> a)
-        & Json.Encode.encode
+                    _ ->
+                        Nothing
+                )
+            & Maybe.catMaybes
+            & Json.Encode.list (\a -> a)
+            & Json.Encode.encode
 
-  B.hPutBuilder stderr values
+      B.hPutBuilder stderr values
 
-  pure ()
+      pure ()
 
 
 {- For editors to add a button that prompts to insert a missing type annotation, they need to know which annotations are missing.
@@ -137,27 +141,31 @@ This will list those annotations as well as their coordinates
 -}
 listMissingAnnotations :: FilePath -> FilePath -> IO Json.Encode.Value
 listMissingAnnotations root file = do
-  (source, mod) <- Llamadera.loadFileSource root file
+  mSource <- Llamadera.loadFileSource root file
+  case mSource of
+    Left err ->
+      pure $ jsonError err
+    Right (source, modul) -> do
 
-  let values = mod
-        & Src._values
-        & fmap
-            (\val ->
-              case A.toValue val of
-                Src.Value locatedName _ _ Nothing ->
-                      Json.Encode.object
-                          [ "name" ==> nameToJsonString (A.toValue locatedName)
-                          , "region" ==> encodeRegion (A.toRegion locatedName)
-                          ]
-                          & Just
-                      
-                _ ->
-                    Nothing
-            )
-        & Maybe.catMaybes
-        & Json.Encode.list (\a -> a)
+      let values = modul
+            & Src._values
+            & fmap
+                (\val ->
+                  case A.toValue val of
+                    Src.Value locatedName _ _ Nothing ->
+                          Json.Encode.object
+                              [ "name" ==> nameToJsonString (A.toValue locatedName)
+                              , "region" ==> encodeRegion (A.toRegion locatedName)
+                              ]
+                              & Just
 
-  pure values
+                    _ ->
+                        Nothing
+                )
+            & Maybe.catMaybes
+            & Json.Encode.list (\a -> a)
+
+      pure values
 
 {- Copied from Reporting/Error.hs ...-}
 encodeRegion :: A.Region -> Json.Encode.Value
@@ -183,25 +191,33 @@ encodeRegion (A.Region (A.Position sr sc) (A.Position er ec)) =
 -}
 printAnnotation :: FilePath -> FilePath -> Name.Name -> IO ()
 printAnnotation root file expressionName = do
-  (source, modul) <- Llamadera.loadFileSource root file
+  mSource <- Llamadera.loadFileSource root file
+  case mSource of
+    Left err ->
+      putStrLn $ show err
+    Right (source, modul) -> do
 
-  Dir.withCurrentDirectory root $ do
-    Llamadera.debug_ "Getting artifacts..."
+      Dir.withCurrentDirectory root $ do
+        Llamadera.debug_ "Getting artifacts..."
 
-    (Compile.Artifacts canonical annotations objects) <- Llamadera.loadSingleArtifacts file
+        eitherArtifacts <- Llamadera.loadSingleArtifacts file
+        case eitherArtifacts of
+          Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
+            case annotations & Map.lookup expressionName of
+              Just annotation -> do
+                let imports = modul & Src._imports
+                    selfName = modul & Src.getName
 
-    case annotations & Map.lookup expressionName of
-      Just annotation -> do
-        let imports = modul & Src._imports
-            selfName = modul & Src.getName
-       
-        -- Llamadera.formatHaskellValue ("debug AST") annotation
-        putStrLn $ T.unpack $ canonicalAnnotationToString selfName imports annotation
+                -- Llamadera.formatHaskellValue ("debug AST") annotation
+                putStrLn $ T.unpack $ canonicalAnnotationToString selfName imports annotation
 
-      Nothing ->
-        putStrLn "Oops! Something went wrong!"
+              Nothing ->
+                putStrLn "Oops! Something went wrong!"
 
-  pure ()
+          Left err ->
+            putStrLn $ show err
+
+      pure ()
 
 {-  Print a type signature!
 
@@ -209,31 +225,40 @@ printAnnotation root file expressionName = do
 -}
 annotation :: FilePath -> FilePath -> Name.Name -> IO Json.Encode.Value
 annotation root file expressionName = do
-  (source, modul) <- Llamadera.loadFileSource root file
+  mSource <- Llamadera.loadFileSource root file
+  case mSource of
+    Left err ->
+      pure $ jsonError err
 
-  Dir.withCurrentDirectory root $ do
-      (Compile.Artifacts canonical annotations objects) <- Llamadera.loadSingleArtifacts file
+    Right (source, modul) -> do
+      Dir.withCurrentDirectory root $ do
 
-      case annotations & Map.lookup expressionName of
-        Just annotation -> do
-          let imports = modul & Src._imports
-              selfName = modul & Src.getName
-        
-          pure 
-            (Json.Encode.object
-              ["signature" 
-                  ==> (Json.Encode.string 
-                        (Json.String.fromChars 
-                          (T.unpack (canonicalAnnotationToString selfName imports annotation))
-                        )
-                      )
-              ]
-            )
-            
+          eitherArtifacts <- Llamadera.loadSingleArtifacts file
+          case eitherArtifacts of
+            Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
 
-        Nothing ->
-          pure (Json.Encode.string (Json.String.fromChars "Not found"))
-        
+              case annotations & Map.lookup expressionName of
+                Just annotation -> do
+                  let imports = modul & Src._imports
+                      selfName = modul & Src.getName
+
+                  pure
+                    (Json.Encode.object
+                      ["signature"
+                          ==> (Json.Encode.string
+                                (Json.String.fromChars
+                                  (T.unpack (canonicalAnnotationToString selfName imports annotation))
+                                )
+                              )
+                      ]
+                    )
+
+                Nothing ->
+                  pure (Json.Encode.string (Json.String.fromChars "Not found"))
+
+            Left err ->
+              -- @TODO can we use Elm's error JSON formatter here?
+              pure $ jsonError err
 
 
 -- Args helpers
@@ -293,7 +318,7 @@ canonicalTypeStringLength :: Name.Name -> [ Src.Import ] -> Can.Type -> Int
 canonicalTypeStringLength self imports tipe =
   case tipe of
     TLambda t1 t2 ->
-      canonicalTypeStringLength self imports t1 
+      canonicalTypeStringLength self imports t1
         + canonicalTypeStringLength self imports t2
         + 3
 
@@ -305,16 +330,16 @@ canonicalTypeStringLength self imports tipe =
         + Data.Utf8.size name
         + (case paramTypes of
               [] -> 0
-                
-              _ -> 
+
+              _ ->
                 1 + List.foldl
-                        (\acc pType -> 
+                        (\acc pType ->
                           acc + canonicalTypeStringLength self imports pType
                         )
                         0
                         paramTypes
           )
-      
+
     TRecord fieldTypes extensibleName ->
       2
         +
@@ -325,23 +350,23 @@ canonicalTypeStringLength self imports tipe =
                   Data.Utf8.size ext + 2
           )
         + (List.foldl
-              (\acc (fieldName, fieldType) -> 
-                  acc 
-                    + Data.Utf8.size fieldName 
-                    + 3 
+              (\acc (fieldName, fieldType) ->
+                  acc
+                    + Data.Utf8.size fieldName
+                    + 3
                     + canonicalTypeStringLength self imports fieldType
               )
               0
               (Can.fieldsToList fieldTypes)
-              
+
            )
         + 2
-      
+
     TUnit ->
       2
 
     TTuple t1 t2 mt3 ->
-      canonicalTypeStringLength self imports t1 
+      canonicalTypeStringLength self imports t1
         + 4 -- paren, space, comma, space
         + canonicalTypeStringLength self imports t2
         + 2
@@ -362,14 +387,14 @@ qualifierLength self imports (can@(Elm.ModuleName.Canonical pkg mdl)) value =
       0
     else if isBuiltIn can value then
       0
-    else 
+    else
       case matchImport can imports value of
         Just (matched@(Src.Import _ (Just alias) _)) ->
           Data.Utf8.size alias + 1
 
         Just matched ->
           Data.Utf8.size (Src.getImportName matched) + 1
-          
+
         Nothing ->
           0
 
@@ -378,7 +403,7 @@ canonicalTypeToString ::Name.Name -> [ Src.Import ] -> Can.Type -> Text
 canonicalTypeToString self imports tipe =
   case tipe of
     TLambda t1 t2 ->
-      canonicalTypeToString self imports t1 
+      canonicalTypeToString self imports t1
         <> " -> "
         <> canonicalTypeToString self imports t2
 
@@ -390,9 +415,9 @@ canonicalTypeToString self imports tipe =
         <> T.pack (Name.toChars name)
         <> (case paramTypes of
               [] -> ""
-                
-              _ -> 
-                " " <> 
+
+              _ ->
+                " " <>
                     T.intercalate " " (map (canonicalTypeToString self imports) paramTypes)
           )
 
@@ -406,11 +431,11 @@ canonicalTypeToString self imports tipe =
                   T.pack (Name.toChars ext) <> " |"
           )
         <> (map
-              (\(fieldName, fieldType) -> 
-                  T.pack (Name.toChars fieldName) 
-                    <> " : " 
+              (\(fieldName, fieldType) ->
+                  T.pack (Name.toChars fieldName)
+                    <> " : "
                     <> canonicalTypeToString self imports fieldType
-              ) 
+              )
               (Can.fieldsToList fieldTypes)
               & T.intercalate ", "
            )
@@ -420,11 +445,11 @@ canonicalTypeToString self imports tipe =
       "()"
 
     TTuple t1 t2 mt3 ->
-      "( " 
-        <> canonicalTypeToString self imports t1 
+      "( "
+        <> canonicalTypeToString self imports t1
         <> ", "
-        <> canonicalTypeToString self imports t1 
-        <> 
+        <> canonicalTypeToString self imports t1
+        <>
           (case mt3 of
               Nothing -> ""
 
@@ -446,7 +471,7 @@ qualifier self imports (can@(Elm.ModuleName.Canonical pkg mdl)) value =
       T.pack ""
     else if isBuiltIn can value then
       T.pack ""
-    else 
+    else
       case matchImport can imports value of
         Just (matched@(Src.Import _ (Just alias) _)) ->
           T.pack (Name.toChars alias) <> "."
@@ -476,7 +501,7 @@ matchImport (can@(Elm.ModuleName.Canonical pkg mdl)) imports value =
             case Src._exposing top of
               Src.Open ->
                 Nothing
-              
+
               Src.Explicit exposedList ->
                 if isExposed value exposedList then
                   Nothing
@@ -491,13 +516,13 @@ isExposed value expList =
     case expList of
       [] ->
           False
-      
+
       Src.Lower (A.At _ name) : remain ->
           if name == value then
             True
           else
             isExposed value remain
-      
+
       Src.Upper (A.At _ name) privacy : remain ->
         -- we're only dealing with type values, so privacy doesn't matter.
         if name == value then
@@ -513,7 +538,7 @@ canonicalTypeToMultilineString :: Name.Name -> [ Src.Import ] -> Can.Type -> Tex
 canonicalTypeToMultilineString self imports tipe =
   case tipe of
     TLambda t1 t2 ->
-      canonicalTypeToMultilineString self imports t1 
+      canonicalTypeToMultilineString self imports t1
         <> "\n    -> "
         <> canonicalTypeToMultilineString self imports t2
 
@@ -525,10 +550,10 @@ canonicalTypeToMultilineString self imports tipe =
         <> T.pack (Name.toChars name)
         <> (case paramTypes of
               [] -> ""
-                
-              _ -> 
-                " " <> 
-                    T.intercalate " " 
+
+              _ ->
+                " " <>
+                    T.intercalate " "
                         (map (canonicalTypeToMultilineString self imports) paramTypes)
           )
 
@@ -542,11 +567,11 @@ canonicalTypeToMultilineString self imports tipe =
                   T.pack (Name.toChars ext) <> " |"
           )
         <> (map
-              (\(fieldName, fieldType) -> 
-                  T.pack (Name.toChars fieldName) 
-                      <> " : " 
+              (\(fieldName, fieldType) ->
+                  T.pack (Name.toChars fieldName)
+                      <> " : "
                       <> canonicalTypeToMultilineString self imports fieldType
-              ) 
+              )
               (Can.fieldsToList fieldTypes)
               & T.intercalate "\n       , "
            )
@@ -556,11 +581,11 @@ canonicalTypeToMultilineString self imports tipe =
       "()"
 
     TTuple t1 t2 mt3 ->
-      "( " 
-        <> canonicalTypeToMultilineString self imports t1 
+      "( "
+        <> canonicalTypeToMultilineString self imports t1
         <> ", "
-        <> canonicalTypeToMultilineString self imports t1 
-        <> 
+        <> canonicalTypeToMultilineString self imports t1
+        <>
           (case mt3 of
               Nothing -> ""
 
@@ -580,13 +605,13 @@ canonicalTypeToMultilineString self imports tipe =
 {- Find Definition -}
 
 
-{-| 
+{-|
   Given file name and coords (line and char)
   1. Find which name is at the coordinates
-  
+
   2. Resolve definition source
 
-    2.a Qualified call 
+    2.a Qualified call
         -> resolve Qualification to full module name
         -> resolve full module name to file path
         -> read file, get coordinates of definition
@@ -600,31 +625,38 @@ canonicalTypeToMultilineString self imports tipe =
 -}
 printFindDefinition :: FilePath -> FilePath -> Integer -> Integer -> IO ()
 printFindDefinition root path row col = do
-  (source, modul) <- Llamadera.loadFileSource root path
+  mSource <- Llamadera.loadFileSource root path
+  case mSource of
+    Left err ->
+      putStrLn $ show err
+    Right (source, modul) -> do
+      -- Llamadera.formatHaskellValue "Source" source
+      let
+          point = A.Position (fromIntegral row) (fromIntegral col)
+          maybeValue =
+            modul
+              & Src._values
+              & findFirst
+                  (\(A.At region (Src.Value (A.At _ name_) params expr typeM)) ->
+                      withinRegion point region
+                  )
+              >>= (getExpressionNameAt point)
 
-  -- Llamadera.formatHaskellValue "Source" source
-  let 
-      point = A.Position (fromIntegral row) (fromIntegral col)
-      maybeValue =
-        modul
-          & Src._values
-          & findFirst 
-              (\(A.At region (Src.Value (A.At _ name_) params expr typeM)) ->
-                  withinRegion point region 
-              )
-          >>= (getExpressionNameAt point)
-            
-          
-  Llamadera.formatHaskellValue "Source" maybeValue
-  Dir.withCurrentDirectory root $ do
-    -- interfaces <- Llamadera.allInterfaces [path]
-    (Compile.Artifacts canonical annotations objects) <- Llamadera.loadSingleArtifacts path
-    -- Llamadera.formatHaskellValue ("Interfaces") interfaces
-    Llamadera.formatHaskellValue ("Interfaces") annotations
 
-    pure ()
+      Llamadera.formatHaskellValue "Source" maybeValue
+      Dir.withCurrentDirectory root $ do
+        -- interfaces <- Llamadera.allInterfaces [path]
+        eitherArtifacts <- Llamadera.loadSingleArtifacts path
+        case eitherArtifacts of
+          Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
+            -- Llamadera.formatHaskellValue ("Interfaces") interfaces
+            Llamadera.formatHaskellValue ("Interfaces") annotations
 
-  pure ()
+          Left err -> putStrLn $ show err
+
+        pure ()
+
+      pure ()
 
 
 getExpressionNameAt point (v@(A.At region (Src.Value (A.At _ name_) params expr typeM))) =
@@ -635,7 +667,7 @@ getExpressionNameAtHelper :: A.Position -> Src.Expr -> Maybe (Src.VarType, Maybe
 getExpressionNameAtHelper point expr =
   if not (withinRegion point (A.toRegion expr)) then
     Nothing
-  
+
   else
     case A.toValue expr of
       Src.Chr str ->
@@ -682,8 +714,8 @@ getExpressionNameAtHelper point expr =
         Nothing
       Src.Shader src types ->
         Nothing
-  
-  
+
+
 
 findFirst fn vals =
   case vals of
@@ -703,10 +735,10 @@ findFirstJust fn vals =
       case fn top of
         Nothing ->
           findFirstJust fn remain
-        
+
         otherwise ->
             otherwise
-     
+
 
 
 withinRegion :: A.Position -> A.Region -> Bool
@@ -722,19 +754,25 @@ callgraph root file expressionName = do
   Dir.withCurrentDirectory root $ do
     Llamadera.debug_ "Getting artifacts..."
 
-    (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) <- Llamadera.loadSingleArtifacts file
-    let moduleName =
-            case mod of
-                Can.Module modName _ _ _ _ _ _ _ ->
-                    modName
-    
-    case graph & Map.lookup (Opt.Global moduleName expressionName) of  
-      Just annotation -> do
-        pure (graphToJson graph (Opt.Global moduleName expressionName))
+    eitherArtifacts <- Llamadera.loadSingleArtifacts file
+    case eitherArtifacts of
+      Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
+        let moduleName =
+                case mod of
+                    Can.Module modName _ _ _ _ _ _ _ ->
+                        modName
 
-      Nothing ->
-        pure (Json.Encode.string (Json.String.fromChars "Not found"))
-    
+        case graph & Map.lookup (Opt.Global moduleName expressionName) of
+          Just annotation -> do
+            pure (graphToJson graph (Opt.Global moduleName expressionName))
+
+          Nothing ->
+            pure (Json.Encode.string (Json.String.fromChars "Not found"))
+
+      Left err ->
+        -- @TODO can we use Elm's error JSON formatter here?
+        pure $ jsonError err
+
 
 {-|
 
@@ -744,22 +782,27 @@ printCallGraph root file expressionName = do
   Dir.withCurrentDirectory root $ do
     Llamadera.debug_ "Getting artifacts..."
 
-    (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) <- Llamadera.loadSingleArtifacts file
-    let moduleName =
-            case mod of
-                Can.Module modName _ _ _ _ _ _ _ ->
-                    modName
-    
-    let json = Json.Encode.encode (graphToJson graph (Opt.Global moduleName expressionName))
-    case graph & Map.lookup (Opt.Global moduleName expressionName) of
-      
-      Just annotation -> do
-        --  Llamadera.formatHaskellValue ("local GRAPH") graph
-         B.hPutBuilder stderr json
+    eitherArtifacts <- Llamadera.loadSingleArtifacts file
+    case eitherArtifacts of
+      Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
+        let moduleName =
+                case mod of
+                    Can.Module modName _ _ _ _ _ _ _ ->
+                        modName
 
-      Nothing ->
-        putStrLn "Not found!"
-    
+        let json = Json.Encode.encode (graphToJson graph (Opt.Global moduleName expressionName))
+        case graph & Map.lookup (Opt.Global moduleName expressionName) of
+
+          Just annotation -> do
+            --  Llamadera.formatHaskellValue ("local GRAPH") graph
+             B.hPutBuilder stderr json
+
+          Nothing ->
+            putStrLn "Not found!"
+
+
+      Left err ->
+        putStrLn $ show err
 
   pure ()
 
@@ -817,8 +860,8 @@ data Expr
 
 -}
 graphToJson :: Map.Map Opt.Global Opt.Node -> Opt.Global -> Json.Encode.Value
-graphToJson graph entry = 
-    let 
+graphToJson graph entry =
+    let
         (_, jsonListOfCalls) = getAllGraphCallsAsJson Set.empty graph entry
     in
     Json.Encode.list (\a -> a) jsonListOfCalls
@@ -826,7 +869,7 @@ graphToJson graph entry =
 
 
 tagged name val =
-  Json.Encode.object 
+  Json.Encode.object
     [ "name" ==> globalNameToJson name
     , "body" ==> val
     ]
@@ -844,9 +887,9 @@ getAllGraphCallsAsJson alreadyCalled graph call =
                     calls = getCalls expression
 
                     (everyThingCalled, callsAsJson) =
-                      List.foldl' 
-                          (\(newAlreadyCalled, foundCalls) innerCall -> 
-                              let 
+                      List.foldl'
+                          (\(newAlreadyCalled, foundCalls) innerCall ->
+                              let
                                   (subAlreadyCalled, innerCallJson) =
                                     getAllGraphCallsAsJson newAlreadyCalled graph innerCall
                               in
@@ -860,82 +903,82 @@ getAllGraphCallsAsJson alreadyCalled graph call =
                           calls
                 in
                 ( everyThingCalled
-                , (expressionToJson expression 
+                , (expressionToJson expression
                       & tagged call)
                       : callsAsJson
                 )
 
             Opt.DefineTailFunc names expr _ ->
               ( alreadyCalled
-              , [ Json.Encode.string (Json.String.fromChars "DEFINE TAIL CALL") 
+              , [ Json.Encode.string (Json.String.fromChars "DEFINE TAIL CALL")
                      & tagged call
                 ]
               )
-            
+
             Opt.Enum index ->
               ( alreadyCalled
-              , [ Json.Encode.string (Json.String.fromChars "Enum") 
+              , [ Json.Encode.string (Json.String.fromChars "Enum")
                     & tagged call
                 ]
               )
 
             Opt.Ctor index i ->
               ( alreadyCalled
-              , [ Json.Encode.string (Json.String.fromChars "Constructor") 
+              , [ Json.Encode.string (Json.String.fromChars "Constructor")
                      & tagged call
                 ]
               )
 
             Opt.Box ->
               ( alreadyCalled
-              , [ Json.Encode.string (Json.String.fromChars "Box") 
+              , [ Json.Encode.string (Json.String.fromChars "Box")
                      & tagged call
                 ]
               )
-            
+
             Opt.Link glob ->
               ( alreadyCalled
-              , [ Json.Encode.string (Json.String.fromChars "Link") 
+              , [ Json.Encode.string (Json.String.fromChars "Link")
                      & tagged call
               ]
               )
 
             Opt.Cycle names nameExprs defs _ ->
               ( alreadyCalled
-              , [ Json.Encode.string (Json.String.fromChars "Cycle") 
+              , [ Json.Encode.string (Json.String.fromChars "Cycle")
                      & tagged call
               ]
               )
 
             Opt.Manager effectsType ->
               ( alreadyCalled
-              , [ Json.Encode.string (Json.String.fromChars "Effect Manager") 
+              , [ Json.Encode.string (Json.String.fromChars "Effect Manager")
                      & tagged call
                 ]
               )
 
             Opt.Kernel chunks _ ->
               ( alreadyCalled
-              , [ Json.Encode.string (Json.String.fromChars "Kernel") 
+              , [ Json.Encode.string (Json.String.fromChars "Kernel")
                      & tagged call
-              
+
               ]
               )
 
             Opt.PortIncoming exp _ ->
               ( alreadyCalled
-              , [ Json.Encode.string (Json.String.fromChars "Port Incoming") 
+              , [ Json.Encode.string (Json.String.fromChars "Port Incoming")
                    & tagged call
                 ]
               )
 
             Opt.PortOutgoing exp _ ->
               ( alreadyCalled
-              , [ Json.Encode.string (Json.String.fromChars "Port Outgoing") 
+              , [ Json.Encode.string (Json.String.fromChars "Port Outgoing")
                    & tagged call
               ]
               )
-            
+
       Nothing ->
         -- This is either:
         --  1. something that the user supplied and we couldn't find it (only top case)
@@ -945,8 +988,8 @@ getAllGraphCallsAsJson alreadyCalled graph call =
         --     Maybe at some point there can be a "noReallyGetMeEverything" version of the fn.
         --     Not sure it's necessary though.
         ( alreadyCalled
-        , [ 
-          -- Json.Encode.object 
+        , [
+          -- Json.Encode.object
           --     [ ( Json.String.fromChars "NOTFOUND"
           --       , globalNameToJson call
           --       )
@@ -960,7 +1003,7 @@ getCalls expr =
    case expr of
       Opt.Bool b ->
           []
-      
+
       Opt.Chr str ->
           []
 
@@ -969,22 +1012,22 @@ getCalls expr =
 
       Opt.Int i ->
           []
-      
+
       Opt.Float elmFloat ->
           []
 
       Opt.VarLocal varName ->
           []
-  
+
       Opt.VarGlobal global ->
           [  global ]
 
       Opt.VarEnum global index ->
           [ global ]
-              
+
       Opt.VarBox global ->
           [ global ]
-        
+
       Opt.VarCycle mod name ->
           []
 
@@ -993,25 +1036,25 @@ getCalls expr =
 
       Opt.VarKernel name nameTwo ->
           []
-      
+
       Opt.List expList ->
           List.concatMap (getCalls) expList
 
       Opt.Function nameList funcExpression ->
           getCalls funcExpression
-      
+
       Opt.Call call listExps ->
           getCalls call <> List.concatMap getCalls listExps
 
       Opt.TailCall name listNameExpr ->
-          List.concatMap 
+          List.concatMap
               (\(name, expr) ->
                   getCalls expr
               )
               listNameExpr
-        
+
       Opt.If pairs elseExpr ->
-           List.concatMap 
+           List.concatMap
               (\(one, two) ->
                   getCalls one <> getCalls two
               )
@@ -1019,12 +1062,12 @@ getCalls expr =
 
       Opt.Let def expr ->
           getCalls expr
-        
+
       Opt.Destruct destructor exp ->
           getCalls exp
-        
+
       Opt.Case one two decider listIntExprs ->
-          getDeciderCalls decider 
+          getDeciderCalls decider
             <> List.concatMap
                 (\(_, expr) ->
                     getCalls expr
@@ -1033,19 +1076,19 @@ getCalls expr =
 
       Opt.Accessor name ->
           []
-      
+
       Opt.Access accessExpr accessName ->
           getCalls accessExpr
-             
+
       Opt.Update expression mapNameExpr ->
-          getCalls expression 
+          getCalls expression
             <> Map.foldr
                 (\expr gathered ->
                     getCalls expr <> gathered
                 )
                 []
                 mapNameExpr
-      
+
       Opt.Record mapNameExpr ->
         Map.foldr
             (\expr gathered ->
@@ -1053,18 +1096,18 @@ getCalls expr =
             )
             []
             mapNameExpr
-      
+
       Opt.Unit ->
           []
 
       Opt.Tuple one two maybeThree ->
-          getCalls one 
-            <> getCalls two 
-            <> 
+          getCalls one
+            <> getCalls two
+            <>
               (case maybeThree of
                   Nothing ->
                       []
-                    
+
                   Just three ->
                     getCalls three
 
@@ -1078,16 +1121,16 @@ getDeciderCalls decider =
     case decider of
       Opt.Leaf (Opt.Inline expr) ->
           getCalls expr
-      
+
       Opt.Leaf (Opt.Jump i) ->
           -- I assume we don't need to do anything here?
           []
-      
+
       Opt.Chain test success failure ->
           getDeciderCalls success <> getDeciderCalls failure
 
       Opt.FanOut path tests fallback ->
-          List.concatMap 
+          List.concatMap
               (\(test, decide) ->
                   getDeciderCalls decide
               )
@@ -1095,70 +1138,70 @@ getDeciderCalls decider =
               <> getDeciderCalls fallback
 
 
-  
+
 
 expressionToJson :: Opt.Expr -> Json.Encode.Value
 expressionToJson expr =
     case expr of
       Opt.Bool b ->
           Json.Encode.bool b
-      
+
       Opt.Chr str ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "char"
               , Json.Encode.string (Json.String.fromChars (Elm.String.toChars str))
               )
             ]
 
       Opt.Str str ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "string"
               , Json.Encode.string (Json.String.fromChars (Elm.String.toChars str))
               )
             ]
 
       Opt.Int i ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "int"
               , Json.Encode.int i
               )
             ]
-      
+
       Opt.Float elmFloat ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "float"
               , Json.Encode.string (Json.String.fromChars ("AW GAWD HOW DO WE DO FLOATS"))
               )
             ]
 
       Opt.VarLocal varName ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "var"
               , nameToJsonString varName
               )
             ]
-  
+
       Opt.VarGlobal global ->
           globalNameToJson global
 
       Opt.VarEnum global index ->
           globalNameToJson global
-              
+
       Opt.VarBox global ->
           globalNameToJson global
 
       Opt.VarCycle mod name ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "cycle"
               , nameToJsonString name
               )
             ]
-      
+
       Opt.VarDebug name mod region maybeName ->
         Json.Encode.string (Json.String.fromChars "Debug!")
 
       Opt.VarKernel one two ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "kernelOne"
               , nameToJsonString one
               )
@@ -1171,7 +1214,7 @@ expressionToJson expr =
           Json.Encode.list (expressionToJson) expList
 
       Opt.Function nameList funcExpression ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "type"
               , Json.Encode.string (Json.String.fromChars "fn")
               )
@@ -1181,34 +1224,34 @@ expressionToJson expr =
             , ( Json.String.fromChars "body"
               , expressionToJson funcExpression
               )
-            ] 
-      
+            ]
+
       Opt.Call call listExps ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "call"
               , expressionToJson call
               )
             , ( Json.String.fromChars "with"
               , Json.Encode.list (expressionToJson) listExps
               )
-            ] 
+            ]
 
       Opt.TailCall name listNameExps ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "tailcall"
               , nameToJsonString name
               )
             , ( Json.String.fromChars "with"
               , Json.Encode.list (\(name, exp) -> expressionToJson exp) listNameExps
               )
-            ] 
-          
+            ]
+
       Opt.If pairs elseExpr ->
-        Json.Encode.object 
+        Json.Encode.object
             [ ( Json.String.fromChars "if"
-              , Json.Encode.list 
+              , Json.Encode.list
                   (\(cond, result) ->
-                      Json.Encode.object 
+                      Json.Encode.object
                         [ ( Json.String.fromChars "condition"
                           , expressionToJson cond
                           )
@@ -1223,21 +1266,21 @@ expressionToJson expr =
             , ( Json.String.fromChars "else"
               , expressionToJson elseExpr
               )
-            ] 
+            ]
 
       Opt.Let (Opt.Def name defExpr) expr ->
-        Json.Encode.object 
+        Json.Encode.object
             [ ( Json.String.fromChars "let"
               , expressionToJson defExpr
               )
             , ( Json.String.fromChars "in"
               , expressionToJson expr
               )
-            ] 
-          
+            ]
+
 
       Opt.Let (Opt.TailDef name listName tailExpr) expr ->
-        Json.Encode.object 
+        Json.Encode.object
             [ ( Json.String.fromChars "let"
               , expressionToJson tailExpr
               )
@@ -1250,14 +1293,14 @@ expressionToJson expr =
             ]
 
       Opt.Destruct destruct expr ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "destruct"
               , (expressionToJson) expr
               )
-            ] 
-      
+            ]
+
       Opt.Case one two decider _ ->
-         Json.Encode.object 
+         Json.Encode.object
             [ ( Json.String.fromChars "case"
               , nameToJsonString one
               )
@@ -1267,81 +1310,81 @@ expressionToJson expr =
             , ( Json.String.fromChars "body"
               , deciderToJson decider
               )
-            ] 
+            ]
 
       Opt.Accessor name ->
           nameToJsonString name
-      
+
       Opt.Access accessExpr accessName ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "access"
               , nameToJsonString accessName
               )
             , ( Json.String.fromChars "exp"
               , expressionToJson accessExpr
               )
-            ] 
+            ]
 
       Opt.Update exp fields ->
-        Json.Encode.object 
+        Json.Encode.object
             [ ( Json.String.fromChars "record"
               ,  expressionToJson exp
               )
             , ( Json.String.fromChars "fields"
               , Map.foldlWithKey
                   (\gathered name val ->
-                      Json.Encode.object 
+                      Json.Encode.object
                           [ ( Json.String.fromChars "name"
                             , nameToJsonString name
                             )
                           , ( Json.String.fromChars "value"
                             , expressionToJson val
                             )
-                          ] : 
+                          ] :
                           gathered
                   )
                   []
                   fields
                   & Json.Encode.list (\a -> a)
               )
-            ] 
-        
+            ]
+
       Opt.Record fields ->
-          Json.Encode.object 
+          Json.Encode.object
             [ ( Json.String.fromChars "record"
               , Map.foldlWithKey
                   (\gathered name val ->
-                      Json.Encode.object 
+                      Json.Encode.object
                           [ ( Json.String.fromChars "name"
                             , nameToJsonString name
                             )
                           , ( Json.String.fromChars "value"
                             , expressionToJson val
                             )
-                          ] : 
+                          ] :
                           gathered
                   )
                   []
                   fields
                   & Json.Encode.list (\a -> a)
               )
-            ] 
+            ]
 
       Opt.Unit ->
         Json.Encode.object []
 
       Opt.Tuple one two maybeThree ->
-         Json.Encode.object 
+         Json.Encode.object
             (Maybe.catMaybes
               [ Just
                 ( Json.String.fromChars "0"
                 , expressionToJson one
                 )
-            , Just 
+            , Just
                 ( Json.String.fromChars "1"
                 , expressionToJson one
                 )
-            , fmap 
+            , fmap
                 (\three ->
                   ( Json.String.fromChars "2"
                   , expressionToJson three
@@ -1358,10 +1401,10 @@ deciderToJson decider =
   case decider of
       Opt.Leaf (Opt.Inline expr) ->
         expressionToJson expr
-      
+
       Opt.Leaf (Opt.Jump i) ->
           Json.Encode.string (Json.String.fromChars "Jump!")
-      
+
       Opt.Chain test success failure ->
           Json.Encode.string (Json.String.fromChars "Chain")
 
@@ -1378,3 +1421,9 @@ globalNameToJson :: Opt.Global -> Json.Encode.Value
 globalNameToJson (Opt.Global (Elm.ModuleName.Canonical pkg mdl) name) =
     Json.Encode.string (Json.String.fromChars (Name.toChars mdl <> "." <> Name.toChars name))
 
+
+jsonError :: Show a => a -> Json.Encode.Value
+jsonError err =
+  Json.Encode.object
+      [ "error" ==> Json.Encode.string (Json.String.fromChars ("Error: " ++ show err))
+      ]
