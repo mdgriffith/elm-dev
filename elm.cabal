@@ -218,6 +218,7 @@ Executable watchtower
 
         -- watchtower
         Watchtower
+        Watchtower.Project
         Watchtower.Annotate
         Watchtower.Compile
         Watchtower.Details
