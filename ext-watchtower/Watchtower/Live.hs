@@ -72,7 +72,7 @@ initializeProject accum project =
 recompile :: Watchtower.Live.State -> [String] -> IO ()
 recompile (Watchtower.Live.State mClients projects) filenames = do
   debug $ "🛫  recompile starting: " ++ show filenames
-  trackedForkIO $ do
+  trackedForkIO $ track "recompile" $ do
     projectStatuses <- Monad.foldM
       (\gathered (cache, proj@(Watchtower.Project.Project r entrypoints)) ->
           do
@@ -94,9 +94,6 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
 
       ) [] projects
     Watchtower.Websocket.broadcastImpl mClients $ builderToString $ encodeOutgoing (ElmStatus projectStatuses)
-
-  debug "🛬  recompile done... "
-
 
 websocket :: State -> Snap ()
 websocket state =
