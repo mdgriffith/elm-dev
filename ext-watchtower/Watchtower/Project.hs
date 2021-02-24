@@ -2,8 +2,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Watchtower.Project (discover, decodeProject, Project(..)) where
+module Watchtower.Project (contains, discover, decodeProject, Project(..)) where
 
+import qualified Data.List as List
 import qualified System.Directory as Dir
 import qualified System.Environment as Env
 import System.FilePath as FP ((</>), joinPath, splitDirectories, takeDirectory)
@@ -46,6 +47,17 @@ data Project =
         { _root :: FilePath
         , _entrypoints :: [ FilePath]
         }
+        deriving (Show)
+
+
+
+
+{-|
+-}
+contains :: FilePath -> Project -> Bool
+contains path (Project root entries) =
+    List.isPrefixOf root path
+
 
 {- Recursively find files named elm.json.
 

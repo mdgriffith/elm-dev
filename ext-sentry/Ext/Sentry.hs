@@ -22,6 +22,8 @@ data Cache =
     , compileResult :: MVar (Either Encode.Value Encode.Value)
     }
 
+instance Show Cache where
+  show _ = "<Cache>"
 
 init :: IO Cache
 init = do

@@ -9,13 +9,14 @@ import Snap.Core hiding (path)
 import Snap.Http.Server
 import Snap.Util.FileServe
 import Control.Monad.Trans (liftIO)
-import Control.Monad (guard)
+import Control.Monad as Monad (guard, foldM)
 import Control.Concurrent.STM
 
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.List as List
 
 
 import qualified Network.WebSockets      as WS
@@ -33,6 +34,7 @@ import qualified Ext.Sentry
 
 import qualified Watchtower.Websocket
 import qualified Watchtower.Compile
+import qualified Watchtower.Project
 
 import Ext.Common
 
@@ -40,8 +42,8 @@ import Ext.Common
 
 data State =
         State
-            { cache :: Ext.Sentry.Cache
-            , clients :: (TVar [Client])
+            { clients :: (TVar [Client])
+            , projects :: [ (Ext.Sentry.Cache, Watchtower.Project.Project) ]
             }
 
 type ClientId = T.Text
@@ -49,24 +51,49 @@ type ClientId = T.Text
 type Client = (ClientId, WS.Connection)
 
 
-init :: IO State
-init =
+init :: FilePath -> IO State
+init root =
     State
-      <$> Ext.Sentry.init
-      <*> Watchtower.Websocket.clientsInit
+      <$> Watchtower.Websocket.clientsInit
+      <*> discoverProjects root
+
+
+discoverProjects root = do
+    projects <- Watchtower.Project.discover root
+    Monad.foldM initializeProject [] projects
+
+
+initializeProject accum project =
+    do
+        cache <- Ext.Sentry.init
+        pure ((cache, project) : accum)
 
 
 recompile :: Watchtower.Live.State -> [String] -> IO ()
-recompile (Watchtower.Live.State sentryCache mClients) filenames = do
+recompile (Watchtower.Live.State mClients projects) filenames = do
   debug $ "🛫  recompile starting: " ++ show filenames
   trackedForkIO $ do
-    Ext.Sentry.updateCompileResult sentryCache $ do
+    projectStatuses <- Monad.foldM
+      (\gathered (cache, proj@(Watchtower.Project.Project r entrypoints)) ->
+          do
+              let affected = any
+                            (\file -> Watchtower.Project.contains file proj)
+                            filenames
+              if affected && not (Prelude.null entrypoints) then do
+                debug $ "🧟 affected project" ++ show proj
 
-      -- @TODO what do we do with multiple filenames?
-      eitherStatusJson <- Watchtower.Compile.compileToJson (head filenames)
-      Watchtower.Websocket.broadcastImpl mClients $ eitherStatusToText eitherStatusJson
-      pure eitherStatusJson
+                -- Can compileToJson take multiple entrypoints like elm make?
+                eitherStatusJson <- Watchtower.Compile.compileToJson (head entrypoints)
 
+                Ext.Sentry.updateCompileResult cache $
+                    pure eitherStatusJson
+
+                pure ((proj, reduceStatus eitherStatusJson) : gathered)
+              else
+                pure gathered
+
+      ) [] projects
+    Watchtower.Websocket.broadcastImpl mClients $ builderToString $ encodeOutgoing (ElmStatus projectStatuses)
 
   debug "🛬  recompile done... "
 
@@ -79,15 +106,20 @@ websocket state =
 
 
 websocket_ :: State -> Snap ()
-websocket_ (state@(State cache mClients)) = do
+websocket_ (state@(State mClients projects)) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
       let
         onJoined clientId totalClients = do
-          debug (T.unpack ("Total clients " <> T.pack (show totalClients)))
-          eitherStatusJson <- Ext.Sentry.getCompileResult cache
-          pure $ Just $ eitherStatusToText eitherStatusJson
+          statuses <- Monad.foldM
+                        (\gathered (cache, proj) ->
+                          do
+                            jsonStatus <- Ext.Sentry.getCompileResult cache
+                            pure $ (proj, reduceStatus jsonStatus) : gathered
+                        )
+                        [] projects
+          pure $ Just $ builderToString $ encodeOutgoing (ElmStatus statuses)
 
       Watchtower.Websocket.runWebSocketsSnap
         $ Watchtower.Websocket.socketHandler
@@ -106,7 +138,6 @@ receive state clientId text = do
   case Json.Decode.fromByteString decodeIncoming (T.encodeUtf8 text) of
     Left err -> do
       debug $ (T.unpack "Error decoding!" <> T.unpack text)
-      --
       pure ()
 
     Right action -> do
@@ -114,7 +145,7 @@ receive state clientId text = do
       receiveAction state clientId action
 
 
-receiveAction state@(State cache mClients) clientId incoming =
+receiveAction state@(State mClients projects) clientId incoming =
   case incoming of
     Visible visible -> do
        debug $ "forwarding visibility"
@@ -130,14 +161,13 @@ receiveAction state@(State cache mClients) clientId incoming =
 
 
 
-eitherStatusToText :: Either Json.Encode.Value Json.Encode.Value -> T.Text
-eitherStatusToText eitherStatusJson =
-  case eitherStatusJson of
-    Left errors -> do
-      builderToString (encodeOutgoing (ElmStatus errors))
-
-    Right jsoutput -> do
-      builderToString (encodeOutgoing (ElmStatus jsoutput))
+reduceStatus :: Either Json.Encode.Value Json.Encode.Value -> Json.Encode.Value
+reduceStatus either =
+  case either of
+    Right json ->
+      json
+    Left json ->
+      json
 
 
 decodeIncoming :: Json.Decode.Decoder T.Text Incoming
@@ -196,7 +226,7 @@ data Outgoing
     | FwdJumpTo Watchtower.Details.Location
 
     -- new information is available
-    | ElmStatus Json.Encode.Value
+    | ElmStatus [ (Watchtower.Project.Project, Json.Encode.Value) ]
 
 
 encodeOutgoing :: Outgoing -> Data.ByteString.Builder.Builder
@@ -215,8 +245,16 @@ encodeOutgoing out =
             , "details" ==> Watchtower.Details.encodeLocation loc
             ]
 
-      ElmStatus js ->
+      ElmStatus statuses ->
         Json.Encode.object
             [ "msg" ==> Json.Encode.string (Json.String.fromChars "Status")
-            , "details" ==> js
+            , "details" ==>
+                Json.Encode.list encodeStatus statuses
             ]
+
+
+encodeStatus ((Watchtower.Project.Project root entrypoints), js) =
+    Json.Encode.object
+        [ "root" ==> Json.Encode.string (Json.String.fromChars root)
+        , "status" ==> js
+        ]

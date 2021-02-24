@@ -5,10 +5,12 @@ module Watchtower.Server (Flags(..),serve) where
 import Control.Applicative ((<|>))
 import Control.Monad.Trans (MonadIO(liftIO))
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
+import qualified System.Directory as Dir
 
 import Snap.Core hiding (path)
 import Snap.Http.Server
 import Snap.Util.FileServe
+
 
 import qualified Develop.Generate.Help
 import qualified Json.Encode
@@ -18,6 +20,7 @@ import qualified Watchtower.Details
 import qualified Watchtower.Live
 import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
+import qualified Watchtower.Project
 import qualified Ext.Filewatch
 import Llamadera
 
@@ -32,9 +35,13 @@ serve :: Flags -> IO ()
 serve (Flags maybePort) =
   do  let port = withDefault 9000 maybePort
       putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
-      liveState <- liftIO $ Watchtower.Live.init
+
+      cwd <- liftIO $ Dir.getCurrentDirectory
+      liveState <- liftIO $ Watchtower.Live.init cwd
+
 
       root <- getProjectRoot
+      project <- Watchtower.Project.discover root
       Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
       httpServe (config port) $
