@@ -33,7 +33,7 @@ type Incoming
         { active : Maybe Editor.Editor
         , visible : List Editor.Editor
         }
-    | Errors Elm.Error
+    | ProjectsStatusUpdated (List Elm.Project)
     | WorkspaceFolders (List Editor.Workspace)
 
 
@@ -59,8 +59,8 @@ incomingDecoder =
             (\msg ->
                 case Debug.log "found msg" msg of
                     "Status" ->
-                        Decode.map Errors
-                            (Decode.field "details" Elm.decodeError)
+                        Decode.map ProjectsStatusUpdated
+                            (Decode.field "details" (Decode.list Elm.decodeProject))
 
                     "Visible" ->
                         Decode.field "details"

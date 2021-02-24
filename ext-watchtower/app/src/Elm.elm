@@ -6,6 +6,13 @@ import Editor
 import Json.Decode as Decode
 
 
+type alias Project =
+    { root : String
+    , entrypoints : List String
+    , status : Error
+    }
+
+
 type Error
     = NoData
     | Success
@@ -71,6 +78,13 @@ inEditor file editor =
 
 {- DECODERS -}
 {- HELPERS -}
+
+
+decodeProject =
+    Decode.map3 Project
+        (Decode.field "root" Decode.string)
+        (Decode.field "entrypoints" (Decode.list Decode.string))
+        (Decode.field "status" decodeError)
 
 
 decodeError =

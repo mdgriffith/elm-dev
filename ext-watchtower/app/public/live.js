@@ -5148,8 +5148,8 @@ var $elm$core$Basics$composeL = F3(
 var $elm$json$Json$Decode$decodeValue = _Json_run;
 var $elm$json$Json$Decode$value = _Json_decodeValue;
 var $author$project$Ports$editorChange = _Platform_incomingPort('editorChange', $elm$json$Json$Decode$value);
-var $author$project$Ports$Errors = function (a) {
-	return {$: 'Errors', a: a};
+var $author$project$Ports$ProjectsStatusUpdated = function (a) {
+	return {$: 'ProjectsStatusUpdated', a: a};
 };
 var $author$project$Ports$VisibleEditorsUpdated = function (a) {
 	return {$: 'VisibleEditorsUpdated', a: a};
@@ -5220,6 +5220,10 @@ var $author$project$Editor$decodeEditor = A4(
 		$elm$json$Json$Decode$field,
 		'selections',
 		$elm$json$Json$Decode$list($author$project$Editor$selection)));
+var $author$project$Elm$Project = F3(
+	function (root, entrypoints, status) {
+		return {entrypoints: entrypoints, root: root, status: status};
+	});
 var $author$project$Elm$CompilerError = function (a) {
 	return {$: 'CompilerError', a: a};
 };
@@ -5374,6 +5378,15 @@ var $author$project$Elm$decodeError = $elm$json$Json$Decode$oneOf(
 			},
 			A2($elm$json$Json$Decode$field, 'type', $author$project$Elm$decodeErrorType))
 		]));
+var $author$project$Elm$decodeProject = A4(
+	$elm$json$Json$Decode$map3,
+	$author$project$Elm$Project,
+	A2($elm$json$Json$Decode$field, 'root', $elm$json$Json$Decode$string),
+	A2(
+		$elm$json$Json$Decode$field,
+		'entrypoints',
+		$elm$json$Json$Decode$list($elm$json$Json$Decode$string)),
+	A2($elm$json$Json$Decode$field, 'status', $author$project$Elm$decodeError));
 var $elm$core$Debug$log = _Debug_log;
 var $elm$json$Json$Decode$nullable = function (decoder) {
 	return $elm$json$Json$Decode$oneOf(
@@ -5391,8 +5404,11 @@ var $author$project$Ports$incomingDecoder = A2(
 			case 'Status':
 				return A2(
 					$elm$json$Json$Decode$map,
-					$author$project$Ports$Errors,
-					A2($elm$json$Json$Decode$field, 'details', $author$project$Elm$decodeError));
+					$author$project$Ports$ProjectsStatusUpdated,
+					A2(
+						$elm$json$Json$Decode$field,
+						'details',
+						$elm$json$Json$Decode$list($author$project$Elm$decodeProject)));
 			case 'Visible':
 				return A2(
 					$elm$json$Json$Decode$field,
@@ -5425,15 +5441,36 @@ var $author$project$Ports$incoming = function (toMsg) {
 			toMsg,
 			$elm$json$Json$Decode$decodeValue($author$project$Ports$incomingDecoder)));
 };
-var $author$project$Elm$NoData = {$: 'NoData'};
 var $elm$core$Platform$Cmd$batch = _Platform_batch;
 var $elm$core$Platform$Cmd$none = $elm$core$Platform$Cmd$batch(_List_Nil);
 var $author$project$Main$init = _Utils_Tuple2(
-	{active: $elm$core$Maybe$Nothing, diagnostics: $author$project$Elm$NoData, visible: _List_Nil, workspace: _List_Nil},
+	{active: $elm$core$Maybe$Nothing, projects: _List_Nil, visible: _List_Nil, workspace: _List_Nil},
 	$elm$core$Platform$Cmd$none);
 var $author$project$Ports$Goto = function (a) {
 	return {$: 'Goto', a: a};
 };
+var $author$project$Main$mergeProjects = F2(
+	function (_new, existing) {
+		var _v0 = A3(
+			$elm$core$List$foldl,
+			F2(
+				function (exist, _v1) {
+					var gathered = _v1.a;
+					var merged = _v1.b;
+					return merged ? _Utils_Tuple2(
+						A2($elm$core$List$cons, exist, gathered),
+						merged) : (_Utils_eq(exist.root, _new.root) ? _Utils_Tuple2(
+						A2($elm$core$List$cons, _new, gathered),
+						true) : _Utils_Tuple2(
+						A2($elm$core$List$cons, exist, gathered),
+						merged));
+				}),
+			_Utils_Tuple2(_List_Nil, false),
+			existing);
+		var newProjects = _v0.a;
+		var didMerge = _v0.b;
+		return didMerge ? newProjects : A2($elm$core$List$cons, _new, newProjects);
+	});
 var $elm$json$Json$Encode$int = _Json_wrap;
 var $elm$json$Json$Encode$object = function (pairs) {
 	return _Json_wrap(
@@ -5511,12 +5548,14 @@ var $author$project$Main$update = F2(
 								model,
 								{active: visible.active, visible: visible.visible}),
 							$elm$core$Platform$Cmd$none);
-					case 'Errors':
-						var diags = editorMsg.a;
+					case 'ProjectsStatusUpdated':
+						var projects = editorMsg.a;
 						return _Utils_Tuple2(
 							_Utils_update(
 								model,
-								{diagnostics: diags}),
+								{
+									projects: A3($elm$core$List$foldl, $author$project$Main$mergeProjects, model.projects, projects)
+								}),
 							$elm$core$Platform$Cmd$none);
 					default:
 						var newFolders = editorMsg.a;
@@ -5537,15 +5576,15 @@ var $author$project$Main$update = F2(
 						{file: file.path, region: problem.region})));
 		}
 	});
+var $elm$html$Html$div = _VirtualDom_node('div');
 var $elm$virtual_dom$VirtualDom$node = function (tag) {
 	return _VirtualDom_node(
 		_VirtualDom_noScript(tag));
 };
 var $elm$html$Html$node = $elm$virtual_dom$VirtualDom$node;
-var $author$project$Main$styleSheet = '\nhtml {\n    min-height:100%;\n}\nbody {\n    background-color: var(--vscode-editor-background);\n    color: var(--vscode-editor-foreground);\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family);\n    font-weight: var(--vscode-editor-font-weight);\n    font-size: var(--vscode-editor-font-size);\n    margin: 0;\n    padding: 0 20px;\n    min-height: 100vh;\n    display:flex;\n    flex-direction: column;\n    justify-content: center;\n    align-items: flex-start;\n}\n\n\n.info {\n    color: var(--vscode-editorInfo-foreground);\n}\n \n.warning {\n    color: var(--vscode-editorWarning-foreground);\n}\n\n.danger {\n    color: var(--vscode-editorError-foreground);\n}\n\n.success {\n    color: var(--vscode-testing-iconPassed);\n}\n\n\n\n';
+var $author$project$Main$styleSheet = '\nhtml {\n    min-height:100%;\n}\nbody {\n    background-color: var(--vscode-editor-background);\n    color: var(--vscode-editor-foreground);\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family);\n    font-weight: var(--vscode-editor-font-weight);\n    font-size: var(--vscode-editor-font-size);\n    margin: 0;\n    padding: 0 20px;\n    min-height: 100vh;\n    display:flex;\n    flex-direction: column;\n    justify-content: center;\n    align-items: flex-start;\n}\n\n\n.info {\n    color: var(--vscode-editorInfo-foreground);\n}\n\n.warning {\n    color: var(--vscode-editorWarning-foreground);\n}\n\n.danger {\n    color: var(--vscode-editorError-foreground);\n}\n\n.success {\n    color: var(--vscode-testing-iconPassed);\n}\n\n\n\n';
 var $elm$virtual_dom$VirtualDom$text = _VirtualDom_text;
 var $elm$html$Html$text = $elm$virtual_dom$VirtualDom$text;
-var $elm$html$Html$div = _VirtualDom_node('div');
 var $elm$virtual_dom$VirtualDom$style = _VirtualDom_style;
 var $elm$html$Html$Attributes$style = $elm$virtual_dom$VirtualDom$style;
 var $elm$core$List$head = function (list) {
@@ -6674,23 +6713,53 @@ var $author$project$Main$viewErrorCountHints = F2(
 	});
 var $author$project$Main$view = function (model) {
 	return {
-		body: A2(
-			$elm$core$List$cons,
-			A3(
-				$elm$html$Html$node,
-				'style',
-				_List_Nil,
-				_List_fromArray(
-					[
-						$elm$html$Html$text($author$project$Main$styleSheet)
-					])),
-			A2(
-				$elm$core$List$cons,
-				$author$project$Main$viewEditorFocusToken(model.active),
-				A2(
+		body: function () {
+			var _v0 = model.projects;
+			if (!_v0.b) {
+				return A2(
 					$elm$core$List$cons,
-					A2($author$project$Main$viewErrorCountHints, model.active, model.diagnostics),
-					A3($author$project$Main$viewError, model.active, model.visible, model.diagnostics)))),
+					A3(
+						$elm$html$Html$node,
+						'style',
+						_List_Nil,
+						_List_fromArray(
+							[
+								$elm$html$Html$text($author$project$Main$styleSheet)
+							])),
+					A2(
+						$elm$core$List$cons,
+						$author$project$Main$viewEditorFocusToken(model.active),
+						_List_fromArray(
+							[
+								A2(
+								$elm$html$Html$div,
+								_List_Nil,
+								_List_fromArray(
+									[
+										$elm$html$Html$text('No projects')
+									]))
+							])));
+			} else {
+				var top = _v0.a;
+				return A2(
+					$elm$core$List$cons,
+					A3(
+						$elm$html$Html$node,
+						'style',
+						_List_Nil,
+						_List_fromArray(
+							[
+								$elm$html$Html$text($author$project$Main$styleSheet)
+							])),
+					A2(
+						$elm$core$List$cons,
+						$author$project$Main$viewEditorFocusToken(model.active),
+						A2(
+							$elm$core$List$cons,
+							A2($author$project$Main$viewErrorCountHints, model.active, top.status),
+							A3($author$project$Main$viewError, model.active, model.visible, top.status))));
+			}
+		}(),
 		title: 'Elm Live Errors'
 	};
 };

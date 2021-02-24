@@ -33,7 +33,7 @@ init =
     ( { active = Nothing
       , visible = []
       , workspace = []
-      , diagnostics = Elm.NoData
+      , projects = []
       }
     , Cmd.none
     )
@@ -57,8 +57,8 @@ update msg model =
                     , Cmd.none
                     )
 
-                Ports.Errors diags ->
-                    ( { model | diagnostics = diags }
+                Ports.ProjectsStatusUpdated projects ->
+                    ( { model | projects = List.foldl mergeProjects model.projects projects }
                     , Cmd.none
                     )
 
@@ -76,6 +76,30 @@ update msg model =
                     }
                 )
             )
+
+
+mergeProjects new existing =
+    let
+        ( newProjects, didMerge ) =
+            List.foldl
+                (\exist ( gathered, merged ) ->
+                    if merged then
+                        ( exist :: gathered, merged )
+
+                    else if exist.root == new.root then
+                        ( new :: gathered, True )
+
+                    else
+                        ( exist :: gathered, merged )
+                )
+                ( [], False )
+                existing
+    in
+    if didMerge then
+        newProjects
+
+    else
+        new :: newProjects
 
 
 styleSheet =
@@ -103,7 +127,7 @@ body {
 .info {
     color: var(--vscode-editorInfo-foreground);
 }
- 
+
 .warning {
     color: var(--vscode-editorWarning-foreground);
 }
@@ -124,10 +148,17 @@ body {
 view model =
     { title = "Elm Live Errors"
     , body =
-        Html.node "style" [] [ Html.text styleSheet ]
-            :: viewEditorFocusToken model.active
-            :: viewErrorCountHints model.active model.diagnostics
-            :: viewError model.active model.visible model.diagnostics
+        case model.projects of
+            [] ->
+                Html.node "style" [] [ Html.text styleSheet ]
+                    :: viewEditorFocusToken model.active
+                    :: [ Html.div [] [ Html.text "No projects" ] ]
+
+            top :: _ ->
+                Html.node "style" [] [ Html.text styleSheet ]
+                    :: viewEditorFocusToken model.active
+                    :: viewErrorCountHints model.active top.status
+                    :: viewError model.active model.visible top.status
     }
 
 

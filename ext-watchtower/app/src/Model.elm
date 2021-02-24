@@ -19,7 +19,7 @@ type alias Model =
             { name : String
             , path : String
             }
-    , diagnostics : Elm.Error
+    , projects : List Elm.Project
     }
 
 

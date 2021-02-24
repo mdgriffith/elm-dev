@@ -256,5 +256,6 @@ encodeOutgoing out =
 encodeStatus ((Watchtower.Project.Project root entrypoints), js) =
     Json.Encode.object
         [ "root" ==> Json.Encode.string (Json.String.fromChars root)
+        , "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) entrypoints
         , "status" ==> js
         ]
