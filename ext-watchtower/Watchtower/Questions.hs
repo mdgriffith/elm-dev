@@ -29,7 +29,6 @@ data Question
     | SignaturePlease FilePath Name.Name
     | FindDefinitionPlease Watchtower.Details.Location
     | FindAllInstancesPlease Watchtower.Details.Location
-    | ListAllRoots
 
 -- data Answer
 --     = CallgraphReturned Watchtower.Details.Callgraph
@@ -181,23 +180,5 @@ ask root question =
         FindAllInstancesPlease location ->
             pure (Data.ByteString.Builder.byteString ("NOTDONE"))
 
-        ListAllRoots ->
-            -- Recursively list all instances of elm.json within the current directory.
-            -- useufl for multi-elm app projects.
-            pure (Data.ByteString.Builder.byteString ("NOTDONE"))
 
 
-
-
-
--- answerToJsonByteString :: Answer -> Data.ByteString.Builder.Builder
--- answerToJsonByteString answer =
---     Json.Encode.encodeUgly (answerToJson answer)
-
-
-
--- answerToJson :: Answer -> Json.Encode.Value
--- answerToJson answer =
---     case answer of
---         _ ->
---             Json.Encode.null
