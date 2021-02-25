@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Watchtower.Annotate
     ( run
@@ -333,7 +334,7 @@ https://hackage.haskell.org/package/text-1.2.4.1/docs/Data-Text.html
 canonicalAnnotationToString :: Name.Name -> [ Src.Import ] -> Can.Annotation -> Text
 canonicalAnnotationToString selfName imports (Can.Forall freeVars tipe) =
   if canonicalTypeStringLength selfName imports tipe > 80 then
-    canonicalTypeToMultilineString selfName imports tipe
+   "\\n    " <> canonicalTypeToMultilineString selfName imports tipe
   else
     canonicalTypeToString selfName imports tipe
 
@@ -422,12 +423,41 @@ qualifierLength self imports (can@(Elm.ModuleName.Canonical pkg mdl)) value =
         Nothing ->
           0
 
+singleName :: [Can.Type] -> Bool
+singleName types =
+  case types of
+    [] ->
+      True
 
-canonicalTypeToString ::Name.Name -> [ Src.Import ] -> Can.Type -> Text
+    (Can.TVar _ : []) ->
+      True
+
+    (Can.TType _ _ [] : []) ->
+      True
+
+    _ ->
+        False
+
+isLambda tipe =
+  case tipe of
+    TLambda _ _ ->
+      True
+
+    _ ->
+      False
+
+parensIfLambda tipe str =
+  if isLambda tipe then
+    "(" <> str <> ")"
+  else
+    str
+
+
+canonicalTypeToString :: Name.Name -> [ Src.Import ] -> Can.Type -> Text
 canonicalTypeToString self imports tipe =
   case tipe of
     TLambda t1 t2 ->
-      canonicalTypeToString self imports t1
+      parensIfLambda t1 (canonicalTypeToString self imports t1)
         <> " -> "
         <> canonicalTypeToString self imports t2
 
@@ -441,8 +471,12 @@ canonicalTypeToString self imports tipe =
               [] -> ""
 
               _ ->
-                " " <>
-                    T.intercalate " " (map (canonicalTypeToString self imports) paramTypes)
+                  if singleName paramTypes then
+                      " " <> T.intercalate " " (map (canonicalTypeToString self imports) paramTypes)
+                  else
+                  " (" <>
+                      T.intercalate " " (map (canonicalTypeToString self imports) paramTypes)
+                      <> ")"
           )
 
     TRecord fieldTypes extensibleName ->
@@ -576,9 +610,15 @@ canonicalTypeToMultilineString self imports tipe =
               [] -> ""
 
               _ ->
-                " " <>
-                    T.intercalate " "
-                        (map (canonicalTypeToMultilineString self imports) paramTypes)
+                 if singleName paramTypes then
+                    " " <>
+                      T.intercalate " "
+                          (map (canonicalTypeToMultilineString self imports) paramTypes)
+                else
+                   " (" <>
+                      T.intercalate " " (map (canonicalTypeToString self imports) paramTypes)
+                      <> ")"
+
           )
 
     TRecord fieldTypes extensibleName ->
