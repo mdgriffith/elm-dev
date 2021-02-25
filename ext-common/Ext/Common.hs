@@ -8,10 +8,9 @@ import Control.Concurrent.MVar
 import System.IO.Unsafe (unsafePerformIO)
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout, hClose, openTempFile)
 import System.Exit (exitFailure)
-import System.FilePath as FP ((</>), joinPath, splitDirectories, takeDirectory)
+import qualified System.FilePath as FP
 import qualified System.Directory as Dir
 import qualified System.Environment as Env
-
 
 import Control.Exception ()
 import Formatting (fprint, (%))
@@ -24,16 +23,22 @@ import qualified Data.Function
 
 
 -- Copy of combined internals of Project.getRoot as it seems to notoriously cause cyclic wherever imported
+-- Extended to accept a PROJECT env var, helpful for testing
 getProjectRoot :: IO FilePath
 getProjectRoot = do
-  subDir <- Dir.getCurrentDirectory
-  res <- findHelp "elm.json" (FP.splitDirectories subDir)
+  projectM <- Env.lookupEnv "PROJECT"
+  projectDir <-
+    case projectM of
+      Just project -> pure project
+      Nothing -> Dir.getCurrentDirectory
+
+  res <- findHelp "elm.json" (FP.splitDirectories projectDir)
   case res of
     Just filepath -> pure filepath
     Nothing -> do
       binName <- Env.getProgName
       putStrLn $ "Cannot find an elm.json! Make sure you're in a project folder, or run `" <> binName <> " init` to start a new one."
-      debug $ "current directory was: " <> subDir
+      debug $ "projectDir: " <> projectDir
       exitFailure
 
 
@@ -52,10 +57,18 @@ findHelp name dirs =
 -- Safe find the project root from an arbitrary fle path
 getProjectRootFor :: FilePath -> IO (Maybe FilePath)
 getProjectRootFor path = do
-  findHelp "elm.json" (FP.splitDirectories $ takeDirectory path)
+  findHelp "elm.json" (FP.splitDirectories $ FP.takeDirectory path)
 
 
 {- Helpers -}
+
+
+withDefault :: a -> Maybe a -> a
+withDefault default_ m =
+  case m of
+    Just v -> v
+    Nothing -> default_
+
 
 justs :: [Maybe a] -> [a]
 justs xs = [ x | Just x <- xs ]
@@ -71,6 +84,13 @@ debug str = do
   case debugM of
     Just _ -> atomicPutStrLn $ "DEBUG: " ++ str ++ "\n"
     Nothing -> pure ()
+
+
+withDebug :: IO a -> IO ()
+withDebug io = do
+  Env.setEnv "LDEBUG" "1"
+  io
+  Env.unsetEnv "LDEBUG"
 
 
 -- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
@@ -149,6 +169,12 @@ killTrackedThreads = do
           mapM killThread threads
           pure []
     )
+  -- Reset our current directory back to the original ghci root, this allows
+  -- our TH `$(bsToExp ...)` expressions with relative paths to recompile properly
+  root <- readMVar ghciRoot
+  debug $ "resetting ghci dir for rebuild: " <> show root
+  Dir.setCurrentDirectory root
+  threadDelay (10 * 1000) -- 10ms to settle as Dir.* stuff behaves oddly
 
 
 -- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
@@ -157,7 +183,15 @@ ghciThreads :: MVar [ThreadId]
 ghciThreads = unsafePerformIO $ newMVar []
 
 
+{-# NOINLINE ghciRoot #-}
+ghciRoot :: MVar FilePath
+ghciRoot = unsafePerformIO $ do
+  dir <- Dir.getCurrentDirectory
+  newMVar dir
+
 
 -- Re-exports
 
 (&) = (Data.Function.&)
+(</>) = (FP.</>)
+withCurrentDirectory = Dir.withCurrentDirectory

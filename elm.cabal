@@ -227,8 +227,10 @@ Executable watchtower
         Watchtower.Server
         Watchtower.StaticAssets
         Watchtower.Websocket
+        Watchtower.Test
         Llamadera
         StandaloneInstances
+        Test
 
 
     Build-depends:
