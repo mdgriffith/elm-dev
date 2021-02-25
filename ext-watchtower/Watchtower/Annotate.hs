@@ -142,30 +142,47 @@ This will list those annotations as well as their coordinates
 listMissingAnnotations :: FilePath -> FilePath -> IO Json.Encode.Value
 listMissingAnnotations root file = do
   mSource <- Llamadera.loadFileSource root file
+  eitherArtifacts <- Dir.withCurrentDirectory root $ Llamadera.loadSingleArtifacts file
   case mSource of
     Left err ->
       pure $ jsonError err
-    Right (source, modul) -> do
+    Right (source, modul) ->
+      case eitherArtifacts of
+        Left err ->
+            pure $ Json.Encode.string (Json.String.fromChars "Not compiling")
 
-      let values = modul
-            & Src._values
-            & fmap
-                (\val ->
-                  case A.toValue val of
-                    Src.Value locatedName _ _ Nothing ->
-                          Json.Encode.object
-                              [ "name" ==> nameToJsonString (A.toValue locatedName)
-                              , "region" ==> encodeRegion (A.toRegion locatedName)
-                              ]
-                              & Just
+        Right artifacts  ->
+            do
 
-                    _ ->
-                        Nothing
-                )
-            & Maybe.catMaybes
-            & Json.Encode.list (\a -> a)
+              let values = modul
+                    & Src._values
+                    & fmap
+                        (\val ->
+                          case A.toValue val of
+                            Src.Value locatedName _ _ Nothing ->
+                                  let
+                                      maybeAnnotation = getAnnotation modul (A.toValue locatedName) artifacts
+                                  in
+                                  case maybeAnnotation of
+                                    -- Maybe this happens when we're not compiling yet?
+                                    Nothing ->
+                                      Nothing
 
-      pure values
+                                    Just annotationJson ->
+                                      Json.Encode.object
+                                          [ "name" ==> nameToJsonString (A.toValue locatedName)
+                                          , "region" ==> encodeRegion (A.toRegion locatedName)
+                                          , "signature" ==> annotationJson
+                                          ]
+                                          & Just
+
+                            _ ->
+                                Nothing
+                        )
+                    & Maybe.catMaybes
+                    & Json.Encode.list (\a -> a)
+
+              pure values
 
 {- Copied from Reporting/Error.hs ...-}
 encodeRegion :: A.Region -> Json.Encode.Value
@@ -219,9 +236,7 @@ printAnnotation root file expressionName = do
 
       pure ()
 
-{-  Print a type signature!
-
-
+{-  Return a type signature!
 -}
 annotation :: FilePath -> FilePath -> Name.Name -> IO Json.Encode.Value
 annotation root file expressionName = do
@@ -235,30 +250,39 @@ annotation root file expressionName = do
 
           eitherArtifacts <- Llamadera.loadSingleArtifacts file
           case eitherArtifacts of
-            Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
+            Right artifacts -> do
+              case getAnnotation modul expressionName artifacts of
+                  Nothing ->
+                      pure (Json.Encode.string (Json.String.fromChars "Not found"))
 
-              case annotations & Map.lookup expressionName of
-                Just annotation -> do
-                  let imports = modul & Src._imports
-                      selfName = modul & Src.getName
-
-                  pure
-                    (Json.Encode.object
-                      ["signature"
-                          ==> (Json.Encode.string
-                                (Json.String.fromChars
-                                  (T.unpack (canonicalAnnotationToString selfName imports annotation))
-                                )
-                              )
-                      ]
-                    )
-
-                Nothing ->
-                  pure (Json.Encode.string (Json.String.fromChars "Not found"))
+                  Just signature ->
+                      pure
+                        (Json.Encode.object
+                          ["signature" ==> signature
+                          ]
+                        )
 
             Left err ->
               -- @TODO can we use Elm's error JSON formatter here?
               pure $ jsonError err
+
+getAnnotation modul expressionName (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) =
+    case annotations & Map.lookup expressionName of
+        Just annotation ->
+          let
+              imports = modul & Src._imports
+              selfName = modul & Src.getName
+          in
+          Just (Json.Encode.string
+                  (Json.String.fromChars
+                    (T.unpack (canonicalAnnotationToString selfName imports annotation))
+                  )
+                )
+
+
+
+        Nothing ->
+          Nothing
 
 
 -- Args helpers
@@ -539,7 +563,7 @@ canonicalTypeToMultilineString self imports tipe =
   case tipe of
     TLambda t1 t2 ->
       canonicalTypeToMultilineString self imports t1
-        <> "\n    -> "
+        <> "\\n    -> "
         <> canonicalTypeToMultilineString self imports t2
 
     TVar name ->
@@ -573,9 +597,9 @@ canonicalTypeToMultilineString self imports tipe =
                       <> canonicalTypeToMultilineString self imports fieldType
               )
               (Can.fieldsToList fieldTypes)
-              & T.intercalate "\n       , "
+              & T.intercalate "\\n       , "
            )
-        <> "\n       }"
+        <> "\\n       }"
 
     TUnit ->
       "()"
