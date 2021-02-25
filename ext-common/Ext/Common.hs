@@ -131,7 +131,7 @@ trackGhciThread :: ThreadId -> IO ()
 trackGhciThread threadId =
   modifyMVar_ ghciThreads
     (\threads -> do
-      debug $ "Tracking GHCI thread:" ++ show threadId
+      -- debug $ "Tracking GHCI thread:" ++ show threadId
       pure $ threadId:threads
     )
 
