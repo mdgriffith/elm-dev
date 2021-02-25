@@ -123,8 +123,9 @@ readElmTooling :: FilePath -> IO (Maybe Tooling)
 readElmTooling path =
     do
         exists <- Dir.doesFileExist path
-        if exists then
-            do
+
+        if exists
+            then do
                 byteString <- File.readUtf8 path
                 let parsed = Json.Decode.fromByteString decodeElmTooling byteString
                 case parsed of
@@ -133,8 +134,7 @@ readElmTooling path =
                     Right tooling ->
                         pure (Just tooling)
 
-        else
-            pure Nothing
+            else pure Nothing
 
 
 
