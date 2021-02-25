@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Llamadera (allInterfaces, getProjectRoot, loadFileSource, loadSingleArtifacts, formatHaskellValue, debug_, withDefault) where
+module Llamadera (allInterfaces, getProjectRoot, loadFileSource, loadSingleArtifacts, formatHaskellValue, hindentPrintValue, debug_) where
 
 import qualified System.Directory as Dir
 import Prelude hiding (lookup)
@@ -140,7 +140,7 @@ runTaskUnsafe task = do
       do  Exit.toStderr (Exit.reactorToReport exit)
           error
             "\n-------------------------------------------------\
-            \\nError in Evergreen snapshots, please report this.\
+            \\nError in task, please report this.\
             \\n-------------------------------------------------\
             \\n"
 

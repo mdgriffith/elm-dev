@@ -12,12 +12,17 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.HashMap.Strict as HashMap
 import Data.Monoid ((<>))
-import qualified Data.NonEmptyList as NE
+import Control.Concurrent.STM (atomically, newTVarIO, readTVar, writeTVar, TVar)
 import qualified System.Directory as Dir
 import System.FilePath as FP
+
 import Snap.Core hiding (path)
 import Snap.Http.Server
 import Snap.Util.FileServe
+
+import qualified Data.NonEmptyList as NE
+import qualified Json.Encode as Encode
+import Json.Encode ((==>))
 import qualified BackgroundWriter as BW
 import qualified Build
 import qualified Elm.Details as Details
@@ -30,16 +35,10 @@ import qualified Reporting
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Stuff
--- import Llamdera
--- import qualified Lamdera.CLI.Live as Live
--- import qualified Lamdera.ReverseProxy
+
 import Ext.Common (trackedForkIO, getProjectRootFor)
 import qualified Ext.Filewatch as Filewatch
 import qualified Ext.Sentry as Sentry
-import Control.Concurrent.STM (atomically, newTVarIO, readTVar, writeTVar, TVar)
-
-import qualified Json.Encode as Encode
-import Json.Encode ((==>))
 
 import StandaloneInstances
 
@@ -50,6 +49,8 @@ compileToJson path =
   do
       let toBS = BSL.toStrict . B.toLazyByteString
       result <- compile path
+
+      -- hindentPrintValue "Exit.Reactor" result
 
       pure $
         case result of

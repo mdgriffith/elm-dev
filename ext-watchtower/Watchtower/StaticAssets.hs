@@ -148,3 +148,6 @@ livePane =
 livePaneJs :: BS.ByteString
 livePaneJs =
   $(bsToExp =<< runIO (BS.readFile ("ext-watchtower" </> "app" </> "public" </> "live.js")))
+
+
+x = 3
