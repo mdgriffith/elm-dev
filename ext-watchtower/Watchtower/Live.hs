@@ -79,18 +79,19 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
               let affected = any
                             (\file -> Watchtower.Project.contains file proj)
                             filenames
-              if affected && not (Prelude.null entrypoints) then do
-                debug $ "🧟 affected project" ++ show proj
+              if affected && not (Prelude.null entrypoints)
+                then do
+                    debug $ "🧟 affected project" ++ show proj
 
-                -- Can compileToJson take multiple entrypoints like elm make?
-                eitherStatusJson <- Watchtower.Compile.compileToJson (head entrypoints)
+                    -- Can compileToJson take multiple entrypoints like elm make?
+                    eitherStatusJson <- Watchtower.Compile.compileToJson (head entrypoints)
 
-                Ext.Sentry.updateCompileResult cache $
-                    pure eitherStatusJson
+                    Ext.Sentry.updateCompileResult cache $
+                        pure eitherStatusJson
 
-                pure ((proj, reduceStatus eitherStatusJson) : gathered)
-              else
-                pure gathered
+                    pure ((proj, reduceStatus eitherStatusJson) : gathered)
+                else
+                    pure gathered
 
       ) [] projects
     Watchtower.Websocket.broadcastImpl mClients $ builderToString $ encodeOutgoing (ElmStatus projectStatuses)
