@@ -5235,6 +5235,7 @@ var $author$project$Elm$GlobalErrorDetails = F2(
 		return {path: path, problem: problem};
 	});
 var $author$project$Elm$Success = {$: 'Success'};
+var $elm$json$Json$Decode$bool = _Json_decodeBool;
 var $author$project$Elm$Many = {$: 'Many'};
 var $author$project$Elm$Single = {$: 'Single'};
 var $elm$json$Json$Decode$fail = _Json_fail;
@@ -5269,7 +5270,6 @@ var $author$project$Elm$StyledText = F4(
 	function (color, underline, bold, string) {
 		return {bold: bold, color: color, string: string, underline: underline};
 	});
-var $elm$json$Json$Decode$bool = _Json_decodeBool;
 var $elm$json$Json$Decode$map4 = _Json_map4;
 var $author$project$Elm$Cyan = {$: 'Cyan'};
 var $author$project$Elm$Green = {$: 'Green'};
@@ -5340,7 +5340,12 @@ var $author$project$Elm$fileError = A4(
 var $author$project$Elm$decodeError = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
 		[
-			$elm$json$Json$Decode$null($author$project$Elm$Success),
+			A2(
+			$elm$json$Json$Decode$map,
+			function (_v0) {
+				return $author$project$Elm$Success;
+			},
+			A2($elm$json$Json$Decode$field, 'compiled', $elm$json$Json$Decode$bool)),
 			A2(
 			$elm$json$Json$Decode$andThen,
 			function (errorType) {

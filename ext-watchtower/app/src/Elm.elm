@@ -89,7 +89,8 @@ decodeProject =
 
 decodeError =
     Decode.oneOf
-        [ Decode.null Success
+        [ Decode.field "compiled" Decode.bool
+            |> Decode.map (\_ -> Success)
         , Decode.field "type" decodeErrorType
             |> Decode.andThen
                 (\errorType ->
