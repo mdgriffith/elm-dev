@@ -81,7 +81,7 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
                             filenames
               if affected && not (Prelude.null entrypoints)
                 then do
-                    debug $ "🧟 affected project" ++ show proj
+                    debug $ "🧟 affected project " ++ show proj
 
                     -- Can compileToJson take multiple entrypoints like elm make?
                     eitherStatusJson <- Watchtower.Compile.compileToJson (head entrypoints)
@@ -90,7 +90,8 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
                         pure eitherStatusJson
 
                     pure ((proj, reduceStatus eitherStatusJson) : gathered)
-                else
+                else do
+                    debug $ "😵 Not affected " ++ show proj
                     pure gathered
 
       ) [] projects
