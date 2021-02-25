@@ -41,7 +41,8 @@ serve (Flags maybePort) =
 
 
       root <- getProjectRoot
-      project <- Watchtower.Project.discover root
+      putStrLn $ "Watching " <> root
+
       Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
       httpServe (config port) $
