@@ -21,8 +21,9 @@ import qualified Watchtower.Live
 import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Project
+
+import Ext.Common
 import qualified Ext.Filewatch
-import Llamadera
 
 
 data Flags =
@@ -34,14 +35,13 @@ data Flags =
 serve :: Flags -> IO ()
 serve (Flags maybePort) =
   do  let port = withDefault 9000 maybePort
-      putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
-
-      cwd <- liftIO $ Dir.getCurrentDirectory
-      liveState <- liftIO $ Watchtower.Live.init cwd
-
+      atomicPutStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
 
       root <- getProjectRoot
+      liveState <- Watchtower.Live.init root
+
       project <- Watchtower.Project.discover root
+
       Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
       httpServe (config port) $
