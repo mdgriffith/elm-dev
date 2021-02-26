@@ -9,11 +9,11 @@ import Json.Decode as Decode
 type alias Project =
     { root : String
     , entrypoints : List String
-    , status : Error
+    , status : Status
     }
 
 
-type Error
+type Status
     = NoData
     | Success
     | GlobalError GlobalErrorDetails
@@ -84,10 +84,10 @@ decodeProject =
     Decode.map3 Project
         (Decode.field "root" Decode.string)
         (Decode.field "entrypoints" (Decode.list Decode.string))
-        (Decode.field "status" decodeError)
+        (Decode.field "status" decodeStatus)
 
 
-decodeError =
+decodeStatus =
     Decode.oneOf
         [ Decode.field "compiled" Decode.bool
             |> Decode.map (\_ -> Success)

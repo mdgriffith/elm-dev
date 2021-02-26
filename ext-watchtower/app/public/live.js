@@ -5220,10 +5220,6 @@ var $author$project$Editor$decodeEditor = A4(
 		$elm$json$Json$Decode$field,
 		'selections',
 		$elm$json$Json$Decode$list($author$project$Editor$selection)));
-var $author$project$Elm$Project = F3(
-	function (root, entrypoints, status) {
-		return {entrypoints: entrypoints, root: root, status: status};
-	});
 var $author$project$Elm$CompilerError = function (a) {
 	return {$: 'CompilerError', a: a};
 };
@@ -5337,7 +5333,7 @@ var $author$project$Elm$fileError = A4(
 		$elm$json$Json$Decode$field,
 		'problems',
 		$elm$json$Json$Decode$list($author$project$Elm$decodeProblem)));
-var $author$project$Elm$decodeError = $elm$json$Json$Decode$oneOf(
+var $author$project$Elm$decodeStatus = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
 		[
 			A2(
@@ -5383,15 +5379,6 @@ var $author$project$Elm$decodeError = $elm$json$Json$Decode$oneOf(
 			},
 			A2($elm$json$Json$Decode$field, 'type', $author$project$Elm$decodeErrorType))
 		]));
-var $author$project$Elm$decodeProject = A4(
-	$elm$json$Json$Decode$map3,
-	$author$project$Elm$Project,
-	A2($elm$json$Json$Decode$field, 'root', $elm$json$Json$Decode$string),
-	A2(
-		$elm$json$Json$Decode$field,
-		'entrypoints',
-		$elm$json$Json$Decode$list($elm$json$Json$Decode$string)),
-	A2($elm$json$Json$Decode$field, 'status', $author$project$Elm$decodeError));
 var $elm$core$Debug$log = _Debug_log;
 var $elm$json$Json$Decode$nullable = function (decoder) {
 	return $elm$json$Json$Decode$oneOf(
@@ -5413,7 +5400,7 @@ var $author$project$Ports$incomingDecoder = A2(
 					A2(
 						$elm$json$Json$Decode$field,
 						'details',
-						$elm$json$Json$Decode$list($author$project$Elm$decodeProject)));
+						$elm$json$Json$Decode$list($author$project$Elm$decodeStatus)));
 			case 'Visible':
 				return A2(
 					$elm$json$Json$Decode$field,
@@ -5454,28 +5441,6 @@ var $author$project$Main$init = _Utils_Tuple2(
 var $author$project$Ports$Goto = function (a) {
 	return {$: 'Goto', a: a};
 };
-var $author$project$Main$mergeProjects = F2(
-	function (_new, existing) {
-		var _v0 = A3(
-			$elm$core$List$foldl,
-			F2(
-				function (exist, _v1) {
-					var gathered = _v1.a;
-					var merged = _v1.b;
-					return merged ? _Utils_Tuple2(
-						A2($elm$core$List$cons, exist, gathered),
-						merged) : (_Utils_eq(exist.root, _new.root) ? _Utils_Tuple2(
-						A2($elm$core$List$cons, _new, gathered),
-						true) : _Utils_Tuple2(
-						A2($elm$core$List$cons, exist, gathered),
-						merged));
-				}),
-			_Utils_Tuple2(_List_Nil, false),
-			existing);
-		var newProjects = _v0.a;
-		var didMerge = _v0.b;
-		return didMerge ? newProjects : A2($elm$core$List$cons, _new, newProjects);
-	});
 var $elm$json$Json$Encode$int = _Json_wrap;
 var $elm$json$Json$Encode$object = function (pairs) {
 	return _Json_wrap(
@@ -5554,13 +5519,11 @@ var $author$project$Main$update = F2(
 								{active: visible.active, visible: visible.visible}),
 							$elm$core$Platform$Cmd$none);
 					case 'ProjectsStatusUpdated':
-						var projects = editorMsg.a;
+						var statuses = editorMsg.a;
 						return _Utils_Tuple2(
 							_Utils_update(
 								model,
-								{
-									projects: A3($elm$core$List$foldl, $author$project$Main$mergeProjects, model.projects, projects)
-								}),
+								{projects: statuses}),
 							$elm$core$Platform$Cmd$none);
 					default:
 						var newFolders = editorMsg.a;
@@ -6745,7 +6708,7 @@ var $author$project$Main$view = function (model) {
 									]))
 							])));
 			} else {
-				var top = _v0.a;
+				var status = _v0.a;
 				return A2(
 					$elm$core$List$cons,
 					A3(
@@ -6761,8 +6724,8 @@ var $author$project$Main$view = function (model) {
 						$author$project$Main$viewEditorFocusToken(model.active),
 						A2(
 							$elm$core$List$cons,
-							A2($author$project$Main$viewErrorCountHints, model.active, top.status),
-							A3($author$project$Main$viewError, model.active, model.visible, top.status))));
+							A2($author$project$Main$viewErrorCountHints, model.active, status),
+							A3($author$project$Main$viewError, model.active, model.visible, status))));
 			}
 		}(),
 		title: 'Elm Live Errors'

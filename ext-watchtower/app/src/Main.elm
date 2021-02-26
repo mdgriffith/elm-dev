@@ -57,8 +57,8 @@ update msg model =
                     , Cmd.none
                     )
 
-                Ports.ProjectsStatusUpdated projects ->
-                    ( { model | projects = List.foldl mergeProjects model.projects projects }
+                Ports.ProjectsStatusUpdated statuses ->
+                    ( { model | projects = statuses }
                     , Cmd.none
                     )
 
@@ -154,11 +154,11 @@ view model =
                     :: viewEditorFocusToken model.active
                     :: [ Html.div [] [ Html.text "No projects" ] ]
 
-            top :: _ ->
+            status :: _ ->
                 Html.node "style" [] [ Html.text styleSheet ]
                     :: viewEditorFocusToken model.active
-                    :: viewErrorCountHints model.active top.status
-                    :: viewError model.active model.visible top.status
+                    :: viewErrorCountHints model.active status
+                    :: viewError model.active model.visible status
     }
 
 

@@ -33,7 +33,7 @@ type Incoming
         { active : Maybe Editor.Editor
         , visible : List Editor.Editor
         }
-    | ProjectsStatusUpdated (List Elm.Project)
+    | ProjectsStatusUpdated (List Elm.Status)
     | WorkspaceFolders (List Editor.Workspace)
 
 
@@ -46,9 +46,13 @@ encodeOutgoing out =
     case out of
         Goto location ->
             Json.Encode.object
-                [ ( "command", Json.Encode.string "Goto" )
-                , ( "path", Json.Encode.string location.file )
-                , ( "region", Editor.encodeRegion location.region )
+                [ ( "msg", Json.Encode.string "Jump" )
+                , ( "details"
+                  , Json.Encode.object
+                        [ ( "path", Json.Encode.string location.file )
+                        , ( "region", Editor.encodeRegion location.region )
+                        ]
+                  )
                 ]
 
 
@@ -60,7 +64,7 @@ incomingDecoder =
                 case Debug.log "found msg" msg of
                     "Status" ->
                         Decode.map ProjectsStatusUpdated
-                            (Decode.field "details" (Decode.list Elm.decodeProject))
+                            (Decode.field "details" (Decode.list Elm.decodeStatus))
 
                     "Visible" ->
                         Decode.field "details"

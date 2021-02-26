@@ -78,37 +78,49 @@ recompile :: Watchtower.Live.State -> [String] -> IO ()
 recompile (Watchtower.Live.State mClients projects) filenames = do
   debug $ "🛫  recompile starting: " ++ show filenames
   trackedForkIO $ track "recompile" $ do
-    projectStatuses <- Monad.foldM
-      (\gathered (cache, proj@(Watchtower.Project.Project r entrypoints)) ->
+    (projectStatuses, projectlessFiles) <- Monad.foldM
+      (\(gathered, remainingFiles) (cache, proj@(Watchtower.Project.Project projectRoot entrypoints)) ->
           do
-              let affected = any
-                            (\file -> Watchtower.Project.contains file proj)
-                            filenames
-              if affected
-                then do
-                    debug $ "🧟 affected project " ++ show proj
 
-                    let entry =
-                         case entrypoints of
-                            [] ->
-                                head filenames
+              let remaining = List.filter
+                      (\file -> not (Watchtower.Project.contains file proj))
+                      remainingFiles
 
-                            top : _ ->
-                                top
 
-                    -- Can compileToJson take multiple entrypoints like elm make?
-                    eitherStatusJson <- Watchtower.Compile.compileToJson entry
+              debug $ "🧟 affected project " ++ show proj
 
-                    Ext.Sentry.updateCompileResult cache $
-                        pure eitherStatusJson
+              let entry =
+                    case entrypoints of
+                      [] ->
+                          head filenames
 
-                    pure ((proj, reduceStatus eitherStatusJson) : gathered)
-                else do
-                    debug $ "😵 Not affected " ++ show proj
-                    pure gathered
+                      top : _ ->
+                          top
 
-      ) [] projects
-    Watchtower.Websocket.broadcastImpl mClients $ builderToString $ encodeOutgoing (ElmStatus projectStatuses)
+              -- Can compileToJson take multiple entrypoints like elm make?
+              eitherStatusJson <- Watchtower.Compile.compileToJson projectRoot entry
+
+              Ext.Sentry.updateCompileResult cache $
+                  pure eitherStatusJson
+
+              pure
+                ( reduceStatus eitherStatusJson : gathered
+                , remaining
+                )
+      ) ([], filenames) projects
+
+
+    allStatuses <- Monad.foldM
+        (\gathered file ->
+          do
+             eitherStatusJson <- Watchtower.Compile.compileToJson "." file
+
+             pure (reduceStatus eitherStatusJson : gathered)
+        )
+        projectStatuses
+        projectlessFiles
+
+    Watchtower.Websocket.broadcastImpl mClients $ builderToString $ encodeOutgoing (ElmStatus allStatuses)
 
 websocket :: State -> Snap ()
 websocket state =
@@ -128,7 +140,7 @@ websocket_ (state@(State mClients projects)) = do
                         (\gathered (cache, proj) ->
                           do
                             jsonStatus <- Ext.Sentry.getCompileResult cache
-                            pure $ (proj, reduceStatus jsonStatus) : gathered
+                            pure $ (reduceStatus jsonStatus) : gathered
                         )
                         [] projects
           pure $ Just $ builderToString $ encodeOutgoing (ElmStatus statuses)
@@ -238,7 +250,7 @@ data Outgoing
     | FwdJumpTo Watchtower.Details.Location
 
     -- new information is available
-    | ElmStatus [ (Watchtower.Project.Project, Json.Encode.Value) ]
+    | ElmStatus [ Json.Encode.Value ]
 
 
 encodeOutgoing :: Outgoing -> Data.ByteString.Builder.Builder
@@ -261,7 +273,7 @@ encodeOutgoing out =
         Json.Encode.object
             [ "msg" ==> Json.Encode.string (Json.String.fromChars "Status")
             , "details" ==>
-                Json.Encode.list encodeStatus statuses
+                Json.Encode.list (\a -> a) statuses
             ]
 
 

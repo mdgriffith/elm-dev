@@ -27,8 +27,8 @@ data Question
     = CallgraphPlease  FilePath Name.Name
     | ListMissingSignaturesPlease FilePath
     | SignaturePlease FilePath Name.Name
-    | FindDefinitionPlease Watchtower.Details.Location
-    | FindAllInstancesPlease Watchtower.Details.Location
+    | FindDefinitionPlease Watchtower.Details.PointLocation
+    | FindAllInstancesPlease Watchtower.Details.PointLocation
 
 -- data Answer
 --     = CallgraphReturned Watchtower.Details.Callgraph
@@ -124,8 +124,8 @@ actionHandler =
             _ ->
                 writeBS "Wha?"
 
-getLocation :: Snap (Maybe Watchtower.Details.Location)
-getLocation =
+getPointLocation :: Snap (Maybe Watchtower.Details.PointLocation)
+getPointLocation =
     do
        maybeFilePath <- getQueryParam "file"
        maybePosition <- getPosition
@@ -134,7 +134,7 @@ getLocation =
             case (maybeFilePath, maybePosition) of
                 (Just path, Just position) ->
                     Just
-                        (Watchtower.Details.Location
+                        (Watchtower.Details.PointLocation
                             (Data.ByteString.Char8.unpack path)
                             position
                         )

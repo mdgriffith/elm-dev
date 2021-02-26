@@ -44,11 +44,11 @@ import StandaloneInstances
 
 
 
-compileToJson :: FilePath -> IO (Either Encode.Value Encode.Value)
-compileToJson path =
+compileToJson :: FilePath -> FilePath -> IO (Either Encode.Value Encode.Value)
+compileToJson root path =
   do
       let toBS = BSL.toStrict . B.toLazyByteString
-      result <- compile path
+      result <- Dir.withCurrentDirectory root $ compile path
 
       -- hindentPrintValue "Exit.Reactor" result
 

@@ -15,10 +15,17 @@ data Status
 
 
 data Location =
-    Location 
+    Location
         { _file :: FilePath
+        , _region :: Ann.Region
+        }
+
+data PointLocation =
+    PointLocation
+        { _pointfile :: FilePath
         , _position :: Ann.Position
         }
+
 
 data Position = Position
 data Range = Range
@@ -27,7 +34,7 @@ data Error = Error
 
 
 data Visible =
-    Visible 
+    Visible
         { _active :: Maybe Editor
         , _visible :: [ Editor ]
         }
@@ -38,14 +45,14 @@ data Editor =
         { _path :: FilePath
         , _visibleRanges :: [ Ann.Region ]
         , _selection :: [ Ann.Region ]
-        }    
+        }
 
 
 -- ENCODERS
 
 encodeVisible :: Visible -> Json.Encode.Value
 encodeVisible (Visible active vis) =
-    Json.Encode.object 
+    Json.Encode.object
         [ ("active" ==>
                 (case active of
                     Nothing ->
@@ -59,7 +66,7 @@ encodeVisible (Visible active vis) =
 
 encodeEditor :: Editor -> Json.Encode.Value
 encodeEditor (Editor path vis sel) =
-    Json.Encode.object 
+    Json.Encode.object
         [ ("path" ==> Json.Encode.string (Json.String.fromChars path))
         , ("visibleRegions" ==> Json.Encode.list encodeRegion vis)
         , ("selections" ==> Json.Encode.list encodeRegion sel)
@@ -67,22 +74,22 @@ encodeEditor (Editor path vis sel) =
 
 encodeRegion :: Ann.Region -> Json.Encode.Value
 encodeRegion (Ann.Region start end) =
-    Json.Encode.object 
+    Json.Encode.object
         [ ("start" ==> encodePosition start)
         , ("end" ==> encodePosition end)
-        ]  
+        ]
 
 
 encodeLocation :: Location -> Json.Encode.Value
-encodeLocation (Location file pos) =
-    Json.Encode.object 
-        [ ("file" ==> Json.Encode.string (Json.String.fromChars file))
-        , ("pos" ==> encodePosition pos)
+encodeLocation (Location file region) =
+    Json.Encode.object
+        [ ("path" ==> Json.Encode.string (Json.String.fromChars file))
+        , ("region" ==> encodeRegion region)
         ]
 
 encodePosition :: Ann.Position -> Json.Encode.Value
 encodePosition (Ann.Position row col) =
-    Json.Encode.object 
+    Json.Encode.object
         [ ("row" ==> Json.Encode.int (fromIntegral row))
         , ("col" ==> Json.Encode.int (fromIntegral col))
         ]
@@ -93,20 +100,20 @@ encodePosition (Ann.Position row col) =
 decodeVisible :: Json.Decode.Decoder x Visible
 decodeVisible =
     Visible
-        <$> (Json.Decode.field "active" 
-                (Json.Decode.oneOf 
+        <$> (Json.Decode.field "active"
+                (Json.Decode.oneOf
                     [ Just <$> decodeEditor
                     , pure (Nothing)
                     ]
                 )
             )
-        <*> (Json.Decode.field "visible" 
+        <*> (Json.Decode.field "visible"
                 (Json.Decode.list decodeEditor)
             )
 
 decodeEditor :: Json.Decode.Decoder x Editor
 decodeEditor =
-    Editor 
+    Editor
         <$> (Json.Decode.field "path" (Json.String.toChars <$> Json.Decode.string))
         <*> (Json.Decode.field "visibleRegions" (Json.Decode.list decodeRegion))
         <*> (Json.Decode.field "selections" (Json.Decode.list decodeRegion))
@@ -114,9 +121,9 @@ decodeEditor =
 
 decodeLocation :: Json.Decode.Decoder x Location
 decodeLocation =
-    Location 
-        <$> (Json.Decode.field "file" (Json.String.toChars <$> Json.Decode.string))
-        <*> (Json.Decode.field "pos" decodePosition)
+    Location
+        <$> (Json.Decode.field "path" (Json.String.toChars <$> Json.Decode.string))
+        <*> (Json.Decode.field "region" decodeRegion)
 
 
 decodeRegion :: Json.Decode.Decoder x Ann.Region
