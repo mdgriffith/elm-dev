@@ -59,6 +59,7 @@ contains path (Project root entries) =
     List.isPrefixOf root path
 
 
+
 {- Recursively find files named elm.json.
 
 Skip node_modules, elm_stuff and anythign that starts with '.'
@@ -77,12 +78,13 @@ discover root =
 
 shouldSkip :: FilePath -> Bool
 shouldSkip path =
-    if path == "elm-stuff" || path == "node_modules" then
+    if (List.isInfixOf "elm-stuff" path) || (List.isInfixOf "node_modules" path)  then
         True
     else
         case path of
             '.':_ ->
                 True
+
             _ ->
                 False
 

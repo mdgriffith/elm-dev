@@ -22,7 +22,7 @@ import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Project
 
-import Ext.Common
+import qualified Ext.Common
 import qualified Ext.Filewatch
 
 
@@ -34,13 +34,11 @@ data Flags =
 
 serve :: Flags -> IO ()
 serve (Flags maybePort) =
-  do  let port = withDefault 9000 maybePort
-      atomicPutStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
+  do  let port = Ext.Common.withDefault 9000 maybePort
+      Ext.Common.atomicPutStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
 
-      root <- getProjectRoot
+      root <- Ext.Common.getProjectRoot
       liveState <- Watchtower.Live.init root
-
-      project <- Watchtower.Project.discover root
 
       Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 

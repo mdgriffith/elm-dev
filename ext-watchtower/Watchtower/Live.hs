@@ -60,6 +60,11 @@ init root =
 
 discoverProjects root = do
     projects <- Watchtower.Project.discover root
+    debug $ "👁️  found projects: "
+    Monad.foldM
+        (\() project ->
+            debug $ "   👉 " <> (show project)
+        ) () projects
     Monad.foldM initializeProject [] projects
 
 
@@ -79,12 +84,20 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
               let affected = any
                             (\file -> Watchtower.Project.contains file proj)
                             filenames
-              if affected && not (Prelude.null entrypoints)
+              if affected
                 then do
                     debug $ "🧟 affected project " ++ show proj
 
+                    let entry =
+                         case entrypoints of
+                            [] ->
+                                head filenames
+
+                            top : _ ->
+                                top
+
                     -- Can compileToJson take multiple entrypoints like elm make?
-                    eitherStatusJson <- Watchtower.Compile.compileToJson (head entrypoints)
+                    eitherStatusJson <- Watchtower.Compile.compileToJson entry
 
                     Ext.Sentry.updateCompileResult cache $
                         pure eitherStatusJson
