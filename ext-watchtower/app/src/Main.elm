@@ -260,7 +260,6 @@ viewOverview model =
                         [ Html.Attributes.class "blink"
                         ]
                         [ Html.text "No errors 🎉"
-                        , Html.text (String.fromInt model.projectsVersion)
                         ]
                   )
                 ]
