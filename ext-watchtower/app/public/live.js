@@ -5193,20 +5193,6 @@ var $author$project$Editor$decodeRegion = A3(
 	A2($elm$json$Json$Decode$field, 'end', $author$project$Editor$position));
 var $elm$json$Json$Decode$list = _Json_decodeList;
 var $elm$json$Json$Decode$map3 = _Json_map3;
-var $author$project$Editor$Selection = F2(
-	function (anchor, active) {
-		return {active: active, anchor: anchor};
-	});
-var $author$project$Editor$rowColPos = A3(
-	$elm$json$Json$Decode$map2,
-	$author$project$Editor$Position,
-	A2($elm$json$Json$Decode$field, 'row', $elm$json$Json$Decode$int),
-	A2($elm$json$Json$Decode$field, 'col', $elm$json$Json$Decode$int));
-var $author$project$Editor$selection = A3(
-	$elm$json$Json$Decode$map2,
-	$author$project$Editor$Selection,
-	A2($elm$json$Json$Decode$field, 'start', $author$project$Editor$rowColPos),
-	A2($elm$json$Json$Decode$field, 'end', $author$project$Editor$rowColPos));
 var $elm$json$Json$Decode$string = _Json_decodeString;
 var $author$project$Editor$decodeEditor = A4(
 	$elm$json$Json$Decode$map3,
@@ -5219,7 +5205,7 @@ var $author$project$Editor$decodeEditor = A4(
 	A2(
 		$elm$json$Json$Decode$field,
 		'selections',
-		$elm$json$Json$Decode$list($author$project$Editor$selection)));
+		$elm$json$Json$Decode$list($author$project$Editor$decodeRegion)));
 var $author$project$Elm$CompilerError = function (a) {
 	return {$: 'CompilerError', a: a};
 };
@@ -5436,10 +5422,11 @@ var $author$project$Ports$incoming = function (toMsg) {
 			toMsg,
 			$elm$json$Json$Decode$decodeValue($author$project$Ports$incomingDecoder)));
 };
+var $author$project$Model$Overview = {$: 'Overview'};
 var $elm$core$Platform$Cmd$batch = _Platform_batch;
 var $elm$core$Platform$Cmd$none = $elm$core$Platform$Cmd$batch(_List_Nil);
 var $author$project$Main$init = _Utils_Tuple2(
-	{active: $elm$core$Maybe$Nothing, projects: _List_Nil, visible: _List_Nil, workspace: _List_Nil},
+	{active: $elm$core$Maybe$Nothing, projects: _List_Nil, projectsVersion: 0, viewing: $author$project$Model$Overview, visible: _List_Nil},
 	$elm$core$Platform$Cmd$none);
 var $author$project$Ports$Goto = function (a) {
 	return {$: 'Goto', a: a};
@@ -5513,44 +5500,44 @@ var $author$project$Ports$outgoing = function (out) {
 var $author$project$Main$update = F2(
 	function (msg, model) {
 		var _v0 = A2($elm$core$Debug$log, 'Message', msg);
-		if (_v0.$ === 'Incoming') {
-			if (_v0.a.$ === 'Err') {
-				var err = _v0.a.a;
-				return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
-			} else {
-				var editorMsg = _v0.a.a;
-				switch (editorMsg.$) {
-					case 'VisibleEditorsUpdated':
+		switch (_v0.$) {
+			case 'Incoming':
+				if (_v0.a.$ === 'Err') {
+					var err = _v0.a.a;
+					return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
+				} else {
+					var editorMsg = _v0.a.a;
+					if (editorMsg.$ === 'VisibleEditorsUpdated') {
 						var visible = editorMsg.a;
 						return _Utils_Tuple2(
 							_Utils_update(
 								model,
 								{active: visible.active, visible: visible.visible}),
 							$elm$core$Platform$Cmd$none);
-					case 'ProjectsStatusUpdated':
+					} else {
 						var statuses = editorMsg.a;
 						return _Utils_Tuple2(
 							_Utils_update(
 								model,
-								{projects: statuses}),
+								{projects: statuses, projectsVersion: model.projectsVersion + 1}),
 							$elm$core$Platform$Cmd$none);
-					default:
-						var newFolders = editorMsg.a;
-						return _Utils_Tuple2(
-							_Utils_update(
-								model,
-								{workspace: newFolders}),
-							$elm$core$Platform$Cmd$none);
+					}
 				}
-			}
-		} else {
-			var file = _v0.a;
-			var problem = _v0.b;
-			return _Utils_Tuple2(
-				model,
-				$author$project$Ports$outgoing(
-					$author$project$Ports$Goto(
-						{file: file.path, region: problem.region})));
+			case 'EditorGoTo':
+				var file = _v0.a;
+				var problem = _v0.b;
+				return _Utils_Tuple2(
+					model,
+					$author$project$Ports$outgoing(
+						$author$project$Ports$Goto(
+							{file: file.path, region: problem.region})));
+			default:
+				var viewing = _v0.a;
+				return _Utils_Tuple2(
+					_Utils_update(
+						model,
+						{viewing: viewing}),
+					$elm$core$Platform$Cmd$none);
 		}
 	});
 var $elm$html$Html$div = _VirtualDom_node('div');
@@ -5559,95 +5546,9 @@ var $elm$virtual_dom$VirtualDom$node = function (tag) {
 		_VirtualDom_noScript(tag));
 };
 var $elm$html$Html$node = $elm$virtual_dom$VirtualDom$node;
-var $author$project$Main$styleSheet = '\nhtml {\n    min-height:100%;\n}\nbody {\n    background-color: var(--vscode-editor-background);\n    color: var(--vscode-editor-foreground);\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family);\n    font-weight: var(--vscode-editor-font-weight);\n    font-size: var(--vscode-editor-font-size);\n    margin: 0;\n    padding: 0 20px;\n    min-height: 100vh;\n    display:flex;\n    flex-direction: column;\n    justify-content: center;\n    align-items: flex-start;\n}\n\n\n.info {\n    color: var(--vscode-editorInfo-foreground);\n}\n\n.warning {\n    color: var(--vscode-editorWarning-foreground);\n}\n\n.danger {\n    color: var(--vscode-editorError-foreground);\n}\n\n.success {\n    color: var(--vscode-testing-iconPassed);\n}\n\n\n\n';
+var $author$project$Main$styleSheet = '\n\n\nhtml {\n    min-height:100%;\n}\nbody {\n    background-color: var(--vscode-editor-background);\n    color: var(--vscode-editor-foreground);\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family);\n    font-weight: var(--vscode-editor-font-weight);\n    font-size: var(--vscode-editor-font-size);\n    margin: 0;\n    padding: 0 20px;\n    min-height: 100vh;\n    display:flex;\n    flex-direction: column;\n    justify-content: center;\n    align-items: flex-start;\n}\n\n@keyframes blink {\n  from {opacity: 1;}\n  50%  {opacity: 0.2;}\n  100% {opacity: 1;}\n}\n\n\n.info {\n    color: var(--vscode-editorInfo-foreground);\n}\n\n.warning {\n    color: var(--vscode-editorWarning-foreground);\n}\n\n.danger {\n    color: var(--vscode-editorError-foreground);\n}\n\n.success {\n    color: var(--vscode-testing-iconPassed);\n}\n\n.blink {\n    opacity:1;\n    animation: blink 250ms linear;\n}\n\n\n\n';
 var $elm$virtual_dom$VirtualDom$text = _VirtualDom_text;
 var $elm$html$Html$text = $elm$virtual_dom$VirtualDom$text;
-var $elm$virtual_dom$VirtualDom$style = _VirtualDom_style;
-var $elm$html$Html$Attributes$style = $elm$virtual_dom$VirtualDom$style;
-var $elm$core$List$head = function (list) {
-	if (list.b) {
-		var x = list.a;
-		var xs = list.b;
-		return $elm$core$Maybe$Just(x);
-	} else {
-		return $elm$core$Maybe$Nothing;
-	}
-};
-var $elm$core$Maybe$withDefault = F2(
-	function (_default, maybe) {
-		if (maybe.$ === 'Just') {
-			var value = maybe.a;
-			return value;
-		} else {
-			return _default;
-		}
-	});
-var $author$project$Main$viewFileName = function (name) {
-	return A2(
-		$elm$core$Maybe$withDefault,
-		'Empty File',
-		$elm$core$List$head(
-			$elm$core$List$reverse(
-				A2($elm$core$String$split, '/', name))));
-};
-var $author$project$Main$viewEditorFocusToken = function (viewing) {
-	return A2(
-		$elm$html$Html$div,
-		_List_fromArray(
-			[
-				A2($elm$html$Html$Attributes$style, 'position', 'absolute'),
-				A2($elm$html$Html$Attributes$style, 'top', '0'),
-				A2($elm$html$Html$Attributes$style, 'padding', '4px'),
-				A2($elm$html$Html$Attributes$style, 'border', '1px solid red'),
-				A2($elm$html$Html$Attributes$style, 'right', '0')
-			]),
-		_List_fromArray(
-			[
-				function () {
-				if (viewing.$ === 'Nothing') {
-					return $elm$html$Html$text('No file detected.');
-				} else {
-					var selected = viewing.a;
-					return A2(
-						$elm$html$Html$div,
-						_List_Nil,
-						_List_fromArray(
-							[
-								A2(
-								$elm$html$Html$div,
-								_List_Nil,
-								_List_fromArray(
-									[
-										$elm$html$Html$text('Watchtower: '),
-										$elm$html$Html$text(
-										$author$project$Main$viewFileName(selected.fileName))
-									]))
-							]));
-				}
-			}()
-			]));
-};
-var $elm$core$List$any = F2(
-	function (isOkay, list) {
-		any:
-		while (true) {
-			if (!list.b) {
-				return false;
-			} else {
-				var x = list.a;
-				var xs = list.b;
-				if (isOkay(x)) {
-					return true;
-				} else {
-					var $temp$isOkay = isOkay,
-						$temp$list = xs;
-					isOkay = $temp$isOkay;
-					list = $temp$list;
-					continue any;
-				}
-			}
-		}
-	});
 var $elm$core$List$append = F2(
 	function (xs, ys) {
 		if (!ys.b) {
@@ -5675,14 +5576,11 @@ var $elm$core$List$filter = F2(
 			_List_Nil,
 			list);
 	});
-var $author$project$Elm$inEditor = F2(
-	function (file, editor) {
-		return _Utils_eq(file.path, editor.fileName);
-	});
-var $elm$html$Html$span = _VirtualDom_node('span');
-var $author$project$Model$GoTo = F2(
+var $elm$virtual_dom$VirtualDom$style = _VirtualDom_style;
+var $elm$html$Html$Attributes$style = $elm$virtual_dom$VirtualDom$style;
+var $author$project$Model$EditorGoTo = F2(
 	function (a, b) {
-		return {$: 'GoTo', a: a, b: b};
+		return {$: 'EditorGoTo', a: a, b: b};
 	});
 var $elm$core$Bitwise$and = _Bitwise_and;
 var $elm$core$Bitwise$shiftRightBy = _Bitwise_shiftRightBy;
@@ -5747,6 +5645,7 @@ var $author$project$Main$colorAttribute = function (maybeColor) {
 		}
 	}
 };
+var $elm$html$Html$span = _VirtualDom_node('span');
 var $author$project$Main$viewText = function (txt) {
 	if (txt.$ === 'Plain') {
 		var str = txt.a;
@@ -5773,7 +5672,7 @@ var $author$project$Main$viewProblemDetails = F2(
 				[
 					A2($elm$html$Html$Attributes$style, 'white-space', 'pre'),
 					$elm$html$Html$Events$onClick(
-					A2($author$project$Model$GoTo, file, issue)),
+					A2($author$project$Model$EditorGoTo, file, issue)),
 					A2($elm$html$Html$Attributes$style, 'cursor', 'pointer')
 				]),
 			_List_fromArray(
@@ -5796,567 +5695,190 @@ var $author$project$Main$viewProblemDetails = F2(
 					A2($elm$core$List$map, $author$project$Main$viewText, issue.message))
 				]));
 	});
-var $author$project$Main$viewFileIssue = F3(
-	function (active, visible, fileIssue) {
-		return A2(
-			$elm$core$List$map,
-			$author$project$Main$viewProblemDetails(fileIssue),
-			fileIssue.problem);
+var $author$project$Main$viewFileIssue = function (fileIssue) {
+	return A2(
+		$elm$core$List$map,
+		$author$project$Main$viewProblemDetails(fileIssue),
+		fileIssue.problem);
+};
+var $author$project$Main$viewFile = F2(
+	function (path, model) {
+		var foundErrs = A3(
+			$elm$core$List$foldl,
+			F2(
+				function (project, gathered) {
+					var handled = gathered.handled;
+					var errs = gathered.errs;
+					if (handled) {
+						return gathered;
+					} else {
+						switch (project.$) {
+							case 'NoData':
+								return gathered;
+							case 'Success':
+								return gathered;
+							case 'GlobalError':
+								var globe = project.a;
+								return gathered;
+							default:
+								var errors = project.a.errors;
+								var newErrs = A2(
+									$elm$core$List$filter,
+									function (e) {
+										return _Utils_eq(path, e.path);
+									},
+									errors);
+								if (!newErrs.b) {
+									return gathered;
+								} else {
+									return {
+										errs: _Utils_ap(newErrs, errs),
+										handled: true
+									};
+								}
+						}
+					}
+				}),
+			{errs: _List_Nil, handled: false},
+			model.projects).errs;
+		return _Utils_ap(
+			A2($elm$core$List$concatMap, $author$project$Main$viewFileIssue, foundErrs),
+			_List_fromArray(
+				[
+					A2(
+					$elm$html$Html$div,
+					_List_fromArray(
+						[
+							A2($elm$html$Html$Attributes$style, 'height', '100px')
+						]),
+					_List_Nil)
+				]));
 	});
-var $author$project$Main$viewIssue = F2(
-	function (viewing, iss) {
+var $elm$html$Html$h2 = _VirtualDom_node('h2');
+var $elm$html$Html$h3 = _VirtualDom_node('h3');
+var $elm$core$List$isEmpty = function (xs) {
+	if (!xs.b) {
+		return true;
+	} else {
+		return false;
+	}
+};
+var $elm$core$List$any = F2(
+	function (isOkay, list) {
+		any:
+		while (true) {
+			if (!list.b) {
+				return false;
+			} else {
+				var x = list.a;
+				var xs = list.b;
+				if (isOkay(x)) {
+					return true;
+				} else {
+					var $temp$isOkay = isOkay,
+						$temp$list = xs;
+					isOkay = $temp$isOkay;
+					list = $temp$list;
+					continue any;
+				}
+			}
+		}
+	});
+var $elm$core$Basics$ge = _Utils_ge;
+var $author$project$Editor$overlap = F2(
+	function (one, two) {
+		return ((_Utils_cmp(one.start.row, two.start.row) > -1) && (_Utils_cmp(one.start.row, two.end.row) < 1)) ? true : (((_Utils_cmp(one.end.row, two.start.row) > -1) && (_Utils_cmp(one.end.row, two.end.row) < 1)) ? true : false);
+	});
+var $author$project$Editor$visible = F2(
+	function (rng, viewing) {
+		return A2(
+			$elm$core$List$any,
+			$author$project$Editor$overlap(rng),
+			viewing);
+	});
+var $author$project$Main$isVisible = F3(
+	function (editors, file, prob) {
+		return A2(
+			$elm$core$List$any,
+			function (e) {
+				return _Utils_eq(e.fileName, file.path) ? A2($author$project$Editor$visible, prob.region, e.ranges) : false;
+			},
+			editors);
+	});
+var $elm$virtual_dom$VirtualDom$keyedNode = function (tag) {
+	return _VirtualDom_keyedNode(
+		_VirtualDom_noScript(tag));
+};
+var $elm$html$Html$Keyed$node = $elm$virtual_dom$VirtualDom$keyedNode;
+var $author$project$Main$viewIssueDetails = F3(
+	function (expanded, file, issue) {
 		return A2(
 			$elm$html$Html$div,
 			_List_fromArray(
 				[
-					A2($elm$html$Html$Attributes$style, 'white-space', 'pre')
+					$elm$html$Html$Events$onClick(
+					A2($author$project$Model$EditorGoTo, file, issue)),
+					A2($elm$html$Html$Attributes$style, 'cursor', 'pointer')
 				]),
 			_List_fromArray(
 				[
 					A2(
 					$elm$html$Html$div,
-					_List_fromArray(
-						[
-							$elm$html$Html$Attributes$class('info')
-						]),
-					_List_fromArray(
-						[
-							$elm$html$Html$text(
-							$author$project$Main$fillToEighty(
-								'-- ' + ($elm$core$String$toUpper(iss.title) + ' ')))
-						])),
-					A2(
-					$elm$html$Html$div,
 					_List_Nil,
-					A2($elm$core$List$map, $author$project$Main$viewText, iss.message))
+					_List_fromArray(
+						[
+							_Utils_eq(issue.region.start.row, issue.region.end.row) ? A2(
+							$elm$html$Html$span,
+							_List_fromArray(
+								[
+									A2($elm$html$Html$Attributes$style, 'color', 'cyan'),
+									A2($elm$html$Html$Attributes$style, 'opacity', '0.5'),
+									A2($elm$html$Html$Attributes$style, 'width', '50px'),
+									A2($elm$html$Html$Attributes$style, 'display', 'inline-block')
+								]),
+							_List_fromArray(
+								[
+									$elm$html$Html$text(
+									$elm$core$String$fromInt(issue.region.start.row))
+								])) : A2(
+							$elm$html$Html$span,
+							_List_fromArray(
+								[
+									A2($elm$html$Html$Attributes$style, 'color', 'cyan'),
+									A2($elm$html$Html$Attributes$style, 'opacity', '0.5'),
+									A2($elm$html$Html$Attributes$style, 'width', '50px'),
+									A2($elm$html$Html$Attributes$style, 'display', 'inline-block')
+								]),
+							_List_fromArray(
+								[
+									$elm$html$Html$text(
+									$elm$core$String$fromInt(issue.region.start.row)),
+									$elm$html$Html$text(':'),
+									$elm$html$Html$text(
+									$elm$core$String$fromInt(issue.region.end.row))
+								])),
+							A2(
+							$elm$html$Html$span,
+							_List_fromArray(
+								[
+									A2($elm$html$Html$Attributes$style, 'color', 'cyan')
+								]),
+							_List_fromArray(
+								[
+									$elm$html$Html$text(issue.title)
+								]))
+						])),
+					expanded ? A2(
+					$elm$html$Html$div,
+					_List_fromArray(
+						[
+							A2($elm$html$Html$Attributes$style, 'padding-left', '100px'),
+							A2($elm$html$Html$Attributes$style, 'white-space', 'pre')
+						]),
+					A2($elm$core$List$map, $author$project$Main$viewText, issue.message)) : $elm$html$Html$text('')
 				]));
 	});
-var $elm$html$Html$h3 = _VirtualDom_node('h3');
-var $elm$core$Maybe$map = F2(
-	function (f, maybe) {
-		if (maybe.$ === 'Just') {
-			var value = maybe.a;
-			return $elm$core$Maybe$Just(
-				f(value));
-		} else {
-			return $elm$core$Maybe$Nothing;
-		}
-	});
-var $elm$core$Basics$compare = _Utils_compare;
-var $elm$core$Dict$get = F2(
-	function (targetKey, dict) {
-		get:
-		while (true) {
-			if (dict.$ === 'RBEmpty_elm_builtin') {
-				return $elm$core$Maybe$Nothing;
-			} else {
-				var key = dict.b;
-				var value = dict.c;
-				var left = dict.d;
-				var right = dict.e;
-				var _v1 = A2($elm$core$Basics$compare, targetKey, key);
-				switch (_v1.$) {
-					case 'LT':
-						var $temp$targetKey = targetKey,
-							$temp$dict = left;
-						targetKey = $temp$targetKey;
-						dict = $temp$dict;
-						continue get;
-					case 'EQ':
-						return $elm$core$Maybe$Just(value);
-					default:
-						var $temp$targetKey = targetKey,
-							$temp$dict = right;
-						targetKey = $temp$targetKey;
-						dict = $temp$dict;
-						continue get;
-				}
-			}
-		}
-	});
-var $elm$core$Dict$Black = {$: 'Black'};
-var $elm$core$Dict$RBNode_elm_builtin = F5(
-	function (a, b, c, d, e) {
-		return {$: 'RBNode_elm_builtin', a: a, b: b, c: c, d: d, e: e};
-	});
-var $elm$core$Dict$RBEmpty_elm_builtin = {$: 'RBEmpty_elm_builtin'};
-var $elm$core$Dict$Red = {$: 'Red'};
-var $elm$core$Dict$balance = F5(
-	function (color, key, value, left, right) {
-		if ((right.$ === 'RBNode_elm_builtin') && (right.a.$ === 'Red')) {
-			var _v1 = right.a;
-			var rK = right.b;
-			var rV = right.c;
-			var rLeft = right.d;
-			var rRight = right.e;
-			if ((left.$ === 'RBNode_elm_builtin') && (left.a.$ === 'Red')) {
-				var _v3 = left.a;
-				var lK = left.b;
-				var lV = left.c;
-				var lLeft = left.d;
-				var lRight = left.e;
-				return A5(
-					$elm$core$Dict$RBNode_elm_builtin,
-					$elm$core$Dict$Red,
-					key,
-					value,
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Black, lK, lV, lLeft, lRight),
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Black, rK, rV, rLeft, rRight));
-			} else {
-				return A5(
-					$elm$core$Dict$RBNode_elm_builtin,
-					color,
-					rK,
-					rV,
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, key, value, left, rLeft),
-					rRight);
-			}
-		} else {
-			if ((((left.$ === 'RBNode_elm_builtin') && (left.a.$ === 'Red')) && (left.d.$ === 'RBNode_elm_builtin')) && (left.d.a.$ === 'Red')) {
-				var _v5 = left.a;
-				var lK = left.b;
-				var lV = left.c;
-				var _v6 = left.d;
-				var _v7 = _v6.a;
-				var llK = _v6.b;
-				var llV = _v6.c;
-				var llLeft = _v6.d;
-				var llRight = _v6.e;
-				var lRight = left.e;
-				return A5(
-					$elm$core$Dict$RBNode_elm_builtin,
-					$elm$core$Dict$Red,
-					lK,
-					lV,
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Black, llK, llV, llLeft, llRight),
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Black, key, value, lRight, right));
-			} else {
-				return A5($elm$core$Dict$RBNode_elm_builtin, color, key, value, left, right);
-			}
-		}
-	});
-var $elm$core$Dict$insertHelp = F3(
-	function (key, value, dict) {
-		if (dict.$ === 'RBEmpty_elm_builtin') {
-			return A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, key, value, $elm$core$Dict$RBEmpty_elm_builtin, $elm$core$Dict$RBEmpty_elm_builtin);
-		} else {
-			var nColor = dict.a;
-			var nKey = dict.b;
-			var nValue = dict.c;
-			var nLeft = dict.d;
-			var nRight = dict.e;
-			var _v1 = A2($elm$core$Basics$compare, key, nKey);
-			switch (_v1.$) {
-				case 'LT':
-					return A5(
-						$elm$core$Dict$balance,
-						nColor,
-						nKey,
-						nValue,
-						A3($elm$core$Dict$insertHelp, key, value, nLeft),
-						nRight);
-				case 'EQ':
-					return A5($elm$core$Dict$RBNode_elm_builtin, nColor, nKey, value, nLeft, nRight);
-				default:
-					return A5(
-						$elm$core$Dict$balance,
-						nColor,
-						nKey,
-						nValue,
-						nLeft,
-						A3($elm$core$Dict$insertHelp, key, value, nRight));
-			}
-		}
-	});
-var $elm$core$Dict$insert = F3(
-	function (key, value, dict) {
-		var _v0 = A3($elm$core$Dict$insertHelp, key, value, dict);
-		if ((_v0.$ === 'RBNode_elm_builtin') && (_v0.a.$ === 'Red')) {
-			var _v1 = _v0.a;
-			var k = _v0.b;
-			var v = _v0.c;
-			var l = _v0.d;
-			var r = _v0.e;
-			return A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Black, k, v, l, r);
-		} else {
-			var x = _v0;
-			return x;
-		}
-	});
-var $elm$core$Dict$getMin = function (dict) {
-	getMin:
-	while (true) {
-		if ((dict.$ === 'RBNode_elm_builtin') && (dict.d.$ === 'RBNode_elm_builtin')) {
-			var left = dict.d;
-			var $temp$dict = left;
-			dict = $temp$dict;
-			continue getMin;
-		} else {
-			return dict;
-		}
-	}
-};
-var $elm$core$Dict$moveRedLeft = function (dict) {
-	if (((dict.$ === 'RBNode_elm_builtin') && (dict.d.$ === 'RBNode_elm_builtin')) && (dict.e.$ === 'RBNode_elm_builtin')) {
-		if ((dict.e.d.$ === 'RBNode_elm_builtin') && (dict.e.d.a.$ === 'Red')) {
-			var clr = dict.a;
-			var k = dict.b;
-			var v = dict.c;
-			var _v1 = dict.d;
-			var lClr = _v1.a;
-			var lK = _v1.b;
-			var lV = _v1.c;
-			var lLeft = _v1.d;
-			var lRight = _v1.e;
-			var _v2 = dict.e;
-			var rClr = _v2.a;
-			var rK = _v2.b;
-			var rV = _v2.c;
-			var rLeft = _v2.d;
-			var _v3 = rLeft.a;
-			var rlK = rLeft.b;
-			var rlV = rLeft.c;
-			var rlL = rLeft.d;
-			var rlR = rLeft.e;
-			var rRight = _v2.e;
-			return A5(
-				$elm$core$Dict$RBNode_elm_builtin,
-				$elm$core$Dict$Red,
-				rlK,
-				rlV,
-				A5(
-					$elm$core$Dict$RBNode_elm_builtin,
-					$elm$core$Dict$Black,
-					k,
-					v,
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, lK, lV, lLeft, lRight),
-					rlL),
-				A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Black, rK, rV, rlR, rRight));
-		} else {
-			var clr = dict.a;
-			var k = dict.b;
-			var v = dict.c;
-			var _v4 = dict.d;
-			var lClr = _v4.a;
-			var lK = _v4.b;
-			var lV = _v4.c;
-			var lLeft = _v4.d;
-			var lRight = _v4.e;
-			var _v5 = dict.e;
-			var rClr = _v5.a;
-			var rK = _v5.b;
-			var rV = _v5.c;
-			var rLeft = _v5.d;
-			var rRight = _v5.e;
-			if (clr.$ === 'Black') {
-				return A5(
-					$elm$core$Dict$RBNode_elm_builtin,
-					$elm$core$Dict$Black,
-					k,
-					v,
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, lK, lV, lLeft, lRight),
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, rK, rV, rLeft, rRight));
-			} else {
-				return A5(
-					$elm$core$Dict$RBNode_elm_builtin,
-					$elm$core$Dict$Black,
-					k,
-					v,
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, lK, lV, lLeft, lRight),
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, rK, rV, rLeft, rRight));
-			}
-		}
-	} else {
-		return dict;
-	}
-};
-var $elm$core$Dict$moveRedRight = function (dict) {
-	if (((dict.$ === 'RBNode_elm_builtin') && (dict.d.$ === 'RBNode_elm_builtin')) && (dict.e.$ === 'RBNode_elm_builtin')) {
-		if ((dict.d.d.$ === 'RBNode_elm_builtin') && (dict.d.d.a.$ === 'Red')) {
-			var clr = dict.a;
-			var k = dict.b;
-			var v = dict.c;
-			var _v1 = dict.d;
-			var lClr = _v1.a;
-			var lK = _v1.b;
-			var lV = _v1.c;
-			var _v2 = _v1.d;
-			var _v3 = _v2.a;
-			var llK = _v2.b;
-			var llV = _v2.c;
-			var llLeft = _v2.d;
-			var llRight = _v2.e;
-			var lRight = _v1.e;
-			var _v4 = dict.e;
-			var rClr = _v4.a;
-			var rK = _v4.b;
-			var rV = _v4.c;
-			var rLeft = _v4.d;
-			var rRight = _v4.e;
-			return A5(
-				$elm$core$Dict$RBNode_elm_builtin,
-				$elm$core$Dict$Red,
-				lK,
-				lV,
-				A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Black, llK, llV, llLeft, llRight),
-				A5(
-					$elm$core$Dict$RBNode_elm_builtin,
-					$elm$core$Dict$Black,
-					k,
-					v,
-					lRight,
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, rK, rV, rLeft, rRight)));
-		} else {
-			var clr = dict.a;
-			var k = dict.b;
-			var v = dict.c;
-			var _v5 = dict.d;
-			var lClr = _v5.a;
-			var lK = _v5.b;
-			var lV = _v5.c;
-			var lLeft = _v5.d;
-			var lRight = _v5.e;
-			var _v6 = dict.e;
-			var rClr = _v6.a;
-			var rK = _v6.b;
-			var rV = _v6.c;
-			var rLeft = _v6.d;
-			var rRight = _v6.e;
-			if (clr.$ === 'Black') {
-				return A5(
-					$elm$core$Dict$RBNode_elm_builtin,
-					$elm$core$Dict$Black,
-					k,
-					v,
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, lK, lV, lLeft, lRight),
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, rK, rV, rLeft, rRight));
-			} else {
-				return A5(
-					$elm$core$Dict$RBNode_elm_builtin,
-					$elm$core$Dict$Black,
-					k,
-					v,
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, lK, lV, lLeft, lRight),
-					A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, rK, rV, rLeft, rRight));
-			}
-		}
-	} else {
-		return dict;
-	}
-};
-var $elm$core$Dict$removeHelpPrepEQGT = F7(
-	function (targetKey, dict, color, key, value, left, right) {
-		if ((left.$ === 'RBNode_elm_builtin') && (left.a.$ === 'Red')) {
-			var _v1 = left.a;
-			var lK = left.b;
-			var lV = left.c;
-			var lLeft = left.d;
-			var lRight = left.e;
-			return A5(
-				$elm$core$Dict$RBNode_elm_builtin,
-				color,
-				lK,
-				lV,
-				lLeft,
-				A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Red, key, value, lRight, right));
-		} else {
-			_v2$2:
-			while (true) {
-				if ((right.$ === 'RBNode_elm_builtin') && (right.a.$ === 'Black')) {
-					if (right.d.$ === 'RBNode_elm_builtin') {
-						if (right.d.a.$ === 'Black') {
-							var _v3 = right.a;
-							var _v4 = right.d;
-							var _v5 = _v4.a;
-							return $elm$core$Dict$moveRedRight(dict);
-						} else {
-							break _v2$2;
-						}
-					} else {
-						var _v6 = right.a;
-						var _v7 = right.d;
-						return $elm$core$Dict$moveRedRight(dict);
-					}
-				} else {
-					break _v2$2;
-				}
-			}
-			return dict;
-		}
-	});
-var $elm$core$Dict$removeMin = function (dict) {
-	if ((dict.$ === 'RBNode_elm_builtin') && (dict.d.$ === 'RBNode_elm_builtin')) {
-		var color = dict.a;
-		var key = dict.b;
-		var value = dict.c;
-		var left = dict.d;
-		var lColor = left.a;
-		var lLeft = left.d;
-		var right = dict.e;
-		if (lColor.$ === 'Black') {
-			if ((lLeft.$ === 'RBNode_elm_builtin') && (lLeft.a.$ === 'Red')) {
-				var _v3 = lLeft.a;
-				return A5(
-					$elm$core$Dict$RBNode_elm_builtin,
-					color,
-					key,
-					value,
-					$elm$core$Dict$removeMin(left),
-					right);
-			} else {
-				var _v4 = $elm$core$Dict$moveRedLeft(dict);
-				if (_v4.$ === 'RBNode_elm_builtin') {
-					var nColor = _v4.a;
-					var nKey = _v4.b;
-					var nValue = _v4.c;
-					var nLeft = _v4.d;
-					var nRight = _v4.e;
-					return A5(
-						$elm$core$Dict$balance,
-						nColor,
-						nKey,
-						nValue,
-						$elm$core$Dict$removeMin(nLeft),
-						nRight);
-				} else {
-					return $elm$core$Dict$RBEmpty_elm_builtin;
-				}
-			}
-		} else {
-			return A5(
-				$elm$core$Dict$RBNode_elm_builtin,
-				color,
-				key,
-				value,
-				$elm$core$Dict$removeMin(left),
-				right);
-		}
-	} else {
-		return $elm$core$Dict$RBEmpty_elm_builtin;
-	}
-};
-var $elm$core$Dict$removeHelp = F2(
-	function (targetKey, dict) {
-		if (dict.$ === 'RBEmpty_elm_builtin') {
-			return $elm$core$Dict$RBEmpty_elm_builtin;
-		} else {
-			var color = dict.a;
-			var key = dict.b;
-			var value = dict.c;
-			var left = dict.d;
-			var right = dict.e;
-			if (_Utils_cmp(targetKey, key) < 0) {
-				if ((left.$ === 'RBNode_elm_builtin') && (left.a.$ === 'Black')) {
-					var _v4 = left.a;
-					var lLeft = left.d;
-					if ((lLeft.$ === 'RBNode_elm_builtin') && (lLeft.a.$ === 'Red')) {
-						var _v6 = lLeft.a;
-						return A5(
-							$elm$core$Dict$RBNode_elm_builtin,
-							color,
-							key,
-							value,
-							A2($elm$core$Dict$removeHelp, targetKey, left),
-							right);
-					} else {
-						var _v7 = $elm$core$Dict$moveRedLeft(dict);
-						if (_v7.$ === 'RBNode_elm_builtin') {
-							var nColor = _v7.a;
-							var nKey = _v7.b;
-							var nValue = _v7.c;
-							var nLeft = _v7.d;
-							var nRight = _v7.e;
-							return A5(
-								$elm$core$Dict$balance,
-								nColor,
-								nKey,
-								nValue,
-								A2($elm$core$Dict$removeHelp, targetKey, nLeft),
-								nRight);
-						} else {
-							return $elm$core$Dict$RBEmpty_elm_builtin;
-						}
-					}
-				} else {
-					return A5(
-						$elm$core$Dict$RBNode_elm_builtin,
-						color,
-						key,
-						value,
-						A2($elm$core$Dict$removeHelp, targetKey, left),
-						right);
-				}
-			} else {
-				return A2(
-					$elm$core$Dict$removeHelpEQGT,
-					targetKey,
-					A7($elm$core$Dict$removeHelpPrepEQGT, targetKey, dict, color, key, value, left, right));
-			}
-		}
-	});
-var $elm$core$Dict$removeHelpEQGT = F2(
-	function (targetKey, dict) {
-		if (dict.$ === 'RBNode_elm_builtin') {
-			var color = dict.a;
-			var key = dict.b;
-			var value = dict.c;
-			var left = dict.d;
-			var right = dict.e;
-			if (_Utils_eq(targetKey, key)) {
-				var _v1 = $elm$core$Dict$getMin(right);
-				if (_v1.$ === 'RBNode_elm_builtin') {
-					var minKey = _v1.b;
-					var minValue = _v1.c;
-					return A5(
-						$elm$core$Dict$balance,
-						color,
-						minKey,
-						minValue,
-						left,
-						$elm$core$Dict$removeMin(right));
-				} else {
-					return $elm$core$Dict$RBEmpty_elm_builtin;
-				}
-			} else {
-				return A5(
-					$elm$core$Dict$balance,
-					color,
-					key,
-					value,
-					left,
-					A2($elm$core$Dict$removeHelp, targetKey, right));
-			}
-		} else {
-			return $elm$core$Dict$RBEmpty_elm_builtin;
-		}
-	});
-var $elm$core$Dict$remove = F2(
-	function (key, dict) {
-		var _v0 = A2($elm$core$Dict$removeHelp, key, dict);
-		if ((_v0.$ === 'RBNode_elm_builtin') && (_v0.a.$ === 'Red')) {
-			var _v1 = _v0.a;
-			var k = _v0.b;
-			var v = _v0.c;
-			var l = _v0.d;
-			var r = _v0.e;
-			return A5($elm$core$Dict$RBNode_elm_builtin, $elm$core$Dict$Black, k, v, l, r);
-		} else {
-			var x = _v0;
-			return x;
-		}
-	});
-var $elm$core$Dict$update = F3(
-	function (targetKey, alter, dictionary) {
-		var _v0 = alter(
-			A2($elm$core$Dict$get, targetKey, dictionary));
-		if (_v0.$ === 'Just') {
-			var value = _v0.a;
-			return A3($elm$core$Dict$insert, targetKey, value, dictionary);
-		} else {
-			return A2($elm$core$Dict$remove, targetKey, dictionary);
-		}
-	});
-var $author$project$Main$viewOverview = function (errors) {
+var $author$project$Main$viewOverview = function (model) {
 	var viewProblemOverview = function (problem) {
 		return A2(
 			$elm$html$Html$div,
@@ -6366,42 +5888,26 @@ var $author$project$Main$viewOverview = function (errors) {
 					$elm$html$Html$text(problem.title)
 				]));
 	};
-	var renderCount = function (_v0) {
-		var title = _v0.a;
-		var count = _v0.b;
+	var viewGlobalError = function (global) {
 		return A2(
 			$elm$html$Html$div,
-			_List_fromArray(
-				[
-					A2($elm$html$Html$Attributes$style, 'padding-left', '12px')
-				]),
+			_List_Nil,
 			_List_fromArray(
 				[
 					A2(
-					$elm$html$Html$span,
+					$elm$html$Html$h3,
 					_List_Nil,
 					_List_fromArray(
 						[
-							$elm$html$Html$text(
-							'(' + ($elm$core$String$fromInt(count) + ') '))
+							$elm$html$Html$text(global.problem.title)
 						])),
 					A2(
-					$elm$html$Html$span,
+					$elm$html$Html$div,
 					_List_Nil,
-					_List_fromArray(
-						[
-							$elm$html$Html$text(title)
-						]))
+					A2($elm$core$List$map, $author$project$Main$viewText, global.problem.message))
 				]));
 	};
-	var overviewTitle = A2(
-		$elm$html$Html$h3,
-		_List_Nil,
-		_List_fromArray(
-			[
-				$elm$html$Html$text('Overview of Errors')
-			]));
-	var fileOverview = function (file) {
+	var viewFileOverview = function (file) {
 		return A2(
 			$elm$html$Html$div,
 			_List_Nil,
@@ -6413,27 +5919,43 @@ var $author$project$Main$viewOverview = function (errors) {
 					_List_Nil,
 					A2(
 						$elm$core$List$map,
-						$author$project$Main$viewProblemDetails(file),
+						function (issue) {
+							return A3(
+								$author$project$Main$viewIssueDetails,
+								A3($author$project$Main$isVisible, model.visible, file, issue),
+								file,
+								issue);
+						},
 						file.problem))
 				]));
 	};
-	var countTitleOccurances = F2(
-		function (prob, dict) {
-			return A3(
-				$elm$core$Dict$update,
-				prob.title,
-				function (value) {
-					return $elm$core$Maybe$Just(
-						A2(
-							$elm$core$Maybe$withDefault,
-							0,
-							A2(
-								$elm$core$Maybe$map,
-								$elm$core$Basics$add(1),
-								value)));
-				},
-				dict);
-		});
+	var found = A3(
+		$elm$core$List$foldl,
+		F2(
+			function (project, gathered) {
+				var globals = gathered.globals;
+				var errs = gathered.errs;
+				switch (project.$) {
+					case 'NoData':
+						return gathered;
+					case 'Success':
+						return gathered;
+					case 'GlobalError':
+						var globe = project.a;
+						return {
+							errs: errs,
+							globals: A2($elm$core$List$cons, globe, globals)
+						};
+					default:
+						var errors = project.a.errors;
+						return {
+							errs: _Utils_ap(errors, errs),
+							globals: globals
+						};
+				}
+			}),
+		{errs: _List_Nil, globals: _List_Nil},
+		model.projects);
 	return A2(
 		$elm$html$Html$div,
 		_List_fromArray(
@@ -6441,310 +5963,85 @@ var $author$project$Main$viewOverview = function (errors) {
 				A2($elm$html$Html$Attributes$style, 'width', '70%'),
 				A2($elm$html$Html$Attributes$style, 'margin-bottom', '130px')
 			]),
-		A2(
-			$elm$core$List$cons,
-			overviewTitle,
-			A2($elm$core$List$map, fileOverview, errors)));
+		_List_fromArray(
+			[
+				A2(
+				$elm$html$Html$h2,
+				_List_Nil,
+				_List_fromArray(
+					[
+						$elm$html$Html$text('Overview')
+					])),
+				($elm$core$List$isEmpty(found.globals) && $elm$core$List$isEmpty(found.errs)) ? A3(
+				$elm$html$Html$Keyed$node,
+				'div',
+				_List_Nil,
+				_List_fromArray(
+					[
+						_Utils_Tuple2(
+						$elm$core$String$fromInt(model.projectsVersion),
+						A2(
+							$elm$html$Html$div,
+							_List_fromArray(
+								[
+									$elm$html$Html$Attributes$class('blink')
+								]),
+							_List_fromArray(
+								[
+									$elm$html$Html$text('No errors 🎉'),
+									$elm$html$Html$text(
+									$elm$core$String$fromInt(model.projectsVersion))
+								])))
+					])) : $elm$html$Html$text(''),
+				$elm$core$List$isEmpty(found.globals) ? $elm$html$Html$text('') : A2(
+				$elm$html$Html$h3,
+				_List_Nil,
+				_List_fromArray(
+					[
+						$elm$html$Html$text('Global')
+					])),
+				A2(
+				$elm$html$Html$div,
+				_List_Nil,
+				A2($elm$core$List$map, viewGlobalError, found.globals)),
+				$elm$core$List$isEmpty(found.errs) ? $elm$html$Html$text('') : A2(
+				$elm$html$Html$h3,
+				_List_Nil,
+				_List_fromArray(
+					[
+						$elm$html$Html$text('Errors')
+					])),
+				A2(
+				$elm$html$Html$div,
+				_List_Nil,
+				A2($elm$core$List$map, viewFileOverview, found.errs))
+			]));
 };
-var $author$project$Main$viewError = F3(
-	function (active, visible, error) {
-		switch (error.$) {
-			case 'NoData':
-				return _List_fromArray(
-					[
-						A2(
-						$elm$html$Html$div,
-						_List_fromArray(
-							[
-								A2($elm$html$Html$Attributes$style, 'white-space', 'pre')
-							]),
-						_List_fromArray(
-							[
-								$elm$html$Html$text('No data')
-							]))
-					]);
-			case 'Success':
-				return _List_fromArray(
-					[
-						A2(
-						$elm$html$Html$div,
-						_List_fromArray(
-							[
-								A2($elm$html$Html$Attributes$style, 'white-space', 'pre')
-							]),
-						_List_fromArray(
-							[
-								A2(
-								$elm$html$Html$span,
-								_List_fromArray(
-									[
-										A2($elm$html$Html$Attributes$style, 'color', 'green')
-									]),
-								_List_fromArray(
-									[
-										$elm$html$Html$text('  ✓')
-									])),
-								$elm$html$Html$text(' Success!')
-							]))
-					]);
-			case 'GlobalError':
-				var err = error.a;
-				var shortMarkupName = function () {
-					var _v1 = err.path;
-					if (_v1.$ === 'Nothing') {
-						return 'File not found';
-					} else {
-						var path = _v1.a;
-						return A2(
-							$elm$core$Maybe$withDefault,
-							path,
-							$elm$core$List$head(
-								$elm$core$List$reverse(
-									A2($elm$core$String$split, '/', path))));
-					}
-				}();
-				return _List_fromArray(
-					[
-						A2($author$project$Main$viewIssue, active, err.problem)
-					]);
-			default:
-				var errors = error.a.errors;
-				var errorsForFile = A2(
-					$elm$core$List$filter,
-					function (err) {
-						return A2(
-							$elm$core$List$any,
-							$author$project$Elm$inEditor(err),
-							visible);
-					},
-					errors);
-				if (!errorsForFile.b) {
-					return _List_fromArray(
-						[
-							$author$project$Main$viewOverview(errors)
-						]);
-				} else {
-					return _Utils_ap(
-						A2(
-							$elm$core$List$concatMap,
-							A2($author$project$Main$viewFileIssue, active, visible),
-							errorsForFile),
-						_List_fromArray(
-							[
-								A2(
-								$elm$html$Html$div,
-								_List_fromArray(
-									[
-										A2($elm$html$Html$Attributes$style, 'height', '100px')
-									]),
-								_List_Nil)
-							]));
-				}
-		}
-	});
-var $elm$core$Basics$neq = _Utils_notEqual;
-var $author$project$Editor$aboveRange = F2(
-	function (shouldBeAbove, two) {
-		return _Utils_cmp(shouldBeAbove.end.row, two.start.row) < 0;
-	});
-var $author$project$Editor$above = F2(
-	function (rng, viewing) {
-		return A2(
-			$elm$core$List$any,
-			$author$project$Editor$aboveRange(rng),
-			viewing);
-	});
-var $author$project$Main$onlyAbove = F2(
-	function (maybeViewing, iss) {
-		if (maybeViewing.$ === 'Nothing') {
-			return false;
-		} else {
-			var viewing = maybeViewing.a;
-			return A2($author$project$Editor$above, iss.region, viewing.ranges);
-		}
-	});
-var $author$project$Main$onlyActiveFile = F2(
-	function (viewing, fileIssue) {
-		return _Utils_eq(
-			$elm$core$Maybe$Just(fileIssue.path),
-			A2(
-				$elm$core$Maybe$map,
-				function ($) {
-					return $.fileName;
-				},
-				viewing)) || _Utils_eq(viewing, $elm$core$Maybe$Nothing);
-	});
-var $elm$core$Basics$not = _Basics_not;
-var $elm$core$List$all = F2(
-	function (isOkay, list) {
-		return !A2(
-			$elm$core$List$any,
-			A2($elm$core$Basics$composeL, $elm$core$Basics$not, isOkay),
-			list);
-	});
-var $author$project$Editor$belowRange = F2(
-	function (shouldBeBelow, two) {
-		return _Utils_cmp(shouldBeBelow.start.row, two.end.row) > 0;
-	});
-var $author$project$Editor$below = F2(
-	function (rng, viewing) {
-		return A2(
-			$elm$core$List$all,
-			$author$project$Editor$belowRange(rng),
-			viewing);
-	});
-var $author$project$Main$onlyBelow = F2(
-	function (maybeViewing, iss) {
-		if (maybeViewing.$ === 'Nothing') {
-			return false;
-		} else {
-			var viewing = maybeViewing.a;
-			return A2($author$project$Editor$below, iss.region, viewing.ranges);
-		}
-	});
-var $author$project$Main$viewIf = F2(
-	function (condition, html) {
-		return condition ? html : $elm$html$Html$text('');
-	});
-var $author$project$Main$viewErrorCountHints = F2(
-	function (viewing, error) {
-		switch (error.$) {
-			case 'NoData':
-				return $elm$html$Html$text('');
-			case 'Success':
-				return $elm$html$Html$text('');
-			case 'GlobalError':
-				var err = error.a;
-				return $elm$html$Html$text('');
-			default:
-				var errors = error.a.errors;
-				var errorsForFile = A2(
-					$elm$core$List$filter,
-					$author$project$Main$onlyActiveFile(viewing),
-					errors);
-				if (!errorsForFile.b) {
-					return $elm$html$Html$text('');
-				} else {
-					var countsBelow = $elm$core$List$length(
-						A2(
-							$elm$core$List$filter,
-							$author$project$Main$onlyBelow(viewing),
-							A2(
-								$elm$core$List$concatMap,
-								function ($) {
-									return $.problem;
-								},
-								errorsForFile)));
-					var countsAbove = $elm$core$List$length(
-						A2(
-							$elm$core$List$filter,
-							$author$project$Main$onlyAbove(viewing),
-							A2(
-								$elm$core$List$concatMap,
-								function ($) {
-									return $.problem;
-								},
-								errorsForFile)));
-					return A2(
-						$elm$html$Html$div,
-						_List_fromArray(
-							[
-								A2($elm$html$Html$Attributes$style, 'position', 'fixed'),
-								A2($elm$html$Html$Attributes$style, 'pointer-events', 'none'),
-								A2($elm$html$Html$Attributes$style, 'height', '100%'),
-								A2($elm$html$Html$Attributes$style, 'width', '100%')
-							]),
-						_List_fromArray(
-							[
-								A2(
-								$author$project$Main$viewIf,
-								!(!countsAbove),
-								A2(
-									$elm$html$Html$div,
-									_List_fromArray(
-										[
-											A2($elm$html$Html$Attributes$style, 'position', 'absolute'),
-											A2($elm$html$Html$Attributes$style, 'left', '0'),
-											A2($elm$html$Html$Attributes$style, 'top', '0'),
-											A2($elm$html$Html$Attributes$style, 'padding-left', '24px'),
-											A2($elm$html$Html$Attributes$style, 'color', 'red')
-										]),
-									_List_fromArray(
-										[
-											$elm$html$Html$text(
-											'↑ ' + ($elm$core$String$fromInt(countsAbove) + ' errors'))
-										]))),
-								A2(
-								$author$project$Main$viewIf,
-								!(!countsBelow),
-								A2(
-									$elm$html$Html$div,
-									_List_fromArray(
-										[
-											A2($elm$html$Html$Attributes$style, 'position', 'absolute'),
-											A2($elm$html$Html$Attributes$style, 'left', '0'),
-											A2($elm$html$Html$Attributes$style, 'bottom', '0'),
-											A2($elm$html$Html$Attributes$style, 'padding-left', '24px'),
-											A2($elm$html$Html$Attributes$style, 'color', 'red')
-										]),
-									_List_fromArray(
-										[
-											$elm$html$Html$text(
-											'↓ ' + ($elm$core$String$fromInt(countsBelow) + ' errors'))
-										])))
-							]));
-				}
-		}
-	});
 var $author$project$Main$view = function (model) {
 	return {
-		body: function () {
-			var _v0 = model.projects;
-			if (!_v0.b) {
-				return A2(
-					$elm$core$List$cons,
-					A3(
-						$elm$html$Html$node,
-						'style',
+		body: _List_fromArray(
+			[
+				A3(
+				$elm$html$Html$node,
+				'style',
+				_List_Nil,
+				_List_fromArray(
+					[
+						$elm$html$Html$text($author$project$Main$styleSheet)
+					])),
+				function () {
+				var _v0 = model.viewing;
+				if (_v0.$ === 'Overview') {
+					return $author$project$Main$viewOverview(model);
+				} else {
+					var path = _v0.a;
+					return A2(
+						$elm$html$Html$div,
 						_List_Nil,
-						_List_fromArray(
-							[
-								$elm$html$Html$text($author$project$Main$styleSheet)
-							])),
-					A2(
-						$elm$core$List$cons,
-						$author$project$Main$viewEditorFocusToken(model.active),
-						_List_fromArray(
-							[
-								A2(
-								$elm$html$Html$div,
-								_List_Nil,
-								_List_fromArray(
-									[
-										$elm$html$Html$text('No projects')
-									]))
-							])));
-			} else {
-				var status = _v0.a;
-				return A2(
-					$elm$core$List$cons,
-					A3(
-						$elm$html$Html$node,
-						'style',
-						_List_Nil,
-						_List_fromArray(
-							[
-								$elm$html$Html$text($author$project$Main$styleSheet)
-							])),
-					A2(
-						$elm$core$List$cons,
-						$author$project$Main$viewEditorFocusToken(model.active),
-						A2(
-							$elm$core$List$cons,
-							A2($author$project$Main$viewErrorCountHints, model.active, status),
-							A3($author$project$Main$viewError, model.active, model.visible, status))));
-			}
-		}(),
+						A2($author$project$Main$viewFile, path, model));
+				}
+			}()
+			]),
 		title: 'Elm Live Errors'
 	};
 };

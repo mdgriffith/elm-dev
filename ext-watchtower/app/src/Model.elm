@@ -1,6 +1,7 @@
 module Model exposing
     ( Model
     , Msg(..)
+    , Viewing(..)
     )
 
 import Editor
@@ -11,18 +12,22 @@ import Ports
 
 
 type alias Model =
-    { active :
-        Maybe Editor.Editor
+    { active : Maybe Editor.Editor
     , visible : List Editor.Editor
-    , workspace :
-        List
-            { name : String
-            , path : String
-            }
     , projects : List Elm.Status
+    , projectsVersion : Int
+
+    -- local UI state
+    , viewing : Viewing
     }
+
+
+type Viewing
+    = Overview
+    | ViewingFile String
 
 
 type Msg
     = Incoming (Result Decode.Error Ports.Incoming)
-    | GoTo Elm.File Elm.Problem
+    | EditorGoTo Elm.File Elm.Problem
+    | View Viewing

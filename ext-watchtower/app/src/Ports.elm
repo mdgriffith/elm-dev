@@ -34,7 +34,6 @@ type Incoming
         , visible : List Editor.Editor
         }
     | ProjectsStatusUpdated (List Elm.Status)
-    | WorkspaceFolders (List Editor.Workspace)
 
 
 type Outgoing

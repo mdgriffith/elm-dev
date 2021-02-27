@@ -9,6 +9,7 @@ import Elm
 import Html
 import Html.Attributes
 import Html.Events
+import Html.Keyed as Keyed
 import Json.Decode as Decode
 import Json.Encode
 import Model exposing (..)
@@ -32,8 +33,9 @@ main =
 init =
     ( { active = Nothing
       , visible = []
-      , workspace = []
       , projects = []
+      , projectsVersion = 0
+      , viewing = Overview
       }
     , Cmd.none
     )
@@ -58,16 +60,14 @@ update msg model =
                     )
 
                 Ports.ProjectsStatusUpdated statuses ->
-                    ( { model | projects = statuses }
+                    ( { model
+                        | projects = statuses
+                        , projectsVersion = model.projectsVersion + 1
+                      }
                     , Cmd.none
                     )
 
-                Ports.WorkspaceFolders newFolders ->
-                    ( { model | workspace = newFolders }
-                    , Cmd.none
-                    )
-
-        GoTo file problem ->
+        EditorGoTo file problem ->
             ( model
             , Ports.outgoing
                 (Ports.Goto
@@ -75,6 +75,11 @@ update msg model =
                     , region = problem.region
                     }
                 )
+            )
+
+        View viewing ->
+            ( { model | viewing = viewing }
+            , Cmd.none
             )
 
 
@@ -104,6 +109,8 @@ mergeProjects new existing =
 
 styleSheet =
     """
+
+
 html {
     min-height:100%;
 }
@@ -123,6 +130,12 @@ body {
     align-items: flex-start;
 }
 
+@keyframes blink {
+  from {opacity: 1;}
+  50%  {opacity: 0.2;}
+  100% {opacity: 1;}
+}
+
 
 .info {
     color: var(--vscode-editorInfo-foreground);
@@ -140,6 +153,11 @@ body {
     color: var(--vscode-testing-iconPassed);
 }
 
+.blink {
+    opacity:1;
+    animation: blink 250ms linear;
+}
+
 
 
 """
@@ -148,18 +166,228 @@ body {
 view model =
     { title = "Elm Live Errors"
     , body =
-        case model.projects of
-            [] ->
-                Html.node "style" [] [ Html.text styleSheet ]
-                    :: viewEditorFocusToken model.active
-                    :: [ Html.div [] [ Html.text "No projects" ] ]
+        [ Html.node "style" [] [ Html.text styleSheet ]
+        , case model.viewing of
+            Overview ->
+                viewOverview model
 
-            status :: _ ->
-                Html.node "style" [] [ Html.text styleSheet ]
-                    :: viewEditorFocusToken model.active
-                    :: viewErrorCountHints model.active status
-                    :: viewError model.active model.visible status
+            ViewingFile path ->
+                Html.div [] (viewFile path model)
+        ]
+
+    -- case model.projects of
+    --     [] ->
+    --         Html.node "style" [] [ Html.text styleSheet ]
+    --             :: viewEditorFocusToken model.active
+    --             :: [ Html.div [] [ Html.text "No projects" ] ]
+    --     status :: _ ->
+    --         Html.node "style" [] [ Html.text styleSheet ]
+    --             :: viewEditorFocusToken model.active
+    --             :: viewErrorCountHints model.active status
+    --             :: viewError model.active model.visible status
     }
+
+
+viewOverview model =
+    let
+        found =
+            List.foldl
+                (\project ({ globals, errs } as gathered) ->
+                    case project of
+                        Elm.NoData ->
+                            gathered
+
+                        Elm.Success ->
+                            gathered
+
+                        Elm.GlobalError globe ->
+                            { globals = globe :: globals
+                            , errs = errs
+                            }
+
+                        Elm.CompilerError { errors } ->
+                            { globals = globals
+                            , errs = errors ++ errs
+                            }
+                )
+                { globals = []
+                , errs = []
+                }
+                model.projects
+
+        viewProblemOverview problem =
+            Html.div
+                []
+                [ Html.text problem.title
+                ]
+
+        viewFileOverview file =
+            Html.div
+                []
+                [ Html.text (file.name ++ ".elm")
+                , Html.div []
+                    (List.map
+                        (\issue ->
+                            viewIssueDetails
+                                (isVisible model.visible file issue)
+                                file
+                                issue
+                        )
+                        file.problem
+                    )
+                ]
+
+        viewGlobalError global =
+            Html.div
+                []
+                [ Html.h3 [] [ Html.text global.problem.title ]
+                , Html.div []
+                    (List.map viewText global.problem.message)
+                ]
+    in
+    Html.div
+        [ Html.Attributes.style "width" "70%"
+        , Html.Attributes.style "margin-bottom" "130px"
+        ]
+        [ Html.h2 []
+            [ Html.text "Overview"
+            ]
+        , if List.isEmpty found.globals && List.isEmpty found.errs then
+            Keyed.node "div"
+                []
+                [ ( String.fromInt model.projectsVersion
+                  , Html.div
+                        [ Html.Attributes.class "blink"
+                        ]
+                        [ Html.text "No errors 🎉"
+                        , Html.text (String.fromInt model.projectsVersion)
+                        ]
+                  )
+                ]
+
+          else
+            Html.text ""
+        , if List.isEmpty found.globals then
+            Html.text ""
+
+          else
+            Html.h3 []
+                [ Html.text "Global"
+                ]
+        , Html.div []
+            (List.map viewGlobalError found.globals)
+        , if List.isEmpty found.errs then
+            Html.text ""
+
+          else
+            Html.h3 []
+                [ Html.text "Errors"
+                ]
+        , Html.div [] (List.map viewFileOverview found.errs)
+        ]
+
+
+isVisible : List Editor.Editor -> Elm.File -> Elm.Problem -> Bool
+isVisible editors file prob =
+    List.any
+        (\e ->
+            if e.fileName == file.path then
+                Editor.visible prob.region e.ranges
+
+            else
+                False
+        )
+        editors
+
+
+viewIssueDetails expanded file issue =
+    Html.div
+        [ Html.Events.onClick (EditorGoTo file issue)
+        , Html.Attributes.style "cursor" "pointer"
+        ]
+        [ Html.div []
+            [ if issue.region.start.row == issue.region.end.row then
+                Html.span
+                    [ Html.Attributes.style "color" "cyan"
+                    , Html.Attributes.style "opacity" "0.5"
+                    , Html.Attributes.style "width" "50px"
+                    , Html.Attributes.style "display" "inline-block"
+                    ]
+                    [ Html.text (String.fromInt issue.region.start.row)
+                    ]
+
+              else
+                Html.span
+                    [ Html.Attributes.style "color" "cyan"
+                    , Html.Attributes.style "opacity" "0.5"
+                    , Html.Attributes.style "width" "50px"
+                    , Html.Attributes.style "display" "inline-block"
+                    ]
+                    [ Html.text (String.fromInt issue.region.start.row)
+                    , Html.text ":"
+                    , Html.text (String.fromInt issue.region.end.row)
+                    ]
+            , Html.span [ Html.Attributes.style "color" "cyan" ]
+                [ Html.text issue.title
+                ]
+            ]
+        , if expanded then
+            Html.div
+                [ Html.Attributes.style "padding-left" "100px"
+                , Html.Attributes.style "white-space" "pre"
+                ]
+                (List.map viewText issue.message)
+
+          else
+            Html.text ""
+        ]
+
+
+viewFile path model =
+    let
+        foundErrs =
+            List.foldl
+                (\project ({ handled, errs } as gathered) ->
+                    if handled then
+                        gathered
+
+                    else
+                        case project of
+                            Elm.NoData ->
+                                gathered
+
+                            Elm.Success ->
+                                gathered
+
+                            Elm.GlobalError globe ->
+                                gathered
+
+                            Elm.CompilerError { errors } ->
+                                let
+                                    newErrs =
+                                        List.filter
+                                            (\e ->
+                                                path == e.path
+                                            )
+                                            errors
+                                in
+                                case newErrs of
+                                    [] ->
+                                        gathered
+
+                                    _ ->
+                                        { handled = True
+                                        , errs = newErrs ++ errs
+                                        }
+                )
+                { handled = False
+                , errs = []
+                }
+                model.projects
+                |> .errs
+    in
+    List.concatMap viewFileIssue foundErrs
+        ++ [ Html.div [ Html.Attributes.style "height" "100px" ] [] ]
 
 
 viewEditorFocusToken viewing =
@@ -303,110 +531,7 @@ viewIf condition html =
         Html.text ""
 
 
-viewError active visible error =
-    case error of
-        Elm.NoData ->
-            [ Html.div
-                [ Html.Attributes.style "white-space" "pre"
-                ]
-                [ Html.text "No data"
-                ]
-            ]
-
-        Elm.Success ->
-            [ Html.div
-                [ Html.Attributes.style "white-space" "pre"
-                ]
-                [ Html.span
-                    [ Html.Attributes.style "color" "green"
-                    ]
-                    [ Html.text "  ✓" ]
-                , Html.text " Success!"
-                ]
-            ]
-
-        Elm.GlobalError err ->
-            let
-                shortMarkupName =
-                    case err.path of
-                        Nothing ->
-                            "File not found"
-
-                        Just path ->
-                            path
-                                |> String.split "/"
-                                |> List.reverse
-                                |> List.head
-                                |> Maybe.withDefault path
-            in
-            [ viewIssue active err.problem ]
-
-        Elm.CompilerError { errors } ->
-            let
-                errorsForFile =
-                    List.filter (\err -> List.any (Elm.inEditor err) visible) errors
-            in
-            case errorsForFile of
-                [] ->
-                    [ viewOverview errors ]
-
-                _ ->
-                    List.concatMap (viewFileIssue active visible) errorsForFile
-                        ++ [ Html.div [ Html.Attributes.style "height" "100px" ] [] ]
-
-
-viewOverview errors =
-    let
-        fileOverview file =
-            Html.div
-                []
-                [ Html.text (file.name ++ ".elm")
-
-                -- , Html.div []
-                --     (file.problem
-                --         |> List.foldl countTitleOccurances Dict.empty
-                --         |> Dict.toList
-                --         |> List.map renderCount
-                --     )
-                , Html.div []
-                    (List.map (viewProblemDetails file) file.problem)
-                ]
-
-        renderCount ( title, count ) =
-            Html.div [ Html.Attributes.style "padding-left" "12px" ]
-                [ Html.span [] [ Html.text ("(" ++ String.fromInt count ++ ") ") ]
-                , Html.span [] [ Html.text title ]
-                ]
-
-        countTitleOccurances prob dict =
-            Dict.update prob.title
-                (\value ->
-                    value
-                        |> Maybe.map ((+) 1)
-                        |> Maybe.withDefault 0
-                        |> Just
-                )
-                dict
-
-        viewProblemOverview problem =
-            Html.div
-                []
-                [ Html.text problem.title
-                ]
-
-        overviewTitle =
-            Html.h3 []
-                [ Html.text "Overview of Errors"
-                ]
-    in
-    Html.div
-        [ Html.Attributes.style "width" "70%"
-        , Html.Attributes.style "margin-bottom" "130px"
-        ]
-        (overviewTitle :: List.map fileOverview errors)
-
-
-viewFileIssue active visible fileIssue =
+viewFileIssue fileIssue =
     List.map (viewProblemDetails fileIssue)
         fileIssue.problem
 
@@ -421,25 +546,15 @@ viewIssue viewing iss =
 
 
 viewProblemDetails file issue =
-    -- if Editor.visible iss.region visibleRanges then
     Html.div
         [ Html.Attributes.style "white-space" "pre"
-        , Html.Events.onClick (GoTo file issue)
+        , Html.Events.onClick (EditorGoTo file issue)
         , Html.Attributes.style "cursor" "pointer"
         ]
         [ Html.div [ Html.Attributes.style "color" "cyan" ]
             [ Html.text (fillToEighty ("-- " ++ String.toUpper issue.title ++ " ")) ]
         , Html.div []
             (List.map viewText issue.message)
-        ]
-
-
-viewProblemPreview file issue =
-    Html.div
-        [ Html.Events.onClick (GoTo file issue)
-        , Html.Attributes.style "cursor" "pointer"
-        ]
-        [ Html.div [] [ Html.text issue.title ]
         ]
 
 

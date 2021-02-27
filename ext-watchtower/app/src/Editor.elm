@@ -49,7 +49,7 @@ type alias Position =
 type alias Editor =
     { fileName : String
     , ranges : List Range
-    , selections : List Selection
+    , selections : List Range
     }
 
 
@@ -87,25 +87,13 @@ decodeEditor =
     Decode.map3 Editor
         (Decode.field "path" Decode.string)
         (Decode.field "visibleRegions" (Decode.list decodeRegion))
-        (Decode.field "selections" (Decode.list selection))
+        (Decode.field "selections" (Decode.list decodeRegion))
 
 
 decodeWorkspaceFolder =
     Decode.map2 Workspace
         (Decode.field "name" Decode.string)
         (Decode.field "path" Decode.string)
-
-
-selection =
-    Decode.map2 Selection
-        (Decode.field "start" rowColPos)
-        (Decode.field "end" rowColPos)
-
-
-rowColPos =
-    Decode.map2 Position
-        (Decode.field "row" Decode.int)
-        (Decode.field "col" Decode.int)
 
 
 position =
@@ -121,12 +109,6 @@ position =
             , Decode.field "col" Decode.int
             ]
         )
-
-
-focus =
-    Decode.map2 Range
-        (Decode.field "start" rowColPos)
-        (Decode.field "end" rowColPos)
 
 
 decodeRegion =
