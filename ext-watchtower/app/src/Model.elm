@@ -24,7 +24,6 @@ type alias Model =
 
 type Viewing
     = Overview
-    | ViewingFile String
 
 
 type Msg
