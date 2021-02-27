@@ -73,8 +73,8 @@ encodeRegion region =
 encodePosition : Position -> Encode.Value
 encodePosition pos =
     Encode.object
-        [ ( "row", Encode.int pos.row )
-        , ( "col", Encode.int pos.col )
+        [ ( "line", Encode.int pos.row )
+        , ( "column", Encode.int pos.col )
         ]
 
 

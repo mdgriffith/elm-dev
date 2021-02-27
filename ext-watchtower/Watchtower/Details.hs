@@ -90,8 +90,8 @@ encodeLocation (Location file region) =
 encodePosition :: Ann.Position -> Json.Encode.Value
 encodePosition (Ann.Position row col) =
     Json.Encode.object
-        [ ("row" ==> Json.Encode.int (fromIntegral row))
-        , ("col" ==> Json.Encode.int (fromIntegral col))
+        [ ("line" ==> Json.Encode.int (fromIntegral row))
+        , ("column" ==> Json.Encode.int (fromIntegral col))
         ]
 
 
@@ -136,5 +136,5 @@ decodeRegion =
 decodePosition :: Json.Decode.Decoder x Ann.Position
 decodePosition =
     Ann.Position
-        <$> (Json.Decode.field "row" (fromIntegral <$> Json.Decode.int))
-        <*> (Json.Decode.field "col" (fromIntegral <$> Json.Decode.int))
+        <$> (Json.Decode.field "line" (fromIntegral <$> Json.Decode.int))
+        <*> (Json.Decode.field "column" (fromIntegral <$> Json.Decode.int))

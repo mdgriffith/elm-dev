@@ -5460,10 +5460,10 @@ var $author$project$Editor$encodePosition = function (pos) {
 		_List_fromArray(
 			[
 				_Utils_Tuple2(
-				'row',
+				'line',
 				$elm$json$Json$Encode$int(pos.row)),
 				_Utils_Tuple2(
-				'col',
+				'column',
 				$elm$json$Json$Encode$int(pos.col))
 			]));
 };
@@ -5486,14 +5486,20 @@ var $author$project$Ports$encodeOutgoing = function (out) {
 		_List_fromArray(
 			[
 				_Utils_Tuple2(
-				'command',
-				$elm$json$Json$Encode$string('Goto')),
+				'msg',
+				$elm$json$Json$Encode$string('Jump')),
 				_Utils_Tuple2(
-				'path',
-				$elm$json$Json$Encode$string(location.file)),
-				_Utils_Tuple2(
-				'region',
-				$author$project$Editor$encodeRegion(location.region))
+				'details',
+				$elm$json$Json$Encode$object(
+					_List_fromArray(
+						[
+							_Utils_Tuple2(
+							'path',
+							$elm$json$Json$Encode$string(location.file)),
+							_Utils_Tuple2(
+							'region',
+							$author$project$Editor$encodeRegion(location.region))
+						])))
 			]));
 };
 var $author$project$Ports$notify = _Platform_outgoingPort('notify', $elm$core$Basics$identity);

@@ -47,6 +47,7 @@ import qualified AST.Optimized as Opt
 import AST.Canonical (Type(..))
 import qualified Compile
 import qualified Data.Utf8
+import qualified Watchtower.Details
 import Data.Function ((&))
 
 
@@ -118,7 +119,7 @@ printListMissingAnnotations root file = do
                     Src.Value locatedName _ _ Nothing ->
                           Json.Encode.object
                               [ "name" ==> nameToJsonString (A.toValue locatedName)
-                              , "region" ==> encodeRegion (A.toRegion locatedName)
+                              , "region" ==> Watchtower.Details.encodeRegion (A.toRegion locatedName)
                               ]
                               & Just
 
@@ -172,7 +173,7 @@ listMissingAnnotations root file = do
                                     Just annotationJson ->
                                       Json.Encode.object
                                           [ "name" ==> nameToJsonString (A.toValue locatedName)
-                                          , "region" ==> encodeRegion (A.toRegion locatedName)
+                                          , "region" ==> Watchtower.Details.encodeRegion (A.toRegion locatedName)
                                           , "signature" ==> annotationJson
                                           ]
                                           & Just
@@ -184,22 +185,6 @@ listMissingAnnotations root file = do
                     & Json.Encode.list (\a -> a)
 
               pure values
-
-{- Copied from Reporting/Error.hs ...-}
-encodeRegion :: A.Region -> Json.Encode.Value
-encodeRegion (A.Region (A.Position sr sc) (A.Position er ec)) =
-  Json.Encode.object
-    [ "start" ==>
-          Json.Encode.object
-            [ "line" ==> Json.Encode.int (fromIntegral sr)
-            , "column" ==> Json.Encode.int (fromIntegral sc)
-            ]
-    , "end" ==>
-          Json.Encode.object
-            [ "line" ==> Json.Encode.int (fromIntegral er)
-            , "column" ==> Json.Encode.int (fromIntegral ec)
-            ]
-    ]
 
 
 
