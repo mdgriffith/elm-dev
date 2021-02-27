@@ -37,6 +37,7 @@ import qualified Reporting.Task as Task
 import qualified Stuff
 
 import Ext.Common (trackedForkIO, getProjectRootFor)
+import qualified Ext.Common
 import qualified Ext.Filewatch as Filewatch
 import qualified Ext.Sentry as Sentry
 
@@ -48,7 +49,7 @@ compileToJson :: FilePath -> FilePath -> IO (Either Encode.Value Encode.Value)
 compileToJson root path =
   do
       let toBS = BSL.toStrict . B.toLazyByteString
-      result <- Dir.withCurrentDirectory root $ compile path
+      result <- compile root path
 
       -- hindentPrintValue "Exit.Reactor" result
 
@@ -77,7 +78,7 @@ compileToBuilder :: FilePath -> FilePath -> IO (Either BS.ByteString BS.ByteStri
 compileToBuilder root path =
   do
       let toBS = BSL.toStrict . B.toLazyByteString
-      result <- Dir.withCurrentDirectory root $ compile path
+      result <- compile root path
 
       pure $
         case result of
@@ -98,17 +99,14 @@ compileToBuilder root path =
                 Exit.toJson $ Exit.reactorToReport exit
 
 
-compile :: FilePath -> IO (Either Exit.Reactor B.Builder)
-compile path =
-  do  maybeRoot <- getProjectRootFor path
-      case maybeRoot of
-        Nothing ->
-          return $ Left $ Exit.ReactorNoOutline
-
-        Just root ->
-          BW.withScope $ \scope -> Stuff.withRootLock root $ Task.run $
-            do  details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-                artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details (NE.List path [])
-                javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
-                let (NE.List name _) = Build.getRootNames artifacts
-                return $ Html.sandwich name javascript
+compile :: FilePath -> FilePath -> IO (Either Exit.Reactor B.Builder)
+compile root path =
+  do
+    Ext.Common.debug $ " compiling " ++ show root ++ " -> " ++ show path
+    Dir.withCurrentDirectory root $
+      BW.withScope $ \scope -> Stuff.withRootLock root $ Task.run $
+        do  details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
+            artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details (NE.List path [])
+            javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
+            let (NE.List name _) = Build.getRootNames artifacts
+            return $ Html.sandwich name javascript

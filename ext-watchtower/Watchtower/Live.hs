@@ -89,24 +89,43 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
 
               debug $ "🧟 affected project " ++ show proj
 
-              let entry =
+              let maybeEntry =
                     case entrypoints of
                       [] ->
-                          head filenames
+                          let
+                              filesWithinProject =
+                                  List.filter
+                                    (\file -> (Watchtower.Project.contains file proj))
+                                    remainingFiles
+
+                          in
+                          case filesWithinProject of
+                            [] -> Nothing
+                            top : _ ->
+                              Just top
+
 
                       top : _ ->
-                          top
+                          Just top
 
-              -- Can compileToJson take multiple entrypoints like elm make?
-              eitherStatusJson <- Watchtower.Compile.compileToJson projectRoot entry
+              case maybeEntry of
+                Nothing ->
+                  pure
+                    ( gathered
+                    , remaining
+                    )
+                Just entry ->
+                  do
+                      -- Can compileToJson take multiple entrypoints like elm make?
+                      eitherStatusJson <- Watchtower.Compile.compileToJson projectRoot entry
 
-              Ext.Sentry.updateCompileResult cache $
-                  pure eitherStatusJson
+                      Ext.Sentry.updateCompileResult cache $
+                          pure eitherStatusJson
 
-              pure
-                ( reduceStatus eitherStatusJson : gathered
-                , remaining
-                )
+                      pure
+                        ( consIfErrors  eitherStatusJson gathered
+                        , remaining
+                        )
       ) ([], filenames) projects
 
 
@@ -115,7 +134,7 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
           do
              eitherStatusJson <- Watchtower.Compile.compileToJson "." file
 
-             pure (reduceStatus eitherStatusJson : gathered)
+             pure (consIfErrors eitherStatusJson gathered)
         )
         projectStatuses
         projectlessFiles
@@ -140,9 +159,11 @@ websocket_ (state@(State mClients projects)) = do
                         (\gathered (cache, proj) ->
                           do
                             jsonStatus <- Ext.Sentry.getCompileResult cache
-                            pure $ (reduceStatus jsonStatus) : gathered
+
+                            pure $ consIfErrors jsonStatus gathered
                         )
                         [] projects
+          debug $ "🍦  init status: " ++ show statuses
           pure $ Just $ builderToString $ encodeOutgoing (ElmStatus statuses)
 
       Watchtower.Websocket.runWebSocketsSnap
@@ -184,6 +205,14 @@ receiveAction state@(State mClients projects) clientId incoming =
           (builderToString (encodeOutgoing (FwdJumpTo location)))
 
 
+
+consIfErrors :: Either Json.Encode.Value Json.Encode.Value -> [Json.Encode.Value] -> [Json.Encode.Value]
+consIfErrors  either ls =
+  case either of
+    Right json ->
+      ls
+    Left json ->
+      json : ls
 
 reduceStatus :: Either Json.Encode.Value Json.Encode.Value -> Json.Encode.Value
 reduceStatus either =

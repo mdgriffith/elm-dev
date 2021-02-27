@@ -163,4 +163,13 @@ decodeProject =
 
 filepath :: Json.Decode.Decoder x FilePath
 filepath =
-    (Json.String.toChars <$> Json.Decode.string)
+    ((\str ->
+        case str of
+            [] ->
+                str
+            '.' : '/' : remain ->
+                remain
+            _ ->
+                str
+
+        ) <$> (Json.String.toChars <$> Json.Decode.string))
