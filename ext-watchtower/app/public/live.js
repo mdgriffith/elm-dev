@@ -5333,6 +5333,14 @@ var $author$project$Elm$fileError = A4(
 		$elm$json$Json$Decode$field,
 		'problems',
 		$elm$json$Json$Decode$list($author$project$Elm$decodeProblem)));
+var $elm$json$Json$Decode$nullable = function (decoder) {
+	return $elm$json$Json$Decode$oneOf(
+		_List_fromArray(
+			[
+				$elm$json$Json$Decode$null($elm$core$Maybe$Nothing),
+				A2($elm$json$Json$Decode$map, $elm$core$Maybe$Just, decoder)
+			]));
+};
 var $author$project$Elm$decodeStatus = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
 		[
@@ -5358,7 +5366,10 @@ var $author$project$Elm$decodeStatus = $elm$json$Json$Decode$oneOf(
 										path,
 										{message: message, title: title});
 								}),
-							A2($elm$json$Json$Decode$field, 'path', $elm$json$Json$Decode$string),
+							A2(
+								$elm$json$Json$Decode$field,
+								'path',
+								$elm$json$Json$Decode$nullable($elm$json$Json$Decode$string)),
 							A2($elm$json$Json$Decode$field, 'title', $elm$json$Json$Decode$string),
 							A2(
 								$elm$json$Json$Decode$field,
@@ -5380,14 +5391,6 @@ var $author$project$Elm$decodeStatus = $elm$json$Json$Decode$oneOf(
 			A2($elm$json$Json$Decode$field, 'type', $author$project$Elm$decodeErrorType))
 		]));
 var $elm$core$Debug$log = _Debug_log;
-var $elm$json$Json$Decode$nullable = function (decoder) {
-	return $elm$json$Json$Decode$oneOf(
-		_List_fromArray(
-			[
-				$elm$json$Json$Decode$null($elm$core$Maybe$Nothing),
-				A2($elm$json$Json$Decode$map, $elm$core$Maybe$Just, decoder)
-			]));
-};
 var $author$project$Ports$incomingDecoder = A2(
 	$elm$json$Json$Decode$andThen,
 	function (msg) {
@@ -6486,12 +6489,20 @@ var $author$project$Main$viewError = F3(
 					]);
 			case 'GlobalError':
 				var err = error.a;
-				var shortMarkupName = A2(
-					$elm$core$Maybe$withDefault,
-					'Unknown',
-					$elm$core$List$head(
-						$elm$core$List$reverse(
-							A2($elm$core$String$split, '/', err.path))));
+				var shortMarkupName = function () {
+					var _v1 = err.path;
+					if (_v1.$ === 'Nothing') {
+						return 'File not found';
+					} else {
+						var path = _v1.a;
+						return A2(
+							$elm$core$Maybe$withDefault,
+							path,
+							$elm$core$List$head(
+								$elm$core$List$reverse(
+									A2($elm$core$String$split, '/', path))));
+					}
+				}();
 				return _List_fromArray(
 					[
 						A2($author$project$Main$viewIssue, active, err.problem)

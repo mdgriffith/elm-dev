@@ -328,11 +328,16 @@ viewError active visible error =
         Elm.GlobalError err ->
             let
                 shortMarkupName =
-                    err.path
-                        |> String.split "/"
-                        |> List.reverse
-                        |> List.head
-                        |> Maybe.withDefault "Unknown"
+                    case err.path of
+                        Nothing ->
+                            "File not found"
+
+                        Just path ->
+                            path
+                                |> String.split "/"
+                                |> List.reverse
+                                |> List.head
+                                |> Maybe.withDefault path
             in
             [ viewIssue active err.problem ]
 

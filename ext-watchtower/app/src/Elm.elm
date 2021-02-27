@@ -23,7 +23,7 @@ type Status
 
 
 type alias GlobalErrorDetails =
-    { path : String
+    { path : Maybe String
     , problem :
         { title : String
         , message : List Text
@@ -104,7 +104,9 @@ decodeStatus =
                                             , message = message
                                             }
                                     )
-                                    (Decode.field "path" Decode.string)
+                                    (Decode.field "path"
+                                        (Decode.nullable Decode.string)
+                                    )
                                     (Decode.field "title" Decode.string)
                                     (Decode.field "message" (Decode.list text))
                                 )
