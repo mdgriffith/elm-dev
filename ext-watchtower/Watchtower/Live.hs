@@ -87,7 +87,7 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
                       remainingFiles
 
 
-              debug $ "🧟 affected project " ++ show proj
+
 
               let maybeEntry =
                     case entrypoints of
@@ -116,6 +116,7 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
                     )
                 Just entry ->
                   do
+                      debug $ "🧟 affected project"
                       -- Can compileToJson take multiple entrypoints like elm make?
                       eitherStatusJson <- Watchtower.Compile.compileToJson projectRoot entry
 
@@ -140,6 +141,7 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
         projectlessFiles
 
     Watchtower.Websocket.broadcastImpl mClients $ builderToString $ encodeOutgoing (ElmStatus allStatuses)
+    debug $ "🛬  recompile finished: " ++ show filenames
 
 websocket :: State -> Snap ()
 websocket state =
