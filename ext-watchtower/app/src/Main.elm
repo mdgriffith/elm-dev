@@ -109,97 +109,15 @@ mergeProjects new existing =
         new :: newProjects
 
 
-styleSheet =
-    """
-
-
-html {
-    min-height:100%;
-}
-body {
-    background-color: var(--vscode-editor-background);
-    color: var(--vscode-editor-foreground);
-    /*font-family: "Fira Code" !important; */
-    font-family: var(--vscode-editor-font-family);
-    font-weight: var(--vscode-editor-font-weight);
-    font-size: var(--vscode-editor-font-size);
-    margin: 0;
-    padding: 0 20px;
-    min-height: 100vh;
-    display:flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: flex-start;
-}
-.base {
-    background-color: var(--vscode-editor-background) !important;
-    color: var(--vscode-editor-foreground) !important;
-    /*font-family: "Fira Code" !important; */
-    font-family: var(--vscode-editor-font-family) !important;
-    font-weight: var(--vscode-editor-font-weight) !important;
-    font-size: var(--vscode-editor-font-size) !important;
-}
-
-@keyframes blink {
-  from {opacity: 1;}
-  50%  {opacity: 0.2;}
-  100% {opacity: 1;}
-}
-
-
-.info {
-    color: var(--vscode-editorInfo-foreground) !important;
-}
-
-.warning {
-    color: var(--vscode-editorWarning-foreground) !important;
-}
-
-.danger {
-    color: var(--vscode-editorError-foreground) !important;
-}
-
-.success {
-    color: var(--vscode-testing-iconPassed) !important;
-}
-
-.blink {
-    opacity:1;
-    animation: blink 250ms linear;
-}
-
-.precise {
-    white-space: pre !important;
-}
-.precise * {
-    white-space: pre !important;
-}
-
-
-
-"""
-
-
 view model =
     { title = "Watchtower"
     , body =
-        [ Html.node "style" [] [ Html.text styleSheet ]
+        [ Ui.overrides
         , Ui.layout [ Ui.htmlAttribute (Html.Attributes.class "base") ] <|
             case model.viewing of
                 Overview ->
                     viewOverview model
         ]
-
-    -- case model.projects of
-    --     [] ->
-    --         Html.node "style" [] [ Ui.text styleSheet ]
-    --             :: viewEditorFocusToken model.active
-    --             :: [ Ui.column  [] [ Ui.text "No projects" ] ]
-    --     status :: _ ->
-    --         Html.node "style" [] [ Ui.text styleSheet ]
-    --             :: viewEditorFocusToken model.active
-    --             :: viewErrorCountHints model.active status
-    --             :: viewError model.active model.visible status
     }
 
 
@@ -376,48 +294,6 @@ viewFile path model =
                 |> .errs
     in
     List.concatMap viewFileIssue foundErrs
-
-
-
--- viewEditorFocusToken viewing =
---     Ui.column
---         [ Html.Attributes.style "position" "absolute"
---         , Html.Attributes.style "top" "0"
---         , Html.Attributes.style "padding" "4px"
---         , Html.Attributes.style "border" "1px solid red"
---         , Html.Attributes.style "right" "0"
---         ]
---         [ case viewing of
---             Nothing ->
---                 Ui.text "No file detected."
---             Just selected ->
---                 Ui.column  []
---                     [ Ui.column  []
---                         [ Ui.text "Watchtower: "
---                         , Ui.text
---                             (viewFileName selected.fileName)
---                         ]
---                     -- , Ui.column  []
---                     --     (List.map viewSelection selected.selections)
---                     -- , Ui.column  []
---                     --     (List.map viewRange selected.visible)
---                     ]
---         ]
--- viewEditorFocus viewing =
---     case viewing of
---         Nothing ->
---             Ui.text "No file detected."
---         Just selected ->
---             Ui.column  []
---                 [ Ui.column  []
---                     [ Ui.text
---                         ("file: " ++ viewFileName selected.fileName)
---                     ]
---                 , Ui.column  []
---                     (List.map viewSelection selected.selections)
---                 , Ui.column  []
---                     (List.map viewRange selected.ranges)
---                 ]
 
 
 onlyActiveFile viewing fileIssue =

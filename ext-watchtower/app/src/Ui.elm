@@ -3,6 +3,7 @@ module Ui exposing
     , space, pad
     , background, border, font
     , when, whenJust, precise
+    , overrides
     , header
     )
 
@@ -15,13 +16,91 @@ module Ui exposing
 
 @docs when, whenJust, precise
 
+@docs overrides
+
 -}
 
 import Element as Ui exposing (Attribute, Element)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Font as Font
+import Html
 import Html.Attributes as Attr
+
+
+overrides =
+    Html.node "style" [] [ Html.text stylesheet ]
+
+
+stylesheet =
+    """
+
+
+html {
+    min-height:100%;
+}
+body {
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    /*font-family: "Fira Code" !important; */
+    font-family: var(--vscode-editor-font-family);
+    font-weight: var(--vscode-editor-font-weight);
+    font-size: var(--vscode-editor-font-size);
+    margin: 0;
+    padding: 0 20px;
+    min-height: 100vh;
+    display:flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+}
+.base {
+    background-color: var(--vscode-editor-background) !important;
+    color: var(--vscode-editor-foreground) !important;
+    /*font-family: "Fira Code" !important; */
+    font-family: var(--vscode-editor-font-family) !important;
+    font-weight: var(--vscode-editor-font-weight) !important;
+    font-size: var(--vscode-editor-font-size) !important;
+}
+
+@keyframes blink {
+  from {opacity: 1;}
+  50%  {opacity: 0.2;}
+  100% {opacity: 1;}
+}
+
+
+.info {
+    color: var(--vscode-editorInfo-foreground) !important;
+}
+
+.warning {
+    color: var(--vscode-editorWarning-foreground) !important;
+}
+
+.danger {
+    color: var(--vscode-editorError-foreground) !important;
+}
+
+.success {
+    color: var(--vscode-testing-iconPassed) !important;
+}
+
+.blink {
+    opacity:1;
+    animation: blink 250ms linear;
+}
+
+.precise {
+    white-space: pre !important;
+}
+.precise * {
+    white-space: pre !important;
+}
+
+
+
+"""
 
 
 colors =

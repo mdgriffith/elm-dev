@@ -11146,7 +11146,15 @@ var $mdgriffith$elm_ui$Element$layoutWith = F3(
 var $mdgriffith$elm_ui$Element$layout = $mdgriffith$elm_ui$Element$layoutWith(
 	{options: _List_Nil});
 var $elm$html$Html$node = $elm$virtual_dom$VirtualDom$node;
-var $author$project$Main$styleSheet = '\n\n\nhtml {\n    min-height:100%;\n}\nbody {\n    background-color: var(--vscode-editor-background);\n    color: var(--vscode-editor-foreground);\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family);\n    font-weight: var(--vscode-editor-font-weight);\n    font-size: var(--vscode-editor-font-size);\n    margin: 0;\n    padding: 0 20px;\n    min-height: 100vh;\n    display:flex;\n    flex-direction: column;\n    justify-content: center;\n    align-items: flex-start;\n}\n.base {\n    background-color: var(--vscode-editor-background) !important;\n    color: var(--vscode-editor-foreground) !important;\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family) !important;\n    font-weight: var(--vscode-editor-font-weight) !important;\n    font-size: var(--vscode-editor-font-size) !important;\n}\n\n@keyframes blink {\n  from {opacity: 1;}\n  50%  {opacity: 0.2;}\n  100% {opacity: 1;}\n}\n\n\n.info {\n    color: var(--vscode-editorInfo-foreground) !important;\n}\n\n.warning {\n    color: var(--vscode-editorWarning-foreground) !important;\n}\n\n.danger {\n    color: var(--vscode-editorError-foreground) !important;\n}\n\n.success {\n    color: var(--vscode-testing-iconPassed) !important;\n}\n\n.blink {\n    opacity:1;\n    animation: blink 250ms linear;\n}\n\n.precise {\n    white-space: pre !important;\n}\n.precise * {\n    white-space: pre !important;\n}\n\n\n\n';
+var $author$project$Ui$stylesheet = '\n\n\nhtml {\n    min-height:100%;\n}\nbody {\n    background-color: var(--vscode-editor-background);\n    color: var(--vscode-editor-foreground);\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family);\n    font-weight: var(--vscode-editor-font-weight);\n    font-size: var(--vscode-editor-font-size);\n    margin: 0;\n    padding: 0 20px;\n    min-height: 100vh;\n    display:flex;\n    flex-direction: column;\n    justify-content: center;\n    align-items: flex-start;\n}\n.base {\n    background-color: var(--vscode-editor-background) !important;\n    color: var(--vscode-editor-foreground) !important;\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family) !important;\n    font-weight: var(--vscode-editor-font-weight) !important;\n    font-size: var(--vscode-editor-font-size) !important;\n}\n\n@keyframes blink {\n  from {opacity: 1;}\n  50%  {opacity: 0.2;}\n  100% {opacity: 1;}\n}\n\n\n.info {\n    color: var(--vscode-editorInfo-foreground) !important;\n}\n\n.warning {\n    color: var(--vscode-editorWarning-foreground) !important;\n}\n\n.danger {\n    color: var(--vscode-editorError-foreground) !important;\n}\n\n.success {\n    color: var(--vscode-testing-iconPassed) !important;\n}\n\n.blink {\n    opacity:1;\n    animation: blink 250ms linear;\n}\n\n.precise {\n    white-space: pre !important;\n}\n.precise * {\n    white-space: pre !important;\n}\n\n\n\n';
+var $author$project$Ui$overrides = A3(
+	$elm$html$Html$node,
+	'style',
+	_List_Nil,
+	_List_fromArray(
+		[
+			$elm$html$Html$text($author$project$Ui$stylesheet)
+		]));
 var $author$project$Ui$anim = {
 	blink: $mdgriffith$elm_ui$Element$htmlAttribute(
 		$elm$html$Html$Attributes$class('blink'))
@@ -11690,14 +11698,7 @@ var $author$project$Main$view = function (model) {
 	return {
 		body: _List_fromArray(
 			[
-				A3(
-				$elm$html$Html$node,
-				'style',
-				_List_Nil,
-				_List_fromArray(
-					[
-						$elm$html$Html$text($author$project$Main$styleSheet)
-					])),
+				$author$project$Ui$overrides,
 				A2(
 				$mdgriffith$elm_ui$Element$layout,
 				_List_fromArray(
