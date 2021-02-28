@@ -6,6 +6,26 @@ import Editor
 import Json.Decode as Decode
 
 
+successful : List Status -> Bool
+successful statuses =
+    List.all
+        (\status ->
+            case status of
+                NoData ->
+                    True
+
+                Success ->
+                    True
+
+                GlobalError _ ->
+                    False
+
+                CompilerError _ ->
+                    False
+        )
+        statuses
+
+
 type alias Project =
     { root : String
     , entrypoints : List String

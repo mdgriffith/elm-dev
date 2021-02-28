@@ -15,6 +15,7 @@ import Json.Decode as Decode
 import Json.Encode
 import Model exposing (..)
 import Ports
+import Question
 import Ui
 
 
@@ -38,6 +39,7 @@ init =
       , projects = []
       , projectsVersion = 0
       , viewing = Overview
+      , missingTypesignatures = Dict.empty
       }
     , Cmd.none
     )
@@ -66,15 +68,25 @@ update msg model =
                         | projects = statuses
                         , projectsVersion = model.projectsVersion + 1
                       }
-                    , Cmd.none
+                    , if Elm.successful statuses then
+                        case model.active of
+                            Nothing ->
+                                Cmd.none
+
+                            Just active ->
+                                Question.ask.missingTypesignatures active.fileName
+                                    |> Cmd.map AnswerReceived
+
+                      else
+                        Cmd.none
                     )
 
-        EditorGoTo file problem ->
+        EditorGoTo path region ->
             ( model
             , Ports.outgoing
                 (Ports.Goto
-                    { file = file.path
-                    , region = problem.region
+                    { file = path
+                    , region = region
                     }
                 )
             )
@@ -83,6 +95,26 @@ update msg model =
             ( { model | viewing = viewing }
             , Cmd.none
             )
+
+        AnswerReceived (Err err) ->
+            let
+                _ =
+                    Debug.log "HTTP, Answer error" err
+            in
+            ( model
+            , Cmd.none
+            )
+
+        AnswerReceived (Ok answer) ->
+            case answer of
+                Question.MissingTypeSignatures path missing ->
+                    ( { model
+                        | missingTypesignatures =
+                            model.missingTypesignatures
+                                |> Dict.insert path missing
+                      }
+                    , Cmd.none
+                    )
 
 
 mergeProjects new existing =
@@ -155,7 +187,7 @@ viewOverview model =
                     (List.map
                         (\issue ->
                             viewIssueDetails
-                                (isVisible model.visible file issue)
+                                (isVisible model.visible file.path issue.region)
                                 file
                                 issue
                         )
@@ -169,6 +201,61 @@ viewOverview model =
                 [ Ui.header.three global.problem.title
                 , Ui.column [ Ui.space.md ]
                     (List.map viewText global.problem.message)
+                ]
+
+        ( missingFile, missing ) =
+            case model.active of
+                Nothing ->
+                    ( "", [] )
+
+                Just active ->
+                    ( active.fileName
+                    , Dict.get active.fileName model.missingTypesignatures
+                        |> Maybe.withDefault []
+                    )
+
+        viewTypeSignature : String -> Question.TypeSignature -> Ui.Element Msg
+        viewTypeSignature file signature =
+            let
+                expanded =
+                    isVisible model.visible file signature.region
+            in
+            Ui.column
+                [ Events.onClick (EditorGoTo file signature.region)
+                , Ui.pointer
+                , Ui.space.lg
+                ]
+                [ Ui.row []
+                    [ if signature.region.start.row == signature.region.end.row then
+                        Ui.el
+                            [ Ui.font.cyan
+                            , Ui.alpha 0.5
+                            , Ui.width (Ui.px 50)
+                            ]
+                            (Ui.text (String.fromInt signature.region.start.row))
+
+                      else
+                        Ui.row
+                            [ Ui.font.cyan
+                            , Ui.alpha 0.5
+                            , Ui.width (Ui.px 50)
+                            ]
+                            [ Ui.text (String.fromInt signature.region.start.row)
+                            , Ui.text ":"
+                            , Ui.text (String.fromInt signature.region.end.row)
+                            ]
+                    , Ui.el [ Ui.font.cyan ]
+                        (Ui.text signature.name)
+                    ]
+                , if expanded then
+                    Ui.paragraph
+                        [ Ui.pad.xy.xl.sm
+                        , Ui.precise
+                        ]
+                        [ Ui.text signature.signature ]
+
+                  else
+                    Ui.none
                 ]
     in
     Ui.column
@@ -187,23 +274,32 @@ viewOverview model =
                 (Ui.text "No errors 🎉")
             )
             |> Ui.when (List.isEmpty found.globals && List.isEmpty found.errs)
-        , Ui.header.three "Global"
-            |> Ui.when (not (List.isEmpty found.globals))
-        , Ui.column [ Ui.space.lg ]
-            (List.map viewGlobalError found.globals)
-        , Ui.header.three "Errors"
-            |> Ui.when (not (List.isEmpty found.errs))
-        , Ui.column [ Ui.space.lg ]
-            (List.map viewFileOverview found.errs)
+        , viewMetric "Typesignatures" (viewTypeSignature missingFile) missing
+        , viewMetric "Global" viewGlobalError found.globals
+        , viewMetric "Errors" viewFileOverview found.errs
         ]
 
 
-isVisible : List Editor.Editor -> Elm.File -> Elm.Problem -> Bool
-isVisible editors file prob =
+viewMetric name viewer vals =
+    case vals of
+        [] ->
+            Ui.none
+
+        _ ->
+            Ui.column [ Ui.space.lg ]
+                [ Ui.header.three name
+                    |> Ui.when (not (List.isEmpty vals))
+                , Ui.column [ Ui.space.lg ]
+                    (List.map viewer vals)
+                ]
+
+
+isVisible : List Editor.Editor -> String -> Editor.Region -> Bool
+isVisible editors path region =
     List.any
         (\e ->
-            if e.fileName == file.path then
-                Editor.visible prob.region e.ranges
+            if e.fileName == path then
+                Editor.visible region e.ranges
 
             else
                 False
@@ -213,8 +309,9 @@ isVisible editors file prob =
 
 viewIssueDetails expanded file issue =
     Ui.column
-        [ Events.onClick (EditorGoTo file issue)
+        [ Events.onClick (EditorGoTo file.path issue.region)
         , Ui.pointer
+        , Ui.space.lg
         ]
         [ Ui.row []
             [ if issue.region.start.row == issue.region.end.row then
@@ -240,7 +337,7 @@ viewIssueDetails expanded file issue =
             ]
         , if expanded then
             Ui.paragraph
-                [ Ui.pad.xy.xl.md
+                [ Ui.pad.xy.xl.sm
                 , Ui.precise
                 ]
                 (List.map viewText issue.message)
@@ -344,7 +441,7 @@ viewIssue viewing iss =
 viewProblemDetails file issue =
     Ui.column
         [ Ui.precise
-        , Events.onClick (EditorGoTo file issue)
+        , Events.onClick (EditorGoTo file.path issue.region)
         , Ui.pointer
         ]
         [ Ui.column [ Ui.font.cyan ]

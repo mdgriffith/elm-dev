@@ -4,11 +4,14 @@ module Model exposing
     , Viewing(..)
     )
 
+import Dict exposing (Dict)
 import Editor
 import Elm
+import Http
 import Json.Decode as Decode
 import Json.Encode
 import Ports
+import Question
 
 
 type alias Model =
@@ -19,7 +22,15 @@ type alias Model =
 
     -- local UI state
     , viewing : Viewing
+
+    -- per-file information
+    , missingTypesignatures :
+        Dict FilePath (List Question.TypeSignature)
     }
+
+
+type alias FilePath =
+    String
 
 
 type Viewing
@@ -28,5 +39,6 @@ type Viewing
 
 type Msg
     = Incoming (Result Decode.Error Ports.Incoming)
-    | EditorGoTo Elm.File Elm.Problem
+    | EditorGoTo FilePath Editor.Region
     | View Viewing
+    | AnswerReceived (Result Http.Error Question.Answer)
