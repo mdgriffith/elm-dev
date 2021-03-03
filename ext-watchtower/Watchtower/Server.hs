@@ -47,7 +47,7 @@ serve (Flags maybePort) =
       httpServe (config port) $
         serveAssets
             <|> Watchtower.Live.websocket liveState
-            <|> Watchtower.Questions.serve
+            <|> Watchtower.Questions.serve liveState
             <|> error404
 
 

@@ -144,7 +144,7 @@ This will list those annotations as well as their coordinates
 listMissingAnnotations :: FilePath -> FilePath -> IO Json.Encode.Value
 listMissingAnnotations root file = do
   mSource <- Llamadera.loadFileSource root file
-  eitherArtifacts <- Dir.withCurrentDirectory root $ Llamadera.loadSingleArtifacts file
+  eitherArtifacts <- Llamadera.loadSingleArtifacts root file
   case mSource of
     Left err ->
       pure $ jsonError err
@@ -155,7 +155,6 @@ listMissingAnnotations root file = do
 
         Right artifacts  ->
             do
-
               let values = modul
                     & Src._values
                     & fmap
@@ -198,12 +197,13 @@ printAnnotation root file expressionName = do
   case mSource of
     Left err ->
       putStrLn $ show err
+
     Right (source, modul) -> do
 
       Dir.withCurrentDirectory root $ do
         Llamadera.debug_ "Getting artifacts..."
 
-        eitherArtifacts <- Llamadera.loadSingleArtifacts file
+        eitherArtifacts <- Llamadera.loadSingleArtifacts root file
         case eitherArtifacts of
           Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
             case annotations & Map.lookup expressionName of
@@ -232,9 +232,9 @@ annotation root file expressionName = do
       pure $ jsonError err
 
     Right (source, modul) -> do
-      Dir.withCurrentDirectory root $ do
+     do
 
-          eitherArtifacts <- Llamadera.loadSingleArtifacts file
+          eitherArtifacts <- Llamadera.loadSingleArtifacts root file
           case eitherArtifacts of
             Right artifacts -> do
               case getAnnotation modul expressionName artifacts of
@@ -613,7 +613,7 @@ canonicalTypeToMultilineString self imports tipe =
               Nothing ->
                   ""
               Just ext ->
-                  T.pack (Name.toChars ext) <> " |"
+                  T.pack (Name.toChars ext) <> " | "
           )
         <> (map
               (\(fieldName, fieldType) ->
@@ -632,17 +632,17 @@ canonicalTypeToMultilineString self imports tipe =
     TTuple t1 t2 mt3 ->
       "( "
         <> canonicalTypeToMultilineString self imports t1
-        <> ", "
+        <> "\\n    , "
         <> canonicalTypeToMultilineString self imports t1
         <>
           (case mt3 of
               Nothing -> ""
 
               Just t3 ->
-                ", " <> canonicalTypeToMultilineString self imports t3
+                "\\n    , " <> canonicalTypeToMultilineString self imports t3
 
           )
-        <> " )"
+        <> "\\n    )"
 
     TAlias mod name namedParamTypes alias ->
       qualifier self imports mod name
@@ -693,9 +693,9 @@ printFindDefinition root path row col = do
 
 
       Llamadera.formatHaskellValue "Source" maybeValue
-      Dir.withCurrentDirectory root $ do
+      do
         -- interfaces <- Llamadera.allInterfaces [path]
-        eitherArtifacts <- Llamadera.loadSingleArtifacts path
+        eitherArtifacts <- Llamadera.loadSingleArtifacts root path
         case eitherArtifacts of
           Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
             -- Llamadera.formatHaskellValue ("Interfaces") interfaces
@@ -800,10 +800,10 @@ withinRegion (A.Position row col) (A.Region (A.Position startRow startCol) (A.Po
 -}
 callgraph :: FilePath -> FilePath -> Name.Name -> IO Json.Encode.Value
 callgraph root file expressionName = do
-  Dir.withCurrentDirectory root $ do
+  do
     Llamadera.debug_ "Getting artifacts..."
 
-    eitherArtifacts <- Llamadera.loadSingleArtifacts file
+    eitherArtifacts <- Llamadera.loadSingleArtifacts root file
     case eitherArtifacts of
       Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
         let moduleName =
@@ -828,10 +828,10 @@ callgraph root file expressionName = do
 -}
 printCallGraph :: FilePath -> FilePath -> Name.Name -> IO ()
 printCallGraph root file expressionName = do
-  Dir.withCurrentDirectory root $ do
+  do
     Llamadera.debug_ "Getting artifacts..."
 
-    eitherArtifacts <- Llamadera.loadSingleArtifacts file
+    eitherArtifacts <- Llamadera.loadSingleArtifacts root file
     case eitherArtifacts of
       Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
         let moduleName =

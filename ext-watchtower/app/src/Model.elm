@@ -39,6 +39,8 @@ type Viewing
 
 type Msg
     = Incoming (Result Decode.Error Ports.Incoming)
-    | EditorGoTo FilePath Editor.Region
     | View Viewing
     | AnswerReceived (Result Http.Error Question.Answer)
+      -- Editor actions
+    | EditorGoTo FilePath Editor.Region
+    | EditorFillTypeSignatures FilePath

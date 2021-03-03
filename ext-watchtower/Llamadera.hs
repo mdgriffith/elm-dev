@@ -187,16 +187,17 @@ cachedHelp name ciMvar = do
 {- END INTERFACES -}
 
 
-loadSingleArtifacts :: FilePath -> IO (Either Reporting.Error.Error Compile.Artifacts)
-loadSingleArtifacts path = do
-  ifaces <- allInterfaces [path]
-  source <- File.readUtf8 path
-  case Parse.fromByteString Parse.Application source of
-    Right modul ->
-      pure $ Compile.compile Pkg.dummyName ifaces modul
+loadSingleArtifacts :: FilePath -> FilePath -> IO (Either Reporting.Error.Error Compile.Artifacts)
+loadSingleArtifacts root path =
+  Dir.withCurrentDirectory root $ do
+    ifaces <- allInterfaces [path]
+    source <- File.readUtf8 path
+    case Parse.fromByteString Parse.Application source of
+      Right modul ->
+        pure $ Compile.compile Pkg.dummyName ifaces modul
 
-    Left err ->
-      pure $ Left $ Reporting.Error.BadSyntax err
+      Left err ->
+        pure $ Left $ Reporting.Error.BadSyntax err
 
 
 loadFileSource :: FilePath -> FilePath -> IO (Either Reporting.Error.Syntax.Error (BS.ByteString, Src.Module))

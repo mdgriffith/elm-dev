@@ -91,6 +91,12 @@ update msg model =
                 )
             )
 
+        EditorFillTypeSignatures path ->
+            ( model
+            , Ports.outgoing
+                (Ports.FillTypeSignatures path)
+            )
+
         View viewing ->
             ( { model | viewing = viewing }
             , Cmd.none
@@ -111,7 +117,13 @@ update msg model =
                     ( { model
                         | missingTypesignatures =
                             model.missingTypesignatures
-                                |> Dict.insert path missing
+                                |> Dict.insert path
+                                    (missing
+                                        |> List.sortBy
+                                            (\signature ->
+                                                signature.region.start.row
+                                            )
+                                    )
                       }
                     , Cmd.none
                     )
@@ -218,12 +230,13 @@ viewOverview model =
         viewTypeSignature file signature =
             let
                 expanded =
-                    isVisible model.visible file signature.region
+                    -- isVisible model.visible file signature.region
+                    not (String.contains "\n" signature.signature)
             in
             Ui.column
                 [ Events.onClick (EditorGoTo file signature.region)
                 , Ui.pointer
-                , Ui.space.lg
+                , Ui.space.sm
                 ]
                 [ Ui.row []
                     [ if signature.region.start.row == signature.region.end.row then
@@ -245,17 +258,26 @@ viewOverview model =
                             , Ui.text (String.fromInt signature.region.end.row)
                             ]
                     , Ui.el [ Ui.font.cyan ]
-                        (Ui.text signature.name)
-                    ]
-                , if expanded then
-                    Ui.paragraph
-                        [ Ui.pad.xy.xl.sm
-                        , Ui.precise
-                        ]
-                        [ Ui.text signature.signature ]
+                        (Ui.text (signature.name ++ " : "))
+                    , if not (String.contains "\n" signature.signature) then
+                        Ui.el
+                            [ Ui.precise
+                            ]
+                            (Ui.text signature.signature)
 
-                  else
-                    Ui.none
+                      else
+                        Ui.el [ Ui.alpha 0.5 ] (Ui.text "<multiline>")
+                    ]
+
+                -- ,
+                --  if  not (String.contains "\n" signature.signature) then
+                --     Ui.paragraph
+                --         [ Ui.pad.xy.xl.sm
+                --         , Ui.precise
+                --         ]
+                --         [ Ui.text signature.signature ]
+                --   else
+                --     Ui.none
                 ]
     in
     Ui.column
@@ -274,13 +296,20 @@ viewOverview model =
                 (Ui.text "No errors 🎉")
             )
             |> Ui.when (List.isEmpty found.globals && List.isEmpty found.errs)
-        , viewMetric "Typesignatures" (viewTypeSignature missingFile) missing
-        , viewMetric "Global" viewGlobalError found.globals
-        , viewMetric "Errors" viewFileOverview found.errs
+        , viewMetric "Missing typesignatures"
+            (Just
+                { text = "Insert all missing signatures"
+                , msg = EditorFillTypeSignatures missingFile
+                }
+            )
+            (viewTypeSignature missingFile)
+            missing
+        , viewMetric "Global" Nothing viewGlobalError found.globals
+        , viewMetric "Errors" Nothing viewFileOverview found.errs
         ]
 
 
-viewMetric name viewer vals =
+viewMetric name maybeAction viewer vals =
     case vals of
         [] ->
             Ui.none
@@ -289,6 +318,18 @@ viewMetric name viewer vals =
             Ui.column [ Ui.space.lg ]
                 [ Ui.header.three name
                     |> Ui.when (not (List.isEmpty vals))
+                , case maybeAction of
+                    Nothing ->
+                        Ui.none
+
+                    Just action ->
+                        Ui.el
+                            [ Events.onClick action.msg
+                            , Ui.pad.sm
+                            , Ui.border.primary
+                            , Ui.pointer
+                            ]
+                            (Ui.text action.text)
                 , Ui.column [ Ui.space.lg ]
                     (List.map viewer vals)
                 ]

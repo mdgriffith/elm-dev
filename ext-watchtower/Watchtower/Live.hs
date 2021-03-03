@@ -74,6 +74,34 @@ initializeProject accum project =
         pure ((cache, project) : accum)
 
 
+getRoot :: FilePath -> State -> Maybe FilePath
+getRoot path (State mClients projects) =
+  getRootHelp path projects Nothing
+
+
+getRootHelp path projects found =
+  case projects of
+    [] -> found
+
+    (_, project) : remain ->
+      if (Watchtower.Project.contains path project) then
+          case found of
+              Nothing ->
+                  getRootHelp path remain (Just (Watchtower.Project._root project))
+
+              Just root ->
+                if List.length (Watchtower.Project._root project) > List.length root then
+                    getRootHelp path remain (Just (Watchtower.Project._root project))
+                else
+                    getRootHelp path remain found
+
+
+      else
+          getRootHelp path remain found
+
+
+
+
 recompile :: Watchtower.Live.State -> [String] -> IO ()
 recompile (Watchtower.Live.State mClients projects) filenames = do
   debug $ "🛫  recompile starting: " ++ show filenames
@@ -206,6 +234,13 @@ receiveAction state@(State mClients projects) clientId incoming =
           mClients
           (builderToString (encodeOutgoing (FwdJumpTo location)))
 
+    InsertMissingTypeSignatures path -> do
+      debug $ "forwarding insert-missing"
+      Watchtower.Websocket.broadcastImpl
+          mClients
+          (builderToString (encodeOutgoing (FwdInsertMissingTypeSignatures path)))
+
+
 
 
 consIfErrors :: Either Json.Encode.Value Json.Encode.Value -> [Json.Encode.Value] -> [Json.Encode.Value]
@@ -235,6 +270,12 @@ decodeIncoming =
 
               "Jump" ->
                   JumpTo <$> (Json.Decode.field "details" Watchtower.Details.decodeLocation)
+
+              "InsertMissingTypeSignatures" ->
+                  InsertMissingTypeSignatures <$>
+                    (Json.Decode.field "details"
+                      (Json.Decode.field "path" (Json.String.toChars <$> Json.Decode.string))
+                    )
 
               _ ->
                   Json.Decode.failure "Unknown msg"
@@ -273,13 +314,14 @@ data Incoming
     -- forwarding information from a source to somewhere else
     = Visible Watchtower.Details.Visible
     | JumpTo Watchtower.Details.Location
+    | InsertMissingTypeSignatures FilePath
 
 
 data Outgoing
     -- forwarding information
     = FwdVisible Watchtower.Details.Visible
     | FwdJumpTo Watchtower.Details.Location
-
+    | FwdInsertMissingTypeSignatures FilePath
     -- new information is available
     | ElmStatus [ Json.Encode.Value ]
 
@@ -298,6 +340,15 @@ encodeOutgoing out =
         Json.Encode.object
             [ "msg" ==> Json.Encode.string (Json.String.fromChars "Jump")
             , "details" ==> Watchtower.Details.encodeLocation loc
+            ]
+
+      FwdInsertMissingTypeSignatures path ->
+        Json.Encode.object
+            [ "msg" ==> Json.Encode.string (Json.String.fromChars "InsertMissingTypeSignatures")
+            , "details" ==>
+              Json.Encode.object
+                  [ "path" ==> Json.Encode.string (Json.String.fromChars path)
+                  ]
             ]
 
       ElmStatus statuses ->

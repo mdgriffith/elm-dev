@@ -5,6 +5,7 @@ module Watchtower.Questions where
 
 
 import Snap.Core hiding (path)
+import qualified Snap.Util.CORS
 
 import Control.Monad.Trans (MonadIO(liftIO))
 import Control.Applicative ((<$>), (<*>))
@@ -16,10 +17,13 @@ import qualified Data.ByteString.Builder
 import qualified Json.Encode
 import qualified Watchtower.Details
 import qualified Watchtower.Annotate
+import qualified Watchtower.Live
 import qualified Develop.Generate.Help
 import qualified Reporting.Annotation
 import qualified Data.Name as Name
 
+
+import qualified Ext.Common
 import Data.Function ((&))
 
 -- One off questions and answers you might have/want.
@@ -41,22 +45,24 @@ data Question
 
 
 
-serve :: Snap ()
-serve =
+serve :: Watchtower.Live.State -> Snap ()
+serve state =
   do
     route
-        [ ("/:action", actionHandler)
+        [ ("/:action", actionHandler state)
         ]
 
-questionHandler :: FilePath -> Question -> Snap ()
-questionHandler root question =
-    do
-        answer <- liftIO (ask root question)
-        writeBuilder answer
+questionHandler :: Watchtower.Live.State -> Question -> Snap ()
+questionHandler state question =
+    Snap.Util.CORS.applyCORS Snap.Util.CORS.defaultOptions $
+        do
+            answer <- liftIO (ask state question)
+
+            writeBuilder answer
 
 
-actionHandler :: Snap ()
-actionHandler =
+actionHandler :: Watchtower.Live.State -> Snap ()
+actionHandler state  =
     do
         maybeAction <- getParam "action"
         case maybeAction of
@@ -68,7 +74,7 @@ actionHandler =
                             writeBS "Needs location"
 
                         Just file -> do
-                            questionHandler "." (ListMissingSignaturesPlease (Data.ByteString.Char8.unpack file))
+                            questionHandler state (ListMissingSignaturesPlease (Data.ByteString.Char8.unpack file))
 
 
             Just "signature" ->
@@ -77,7 +83,7 @@ actionHandler =
                     maybeName   <- getQueryParam "name"
                     case (maybeFile, maybeName) of
                         (Just file, Just name) ->
-                            questionHandler "."
+                            questionHandler state
                                 (SignaturePlease
                                     (Data.ByteString.Char8.unpack file)
                                     (Name.fromChars (Data.ByteString.Char8.unpack name))
@@ -92,7 +98,7 @@ actionHandler =
                     maybeName   <- getQueryParam "name"
                     case (maybeFile, maybeName) of
                         (Just file, Just name) ->
-                            questionHandler "."
+                            questionHandler state
                                 (CallgraphPlease
                                     (Data.ByteString.Char8.unpack file)
                                     (Name.fromChars (Data.ByteString.Char8.unpack name))
@@ -159,20 +165,27 @@ getPosition =
         pure position
 
 
-ask :: FilePath -> Question -> IO Data.ByteString.Builder.Builder
-ask root question =
+ask :: Watchtower.Live.State -> Question -> IO Data.ByteString.Builder.Builder
+ask state question =
     case question of
-        CallgraphPlease file name ->
-            Watchtower.Annotate.callgraph root file name
-                & fmap Json.Encode.encodeUgly
+        CallgraphPlease path name ->
+             do
+                root <- pure (Maybe.fromMaybe "." (Watchtower.Live.getRoot path state))
+                Watchtower.Annotate.callgraph root path name
+                    & fmap Json.Encode.encodeUgly
 
         ListMissingSignaturesPlease path ->
-            Watchtower.Annotate.listMissingAnnotations root path
-                & fmap Json.Encode.encodeUgly
+            do
+                root <- pure (Maybe.fromMaybe "." (Watchtower.Live.getRoot path state))
+                Ext.Common.debug $ "🛫  List signatures: " ++ show root ++ " <> " ++ show path
+                Watchtower.Annotate.listMissingAnnotations root path
+                    & fmap Json.Encode.encodeUgly
 
-        SignaturePlease file name ->
-            Watchtower.Annotate.annotation root file name
-                & fmap Json.Encode.encodeUgly
+        SignaturePlease path name ->
+             do
+                root <- pure (Maybe.fromMaybe "." (Watchtower.Live.getRoot path state))
+                Watchtower.Annotate.annotation root path name
+                    & fmap Json.Encode.encodeUgly
 
         FindDefinitionPlease location ->
             pure (Data.ByteString.Builder.byteString ("NOTDONE"))

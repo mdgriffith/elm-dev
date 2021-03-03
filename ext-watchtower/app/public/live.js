@@ -5625,6 +5625,9 @@ var $author$project$Main$init = _Utils_Tuple2(
 var $author$project$Model$AnswerReceived = function (a) {
 	return {$: 'AnswerReceived', a: a};
 };
+var $author$project$Ports$FillTypeSignatures = function (a) {
+	return {$: 'FillTypeSignatures', a: a};
+};
 var $author$project$Ports$Goto = function (a) {
 	return {$: 'Goto', a: a};
 };
@@ -6531,32 +6534,53 @@ var $author$project$Editor$encodeRegion = function (region) {
 };
 var $elm$json$Json$Encode$string = _Json_wrap;
 var $author$project$Ports$encodeOutgoing = function (out) {
-	var location = out.a;
-	return $elm$json$Json$Encode$object(
-		_List_fromArray(
-			[
-				_Utils_Tuple2(
-				'msg',
-				$elm$json$Json$Encode$string('Jump')),
-				_Utils_Tuple2(
-				'details',
-				$elm$json$Json$Encode$object(
-					_List_fromArray(
-						[
-							_Utils_Tuple2(
-							'path',
-							$elm$json$Json$Encode$string(location.file)),
-							_Utils_Tuple2(
-							'region',
-							$author$project$Editor$encodeRegion(location.region))
-						])))
-			]));
+	if (out.$ === 'Goto') {
+		var location = out.a;
+		return $elm$json$Json$Encode$object(
+			_List_fromArray(
+				[
+					_Utils_Tuple2(
+					'msg',
+					$elm$json$Json$Encode$string('Jump')),
+					_Utils_Tuple2(
+					'details',
+					$elm$json$Json$Encode$object(
+						_List_fromArray(
+							[
+								_Utils_Tuple2(
+								'path',
+								$elm$json$Json$Encode$string(location.file)),
+								_Utils_Tuple2(
+								'region',
+								$author$project$Editor$encodeRegion(location.region))
+							])))
+				]));
+	} else {
+		var path = out.a;
+		return $elm$json$Json$Encode$object(
+			_List_fromArray(
+				[
+					_Utils_Tuple2(
+					'msg',
+					$elm$json$Json$Encode$string('InsertMissingTypeSignatures')),
+					_Utils_Tuple2(
+					'details',
+					$elm$json$Json$Encode$object(
+						_List_fromArray(
+							[
+								_Utils_Tuple2(
+								'path',
+								$elm$json$Json$Encode$string(path))
+							])))
+				]));
+	}
 };
 var $author$project$Ports$notify = _Platform_outgoingPort('notify', $elm$core$Basics$identity);
 var $author$project$Ports$outgoing = function (out) {
 	return $author$project$Ports$notify(
 		$author$project$Ports$encodeOutgoing(out));
 };
+var $elm$core$List$sortBy = _List_sortBy;
 var $elm$core$List$any = F2(
 	function (isOkay, list) {
 		any:
@@ -6652,6 +6676,12 @@ var $author$project$Main$update = F2(
 					$author$project$Ports$outgoing(
 						$author$project$Ports$Goto(
 							{file: path, region: region})));
+			case 'EditorFillTypeSignatures':
+				var path = _v0.a;
+				return _Utils_Tuple2(
+					model,
+					$author$project$Ports$outgoing(
+						$author$project$Ports$FillTypeSignatures(path)));
 			case 'View':
 				var viewing = _v0.a;
 				return _Utils_Tuple2(
@@ -6672,7 +6702,16 @@ var $author$project$Main$update = F2(
 						_Utils_update(
 							model,
 							{
-								missingTypesignatures: A3($elm$core$Dict$insert, path, missing, model.missingTypesignatures)
+								missingTypesignatures: A3(
+									$elm$core$Dict$insert,
+									path,
+									A2(
+										$elm$core$List$sortBy,
+										function (signature) {
+											return signature.region.start.row;
+										},
+										missing),
+									model.missingTypesignatures)
 							}),
 						$elm$core$Platform$Cmd$none);
 				}
@@ -12111,6 +12150,9 @@ var $author$project$Ui$overrides = A3(
 		[
 			$elm$html$Html$text($author$project$Ui$stylesheet)
 		]));
+var $author$project$Model$EditorFillTypeSignatures = function (a) {
+	return {$: 'EditorFillTypeSignatures', a: a};
+};
 var $author$project$Model$EditorGoTo = F2(
 	function (a, b) {
 		return {$: 'EditorGoTo', a: a, b: b};
@@ -12287,8 +12329,6 @@ var $author$project$Main$isVisible = F3(
 			},
 			editors);
 	});
-var $mdgriffith$elm_ui$Internal$Model$Empty = {$: 'Empty'};
-var $mdgriffith$elm_ui$Element$none = $mdgriffith$elm_ui$Internal$Model$Empty;
 var $elm$virtual_dom$VirtualDom$Normal = function (a) {
 	return {$: 'Normal', a: a};
 };
@@ -12373,47 +12413,6 @@ var $author$project$Ui$pad = {
 		},
 		$author$project$Ui$spaceValues)
 };
-var $mdgriffith$elm_ui$Internal$Model$Describe = function (a) {
-	return {$: 'Describe', a: a};
-};
-var $mdgriffith$elm_ui$Internal$Model$Paragraph = {$: 'Paragraph'};
-var $mdgriffith$elm_ui$Internal$Model$SpacingStyle = F3(
-	function (a, b, c) {
-		return {$: 'SpacingStyle', a: a, b: b, c: c};
-	});
-var $mdgriffith$elm_ui$Internal$Flag$spacing = $mdgriffith$elm_ui$Internal$Flag$flag(3);
-var $mdgriffith$elm_ui$Internal$Model$spacingName = F2(
-	function (x, y) {
-		return 'spacing-' + ($elm$core$String$fromInt(x) + ('-' + $elm$core$String$fromInt(y)));
-	});
-var $mdgriffith$elm_ui$Element$spacing = function (x) {
-	return A2(
-		$mdgriffith$elm_ui$Internal$Model$StyleClass,
-		$mdgriffith$elm_ui$Internal$Flag$spacing,
-		A3(
-			$mdgriffith$elm_ui$Internal$Model$SpacingStyle,
-			A2($mdgriffith$elm_ui$Internal$Model$spacingName, x, x),
-			x,
-			x));
-};
-var $mdgriffith$elm_ui$Element$paragraph = F2(
-	function (attrs, children) {
-		return A4(
-			$mdgriffith$elm_ui$Internal$Model$element,
-			$mdgriffith$elm_ui$Internal$Model$asParagraph,
-			$mdgriffith$elm_ui$Internal$Model$div,
-			A2(
-				$elm$core$List$cons,
-				$mdgriffith$elm_ui$Internal$Model$Describe($mdgriffith$elm_ui$Internal$Model$Paragraph),
-				A2(
-					$elm$core$List$cons,
-					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-					A2(
-						$elm$core$List$cons,
-						$mdgriffith$elm_ui$Element$spacing(5),
-						attrs))),
-			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
-	});
 var $mdgriffith$elm_ui$Internal$Flag$cursor = $mdgriffith$elm_ui$Internal$Flag$flag(21);
 var $mdgriffith$elm_ui$Element$pointer = A2($mdgriffith$elm_ui$Internal$Model$Class, $mdgriffith$elm_ui$Internal$Flag$cursor, $mdgriffith$elm_ui$Internal$Style$classes.cursorPointer);
 var $author$project$Ui$precise = $mdgriffith$elm_ui$Element$htmlAttribute(
@@ -12442,7 +12441,50 @@ var $mdgriffith$elm_ui$Element$row = F2(
 						attrs))),
 			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
 	});
+var $mdgriffith$elm_ui$Internal$Model$SpacingStyle = F3(
+	function (a, b, c) {
+		return {$: 'SpacingStyle', a: a, b: b, c: c};
+	});
+var $mdgriffith$elm_ui$Internal$Flag$spacing = $mdgriffith$elm_ui$Internal$Flag$flag(3);
+var $mdgriffith$elm_ui$Internal$Model$spacingName = F2(
+	function (x, y) {
+		return 'spacing-' + ($elm$core$String$fromInt(x) + ('-' + $elm$core$String$fromInt(y)));
+	});
+var $mdgriffith$elm_ui$Element$spacing = function (x) {
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$spacing,
+		A3(
+			$mdgriffith$elm_ui$Internal$Model$SpacingStyle,
+			A2($mdgriffith$elm_ui$Internal$Model$spacingName, x, x),
+			x,
+			x));
+};
 var $author$project$Ui$space = A2($author$project$Ui$mapSpacing, $mdgriffith$elm_ui$Element$spacing, $author$project$Ui$spaceValues);
+var $mdgriffith$elm_ui$Internal$Model$Empty = {$: 'Empty'};
+var $mdgriffith$elm_ui$Element$none = $mdgriffith$elm_ui$Internal$Model$Empty;
+var $mdgriffith$elm_ui$Internal$Model$Describe = function (a) {
+	return {$: 'Describe', a: a};
+};
+var $mdgriffith$elm_ui$Internal$Model$Paragraph = {$: 'Paragraph'};
+var $mdgriffith$elm_ui$Element$paragraph = F2(
+	function (attrs, children) {
+		return A4(
+			$mdgriffith$elm_ui$Internal$Model$element,
+			$mdgriffith$elm_ui$Internal$Model$asParagraph,
+			$mdgriffith$elm_ui$Internal$Model$div,
+			A2(
+				$elm$core$List$cons,
+				$mdgriffith$elm_ui$Internal$Model$Describe($mdgriffith$elm_ui$Internal$Model$Paragraph),
+				A2(
+					$elm$core$List$cons,
+					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+					A2(
+						$elm$core$List$cons,
+						$mdgriffith$elm_ui$Element$spacing(5),
+						attrs))),
+			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
+	});
 var $author$project$Main$colorAttribute = function (maybeColor) {
 	if (maybeColor.$ === 'Nothing') {
 		return A2($elm$html$Html$Attributes$style, '', '');
@@ -12534,12 +12576,46 @@ var $author$project$Main$viewIssueDetails = F3(
 					A2($elm$core$List$map, $author$project$Main$viewText, issue.message)) : $mdgriffith$elm_ui$Element$none
 				]));
 	});
+var $mdgriffith$elm_ui$Internal$Flag$borderColor = $mdgriffith$elm_ui$Internal$Flag$flag(28);
+var $mdgriffith$elm_ui$Element$Border$color = function (clr) {
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$borderColor,
+		A3(
+			$mdgriffith$elm_ui$Internal$Model$Colored,
+			'bc-' + $mdgriffith$elm_ui$Internal$Model$formatColorClass(clr),
+			'border-color',
+			clr));
+};
+var $mdgriffith$elm_ui$Element$rgb = F3(
+	function (r, g, b) {
+		return A4($mdgriffith$elm_ui$Internal$Model$Rgba, r, g, b, 1);
+	});
+var $author$project$Ui$colors = {
+	dark: {
+		dark: A3($mdgriffith$elm_ui$Element$rgb, 0.15, 0.15, 0.15),
+		light: A3($mdgriffith$elm_ui$Element$rgb, 0.05, 0.05, 0.05),
+		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.1, 0.1, 0.1)
+	},
+	grey: {
+		dark: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95),
+		light: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95),
+		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95)
+	},
+	primary: A3($mdgriffith$elm_ui$Element$rgb, 0, 0.5, 0.25),
+	white: A3($mdgriffith$elm_ui$Element$rgb, 1, 1, 1)
+};
+var $author$project$Ui$border = {
+	dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.dark),
+	light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.light),
+	primary: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.primary)
+};
 var $author$project$Ui$when = F2(
 	function (condition, content) {
 		return condition ? content : $mdgriffith$elm_ui$Element$none;
 	});
-var $author$project$Main$viewMetric = F3(
-	function (name, viewer, vals) {
+var $author$project$Main$viewMetric = F4(
+	function (name, maybeAction, viewer, vals) {
 		if (!vals.b) {
 			return $mdgriffith$elm_ui$Element$none;
 		} else {
@@ -12553,6 +12629,23 @@ var $author$project$Main$viewMetric = F3(
 						$author$project$Ui$when,
 						!$elm$core$List$isEmpty(vals),
 						$author$project$Ui$header.three(name)),
+						function () {
+						if (maybeAction.$ === 'Nothing') {
+							return $mdgriffith$elm_ui$Element$none;
+						} else {
+							var action = maybeAction.a;
+							return A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[
+										$mdgriffith$elm_ui$Element$Events$onClick(action.msg),
+										$author$project$Ui$pad.sm,
+										$author$project$Ui$border.primary,
+										$mdgriffith$elm_ui$Element$pointer
+									]),
+								$mdgriffith$elm_ui$Element$text(action.text));
+						}
+					}(),
 						A2(
 						$mdgriffith$elm_ui$Element$column,
 						_List_fromArray(
@@ -12564,7 +12657,7 @@ var $author$project$Main$viewMetric = F3(
 var $author$project$Main$viewOverview = function (model) {
 	var viewTypeSignature = F2(
 		function (file, signature) {
-			var expanded = A3($author$project$Main$isVisible, model.visible, file, signature.region);
+			var expanded = !A2($elm$core$String$contains, '\n', signature.signature);
 			return A2(
 				$mdgriffith$elm_ui$Element$column,
 				_List_fromArray(
@@ -12572,7 +12665,7 @@ var $author$project$Main$viewOverview = function (model) {
 						$mdgriffith$elm_ui$Element$Events$onClick(
 						A2($author$project$Model$EditorGoTo, file, signature.region)),
 						$mdgriffith$elm_ui$Element$pointer,
-						$author$project$Ui$space.lg
+						$author$project$Ui$space.sm
 					]),
 				_List_fromArray(
 					[
@@ -12612,16 +12705,19 @@ var $author$project$Main$viewOverview = function (model) {
 								$mdgriffith$elm_ui$Element$el,
 								_List_fromArray(
 									[$author$project$Ui$font.cyan]),
-								$mdgriffith$elm_ui$Element$text(signature.name))
-							])),
-						expanded ? A2(
-						$mdgriffith$elm_ui$Element$paragraph,
-						_List_fromArray(
-							[$author$project$Ui$pad.xy.xl.sm, $author$project$Ui$precise]),
-						_List_fromArray(
-							[
-								$mdgriffith$elm_ui$Element$text(signature.signature)
-							])) : $mdgriffith$elm_ui$Element$none
+								$mdgriffith$elm_ui$Element$text(signature.name + ' : ')),
+								(!A2($elm$core$String$contains, '\n', signature.signature)) ? A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$precise]),
+								$mdgriffith$elm_ui$Element$text(signature.signature)) : A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[
+										$mdgriffith$elm_ui$Element$alpha(0.5)
+									]),
+								$mdgriffith$elm_ui$Element$text('<multiline>'))
+							]))
 					]));
 		});
 	var viewGlobalError = function (global) {
@@ -12732,13 +12828,18 @@ var $author$project$Main$viewOverview = function (model) {
 							_List_fromArray(
 								[$author$project$Ui$anim.blink]),
 							$mdgriffith$elm_ui$Element$text('No errors 🎉'))))),
-				A3(
+				A4(
 				$author$project$Main$viewMetric,
-				'Typesignatures',
+				'Missing typesignatures',
+				$elm$core$Maybe$Just(
+					{
+						msg: $author$project$Model$EditorFillTypeSignatures(missingFile),
+						text: 'Insert all missing signatures'
+					}),
 				viewTypeSignature(missingFile),
 				missing),
-				A3($author$project$Main$viewMetric, 'Global', viewGlobalError, found.globals),
-				A3($author$project$Main$viewMetric, 'Errors', viewFileOverview, found.errs)
+				A4($author$project$Main$viewMetric, 'Global', $elm$core$Maybe$Nothing, viewGlobalError, found.globals),
+				A4($author$project$Main$viewMetric, 'Errors', $elm$core$Maybe$Nothing, viewFileOverview, found.errs)
 			]));
 };
 var $author$project$Main$view = function (model) {

@@ -38,6 +38,7 @@ type Incoming
 
 type Outgoing
     = Goto Editor.Location
+    | FillTypeSignatures String
 
 
 encodeOutgoing : Outgoing -> Json.Encode.Value
@@ -50,6 +51,16 @@ encodeOutgoing out =
                   , Json.Encode.object
                         [ ( "path", Json.Encode.string location.file )
                         , ( "region", Editor.encodeRegion location.region )
+                        ]
+                  )
+                ]
+
+        FillTypeSignatures path ->
+            Json.Encode.object
+                [ ( "msg", Json.Encode.string "InsertMissingTypeSignatures" )
+                , ( "details"
+                  , Json.Encode.object
+                        [ ( "path", Json.Encode.string path )
                         ]
                   )
                 ]
