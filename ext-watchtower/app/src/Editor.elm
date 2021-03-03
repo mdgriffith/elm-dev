@@ -48,6 +48,7 @@ type alias Position =
 
 type alias Editor =
     { fileName : String
+    , unsavedChanges : Bool
     , ranges : List Range
     , selections : List Range
     }
@@ -84,8 +85,9 @@ encodePosition pos =
 
 decodeEditor : Decode.Decoder Editor
 decodeEditor =
-    Decode.map3 Editor
+    Decode.map4 Editor
         (Decode.field "path" Decode.string)
+        (Decode.field "unsavedChanges" Decode.bool)
         (Decode.field "visibleRegions" (Decode.list decodeRegion))
         (Decode.field "selections" (Decode.list decodeRegion))
 

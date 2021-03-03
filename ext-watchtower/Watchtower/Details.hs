@@ -43,6 +43,7 @@ data Visible =
 data Editor =
     Editor
         { _path :: FilePath
+        , _unsavedChanges :: Bool
         , _visibleRanges :: [ Ann.Region ]
         , _selection :: [ Ann.Region ]
         }
@@ -65,10 +66,11 @@ encodeVisible (Visible active vis) =
         ]
 
 encodeEditor :: Editor -> Json.Encode.Value
-encodeEditor (Editor path vis sel) =
+encodeEditor (Editor path unsaved vis sel) =
     Json.Encode.object
         [ ("path" ==> Json.Encode.string (Json.String.fromChars path))
         , ("visibleRegions" ==> Json.Encode.list encodeRegion vis)
+        , ("unsavedChanges" ==> Json.Encode.bool unsaved)
         , ("selections" ==> Json.Encode.list encodeRegion sel)
         ]
 
@@ -115,6 +117,7 @@ decodeEditor :: Json.Decode.Decoder x Editor
 decodeEditor =
     Editor
         <$> (Json.Decode.field "path" (Json.String.toChars <$> Json.Decode.string))
+        <*> (Json.Decode.field "unsavedChanges" (Json.Decode.bool))
         <*> (Json.Decode.field "visibleRegions" (Json.Decode.list decodeRegion))
         <*> (Json.Decode.field "selections" (Json.Decode.list decodeRegion))
 

@@ -4,6 +4,7 @@ import Browser
 import Dict
 import Editor
 import Element as Ui
+import Element.Border as Border
 import Element.Events as Events
 import Element.Font as Font
 import Element.Keyed as Keyed
@@ -60,22 +61,56 @@ update msg model =
                         | visible = visible.visible
                         , active = visible.active
                       }
-                    , Cmd.none
+                    , if Elm.successful model.projects then
+                        Cmd.batch
+                            (visible.visible
+                                |> List.filterMap
+                                    (\editor ->
+                                        if editor.unsavedChanges || Dict.member editor.fileName model.missingTypesignatures then
+                                            Nothing
+
+                                        else
+                                            editor.fileName
+                                                |> Question.ask.missingTypesignatures
+                                                |> Cmd.map AnswerReceived
+                                                |> Just
+                                    )
+                            )
+
+                      else
+                        Cmd.none
                     )
 
                 Ports.ProjectsStatusUpdated statuses ->
+                    let
+                        success =
+                            Elm.successful statuses
+                    in
                     ( { model
                         | projects = statuses
                         , projectsVersion = model.projectsVersion + 1
-                      }
-                    , if Elm.successful statuses then
-                        case model.active of
-                            Nothing ->
-                                Cmd.none
+                        , missingTypesignatures =
+                            if success then
+                                model.missingTypesignatures
 
-                            Just active ->
-                                Question.ask.missingTypesignatures active.fileName
-                                    |> Cmd.map AnswerReceived
+                            else
+                                Dict.empty
+                      }
+                    , if success then
+                        Cmd.batch
+                            (model.visible
+                                |> List.filterMap
+                                    (\editor ->
+                                        if editor.unsavedChanges || Dict.member editor.fileName model.missingTypesignatures then
+                                            Nothing
+
+                                        else
+                                            editor.fileName
+                                                |> Question.ask.missingTypesignatures
+                                                |> Cmd.map AnswerReceived
+                                                |> Just
+                                    )
+                            )
 
                       else
                         Cmd.none
@@ -215,16 +250,37 @@ viewOverview model =
                     (List.map viewText global.problem.message)
                 ]
 
-        ( missingFile, missing ) =
-            case model.active of
-                Nothing ->
-                    ( "", [] )
+        missing =
+            List.filterMap
+                (\editor ->
+                    case Dict.get editor.fileName model.missingTypesignatures of
+                        Nothing ->
+                            Nothing
 
-                Just active ->
-                    ( active.fileName
-                    , Dict.get active.fileName model.missingTypesignatures
-                        |> Maybe.withDefault []
-                    )
+                        Just signatures ->
+                            Just
+                                ( editor
+                                , signatures
+                                )
+                )
+                model.visible
+
+        viewSignatureGroup ( editor, signatures ) =
+            Ui.column
+                [ Ui.space.md ]
+                [ Ui.header.three editor.fileName
+                , Ui.el
+                    [ Events.onClick (EditorFillTypeSignatures editor.fileName)
+                    , Ui.pad.sm
+                    , Ui.border.primary
+                    , Border.width 1
+                    , Ui.rounded.md
+                    , Ui.pointer
+                    ]
+                    (Ui.text "Add all missing typesignatures")
+                , Ui.column [ Ui.space.md ]
+                    (List.map (viewTypeSignature editor.fileName) signatures)
+                ]
 
         viewTypeSignature : String -> Question.TypeSignature -> Ui.Element Msg
         viewTypeSignature file signature =
@@ -295,21 +351,20 @@ viewOverview model =
                 ]
                 (Ui.text "No errors 🎉")
             )
-            |> Ui.when (List.isEmpty found.globals && List.isEmpty found.errs)
+            |> Ui.when
+                (List.isEmpty found.globals
+                    && List.isEmpty found.errs
+                    && List.isEmpty missing
+                )
         , viewMetric "Missing typesignatures"
-            (Just
-                { text = "Insert all missing signatures"
-                , msg = EditorFillTypeSignatures missingFile
-                }
-            )
-            (viewTypeSignature missingFile)
+            viewSignatureGroup
             missing
-        , viewMetric "Global" Nothing viewGlobalError found.globals
-        , viewMetric "Errors" Nothing viewFileOverview found.errs
+        , viewMetric "Global" viewGlobalError found.globals
+        , viewMetric "Errors" viewFileOverview found.errs
         ]
 
 
-viewMetric name maybeAction viewer vals =
+viewMetric name viewer vals =
     case vals of
         [] ->
             Ui.none
@@ -318,18 +373,6 @@ viewMetric name maybeAction viewer vals =
             Ui.column [ Ui.space.lg ]
                 [ Ui.header.three name
                     |> Ui.when (not (List.isEmpty vals))
-                , case maybeAction of
-                    Nothing ->
-                        Ui.none
-
-                    Just action ->
-                        Ui.el
-                            [ Events.onClick action.msg
-                            , Ui.pad.sm
-                            , Ui.border.primary
-                            , Ui.pointer
-                            ]
-                            (Ui.text action.text)
                 , Ui.column [ Ui.space.lg ]
                     (List.map viewer vals)
                 ]

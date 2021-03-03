@@ -2,7 +2,7 @@ module Ui exposing
     ( anim
     , space, pad
     , background, border, font
-    , when, whenJust, precise
+    , when, whenJust, precise, rounded
     , overrides
     , header
     )
@@ -14,7 +14,7 @@ module Ui exposing
 
 @docs background, border, font
 
-@docs when, whenJust, precise
+@docs when, whenJust, precise, rounded
 
 @docs overrides
 

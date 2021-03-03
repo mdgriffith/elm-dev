@@ -5347,10 +5347,11 @@ var $author$project$Ports$VisibleEditorsUpdated = function (a) {
 	return {$: 'VisibleEditorsUpdated', a: a};
 };
 var $elm$json$Json$Decode$andThen = _Json_andThen;
-var $author$project$Editor$Editor = F3(
-	function (fileName, ranges, selections) {
-		return {fileName: fileName, ranges: ranges, selections: selections};
+var $author$project$Editor$Editor = F4(
+	function (fileName, unsavedChanges, ranges, selections) {
+		return {fileName: fileName, ranges: ranges, selections: selections, unsavedChanges: unsavedChanges};
 	});
+var $elm$json$Json$Decode$bool = _Json_decodeBool;
 var $author$project$Editor$Region = F2(
 	function (start, end) {
 		return {end: end, start: start};
@@ -5384,12 +5385,13 @@ var $author$project$Editor$decodeRegion = A3(
 	A2($elm$json$Json$Decode$field, 'start', $author$project$Editor$position),
 	A2($elm$json$Json$Decode$field, 'end', $author$project$Editor$position));
 var $elm$json$Json$Decode$list = _Json_decodeList;
-var $elm$json$Json$Decode$map3 = _Json_map3;
+var $elm$json$Json$Decode$map4 = _Json_map4;
 var $elm$json$Json$Decode$string = _Json_decodeString;
-var $author$project$Editor$decodeEditor = A4(
-	$elm$json$Json$Decode$map3,
+var $author$project$Editor$decodeEditor = A5(
+	$elm$json$Json$Decode$map4,
 	$author$project$Editor$Editor,
 	A2($elm$json$Json$Decode$field, 'path', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'unsavedChanges', $elm$json$Json$Decode$bool),
 	A2(
 		$elm$json$Json$Decode$field,
 		'visibleRegions',
@@ -5409,7 +5411,6 @@ var $author$project$Elm$GlobalErrorDetails = F2(
 		return {path: path, problem: problem};
 	});
 var $author$project$Elm$Success = {$: 'Success'};
-var $elm$json$Json$Decode$bool = _Json_decodeBool;
 var $author$project$Elm$Many = {$: 'Many'};
 var $author$project$Elm$Single = {$: 'Single'};
 var $elm$json$Json$Decode$fail = _Json_fail;
@@ -5434,6 +5435,7 @@ var $author$project$Elm$Problem = F3(
 	function (title, message, region) {
 		return {message: message, region: region, title: title};
 	});
+var $elm$json$Json$Decode$map3 = _Json_map3;
 var $author$project$Elm$Plain = function (a) {
 	return {$: 'Plain', a: a};
 };
@@ -5444,7 +5446,6 @@ var $author$project$Elm$StyledText = F4(
 	function (color, underline, bold, string) {
 		return {bold: bold, color: color, string: string, underline: underline};
 	});
-var $elm$json$Json$Decode$map4 = _Json_map4;
 var $author$project$Elm$Cyan = {$: 'Cyan'};
 var $author$project$Elm$Green = {$: 'Green'};
 var $author$project$Elm$Red = {$: 'Red'};
@@ -6494,6 +6495,15 @@ var $author$project$Question$ask = {
 	}
 };
 var $elm$core$Platform$Cmd$map = _Platform_map;
+var $elm$core$Dict$member = F2(
+	function (key, dict) {
+		var _v0 = A2($elm$core$Dict$get, key, dict);
+		if (_v0.$ === 'Just') {
+			return true;
+		} else {
+			return false;
+		}
+	});
 var $elm$json$Json$Encode$int = _Json_wrap;
 var $elm$json$Json$Encode$object = function (pairs) {
 	return _Json_wrap(
@@ -6643,29 +6653,39 @@ var $author$project$Main$update = F2(
 							_Utils_update(
 								model,
 								{active: visible.active, visible: visible.visible}),
-							$elm$core$Platform$Cmd$none);
+							$author$project$Elm$successful(model.projects) ? $elm$core$Platform$Cmd$batch(
+								A2(
+									$elm$core$List$filterMap,
+									function (editor) {
+										return (editor.unsavedChanges || A2($elm$core$Dict$member, editor.fileName, model.missingTypesignatures)) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
+											A2(
+												$elm$core$Platform$Cmd$map,
+												$author$project$Model$AnswerReceived,
+												$author$project$Question$ask.missingTypesignatures(editor.fileName)));
+									},
+									visible.visible)) : $elm$core$Platform$Cmd$none);
 					} else {
 						var statuses = editorMsg.a;
+						var success = $author$project$Elm$successful(statuses);
 						return _Utils_Tuple2(
 							_Utils_update(
 								model,
-								{projects: statuses, projectsVersion: model.projectsVersion + 1}),
-							function () {
-								if ($author$project$Elm$successful(statuses)) {
-									var _v2 = model.active;
-									if (_v2.$ === 'Nothing') {
-										return $elm$core$Platform$Cmd$none;
-									} else {
-										var active = _v2.a;
-										return A2(
-											$elm$core$Platform$Cmd$map,
-											$author$project$Model$AnswerReceived,
-											$author$project$Question$ask.missingTypesignatures(active.fileName));
-									}
-								} else {
-									return $elm$core$Platform$Cmd$none;
-								}
-							}());
+								{
+									missingTypesignatures: success ? model.missingTypesignatures : $elm$core$Dict$empty,
+									projects: statuses,
+									projectsVersion: model.projectsVersion + 1
+								}),
+							success ? $elm$core$Platform$Cmd$batch(
+								A2(
+									$elm$core$List$filterMap,
+									function (editor) {
+										return (editor.unsavedChanges || A2($elm$core$Dict$member, editor.fileName, model.missingTypesignatures)) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
+											A2(
+												$elm$core$Platform$Cmd$map,
+												$author$project$Model$AnswerReceived,
+												$author$project$Question$ask.missingTypesignatures(editor.fileName)));
+									},
+									model.visible)) : $elm$core$Platform$Cmd$none);
 					}
 				}
 			case 'EditorGoTo':
@@ -6692,7 +6712,7 @@ var $author$project$Main$update = F2(
 			default:
 				if (_v0.a.$ === 'Err') {
 					var err = _v0.a.a;
-					var _v3 = A2($elm$core$Debug$log, 'HTTP, Answer error', err);
+					var _v2 = A2($elm$core$Debug$log, 'HTTP, Answer error', err);
 					return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 				} else {
 					var answer = _v0.a.a;
@@ -7030,15 +7050,6 @@ var $elm$core$Set$insert = F2(
 		var dict = _v0.a;
 		return $elm$core$Set$Set_elm_builtin(
 			A3($elm$core$Dict$insert, key, _Utils_Tuple0, dict));
-	});
-var $elm$core$Dict$member = F2(
-	function (key, dict) {
-		var _v0 = A2($elm$core$Dict$get, key, dict);
-		if (_v0.$ === 'Just') {
-			return true;
-		} else {
-			return false;
-		}
 	});
 var $elm$core$Set$member = F2(
 	function (key, _v0) {
@@ -12182,6 +12193,40 @@ var $author$project$Ui$anim = {
 	blink: $mdgriffith$elm_ui$Element$htmlAttribute(
 		$elm$html$Html$Attributes$class('blink'))
 };
+var $mdgriffith$elm_ui$Internal$Flag$borderColor = $mdgriffith$elm_ui$Internal$Flag$flag(28);
+var $mdgriffith$elm_ui$Element$Border$color = function (clr) {
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$borderColor,
+		A3(
+			$mdgriffith$elm_ui$Internal$Model$Colored,
+			'bc-' + $mdgriffith$elm_ui$Internal$Model$formatColorClass(clr),
+			'border-color',
+			clr));
+};
+var $mdgriffith$elm_ui$Element$rgb = F3(
+	function (r, g, b) {
+		return A4($mdgriffith$elm_ui$Internal$Model$Rgba, r, g, b, 1);
+	});
+var $author$project$Ui$colors = {
+	dark: {
+		dark: A3($mdgriffith$elm_ui$Element$rgb, 0.15, 0.15, 0.15),
+		light: A3($mdgriffith$elm_ui$Element$rgb, 0.05, 0.05, 0.05),
+		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.1, 0.1, 0.1)
+	},
+	grey: {
+		dark: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95),
+		light: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95),
+		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95)
+	},
+	primary: A3($mdgriffith$elm_ui$Element$rgb, 0, 0.5, 0.25),
+	white: A3($mdgriffith$elm_ui$Element$rgb, 1, 1, 1)
+};
+var $author$project$Ui$border = {
+	dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.dark),
+	light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.light),
+	primary: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.primary)
+};
 var $mdgriffith$elm_ui$Internal$Model$AlignX = function (a) {
 	return {$: 'AlignX', a: a};
 };
@@ -12421,6 +12466,21 @@ var $mdgriffith$elm_ui$Internal$Model$Px = function (a) {
 	return {$: 'Px', a: a};
 };
 var $mdgriffith$elm_ui$Element$px = $mdgriffith$elm_ui$Internal$Model$Px;
+var $mdgriffith$elm_ui$Internal$Flag$borderRound = $mdgriffith$elm_ui$Internal$Flag$flag(17);
+var $mdgriffith$elm_ui$Element$Border$rounded = function (radius) {
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$borderRound,
+		A3(
+			$mdgriffith$elm_ui$Internal$Model$Single,
+			'br-' + $elm$core$String$fromInt(radius),
+			'border-radius',
+			$elm$core$String$fromInt(radius) + 'px'));
+};
+var $author$project$Ui$rounded = {
+	full: $mdgriffith$elm_ui$Element$Border$rounded(10000),
+	md: $mdgriffith$elm_ui$Element$Border$rounded(3)
+};
 var $mdgriffith$elm_ui$Internal$Model$AsRow = {$: 'AsRow'};
 var $mdgriffith$elm_ui$Internal$Model$asRow = $mdgriffith$elm_ui$Internal$Model$AsRow;
 var $mdgriffith$elm_ui$Element$row = F2(
@@ -12576,46 +12636,12 @@ var $author$project$Main$viewIssueDetails = F3(
 					A2($elm$core$List$map, $author$project$Main$viewText, issue.message)) : $mdgriffith$elm_ui$Element$none
 				]));
 	});
-var $mdgriffith$elm_ui$Internal$Flag$borderColor = $mdgriffith$elm_ui$Internal$Flag$flag(28);
-var $mdgriffith$elm_ui$Element$Border$color = function (clr) {
-	return A2(
-		$mdgriffith$elm_ui$Internal$Model$StyleClass,
-		$mdgriffith$elm_ui$Internal$Flag$borderColor,
-		A3(
-			$mdgriffith$elm_ui$Internal$Model$Colored,
-			'bc-' + $mdgriffith$elm_ui$Internal$Model$formatColorClass(clr),
-			'border-color',
-			clr));
-};
-var $mdgriffith$elm_ui$Element$rgb = F3(
-	function (r, g, b) {
-		return A4($mdgriffith$elm_ui$Internal$Model$Rgba, r, g, b, 1);
-	});
-var $author$project$Ui$colors = {
-	dark: {
-		dark: A3($mdgriffith$elm_ui$Element$rgb, 0.15, 0.15, 0.15),
-		light: A3($mdgriffith$elm_ui$Element$rgb, 0.05, 0.05, 0.05),
-		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.1, 0.1, 0.1)
-	},
-	grey: {
-		dark: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95),
-		light: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95),
-		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95)
-	},
-	primary: A3($mdgriffith$elm_ui$Element$rgb, 0, 0.5, 0.25),
-	white: A3($mdgriffith$elm_ui$Element$rgb, 1, 1, 1)
-};
-var $author$project$Ui$border = {
-	dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.dark),
-	light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.light),
-	primary: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.primary)
-};
 var $author$project$Ui$when = F2(
 	function (condition, content) {
 		return condition ? content : $mdgriffith$elm_ui$Element$none;
 	});
-var $author$project$Main$viewMetric = F4(
-	function (name, maybeAction, viewer, vals) {
+var $author$project$Main$viewMetric = F3(
+	function (name, viewer, vals) {
 		if (!vals.b) {
 			return $mdgriffith$elm_ui$Element$none;
 		} else {
@@ -12629,23 +12655,6 @@ var $author$project$Main$viewMetric = F4(
 						$author$project$Ui$when,
 						!$elm$core$List$isEmpty(vals),
 						$author$project$Ui$header.three(name)),
-						function () {
-						if (maybeAction.$ === 'Nothing') {
-							return $mdgriffith$elm_ui$Element$none;
-						} else {
-							var action = maybeAction.a;
-							return A2(
-								$mdgriffith$elm_ui$Element$el,
-								_List_fromArray(
-									[
-										$mdgriffith$elm_ui$Element$Events$onClick(action.msg),
-										$author$project$Ui$pad.sm,
-										$author$project$Ui$border.primary,
-										$mdgriffith$elm_ui$Element$pointer
-									]),
-								$mdgriffith$elm_ui$Element$text(action.text));
-						}
-					}(),
 						A2(
 						$mdgriffith$elm_ui$Element$column,
 						_List_fromArray(
@@ -12654,6 +12663,22 @@ var $author$project$Main$viewMetric = F4(
 					]));
 		}
 	});
+var $mdgriffith$elm_ui$Internal$Model$BorderWidth = F5(
+	function (a, b, c, d, e) {
+		return {$: 'BorderWidth', a: a, b: b, c: c, d: d, e: e};
+	});
+var $mdgriffith$elm_ui$Element$Border$width = function (v) {
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$borderWidth,
+		A5(
+			$mdgriffith$elm_ui$Internal$Model$BorderWidth,
+			'b-' + $elm$core$String$fromInt(v),
+			v,
+			v,
+			v,
+			v));
+};
 var $author$project$Main$viewOverview = function (model) {
 	var viewTypeSignature = F2(
 		function (file, signature) {
@@ -12720,6 +12745,39 @@ var $author$project$Main$viewOverview = function (model) {
 							]))
 					]));
 		});
+	var viewSignatureGroup = function (_v2) {
+		var editor = _v2.a;
+		var signatures = _v2.b;
+		return A2(
+			$mdgriffith$elm_ui$Element$column,
+			_List_fromArray(
+				[$author$project$Ui$space.md]),
+			_List_fromArray(
+				[
+					$author$project$Ui$header.three(editor.fileName),
+					A2(
+					$mdgriffith$elm_ui$Element$el,
+					_List_fromArray(
+						[
+							$mdgriffith$elm_ui$Element$Events$onClick(
+							$author$project$Model$EditorFillTypeSignatures(editor.fileName)),
+							$author$project$Ui$pad.sm,
+							$author$project$Ui$border.primary,
+							$mdgriffith$elm_ui$Element$Border$width(1),
+							$author$project$Ui$rounded.md,
+							$mdgriffith$elm_ui$Element$pointer
+						]),
+					$mdgriffith$elm_ui$Element$text('Add all missing typesignatures')),
+					A2(
+					$mdgriffith$elm_ui$Element$column,
+					_List_fromArray(
+						[$author$project$Ui$space.md]),
+					A2(
+						$elm$core$List$map,
+						viewTypeSignature(editor.fileName),
+						signatures))
+				]));
+	};
 	var viewGlobalError = function (global) {
 		return A2(
 			$mdgriffith$elm_ui$Element$column,
@@ -12759,6 +12817,19 @@ var $author$project$Main$viewOverview = function (model) {
 						file.problem))
 				]));
 	};
+	var missing = A2(
+		$elm$core$List$filterMap,
+		function (editor) {
+			var _v1 = A2($elm$core$Dict$get, editor.fileName, model.missingTypesignatures);
+			if (_v1.$ === 'Nothing') {
+				return $elm$core$Maybe$Nothing;
+			} else {
+				var signatures = _v1.a;
+				return $elm$core$Maybe$Just(
+					_Utils_Tuple2(editor, signatures));
+			}
+		},
+		model.visible);
 	var found = A3(
 		$elm$core$List$foldl,
 		F2(
@@ -12786,22 +12857,6 @@ var $author$project$Main$viewOverview = function (model) {
 			}),
 		{errs: _List_Nil, globals: _List_Nil},
 		model.projects);
-	var _v0 = function () {
-		var _v1 = model.active;
-		if (_v1.$ === 'Nothing') {
-			return _Utils_Tuple2('', _List_Nil);
-		} else {
-			var active = _v1.a;
-			return _Utils_Tuple2(
-				active.fileName,
-				A2(
-					$elm$core$Maybe$withDefault,
-					_List_Nil,
-					A2($elm$core$Dict$get, active.fileName, model.missingTypesignatures)));
-		}
-	}();
-	var missingFile = _v0.a;
-	var missing = _v0.b;
 	return A2(
 		$mdgriffith$elm_ui$Element$column,
 		_List_fromArray(
@@ -12817,7 +12872,7 @@ var $author$project$Main$viewOverview = function (model) {
 				$author$project$Ui$header.two('Overview'),
 				A2(
 				$author$project$Ui$when,
-				$elm$core$List$isEmpty(found.globals) && $elm$core$List$isEmpty(found.errs),
+				$elm$core$List$isEmpty(found.globals) && ($elm$core$List$isEmpty(found.errs) && $elm$core$List$isEmpty(missing)),
 				A2(
 					$mdgriffith$elm_ui$Element$Keyed$el,
 					_List_Nil,
@@ -12828,18 +12883,9 @@ var $author$project$Main$viewOverview = function (model) {
 							_List_fromArray(
 								[$author$project$Ui$anim.blink]),
 							$mdgriffith$elm_ui$Element$text('No errors 🎉'))))),
-				A4(
-				$author$project$Main$viewMetric,
-				'Missing typesignatures',
-				$elm$core$Maybe$Just(
-					{
-						msg: $author$project$Model$EditorFillTypeSignatures(missingFile),
-						text: 'Insert all missing signatures'
-					}),
-				viewTypeSignature(missingFile),
-				missing),
-				A4($author$project$Main$viewMetric, 'Global', $elm$core$Maybe$Nothing, viewGlobalError, found.globals),
-				A4($author$project$Main$viewMetric, 'Errors', $elm$core$Maybe$Nothing, viewFileOverview, found.errs)
+				A3($author$project$Main$viewMetric, 'Missing typesignatures', viewSignatureGroup, missing),
+				A3($author$project$Main$viewMetric, 'Global', viewGlobalError, found.globals),
+				A3($author$project$Main$viewMetric, 'Errors', viewFileOverview, found.errs)
 			]));
 };
 var $author$project$Main$view = function (model) {
