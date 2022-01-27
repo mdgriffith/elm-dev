@@ -11,6 +11,7 @@ import qualified AST.Canonical as Can
 import qualified AST.Optimized as Opt
 import qualified AST.Source as Src
 import qualified Compile
+import qualified Data.Binary.Get as Map
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BSL
@@ -25,6 +26,7 @@ import Data.Text (Text, pack)
 import qualified Data.Text as T
 import qualified Data.Utf8
 import Data.Word (Word16)
+import qualified Elm.Details
 import qualified Elm.ModuleName
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.String
@@ -78,18 +80,88 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
             modul
               & Can._decls
               & findAtPoint point
-      do
-        -- interfaces <- Llamadera.allInterfaces [path]
-        -- eitherArtifacts <- Llamadera.loadSingleArtifacts root path
-        -- case eitherArtifacts of
-        --   Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
-        --     -- Llamadera.formatHaskellValue ("Interfaces") interfaces
-        --     Llamadera.formatHaskellValue "Interfaces" annotations
-        --   Left err -> print err
-        print "Finding..."
-        print found
+      case found of
+        FoundNothing ->
+          do
+            print "Found nothing :("
+            pure (encodeSearchResult found)
+        FoundExpr expr ->
+          do
+            let locationDetails = getLocatedDetails expr
+            case locationDetails of
+              Nothing ->
+                do
+                  print "Nothing found"
+                  print found
+                  pure (encodeSearchResult found)
+              Just (Local localName) ->
+                do
+                  print "Found local"
+                  print found
+                  pure (encodeSearchResult found)
+              Just (External canMod name) ->
+                do
+                  details <- Llamadera.loadProject
 
-        pure (encodeSearchResult found)
+                  case lookupModulePath details canMod of
+                    Nothing ->
+                      do
+                        print "Could not find path"
+                        print found
+                        pure (encodeSearchResult found)
+                    Just targetPath ->
+                      do
+                        eitherSource <- Llamadera.loadFileSource root targetPath
+
+                        case eitherSource of
+                          Right (stringSource, sourceMod) ->
+                            do
+                              let finalResult =
+                                    sourceMod
+                                      & Src._values
+                                      & findFirstValueNamed name
+                              print "getting there"
+                              pure
+                                ( case finalResult of
+                                    Nothing -> Json.Encode.string "nothing founmd :-}"
+                                    Just (A.At region val) ->
+                                      Json.Encode.object
+                                        [ ( "definition",
+                                            Json.Encode.object
+                                              [ ("region", Watchtower.Details.encodeRegion region),
+                                                ("path", Json.Encode.string (Json.String.fromChars targetPath))
+                                              ]
+                                          ),
+                                          ("module", Util.encodeModuleName canMod),
+                                          ("package", Util.encodeModulePackage canMod),
+                                          ("name", Util.encodeName name)
+                                        ]
+                                )
+                          Left err ->
+                            do
+                              print err
+                              pure (encodeSearchResult found)
+        FoundPattern _ ->
+          do
+            print "Found a patter, but who cares really?"
+            print found
+
+            pure (encodeSearchResult found)
+
+lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
+lookupModulePath details canModuleName =
+  details
+    & Elm.Details._locals
+    & Map.lookup (ModuleName._module canModuleName)
+    & fmap Elm.Details._path
+
+maybeAndThen :: (a -> Maybe b) -> Maybe a -> Maybe b
+maybeAndThen fn may =
+  case may of
+    Nothing ->
+      Nothing
+    Just a ->
+      fn a
 
 getExpressionNameAt ::
   A.Position ->
@@ -407,3 +479,13 @@ getLocatedDetails (A.At region expr) =
       Nothing
     Can.Shader shader types ->
       Nothing
+
+findFirstValueNamed :: Name.Name -> [A.Located Src.Value] -> Maybe (A.Located Src.Value)
+findFirstValueNamed name list =
+  case list of
+    [] ->
+      Nothing
+    (top@(A.At _ ((Src.Value (A.At _ valName) _ _ _))) : remain) ->
+      if name == valName
+        then Just top
+        else findFirstValueNamed name remain

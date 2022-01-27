@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Llamadera (allInterfaces, getProjectRoot, loadFileSource, loadSingleArtifacts, formatHaskellValue, hindentPrintValue, debug_) where
+module Llamadera (allInterfaces, getProjectRoot, loadProject, loadFileSource, loadSingleArtifacts, formatHaskellValue, hindentPrintValue, debug_) where
 
 import qualified System.Directory as Dir
 import Prelude hiding (lookup)
@@ -186,7 +186,26 @@ cachedHelp name ciMvar = do
 
 {- END INTERFACES -}
 
+{-|
 
+Compile.Artifacts is defined as
+
+
+  data Artifacts =
+    Artifacts
+      { _modul :: Can.Module
+      , _types :: Map.Map Name.Name Can.Annotation
+      , _graph :: Opt.LocalGraph
+      }
+
+
+- Can.Module is the canonicalized AST!
+- A map of all the types
+- and 
+
+
+
+-}
 loadSingleArtifacts :: FilePath -> FilePath -> IO (Either Reporting.Error.Error Compile.Artifacts)
 loadSingleArtifacts root path =
   Dir.withCurrentDirectory root $ do
@@ -211,6 +230,29 @@ loadFileSource root path = do
 
       Left err ->
         pure $ Left err
+
+
+
+
+{- Appropriated from worker/src/Artifacts.hs
+   WARNING: does not load any user code!!!
+
+
+We generally do this when we want a mapping of modulenames to filepaths
+-}
+loadProject :: IO Details.Details
+loadProject =
+  BW.withScope $ \scope ->
+  do  --debug "Loading allDeps"
+      style <- Reporting.terminal
+      root <- getProjectRoot
+      result <- Details.load style scope root
+      case result of
+        Left _ ->
+          error $ "Ran into some problem loading elm.json\nTry running `elm make` in: " ++ root
+
+        Right details ->
+          return details
 
 
 
