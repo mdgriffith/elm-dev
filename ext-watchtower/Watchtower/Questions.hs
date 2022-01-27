@@ -93,16 +93,14 @@ actionHandler state =
                 )
             _ ->
               writeBS "Needs location"
-
-      -- Just "definition" ->
-      --     do
-      --         maybeLocation   <- getLocation
-      --         case maybeLocation of
-      --             Nothing ->
-      --                 writeBS "Needs location"
-
-      --             Just location ->
-      --                 questionHandler "." (FindDefinitionPlease location)
+      Just "definition" ->
+        do
+          maybeLocation <- getPointLocation
+          case maybeLocation of
+            Nothing ->
+              writeBS "Needs location"
+            Just location ->
+              questionHandler state (FindDefinitionPlease location)
 
       -- Just "instances" ->
       --     do
@@ -139,36 +137,50 @@ getPointLocation =
 getPosition :: Snap (Maybe Reporting.Annotation.Position)
 getPosition =
   do
-    maybeRow <- getQueryParam "row"
-    maybeCol <- getQueryParam "col"
+    maybeRow <- getQueryParam "line"
+    maybeCol <- getQueryParam "char"
     let position =
-          ( \row col ->
-              Reporting.Annotation.Position 0 0
+          ( \rowString colString ->
+              case (Data.ByteString.Char8.readInt rowString, Data.ByteString.Char8.readInt colString) of
+                (Just (rowInt, _), Just (colInt, _)) ->
+                  let row = fromIntegral rowInt
+                      col = fromIntegral colInt
+                   in Just (Reporting.Annotation.Position row col)
+                _ ->
+                  Nothing
           )
             <$> maybeRow <*> maybeCol
 
-    pure position
+    pure (Maybe.fromMaybe Nothing position)
 
 ask :: Watchtower.Live.State -> Question -> IO Data.ByteString.Builder.Builder
 ask state question =
   case question of
     CallgraphPlease path name ->
       do
-        root <- pure (Maybe.fromMaybe "." (Watchtower.Live.getRoot path state))
+        let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
         Watchtower.Annotate.callgraph root path name
           & fmap Json.Encode.encodeUgly
     ListMissingSignaturesPlease path ->
       do
-        root <- pure (Maybe.fromMaybe "." (Watchtower.Live.getRoot path state))
+        let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
         Ext.Common.debug $ "🛫  List signatures: " ++ show root ++ " <> " ++ show path
         Watchtower.Annotate.listMissingAnnotations root path
           & fmap Json.Encode.encodeUgly
     SignaturePlease path name ->
       do
-        root <- pure (Maybe.fromMaybe "." (Watchtower.Live.getRoot path state))
+        let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
         Watchtower.Annotate.annotation root path name
           & fmap Json.Encode.encodeUgly
     FindDefinitionPlease location ->
-      pure (Data.ByteString.Builder.byteString ("NOTDONE"))
+      let path =
+            case location of
+              Watchtower.Details.PointLocation f _ ->
+                f
+       in do
+            let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
+            Watchtower.Find.definitionAndPrint root location
+              & fmap Json.Encode.encodeUgly
+    --   pure (Data.ByteString.Builder.byteString ("NOTDONE2"))
     FindAllInstancesPlease location ->
       pure (Data.ByteString.Builder.byteString ("NOTDONE"))
