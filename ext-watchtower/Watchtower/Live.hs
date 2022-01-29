@@ -2,6 +2,8 @@
 
 module Watchtower.Live where
 
+import AST.Canonical (Port (Outgoing))
+import AST.Source (Type_ (TVar))
 import Control.Applicative ((<$>), (<*>), (<|>))
 import Control.Concurrent.STM
 import Control.Monad as Monad (foldM, guard)
@@ -32,8 +34,15 @@ import qualified Watchtower.StaticAssets
 import qualified Watchtower.Websocket
 
 data State = State
-  { clients :: (TVar [Client]),
-    projects :: [(Ext.Sentry.Cache, Watchtower.Project.Project)]
+  { clients :: TVar [Client],
+    projects ::
+      --[(Ext.Sentry.Cache, Watchtower.Project.Project)]
+      [ProjectCache]
+  }
+
+data ProjectCache = ProjectCache
+  { project :: Watchtower.Project.Project,
+    sentry :: Ext.Sentry.Cache
   }
 
 type ClientId = T.Text
@@ -60,7 +69,7 @@ discoverProjects root = do
 initializeProject accum project =
   do
     cache <- Ext.Sentry.init
-    pure ((cache, project) : accum)
+    pure (ProjectCache project cache : accum)
 
 getRoot :: FilePath -> State -> Maybe FilePath
 getRoot path (State mClients projects) =
@@ -69,7 +78,7 @@ getRoot path (State mClients projects) =
 getRootHelp path projects found =
   case projects of
     [] -> found
-    (_, project) : remain ->
+    (ProjectCache project _) : remain ->
       if Watchtower.Project.contains path project
         then case found of
           Nothing ->
@@ -87,7 +96,7 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
     track "recompile" $ do
       (projectStatuses, projectlessFiles) <-
         Monad.foldM
-          ( \(gathered, remainingFiles) (cache, proj@(Watchtower.Project.Project projectRoot entrypoints)) ->
+          ( \(gathered, remainingFiles) (ProjectCache proj@(Watchtower.Project.Project projectRoot entrypoints) cache) ->
               do
                 let remaining =
                       List.filter
@@ -142,7 +151,8 @@ recompile (Watchtower.Live.State mClients projects) filenames = do
           projectStatuses
           projectlessFiles
 
-      Watchtower.Websocket.broadcastImpl mClients $ builderToString $ encodeOutgoing (ElmStatus allStatuses)
+      broadcastAll mClients (ElmStatus allStatuses)
+
       debug $ "🛬  recompile finished: " ++ show filenames
 
 websocket :: State -> Snap ()
@@ -159,7 +169,7 @@ websocket_ state@(State mClients projects) = do
       let onJoined clientId totalClients = do
             statuses <-
               Monad.foldM
-                ( \gathered (cache, proj) ->
+                ( \gathered (ProjectCache proj cache) ->
                     do
                       jsonStatus <- Ext.Sentry.getCompileResult cache
 
@@ -196,19 +206,13 @@ receiveAction state@(State mClients projects) clientId incoming =
   case incoming of
     Visible visible -> do
       debug $ "forwarding visibility"
-      Watchtower.Websocket.broadcastImpl
-        mClients
-        (builderToString (encodeOutgoing (FwdVisible visible)))
+      broadcastAll mClients (FwdVisible visible)
     JumpTo location -> do
       debug $ "forwarding jump"
-      Watchtower.Websocket.broadcastImpl
-        mClients
-        (builderToString (encodeOutgoing (FwdJumpTo location)))
+      broadcastAll mClients (FwdJumpTo location)
     InsertMissingTypeSignatures path -> do
       debug $ "forwarding insert-missing"
-      Watchtower.Websocket.broadcastImpl
-        mClients
-        (builderToString (encodeOutgoing (FwdInsertMissingTypeSignatures path)))
+      broadcastAll mClients (FwdInsertMissingTypeSignatures path)
 
 consIfErrors :: Either Json.Encode.Value Json.Encode.Value -> [Json.Encode.Value] -> [Json.Encode.Value]
 consIfErrors either ls =
@@ -315,3 +319,31 @@ encodeStatus ((Watchtower.Project.Project root entrypoints), js) =
       "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) entrypoints,
       "status" ==> js
     ]
+
+{- WEBSOCKET STUFF -}
+
+toWebsocketClient :: Client -> Watchtower.Websocket.Client
+toWebsocketClient (clientId, connection) =
+  (clientId, connection)
+
+broadcastAll :: TVar [Client] -> Outgoing -> IO ()
+broadcastAll allClients outgoing =
+  Watchtower.Websocket.broadcastWith
+    allClients
+    (\c -> Just (toWebsocketClient c))
+    ( builderToString $
+        encodeOutgoing outgoing
+    )
+
+broadcastTo :: TVar [Client] -> (Client -> Bool) -> Outgoing -> IO ()
+broadcastTo allClients shouldBroadcast outgoing =
+  Watchtower.Websocket.broadcastWith
+    allClients
+    ( \c ->
+        if shouldBroadcast c
+          then Just (toWebsocketClient c)
+          else Nothing
+    )
+    ( builderToString $
+        encodeOutgoing outgoing
+    )

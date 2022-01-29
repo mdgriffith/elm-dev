@@ -31,14 +31,6 @@ data Question
   | FindAllInstancesPlease Watchtower.Details.PointLocation
   | Discover FilePath
 
--- data Answer
---     = CallgraphReturned Watchtower.Details.Callgraph
---     | ListMissingSignaturesReturned [ Watchtower.Details.Location ]
---     | SignatureReturned Watchtower.Details.Location String
---     | FindDefinitionReturned Watchtower.Details.Location
---     | FindAllInstancesReturned
---     | NOTDONE
-
 serve :: Watchtower.Live.State -> Snap ()
 serve state =
   do
