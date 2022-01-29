@@ -3,7 +3,7 @@
 -- Ported from https://github.com/supermario/hilt/blob/master/src/Hilt/SocketServer.hs
 -- Modified to remove managed and have clientId injection rather than auto-gen
 
-module Watchtower.Websocket where
+module Watchtower.Websocket (clientsInit, broadcastWith, Client, socketHandler, runWebSocketsSnap) where
 
 import Control.Concurrent.STM
 import Control.Exception (finally)
