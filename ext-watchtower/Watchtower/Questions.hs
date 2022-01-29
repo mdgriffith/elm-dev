@@ -20,6 +20,7 @@ import qualified Watchtower.Annotate
 import qualified Watchtower.Details
 import qualified Watchtower.Find
 import qualified Watchtower.Live
+import qualified Watchtower.Project
 
 -- One off questions and answers you might have/want.
 data Question
@@ -28,6 +29,7 @@ data Question
   | SignaturePlease FilePath Name.Name
   | FindDefinitionPlease Watchtower.Details.PointLocation
   | FindAllInstancesPlease Watchtower.Details.PointLocation
+  | Discover FilePath
 
 -- data Answer
 --     = CallgraphReturned Watchtower.Details.Callgraph
@@ -57,6 +59,14 @@ actionHandler state =
   do
     maybeAction <- getParam "action"
     case maybeAction of
+      Just "discover" ->
+        do
+          maybeFile <- getQueryParam "dir"
+          case maybeFile of
+            Nothing ->
+              writeBS "Needs a directory parameter"
+            Just file -> do
+              questionHandler state (Discover (Data.ByteString.Char8.unpack file))
       Just "list-missing-signatures" ->
         do
           maybeFile <- getQueryParam "file"
@@ -156,6 +166,11 @@ getPosition =
 ask :: Watchtower.Live.State -> Question -> IO Data.ByteString.Builder.Builder
 ask state question =
   case question of
+    Discover dir ->
+      do
+        Ext.Common.debug $ "Discover: " ++ show dir
+        Watchtower.Project.discover dir
+          & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Watchtower.Project.encodeProjectJson projects))
     CallgraphPlease path name ->
       do
         let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
@@ -181,6 +196,5 @@ ask state question =
             let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
             Watchtower.Find.definitionAndPrint root location
               & fmap Json.Encode.encodeUgly
-    --   pure (Data.ByteString.Builder.byteString ("NOTDONE2"))
     FindAllInstancesPlease location ->
       pure (Data.ByteString.Builder.byteString ("NOTDONE"))

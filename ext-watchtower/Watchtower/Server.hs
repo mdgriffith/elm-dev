@@ -1,79 +1,73 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Server (Flags(..),serve) where
+module Watchtower.Server (Flags (..), serve) where
 
 import Control.Applicative ((<|>))
-import Control.Monad.Trans (MonadIO(liftIO))
-import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
-import qualified System.Directory as Dir
-
-import Snap.Core hiding (path)
-import Snap.Http.Server
-import Snap.Util.FileServe
-
-
+import Control.Monad.Trans (MonadIO (liftIO))
 import qualified Develop.Generate.Help
-import qualified Json.Encode
-import qualified Reporting.Annotation as Ann
-
-import qualified Watchtower.Details
-import qualified Watchtower.Live
-import qualified Watchtower.Questions
-import qualified Watchtower.StaticAssets
-import qualified Watchtower.Project
-
 import qualified Ext.Common
 import qualified Ext.Filewatch
+import qualified Json.Encode
+import qualified Reporting.Annotation as Ann
+import Snap.Core hiding (path)
+import qualified Snap.Http.Server
+import Snap.Util.FileServe
+import qualified System.Directory as Dir
+import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
+import qualified Watchtower.Details
+import qualified Watchtower.Live
+import qualified Watchtower.Project
+import qualified Watchtower.Questions
+import qualified Watchtower.StaticAssets
 
-
-data Flags =
-  Flags
-    { _port :: Maybe Int
-    }
-
+data Flags = Flags
+  { _port :: Maybe Int
+  }
 
 serve :: Flags -> IO ()
 serve (Flags maybePort) =
-  do  let port = Ext.Common.withDefault 9000 maybePort
-      Ext.Common.atomicPutStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
+  do
+    let port = Ext.Common.withDefault 9000 maybePort
+    Ext.Common.atomicPutStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
 
-      root <- Ext.Common.getProjectRoot
-      liveState <- Watchtower.Live.init root
+    root <- Ext.Common.getProjectRoot
+    liveState <- Watchtower.Live.init root
 
-      -- compile project
-      Watchtower.Live.recompile liveState []
-      Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
+    -- compile project
+    Watchtower.Live.recompile liveState []
+    Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
-      httpServe (config port) $
-        serveAssets
-            <|> Watchtower.Live.websocket liveState
-            <|> Watchtower.Questions.serve liveState
-            <|> error404
+    Snap.Http.Server.httpServe (config port) $
+      serveAssets
+        <|> Watchtower.Live.websocket liveState
+        <|> Watchtower.Questions.serve liveState
+        <|> error404
 
-
-config :: Int -> Config Snap a
+config :: Int -> Snap.Http.Server.Config Snap a
 config port =
-  setVerbose False $ setPort port $
-    setAccessLog ConfigNoLog $ setErrorLog ConfigNoLog $ defaultConfig
-
+  Snap.Http.Server.setVerbose False $
+    Snap.Http.Server.setPort port $
+      Snap.Http.Server.setAccessLog Snap.Http.Server.ConfigNoLog $
+        Snap.Http.Server.setErrorLog Snap.Http.Server.ConfigNoLog $
+          Snap.Http.Server.defaultConfig
 
 -- SERVE STATIC ASSETS
 
-
 serveAssets :: Snap ()
 serveAssets =
-  do  path <- getSafePath
-      case Watchtower.StaticAssets.lookup path of
-        Nothing ->
-          pass
-
-        Just (content, mimeType) ->
-          do  modifyResponse (setContentType (mimeType <> ";charset=utf-8"))
-              writeBS content
-
+  do
+    path <- getSafePath
+    case Watchtower.StaticAssets.lookup path of
+      Nothing ->
+        pass
+      Just (content, mimeType) ->
+        do
+          modifyResponse (setContentType (mimeType <> ";charset=utf-8"))
+          writeBS content
 
 error404 :: Snap ()
 error404 =
-  do  modifyResponse $ setResponseStatus 404 "Not Found"
-      modifyResponse $ setContentType "text/html; charset=utf-8"
-      writeBuilder $ "404 page not found!"
+  do
+    modifyResponse $ setResponseStatus 404 "Not Found"
+    modifyResponse $ setContentType "text/html; charset=utf-8"
+    writeBuilder $ "404 page not found!"

@@ -2,211 +2,185 @@
 
 module Watchtower.Live where
 
+import Control.Applicative ((<$>), (<*>), (<|>))
 import Control.Concurrent.STM
-import Control.Applicative ((<|>), (<$>), (<*>))
-import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
+import Control.Monad as Monad (foldM, guard)
+import Control.Monad.Trans (liftIO)
+import qualified Data.ByteString.Builder
+import qualified Data.ByteString.Lazy
+import qualified Data.List as List
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Develop.Generate.Help
+import Ext.Common
+import qualified Ext.Sentry
+import qualified Json.Decode
+import Json.Encode ((==>))
+import qualified Json.Encode
+import qualified Json.String
+import qualified Network.WebSockets as WS
+import qualified Network.WebSockets.Snap as WS
+import qualified Reporting.Annotation as Ann
 import Snap.Core hiding (path)
 import Snap.Http.Server
 import Snap.Util.FileServe
-import Control.Monad.Trans (liftIO)
-import Control.Monad as Monad (guard, foldM)
-import Control.Concurrent.STM
-
-import qualified Data.ByteString.Builder
-import qualified Data.ByteString.Lazy
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.List as List
-
-
-import qualified Network.WebSockets      as WS
-import qualified Network.WebSockets.Snap as WS
-
-import qualified Develop.Generate.Help
-import qualified Json.Encode
-import qualified Json.String
-import Json.Encode ((==>))
-import qualified Json.Decode
-import qualified Reporting.Annotation as Ann
-import qualified Watchtower.StaticAssets
-import qualified Watchtower.Details
-import qualified Ext.Sentry
-
-import qualified Watchtower.Websocket
+import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
 import qualified Watchtower.Compile
+import qualified Watchtower.Details
 import qualified Watchtower.Project
+import qualified Watchtower.StaticAssets
+import qualified Watchtower.Websocket
 
-import Ext.Common
-
-
-
-data State =
-        State
-            { clients :: (TVar [Client])
-            , projects :: [ (Ext.Sentry.Cache, Watchtower.Project.Project) ]
-            }
+data State = State
+  { clients :: (TVar [Client]),
+    projects :: [(Ext.Sentry.Cache, Watchtower.Project.Project)]
+  }
 
 type ClientId = T.Text
 
 type Client = (ClientId, WS.Connection)
 
-
 init :: FilePath -> IO State
 init root =
-    State
-      <$> Watchtower.Websocket.clientsInit
-      <*> discoverProjects root
-
+  State
+    <$> Watchtower.Websocket.clientsInit
+    <*> discoverProjects root
 
 discoverProjects root = do
-    projects <- Watchtower.Project.discover root
-    debug $ "👁️  found projects: "
-    Monad.foldM
-        (\() project ->
-            debug $ "   👉 " <> (show project)
-        ) () projects
-    Monad.foldM initializeProject [] projects
-
+  projects <- Watchtower.Project.discover root
+  debug $ "👁️  found projects: "
+  Monad.foldM
+    ( \() project ->
+        debug $ "   👉 " <> (show project)
+    )
+    ()
+    projects
+  Monad.foldM initializeProject [] projects
 
 initializeProject accum project =
-    do
-        cache <- Ext.Sentry.init
-        pure ((cache, project) : accum)
-
+  do
+    cache <- Ext.Sentry.init
+    pure ((cache, project) : accum)
 
 getRoot :: FilePath -> State -> Maybe FilePath
 getRoot path (State mClients projects) =
   getRootHelp path projects Nothing
 
-
 getRootHelp path projects found =
   case projects of
     [] -> found
-
     (_, project) : remain ->
-      if (Watchtower.Project.contains path project) then
-          case found of
-              Nothing ->
-                  getRootHelp path remain (Just (Watchtower.Project._root project))
-
-              Just root ->
-                if List.length (Watchtower.Project._root project) > List.length root then
-                    getRootHelp path remain (Just (Watchtower.Project._root project))
-                else
-                    getRootHelp path remain found
-
-
-      else
-          getRootHelp path remain found
-
-
-
+      if Watchtower.Project.contains path project
+        then case found of
+          Nothing ->
+            getRootHelp path remain (Just (Watchtower.Project._root project))
+          Just root ->
+            if List.length (Watchtower.Project._root project) > List.length root
+              then getRootHelp path remain (Just (Watchtower.Project._root project))
+              else getRootHelp path remain found
+        else getRootHelp path remain found
 
 recompile :: Watchtower.Live.State -> [String] -> IO ()
 recompile (Watchtower.Live.State mClients projects) filenames = do
   debug $ "🛫  recompile starting: " ++ show filenames
-  trackedForkIO $ track "recompile" $ do
-    (projectStatuses, projectlessFiles) <- Monad.foldM
-      (\(gathered, remainingFiles) (cache, proj@(Watchtower.Project.Project projectRoot entrypoints)) ->
-          do
+  trackedForkIO $
+    track "recompile" $ do
+      (projectStatuses, projectlessFiles) <-
+        Monad.foldM
+          ( \(gathered, remainingFiles) (cache, proj@(Watchtower.Project.Project projectRoot entrypoints)) ->
+              do
+                let remaining =
+                      List.filter
+                        (\file -> not (Watchtower.Project.contains file proj))
+                        remainingFiles
 
-              let remaining = List.filter
-                      (\file -> not (Watchtower.Project.contains file proj))
-                      remainingFiles
-
-
-
-
-              let maybeEntry =
-                    case entrypoints of
-                      [] ->
-                          let
-                              filesWithinProject =
-                                  List.filter
-                                    (\file -> (Watchtower.Project.contains file proj))
-                                    remainingFiles
-
-                          in
-                          case filesWithinProject of
-                            [] -> Nothing
-                            top : _ ->
-                              Just top
-
-
-                      top : _ ->
+                let maybeEntry =
+                      case entrypoints of
+                        [] ->
+                          let filesWithinProject =
+                                List.filter
+                                  (\file -> Watchtower.Project.contains file proj)
+                                  remainingFiles
+                           in case filesWithinProject of
+                                [] -> Nothing
+                                top : _ ->
+                                  Just top
+                        top : _ ->
                           Just top
 
-              case maybeEntry of
-                Nothing ->
-                  pure
-                    ( gathered
-                    , remaining
-                    )
-                Just entry ->
-                  do
+                case maybeEntry of
+                  Nothing ->
+                    pure
+                      ( gathered,
+                        remaining
+                      )
+                  Just entry ->
+                    do
                       debug $ "🧟 affected project"
                       -- Can compileToJson take multiple entrypoints like elm make?
                       eitherStatusJson <- Watchtower.Compile.compileToJson projectRoot entry
 
                       Ext.Sentry.updateCompileResult cache $
-                          pure eitherStatusJson
+                        pure eitherStatusJson
 
                       pure
-                        ( consIfErrors  eitherStatusJson gathered
-                        , remaining
+                        ( consIfErrors eitherStatusJson gathered,
+                          remaining
                         )
-      ) ([], filenames) projects
+          )
+          ([], filenames)
+          projects
 
+      allStatuses <-
+        Monad.foldM
+          ( \gathered file ->
+              do
+                eitherStatusJson <- Watchtower.Compile.compileToJson "." file
 
-    allStatuses <- Monad.foldM
-        (\gathered file ->
-          do
-             eitherStatusJson <- Watchtower.Compile.compileToJson "." file
+                pure (consIfErrors eitherStatusJson gathered)
+          )
+          projectStatuses
+          projectlessFiles
 
-             pure (consIfErrors eitherStatusJson gathered)
-        )
-        projectStatuses
-        projectlessFiles
-
-    Watchtower.Websocket.broadcastImpl mClients $ builderToString $ encodeOutgoing (ElmStatus allStatuses)
-    debug $ "🛬  recompile finished: " ++ show filenames
+      Watchtower.Websocket.broadcastImpl mClients $ builderToString $ encodeOutgoing (ElmStatus allStatuses)
+      debug $ "🛬  recompile finished: " ++ show filenames
 
 websocket :: State -> Snap ()
 websocket state =
   route
-      [ ("/ws", websocket_ state)
-      ]
-
+    [ ("/ws", websocket_ state)
+    ]
 
 websocket_ :: State -> Snap ()
-websocket_ (state@(State mClients projects)) = do
+websocket_ state@(State mClients projects) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
-      let
-        onJoined clientId totalClients = do
-          statuses <- Monad.foldM
-                        (\gathered (cache, proj) ->
-                          do
-                            jsonStatus <- Ext.Sentry.getCompileResult cache
+      let onJoined clientId totalClients = do
+            statuses <-
+              Monad.foldM
+                ( \gathered (cache, proj) ->
+                    do
+                      jsonStatus <- Ext.Sentry.getCompileResult cache
 
-                            pure $ consIfErrors jsonStatus gathered
-                        )
-                        [] projects
-          debug $ "🍦  init status: " ++ show statuses
-          pure $ Just $ builderToString $ encodeOutgoing (ElmStatus statuses)
+                      pure $ consIfErrors jsonStatus gathered
+                )
+                []
+                projects
+            debug $ "🍦  init status: " ++ show statuses
+            pure $ Just $ builderToString $ encodeOutgoing (ElmStatus statuses)
 
-      Watchtower.Websocket.runWebSocketsSnap
-        $ Watchtower.Websocket.socketHandler
-            mClients onJoined (receive state) (T.decodeUtf8 key)
-
+      Watchtower.Websocket.runWebSocketsSnap $
+        Watchtower.Websocket.socketHandler
+          mClients
+          onJoined
+          (receive state)
+          (T.decodeUtf8 key)
     Nothing ->
       error404
 
 builderToString =
   T.decodeUtf8 . Data.ByteString.Lazy.toStrict . Data.ByteString.Builder.toLazyByteString
-
-
 
 receive state clientId text = do
   debug $ (T.unpack "RECVD" <> T.unpack text)
@@ -214,37 +188,30 @@ receive state clientId text = do
     Left err -> do
       debug $ (T.unpack "Error decoding!" <> T.unpack text)
       pure ()
-
     Right action -> do
       debug $ (T.unpack "Action!" <> T.unpack text)
       receiveAction state clientId action
 
-
 receiveAction state@(State mClients projects) clientId incoming =
   case incoming of
     Visible visible -> do
-       debug $ "forwarding visibility"
-       Watchtower.Websocket.broadcastImpl
-          mClients
-          (builderToString (encodeOutgoing (FwdVisible visible)))
-
+      debug $ "forwarding visibility"
+      Watchtower.Websocket.broadcastImpl
+        mClients
+        (builderToString (encodeOutgoing (FwdVisible visible)))
     JumpTo location -> do
       debug $ "forwarding jump"
       Watchtower.Websocket.broadcastImpl
-          mClients
-          (builderToString (encodeOutgoing (FwdJumpTo location)))
-
+        mClients
+        (builderToString (encodeOutgoing (FwdJumpTo location)))
     InsertMissingTypeSignatures path -> do
       debug $ "forwarding insert-missing"
       Watchtower.Websocket.broadcastImpl
-          mClients
-          (builderToString (encodeOutgoing (FwdInsertMissingTypeSignatures path)))
-
-
-
+        mClients
+        (builderToString (encodeOutgoing (FwdInsertMissingTypeSignatures path)))
 
 consIfErrors :: Either Json.Encode.Value Json.Encode.Value -> [Json.Encode.Value] -> [Json.Encode.Value]
-consIfErrors  either ls =
+consIfErrors either ls =
   case either of
     Right json ->
       ls
@@ -259,38 +226,31 @@ reduceStatus either =
     Left json ->
       json
 
-
 decodeIncoming :: Json.Decode.Decoder T.Text Incoming
 decodeIncoming =
   Json.Decode.field "msg" Json.Decode.string
-    >>= (\msg ->
+    >>= ( \msg ->
             case msg of
               "Visible" ->
-                  Visible <$> (Json.Decode.field "details" Watchtower.Details.decodeVisible)
-
+                Visible <$> (Json.Decode.field "details" Watchtower.Details.decodeVisible)
               "Jump" ->
-                  JumpTo <$> (Json.Decode.field "details" Watchtower.Details.decodeLocation)
-
+                JumpTo <$> (Json.Decode.field "details" Watchtower.Details.decodeLocation)
               "InsertMissingTypeSignatures" ->
-                  InsertMissingTypeSignatures <$>
-                    (Json.Decode.field "details"
-                      (Json.Decode.field "path" (Json.String.toChars <$> Json.Decode.string))
-                    )
-
+                InsertMissingTypeSignatures
+                  <$> ( Json.Decode.field
+                          "details"
+                          (Json.Decode.field "path" (Json.String.toChars <$> Json.Decode.string))
+                      )
               _ ->
-                  Json.Decode.failure "Unknown msg"
-
+                Json.Decode.failure "Unknown msg"
         )
-
-
 
 error404 :: Snap ()
 error404 =
-  do  modifyResponse $ setResponseStatus 404 "Not Found"
-      modifyResponse $ setContentType "text/html; charset=utf-8"
-      writeBuilder $ Develop.Generate.Help.makePageHtml "NotFound" Nothing
-
-
+  do
+    modifyResponse $ setResponseStatus 404 "Not Found"
+    modifyResponse $ setContentType "text/html; charset=utf-8"
+    writeBuilder $ Develop.Generate.Help.makePageHtml "NotFound" Nothing
 
 {- Messages!
 
@@ -298,33 +258,27 @@ So, we have two different kinds of messages.
 
 If there's a better way to square this, I'd love to hear it.
 
-
 1. Messages being forwarded from one client to another.
     I.e. the editor saying a file is visible or focused.
 
 2. An idea of a status subscription which you can ask for.
 
-
 There are also one-off questions that can be asked via normal GET requests handeld directly by `Watchtower`.
-
-
 
 -}
 data Incoming
-    -- forwarding information from a source to somewhere else
-    = Visible Watchtower.Details.Visible
-    | JumpTo Watchtower.Details.Location
-    | InsertMissingTypeSignatures FilePath
-
+  = -- forwarding information from a source to somewhere else
+    Visible Watchtower.Details.Visible
+  | JumpTo Watchtower.Details.Location
+  | InsertMissingTypeSignatures FilePath
 
 data Outgoing
-    -- forwarding information
-    = FwdVisible Watchtower.Details.Visible
-    | FwdJumpTo Watchtower.Details.Location
-    | FwdInsertMissingTypeSignatures FilePath
-    -- new information is available
-    | ElmStatus [ Json.Encode.Value ]
-
+  = -- forwarding information
+    FwdVisible Watchtower.Details.Visible
+  | FwdJumpTo Watchtower.Details.Location
+  | FwdInsertMissingTypeSignatures FilePath
+  | -- new information is available
+    ElmStatus [Json.Encode.Value]
 
 encodeOutgoing :: Outgoing -> Data.ByteString.Builder.Builder
 encodeOutgoing out =
@@ -332,36 +286,32 @@ encodeOutgoing out =
     case out of
       FwdVisible visible ->
         Json.Encode.object
-            [ "msg" ==> Json.Encode.string (Json.String.fromChars "Visible")
-            , "details" ==> Watchtower.Details.encodeVisible visible
-            ]
-
+          [ "msg" ==> Json.Encode.string (Json.String.fromChars "Visible"),
+            "details" ==> Watchtower.Details.encodeVisible visible
+          ]
       FwdJumpTo loc ->
         Json.Encode.object
-            [ "msg" ==> Json.Encode.string (Json.String.fromChars "Jump")
-            , "details" ==> Watchtower.Details.encodeLocation loc
-            ]
-
+          [ "msg" ==> Json.Encode.string (Json.String.fromChars "Jump"),
+            "details" ==> Watchtower.Details.encodeLocation loc
+          ]
       FwdInsertMissingTypeSignatures path ->
         Json.Encode.object
-            [ "msg" ==> Json.Encode.string (Json.String.fromChars "InsertMissingTypeSignatures")
-            , "details" ==>
-              Json.Encode.object
-                  [ "path" ==> Json.Encode.string (Json.String.fromChars path)
-                  ]
-            ]
-
+          [ "msg" ==> Json.Encode.string (Json.String.fromChars "InsertMissingTypeSignatures"),
+            "details"
+              ==> Json.Encode.object
+                [ "path" ==> Json.Encode.string (Json.String.fromChars path)
+                ]
+          ]
       ElmStatus statuses ->
         Json.Encode.object
-            [ "msg" ==> Json.Encode.string (Json.String.fromChars "Status")
-            , "details" ==>
-                Json.Encode.list (\a -> a) statuses
-            ]
-
+          [ "msg" ==> Json.Encode.string (Json.String.fromChars "Status"),
+            "details"
+              ==> Json.Encode.list (\a -> a) statuses
+          ]
 
 encodeStatus ((Watchtower.Project.Project root entrypoints), js) =
-    Json.Encode.object
-        [ "root" ==> Json.Encode.string (Json.String.fromChars root)
-        , "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) entrypoints
-        , "status" ==> js
-        ]
+  Json.Encode.object
+    [ "root" ==> Json.Encode.string (Json.String.fromChars root),
+      "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) entrypoints,
+      "status" ==> js
+    ]
