@@ -7,9 +7,11 @@ module Watchtower.Websocket
   ( clientsInit,
     broadcastWith,
     updateClientData,
+    clientData,
     Client,
     socketHandler,
     runWebSocketsSnap,
+    matchId,
   )
 where
 
@@ -87,23 +89,29 @@ data Client clientData = Client
     state :: clientData
   }
 
+matchId :: ClientId -> Client clientData -> Bool
+matchId targetId (Client id _ _) =
+  id == targetId
+
 updateClientData :: ClientId -> (clientData -> clientData) -> Client clientData -> Client clientData
 updateClientData clientId toNewState client@(Client cid conn state) =
   if clientId == cid
     then Client cid conn (toNewState state)
     else client
 
--- (ClientId, WS.Connection)
+clientData :: Client clientData -> clientData
+clientData (Client _ _ d) =
+  d
 
 sendImpl :: TVar [Client clientData] -> ClientId -> T.Text -> IO ()
 sendImpl mClients clientId message = do
   clients <- atomically $ readTVar mClients
   send_ clients clientId message
 
-broadcastWith :: TVar [client] -> (client -> Maybe (Client clientData)) -> T.Text -> IO ()
-broadcastWith mClients toClient message = do
+broadcastWith :: TVar [Client clientData] -> (Client clientData -> Bool) -> T.Text -> IO ()
+broadcastWith mClients filterTo message = do
   clients <- atomically $ readTVar mClients
-  broadcast_ (filterMap toClient clients) message
+  broadcast_ (List.filter filterTo clients) message
 
 filterMap :: (a -> Maybe b) -> [a] -> [b]
 filterMap toMaybe list =

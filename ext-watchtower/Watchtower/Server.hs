@@ -20,7 +20,7 @@ import qualified Watchtower.Project
 import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
 
-data Flags = Flags
+newtype Flags = Flags
   { _port :: Maybe Int
   }
 
@@ -48,7 +48,8 @@ config port =
   Snap.Http.Server.setVerbose False $
     Snap.Http.Server.setPort port $
       Snap.Http.Server.setAccessLog Snap.Http.Server.ConfigNoLog $
-        Snap.Http.Server.setErrorLog Snap.Http.Server.ConfigNoLog $
+        Snap.Http.Server.setErrorLog
+          Snap.Http.Server.ConfigNoLog
           Snap.Http.Server.defaultConfig
 
 -- SERVE STATIC ASSETS
