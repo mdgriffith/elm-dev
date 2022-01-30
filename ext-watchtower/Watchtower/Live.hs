@@ -173,7 +173,8 @@ websocket_ state@(State mClients projects) = do
             --     []
             --     projects
             debug "💪  Joined"
-      -- pure $ Just $ builderToString $ encodeOutgoing (ElmStatus statuses)
+            -- pure $ Just $ builderToString $ encodeOutgoing (ElmStatus statuses)
+            pure Nothing
 
       Watchtower.Websocket.runWebSocketsSnap $
         Watchtower.Websocket.socketHandler
