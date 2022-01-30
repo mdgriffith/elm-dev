@@ -6,11 +6,13 @@ import AST.Canonical (Port (Outgoing))
 import AST.Source (Type_ (TVar))
 import Control.Applicative ((<$>), (<*>), (<|>))
 import Control.Concurrent.STM
+import Control.Concurrent.STM (atomically)
 import Control.Monad as Monad (foldM, guard)
 import Control.Monad.Trans (liftIO)
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
 import qualified Data.List as List
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Develop.Generate.Help
@@ -36,7 +38,6 @@ import qualified Watchtower.Websocket
 data State = State
   { clients :: TVar [Client],
     projects ::
-      --[(Ext.Sentry.Cache, Watchtower.Project.Project)]
       [ProjectCache]
   }
 
@@ -47,7 +48,9 @@ data ProjectCache = ProjectCache
 
 type ClientId = T.Text
 
-type Client = (ClientId, WS.Connection)
+type Client = Watchtower.Websocket.Client (Set.Set ProjectRoot)
+
+type ProjectRoot = FilePath
 
 init :: FilePath -> IO State
 init root =
@@ -186,6 +189,7 @@ websocket_ state@(State mClients projects) = do
           onJoined
           (receive state)
           (T.decodeUtf8 key)
+          Set.empty
     Nothing ->
       error404
 
@@ -202,8 +206,23 @@ receive state clientId text = do
       debug $ (T.unpack "Action!" <> T.unpack text)
       receiveAction state clientId action
 
+receiveAction :: State -> ClientId -> Incoming -> IO ()
 receiveAction state@(State mClients projects) clientId incoming =
   case incoming of
+    Watch root ->
+      do
+        debug $ "watching "
+        atomically $
+          do
+            modifyTVar
+              mClients
+              ( fmap
+                  ( Watchtower.Websocket.updateClientData
+                      clientId
+                      ( Set.insert root
+                      )
+                  )
+              )
     Visible visible -> do
       debug $ "forwarding visibility"
       broadcastAll mClients (FwdVisible visible)
@@ -235,6 +254,8 @@ decodeIncoming =
   Json.Decode.field "msg" Json.Decode.string
     >>= ( \msg ->
             case msg of
+              "Watch" ->
+                Watch <$> (Json.Decode.field "details" decodeWatch)
               "Visible" ->
                 Visible <$> (Json.Decode.field "details" Watchtower.Details.decodeVisible)
               "Jump" ->
@@ -248,6 +269,10 @@ decodeIncoming =
               _ ->
                 Json.Decode.failure "Unknown msg"
         )
+
+decodeWatch =
+  Json.Decode.string
+    & fmap Json.String.toChars
 
 error404 :: Snap ()
 error404 =
@@ -275,6 +300,8 @@ data Incoming
     Visible Watchtower.Details.Visible
   | JumpTo Watchtower.Details.Location
   | InsertMissingTypeSignatures FilePath
+  | -- watch the provided filepath, which must match a project root
+    Watch FilePath
 
 data Outgoing
   = -- forwarding information
@@ -313,7 +340,7 @@ encodeOutgoing out =
               ==> Json.Encode.list (\a -> a) statuses
           ]
 
-encodeStatus ((Watchtower.Project.Project root entrypoints), js) =
+encodeStatus (Watchtower.Project.Project root entrypoints, js) =
   Json.Encode.object
     [ "root" ==> Json.Encode.string (Json.String.fromChars root),
       "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) entrypoints,
@@ -322,15 +349,11 @@ encodeStatus ((Watchtower.Project.Project root entrypoints), js) =
 
 {- WEBSOCKET STUFF -}
 
-toWebsocketClient :: Client -> Watchtower.Websocket.Client
-toWebsocketClient (clientId, connection) =
-  (clientId, connection)
-
 broadcastAll :: TVar [Client] -> Outgoing -> IO ()
 broadcastAll allClients outgoing =
   Watchtower.Websocket.broadcastWith
     allClients
-    (\c -> Just (toWebsocketClient c))
+    (\c -> Just (c))
     ( builderToString $
         encodeOutgoing outgoing
     )
@@ -341,7 +364,7 @@ broadcastTo allClients shouldBroadcast outgoing =
     allClients
     ( \c ->
         if shouldBroadcast c
-          then Just (toWebsocketClient c)
+          then Just (c)
           else Nothing
     )
     ( builderToString $

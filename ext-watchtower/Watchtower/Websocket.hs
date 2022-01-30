@@ -3,7 +3,15 @@
 -- Ported from https://github.com/supermario/hilt/blob/master/src/Hilt/SocketServer.hs
 -- Modified to remove managed and have clientId injection rather than auto-gen
 
-module Watchtower.Websocket (clientsInit, broadcastWith, Client, socketHandler, runWebSocketsSnap) where
+module Watchtower.Websocket
+  ( clientsInit,
+    broadcastWith,
+    updateClientData,
+    Client,
+    socketHandler,
+    runWebSocketsSnap,
+  )
+where
 
 import Control.Concurrent.STM
 import Control.Exception (finally)
@@ -24,18 +32,18 @@ import Snap.Core (MonadSnap)
 runWebSocketsSnap :: MonadSnap m => WS.ServerApp -> m ()
 runWebSocketsSnap = WS.runWebSocketsSnap
 
-clientsInit :: IO (TVar [Client])
+clientsInit :: IO (TVar [Client clientData])
 clientsInit = newTVarIO []
 
 leaderInit :: IO (TVar (Maybe ClientId))
 leaderInit = newTVarIO Nothing
 
-socketHandler :: TVar [Client] -> OnJoined -> OnReceive -> T.Text -> WS.ServerApp
-socketHandler mClients onJoined onReceive clientId pending = do
+socketHandler :: TVar [Client clientData] -> OnJoined -> OnReceive -> T.Text -> clientData -> WS.ServerApp
+socketHandler mClients onJoined onReceive clientId initialClientData pending = do
   debug $ "[websocket] ❇️  " <> T.unpack clientId
   conn <- WS.acceptRequest pending
 
-  let client = (clientId, conn)
+  let client = Client clientId conn initialClientData
       disconnect = do
         atomically $ do
           clients <- readTVar mClients
@@ -73,14 +81,26 @@ type OnReceive = ClientId -> T.Text -> IO ()
 
 type ClientId = T.Text
 
-type Client = (ClientId, WS.Connection)
+data Client clientData = Client
+  { clientId :: ClientId,
+    connection :: WS.Connection,
+    state :: clientData
+  }
 
-sendImpl :: TVar [Client] -> ClientId -> T.Text -> IO ()
+updateClientData :: ClientId -> (clientData -> clientData) -> Client clientData -> Client clientData
+updateClientData clientId toNewState client@(Client cid conn state) =
+  if clientId == cid
+    then Client cid conn (toNewState state)
+    else client
+
+-- (ClientId, WS.Connection)
+
+sendImpl :: TVar [Client clientData] -> ClientId -> T.Text -> IO ()
 sendImpl mClients clientId message = do
   clients <- atomically $ readTVar mClients
   send_ clients clientId message
 
-broadcastWith :: TVar [client] -> (client -> Maybe Client) -> T.Text -> IO ()
+broadcastWith :: TVar [client] -> (client -> Maybe (Client clientData)) -> T.Text -> IO ()
 broadcastWith mClients toClient message = do
   clients <- atomically $ readTVar mClients
   broadcast_ (filterMap toClient clients) message
@@ -99,36 +119,33 @@ filterMap toMaybe list =
     list
     & List.reverse
 
-broadcastImpl :: TVar [Client] -> T.Text -> IO ()
+broadcastImpl :: TVar [Client clientData] -> T.Text -> IO ()
 broadcastImpl mClients message = do
   clients <- atomically $ readTVar mClients
   broadcast_ clients message
 
-talk :: OnReceive -> WS.Connection -> TVar [Client] -> Client -> IO ()
-talk onReceive conn _ (clientId, _) = forever $ do
+talk :: OnReceive -> WS.Connection -> TVar [Client clientData] -> Client clientData -> IO ()
+talk onReceive conn _ (Client clientId _ _) = forever $ do
   msg <- WS.receiveData conn
   debug $ T.unpack $ "[websocket] ▶️  " <> T.pack (show clientId) <> ":" <> T.take 130 msg
   onReceive clientId msg
 
-addClient :: Client -> [Client] -> [Client]
+addClient :: Client clientData -> [Client clientData] -> [Client clientData]
 addClient client clients = client : clients
 
-removeClient :: Client -> [Client] -> [Client]
-removeClient client = filter ((/= fst client) . fst)
+removeClient :: Client clientData -> [Client clientData] -> [Client clientData]
+removeClient (Client clientId _ _) = filter (\(Client otherClientId _ _) -> clientId /= otherClientId)
 
-removeClientId :: ClientId -> [Client] -> [Client]
-removeClientId clientId = filter ((/= clientId) . fst)
+findClient :: [Client clientData] -> ClientId -> Maybe (Client clientData)
+findClient clients clientId = find (\(Client possibleClientId _ _) -> clientId /= possibleClientId) clients
 
-findClient :: [Client] -> ClientId -> Maybe Client
-findClient clients clientId = find ((== clientId) . fst) clients
-
-send_ :: [Client] -> ClientId -> T.Text -> IO ()
+send_ :: [Client clientData] -> ClientId -> T.Text -> IO ()
 send_ clients clientId text =
   case findClient clients clientId of
-    Just (_, conn) -> WS.sendTextData conn text
+    Just (Client _ conn _) -> WS.sendTextData conn text
     Nothing -> pure ()
 
-broadcast_ :: [Client] -> T.Text -> IO ()
+broadcast_ :: [Client clientData] -> T.Text -> IO ()
 broadcast_ clients message = do
-  debug (T.unpack ("[websocket] ◀️  " <> T.pack (show $ fmap fst clients) <> ":" <> T.take 130 message))
-  forM_ clients $ \(_, conn) -> WS.sendTextData conn message
+  debug (T.unpack ("[websocket] ◀️  " <> T.pack (show $ fmap (\(Client id _ _) -> id) clients) <> ":" <> T.take 130 message))
+  forM_ clients $ \(Client _ conn _) -> WS.sendTextData conn message
