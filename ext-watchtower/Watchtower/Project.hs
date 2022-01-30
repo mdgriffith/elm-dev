@@ -63,13 +63,14 @@ discover root =
 
 shouldSkip :: FilePath -> Bool
 shouldSkip path =
-  if (List.isInfixOf "elm-stuff" path) || (List.isInfixOf "node_modules" path)
-    then True
-    else case path of
-      '.' : _ ->
-        True
-      _ ->
-        False
+  List.isInfixOf "elm-stuff" path
+    || List.isInfixOf "node_modules" path
+    || ( case path of
+           '.' : _ ->
+             True
+           _ ->
+             False
+       )
 
 searchProjectHelp :: [Project] -> FilePath -> IO [Project]
 searchProjectHelp projs root =
