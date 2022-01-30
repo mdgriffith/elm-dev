@@ -11,9 +11,11 @@ import Control.Monad.Trans (liftIO)
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
 import qualified Data.List as List
+import qualified Data.NonEmptyList as NonEmpty
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Text.Lazy
 import qualified Develop.Generate.Help
 import Ext.Common
 import qualified Ext.Sentry
@@ -108,16 +110,17 @@ recompile (Watchtower.Live.State mClients projects) changedFiles = do
                 let maybeEntry =
                       case entrypoints of
                         [] ->
-                          let filesWithinProject =
-                                List.filter
-                                  (\file -> Watchtower.Project.contains file proj)
-                                  remainingFiles
-                           in case filesWithinProject of
-                                [] -> Nothing
-                                top : _ ->
-                                  Just top
-                        top : _ ->
-                          Just top
+                          -- let filesWithinProject =
+                          --       List.filter
+                          --         (\file -> Watchtower.Project.contains file proj)
+                          --         remainingFiles
+                          --  in case filesWithinProject of
+                          --       [] -> Nothing
+                          --       top : _ ->
+                          --         Just top
+                          Nothing
+                        top : remainingEntrypoints ->
+                          Just (NonEmpty.List top remainingEntrypoints)
 
                 case maybeEntry of
                   Nothing ->
@@ -126,7 +129,10 @@ recompile (Watchtower.Live.State mClients projects) changedFiles = do
                     do
                       debug $ "🧟 affected project"
                       -- Can compileToJson take multiple entrypoints like elm make?
-                      eitherStatusJson <- Watchtower.Compile.compileToJson projectRoot entry
+                      eitherStatusJson <-
+                        Watchtower.Compile.compileToJson
+                          projectRoot
+                          entry
 
                       Ext.Sentry.updateCompileResult cache $
                         pure eitherStatusJson

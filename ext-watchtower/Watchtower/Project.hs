@@ -4,27 +4,19 @@
 
 module Watchtower.Project (contains, discover, decodeProject, Project (..), encodeProjectJson) where
 
-import Control.Concurrent.MVar
 import qualified Control.Monad as Monad
-import qualified Data.ByteString as BS
 import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Ext.Common
+import qualified Elm.Outline
 import qualified File
 import qualified Json.Decode
 import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Json.String
 import qualified System.Directory as Dir
-import qualified System.Environment as Env
-import qualified System.Exit
 import System.FilePath as FP (joinPath, splitDirectories, takeDirectory, (</>))
-import System.IO (hClose, hFlush, hPutStr, hPutStrLn, openTempFile, stderr, stdout)
-import System.IO.Unsafe (unsafePerformIO)
-import qualified System.Process
-import qualified Text.Show.Unicode
 import Prelude hiding (lookup)
 
 {-
@@ -32,10 +24,24 @@ import Prelude hiding (lookup)
 
     as any known Elm file that is the entrypoint to compile.
 
-    Discover currently looks for an `elm-tooling.json` file: https://elm-tooling.github.io/elm-tooling-cli/spec/
+Entrypoints:
 
-    In order to discover the entrypoint to compile.
+    Based on elm-tooling:
+        Discover currently looks for an `elm-tooling.json` file: https://elm-tooling.github.io/elm-tooling-cli/spec/
 
+        And take the entrypoints listed there.
+
+    Based on elm.json and smart searching. (not currently implemented)
+        1. require that elm.json is present
+        2. gather all source directories
+
+        Applications ->
+            - Find all .elm files in all source files.
+            - Run compilation with all of them listed at once (does this work wit ha huge number of files?)
+            - Crawl the dependency graph and take all files that are imported by no one.
+
+        Packages ->
+            - Add all exposed modules
 -}
 data Project = Project
   { _root :: FilePath,
@@ -115,33 +121,32 @@ readElmTooling path =
             pure (Just tooling)
       else pure Nothing
 
-data Tooling = Tooling
+newtype Tooling = Tooling
   { _entries :: [FilePath]
   }
 
 decodeElmTooling :: Json.Decode.Decoder x Tooling
 decodeElmTooling =
-  Tooling <$> (Json.Decode.field "entrypoints" (Json.Decode.list filepath))
+  Tooling <$> Json.Decode.field "entrypoints" (Json.Decode.list filepath)
 
 decodeProject :: Json.Decode.Decoder x Project
 decodeProject =
   Project
-    <$> (Json.Decode.field "root" filepath)
-    <*> (Json.Decode.field "entrypoints" (Json.Decode.list filepath))
+    <$> Json.Decode.field "root" filepath
+    <*> Json.Decode.field "entrypoints" (Json.Decode.list filepath)
 
 filepath :: Json.Decode.Decoder x FilePath
 filepath =
-  ( ( \str ->
-        case str of
-          [] ->
-            str
-          '.' : '/' : remain ->
-            remain
-          _ ->
-            str
-    )
-      <$> (Json.String.toChars <$> Json.Decode.string)
+  ( \str ->
+      case str of
+        [] ->
+          str
+        '.' : '/' : remain ->
+          remain
+        _ ->
+          str
   )
+    <$> (Json.String.toChars <$> Json.Decode.string)
 
 encodeProjectJson :: Project -> Json.Encode.Value
 encodeProjectJson (Project elmJson entrypoints) =
