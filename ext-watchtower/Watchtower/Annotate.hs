@@ -400,10 +400,12 @@ canonicalTypeToString self imports tipe =
         <> " -> "
         <> canonicalTypeToString self imports t2
     TVar name ->
-      T.pack (Name.toChars name)
+      T.pack
+        (Name.toChars name)
     TType mod name paramTypes ->
       qualifier self imports mod name
         <> T.pack (Name.toChars name)
+        <> T.pack "wut?"
         <> ( case paramTypes of
                [] -> ""
                _ ->
@@ -449,6 +451,18 @@ canonicalTypeToString self imports tipe =
     TAlias mod name namedParamTypes alias ->
       qualifier self imports mod name
         <> T.pack (Name.toChars name)
+        <> ( case namedParamTypes of
+               [] -> ""
+               _ ->
+                 let paramTypes = map snd namedParamTypes
+                     typeString = T.intercalate " " (map (canonicalTypeToString self imports) paramTypes)
+                  in if singleName paramTypes
+                       then " " <> typeString
+                       else
+                         " ("
+                           <> typeString
+                           <> ")"
+           )
 
 qualifier :: Name.Name -> [Src.Import] -> Elm.ModuleName.Canonical -> Name.Name -> Text
 qualifier self imports (can@(Elm.ModuleName.Canonical pkg mdl)) value =
@@ -563,6 +577,18 @@ canonicalTypeToMultilineString self imports tipe =
     TAlias mod name namedParamTypes alias ->
       qualifier self imports mod name
         <> T.pack (Name.toChars name)
+        <> ( case namedParamTypes of
+               [] -> ""
+               _ ->
+                 let paramTypes = map snd namedParamTypes
+                     typeString = T.intercalate " " (map (canonicalTypeToString self imports) paramTypes)
+                  in if singleName paramTypes
+                       then " " <> typeString
+                       else
+                         " ("
+                           <> typeString
+                           <> ")"
+           )
 
 -- |
 callgraph :: FilePath -> FilePath -> Name.Name -> IO Json.Encode.Value
