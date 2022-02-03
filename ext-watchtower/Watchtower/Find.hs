@@ -123,7 +123,7 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
                               print "getting there"
                               pure
                                 ( case finalResult of
-                                    Nothing -> Json.Encode.string "nothing founmd :-}"
+                                    Nothing -> Json.Encode.null
                                     Just (A.At region val) ->
                                       Json.Encode.object
                                         [ ( "definition",
