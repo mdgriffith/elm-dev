@@ -16,7 +16,7 @@ import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Json.String
 import qualified System.Directory as Dir
-import System.FilePath as FP (joinPath, splitDirectories, takeDirectory, (</>))
+import System.FilePath as FP ((</>))
 import Prelude hiding (lookup)
 
 {-
@@ -37,7 +37,7 @@ Entrypoints:
 
         Applications ->
             - Find all .elm files in all source files.
-            - Run compilation with all of them listed at once (does this work wit ha huge number of files?)
+            - Run compilation with all of them listed at once (does this work with a huge number of files?)
             - Crawl the dependency graph and take all files that are imported by no one.
 
         Packages ->
@@ -58,9 +58,15 @@ contains path (Project root entries) =
 Skip node_modules, elm_stuff and anythign that starts with '.'
     (I wonder if we can just use gitignore to know what to skip)
 
-When elm.json is found, look for elm-tooling.  Parse elm-tooling for entrypoints.
+When elm.json is found.
 
-otherwise, create a new project with no entrypoints.
+Ultimately we want to:
+    read the elm.json
+
+    If it's an app, look in the source directories for a `Main.elm`
+    Is there a better way to determine the endpoints?
+
+    If it's a package, add all exposed files.
 
 -}
 discover :: FilePath -> IO [Project]
@@ -94,40 +100,18 @@ searchProjectHelp projs root =
       dirs <- Monad.filterM Dir.doesDirectoryExist paths
       Monad.foldM searchProjectHelp newProjects dirs
 
--- look for elm-tooling for entrypoints
+
+
+
+{--}
 createProject :: FilePath -> IO Project
 createProject root =
   do
-    maybeTooling <- readElmTooling (root </> "elm-tooling.json")
-    case maybeTooling of
-      Nothing ->
-        pure (Project root [])
-      Just tooling ->
-        pure (Project root (_entries tooling))
-
-readElmTooling :: FilePath -> IO (Maybe Tooling)
-readElmTooling path =
-  do
-    exists <- Dir.doesFileExist path
-
-    if exists
-      then do
-        byteString <- File.readUtf8 path
-        let parsed = Json.Decode.fromByteString decodeElmTooling byteString
-        case parsed of
-          Left err ->
-            pure Nothing
-          Right tooling ->
-            pure (Just tooling)
-      else pure Nothing
-
-newtype Tooling = Tooling
-  { _entries :: [FilePath]
-  }
-
-decodeElmTooling :: Json.Decode.Decoder x Tooling
-decodeElmTooling =
-  Tooling <$> Json.Decode.field "entrypoints" (Json.Decode.list filepath)
+    elmMainExists <- Dir.doesFileExist (root </> "src" </> "Main.elm")
+    if elmMainExists
+      then pure (Project root [(root </> "src" </> "Main.elm")])
+      else pure (Project root [])
+     
 
 decodeProject :: Json.Decode.Decoder x Project
 decodeProject =
