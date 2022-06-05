@@ -14,6 +14,7 @@ import qualified Develop.Generate.Help
 import qualified Ext.Common
 import qualified Json.Encode
 import qualified Reporting.Annotation
+import qualified System.FilePath as Path
 import Snap.Core hiding (path)
 import qualified Snap.Util.CORS
 import qualified Watchtower.Annotate
@@ -21,6 +22,7 @@ import qualified Watchtower.Details
 import qualified Watchtower.Find
 import qualified Watchtower.Live
 import qualified Watchtower.Project
+
 
 -- One off questions and answers you might have/want.
 data Question
@@ -46,6 +48,7 @@ questionHandler state question =
 
       writeBuilder answer
 
+
 actionHandler :: Watchtower.Live.State -> Snap ()
 actionHandler state =
   do
@@ -66,7 +69,11 @@ actionHandler state =
             Nothing ->
               writeBS "Needs location"
             Just file -> do
-              questionHandler state (ListMissingSignaturesPlease (Data.ByteString.Char8.unpack file))
+              let strPath = Data.ByteString.Char8.unpack file
+              if Path.takeExtension strPath == ".elm" then 
+                questionHandler state (ListMissingSignaturesPlease strPath)
+              else 
+                writeBS ("Requested missing signatures, but this isn't an elm file" <> file)
       Just "signature" ->
         do
           maybeFile <- getQueryParam "file"
