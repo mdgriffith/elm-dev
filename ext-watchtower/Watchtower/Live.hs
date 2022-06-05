@@ -99,75 +99,145 @@ recompile (Watchtower.Live.State mClients projects) changedFiles = do
   debug $ "🛫  recompile starting: " ++ show changedFiles
   trackedForkIO $
     track "recompile" $ do
-      projectlessFiles <-
-        Monad.foldM
-          ( \remainingFiles (ProjectCache proj@(Watchtower.Project.Project projectRoot entrypoints) cache) ->
-              do
-                let remaining =
-                      List.filter
-                        (\file -> not (Watchtower.Project.contains file proj))
-                        remainingFiles
-
-                let maybeEntry =
-                      case entrypoints of
-                        [] ->
-                          let filesWithinProject =
-                                List.filter
-                                  (\file -> Watchtower.Project.contains file proj)
-                                  remainingFiles
-                           in case filesWithinProject of
-                                [] -> Nothing
-                                top : remain ->
-                                  Just (NonEmpty.List top remain)
-                        -- Nothing
-                        top : remainingEntrypoints ->
-                          Just (NonEmpty.List top remainingEntrypoints)
-
-                case maybeEntry of
-                  Nothing ->
-                    pure remaining
-                  Just entry ->
-                    do
-                      debug $ "🧟 affected project"
-                      -- Can compileToJson take multiple entrypoints like elm make?
-                      eitherStatusJson <-
-                        Watchtower.Compile.compileToJson
-                          projectRoot
-                          entry
-
-                      Ext.Sentry.updateCompileResult cache $
-                        pure eitherStatusJson
-
-                      case eitherStatusJson of
-                        Right statusJson ->
-                          -- pure ()
-                          broadcastToMany
-                            mClients
-                            ( \client ->
-                                let clientData = Watchtower.Websocket.clientData client
-                                 in Set.member (Watchtower.Project._root proj) clientData
-                            )
-                            (ElmStatus [(proj, statusJson)])
-                        Left errJson ->
-                          -- send the errors to any client that's listening
-                          broadcastToMany
-                            mClients
-                            ( \client ->
-                                let clientData = Watchtower.Websocket.clientData client
-                                 in Set.member (Watchtower.Project._root proj) clientData
-                            )
-                            (ElmStatus [(proj, errJson)])
-
-                      -- broadcastAll
-                      --   mClients
-                      --   (ElmStatus [(proj, errJson)])
-
-                      pure remaining
-          )
-          changedFiles
-          projects
+      
+      Monad.foldM
+        -- (recompileProjectIfSubFile mClients)
+        (recompileChangedFile mClients)
+        changedFiles
+        projects
 
       debug $ "🛬  recompile finished: " ++ show changedFiles
+
+
+
+
+recompileChangedFile :: TVar [Client] -> [String] -> ProjectCache -> IO [FilePath]
+recompileChangedFile mClients changedFiles (ProjectCache proj@(Watchtower.Project.Project projectRoot entrypoints) cache) =
+    do
+      case changedFiles of
+        [] ->
+          do
+            pure []
+        (top : remain) ->
+            if List.any (\f -> Watchtower.Project.contains f proj) changedFiles then 
+              do
+                  debug $ "🧟 affected project"
+
+                  let entry = (NonEmpty.List top remain)
+                  -- Can compileToJson take multiple entrypoints like elm make?
+                  eitherStatusJson <-
+                    Watchtower.Compile.compileToJson
+                      projectRoot
+                      entry
+
+                  Ext.Sentry.updateCompileResult cache $
+                    pure eitherStatusJson
+
+                  case eitherStatusJson of
+                    Right statusJson ->
+                      broadcastToMany
+                        mClients
+                        ( \client ->
+                            let clientData = Watchtower.Websocket.clientData client
+                              in Set.member (Watchtower.Project._root proj) clientData
+                        )
+                        (ElmStatus [(proj, statusJson)])
+
+                    Left errJson ->
+                      -- send the errors to any client that's listening
+                      broadcastToMany
+                        mClients
+                        ( \client ->
+                            let clientData = Watchtower.Websocket.clientData client
+                              in Set.member (Watchtower.Project._root proj) clientData
+                        )
+                        (ElmStatus [(proj, errJson)])
+
+                  -- broadcastAll
+                  --   mClients
+                  --   (ElmStatus [(proj, errJson)])
+
+                  pure []
+
+            else 
+                pure []
+           
+          
+
+
+{-
+This function will recompile a project using the projects entrypoint if the changed file is within a projects root dir.
+
+This does mean that if the detected entrypoint doesn't ultimately import the changed file, then you won't get errors
+
+-}
+recompileProjectIfSubFile :: TVar [Client] -> [String] -> ProjectCache -> IO [FilePath]
+recompileProjectIfSubFile mClients remainingFiles (ProjectCache proj@(Watchtower.Project.Project projectRoot entrypoints) cache) =
+    do
+      let remaining =
+            List.filter
+              (\file -> not (Watchtower.Project.contains file proj))
+              remainingFiles
+
+      let maybeEntry =
+            case entrypoints of
+              [] ->
+                let filesWithinProject =
+                      List.filter
+                        (\file -> Watchtower.Project.contains file proj)
+                        remainingFiles
+                  in case filesWithinProject of
+                      [] -> Nothing
+                      top : remain ->
+                        Just (NonEmpty.List top remain)
+              -- Nothing
+              top : remainingEntrypoints ->
+                Just (NonEmpty.List top remainingEntrypoints)
+
+      case maybeEntry of
+        Nothing ->
+          do
+            debug $ ("☹️ No detected affected project")
+            pure remaining
+        Just entry ->
+          do
+            debug $ "🧟 affected project"
+            -- Can compileToJson take multiple entrypoints like elm make?
+            eitherStatusJson <-
+              Watchtower.Compile.compileToJson
+                projectRoot
+                entry
+
+            Ext.Sentry.updateCompileResult cache $
+              pure eitherStatusJson
+
+            case eitherStatusJson of
+              Right statusJson ->
+                -- pure ()
+                broadcastToMany
+                  mClients
+                  ( \client ->
+                      let clientData = Watchtower.Websocket.clientData client
+                        in Set.member (Watchtower.Project._root proj) clientData
+                  )
+                  (ElmStatus [(proj, statusJson)])
+              Left errJson ->
+                -- send the errors to any client that's listening
+                broadcastToMany
+                  mClients
+                  ( \client ->
+                      let clientData = Watchtower.Websocket.clientData client
+                        in Set.member (Watchtower.Project._root proj) clientData
+                  )
+                  (ElmStatus [(proj, errJson)])
+
+            -- broadcastAll
+            --   mClients
+            --   (ElmStatus [(proj, errJson)])
+
+            pure remaining
+          
+
 
 websocket :: State -> Snap ()
 websocket state =
