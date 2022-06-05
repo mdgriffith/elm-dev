@@ -1,9 +1,6 @@
-
 # Watchtower
 
 This is both an elm compiler extension + server, as well as an app that talks to that server.
-
-
 
 ## Gettings Started
 
@@ -22,7 +19,9 @@ Last line is optional, but it's cool! Lambda prompt!
 
 3. Run `:set -XOverloadedStrings`
 
-4. Then the dev feedback loop goes as follows:
+4. Run `Test.target` - Seems weird, but this starts the watchtower server!
+
+5. Then the dev feedback loop goes as follows:
 
 - Make changes to Haskell code
 - Run `:rr` to recompile + typecheck, and re-run `Test.target`
@@ -30,3 +29,11 @@ Last line is optional, but it's cool! Lambda prompt!
 - If you want to just type-check _without_ running, use `:r`
 
 Easier to change the target definition than constantly adjust the `:def` in `~/.ghci`!
+
+## What the server does
+
+When the server starts, then `Watchtower.Project.discover` will run in the current directory.
+
+This recursively searches for `elm.json` files.
+
+If any
