@@ -51,7 +51,7 @@ data Project = Project
 
 contains :: FilePath -> Project -> Bool
 contains path (Project root entries) =
-  List.isPrefixOf root path
+    root `List.isPrefixOf` path 
 
 {- Recursively find files named elm.json.
 
