@@ -60,6 +60,7 @@ init root =
     <*> discoverProjects root
 
 discoverProjects root = do
+  debug $ "   searching " <> (show root)
   projects <- Watchtower.Project.discover root
   debug $ "👁️  found projects: "
   Monad.foldM
@@ -110,15 +111,15 @@ recompile (Watchtower.Live.State mClients projects) changedFiles = do
                 let maybeEntry =
                       case entrypoints of
                         [] ->
-                          -- let filesWithinProject =
-                          --       List.filter
-                          --         (\file -> Watchtower.Project.contains file proj)
-                          --         remainingFiles
-                          --  in case filesWithinProject of
-                          --       [] -> Nothing
-                          --       top : _ ->
-                          --         Just top
-                          Nothing
+                          let filesWithinProject =
+                                List.filter
+                                  (\file -> Watchtower.Project.contains file proj)
+                                  remainingFiles
+                           in case filesWithinProject of
+                                [] -> Nothing
+                                top : remain ->
+                                  Just (NonEmpty.List top remain)
+                        -- Nothing
                         top : remainingEntrypoints ->
                           Just (NonEmpty.List top remainingEntrypoints)
 
@@ -138,8 +139,15 @@ recompile (Watchtower.Live.State mClients projects) changedFiles = do
                         pure eitherStatusJson
 
                       case eitherStatusJson of
-                        Right _ ->
-                          pure ()
+                        Right statusJson ->
+                          -- pure ()
+                          broadcastToMany
+                            mClients
+                            ( \client ->
+                                let clientData = Watchtower.Websocket.clientData client
+                                 in Set.member (Watchtower.Project._root proj) clientData
+                            )
+                            (ElmStatus [(proj, statusJson)])
                         Left errJson ->
                           -- send the errors to any client that's listening
                           broadcastToMany
@@ -150,9 +158,13 @@ recompile (Watchtower.Live.State mClients projects) changedFiles = do
                             )
                             (ElmStatus [(proj, errJson)])
 
+                      -- broadcastAll
+                      --   mClients
+                      --   (ElmStatus [(proj, errJson)])
+
                       pure remaining
           )
-          (List.filter (\p -> ".elm" `List.isSuffixOf` p) changedFiles)
+          changedFiles
           projects
 
       debug $ "🛬  recompile finished: " ++ show changedFiles
@@ -208,13 +220,14 @@ receive state clientId text = do
 receiveAction :: State -> ClientId -> Incoming -> IO ()
 receiveAction state@(State mClients projects) clientId incoming =
   case incoming of
-    Watch root ->
+    Watch roots ->
       do
-        debug $ "watching " <> root
+        let newRootSet = Set.fromList roots
+        debug $ "watching " <> List.concat roots
         statuses <-
           Monad.foldM
             ( \gathered (ProjectCache proj cache) ->
-                if Watchtower.Project._root proj == root
+                if Set.member (Watchtower.Project._root proj) newRootSet
                   then do
                     jsonStatus <- Ext.Sentry.getCompileResult cache
                     pure $
@@ -233,7 +246,7 @@ receiveAction state@(State mClients projects) clientId incoming =
               ( fmap
                   ( Watchtower.Websocket.updateClientData
                       clientId
-                      ( Set.insert root
+                      ( Set.union newRootSet
                       )
                   )
               )
@@ -270,11 +283,11 @@ decodeIncoming =
     >>= ( \msg ->
             case msg of
               "Watch" ->
-                Watch <$> (Json.Decode.field "details" decodeWatch)
+                Watch <$> Json.Decode.field "details" (Json.Decode.list decodeWatch)
               "Visible" ->
-                Visible <$> (Json.Decode.field "details" Watchtower.Details.decodeVisible)
+                Visible <$> Json.Decode.field "details" Watchtower.Details.decodeVisible
               "Jump" ->
-                JumpTo <$> (Json.Decode.field "details" Watchtower.Details.decodeLocation)
+                JumpTo <$> Json.Decode.field "details" Watchtower.Details.decodeLocation
               "InsertMissingTypeSignatures" ->
                 InsertMissingTypeSignatures
                   <$> ( Json.Decode.field
@@ -316,7 +329,7 @@ data Incoming
   | JumpTo Watchtower.Details.Location
   | InsertMissingTypeSignatures FilePath
   | -- watch the provided filepath, which must match a project root
-    Watch FilePath
+    Watch [FilePath]
 
 data Outgoing
   = -- forwarding information

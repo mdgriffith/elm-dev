@@ -21,4 +21,6 @@ serve = do
 
   trackedForkIO $
     withDebug $
-      Watchtower.Server.serve (Watchtower.Server.Flags Nothing)
+      Watchtower.Server.serve
+          (Just "/Users/matthewgriffith/projects/blissfully/elm-watchtower-vscode/testProject")
+          (Watchtower.Server.Flags Nothing)

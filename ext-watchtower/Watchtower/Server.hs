@@ -19,18 +19,21 @@ import qualified Watchtower.Live
 import qualified Watchtower.Project
 import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
+import Data.Maybe as Maybe
 
 newtype Flags = Flags
   { _port :: Maybe Int
   }
 
-serve :: Flags -> IO ()
-serve (Flags maybePort) =
+serve :: Maybe FilePath -> Flags -> IO ()
+serve maybeRoot (Flags maybePort) =
   do
     let port = Ext.Common.withDefault 9000 maybePort
     Ext.Common.atomicPutStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
 
-    root <- Ext.Common.getProjectRoot
+  
+    cwd <- Dir.getCurrentDirectory
+    let root = Maybe.fromMaybe cwd maybeRoot
     liveState <- Watchtower.Live.init root
 
     -- compile project
