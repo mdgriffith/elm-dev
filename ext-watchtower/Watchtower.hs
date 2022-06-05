@@ -2,7 +2,7 @@
 
 module Watchtower where
 
-import Terminal (Command(..), noArgs, Summary(..), flag, Parser(..), (|--), flags)
+import Terminal (Command(..), noArgs, Summary(..), flag, Parser(..), (|--), flags, optional)
 import Terminal.Helpers
 import Text.Read (readMaybe)
 import qualified Text.PrettyPrint.ANSI.Leijen as P
@@ -30,11 +30,11 @@ start =
         "After running that command, watchtower is listening at <http://localhost:9000>\
         \ and ready to be connected to."
 
-    reactorFlags =
+    serverFlags =
       flags Flags
         |-- flag "port" port_ "The port of the watchtower server (default: 9000)"
   in
-  Terminal.Command "start" (Common summary) details example noArgs reactorFlags run
+  Terminal.Command "start" (Common summary) details example (optional dir) serverFlags run
 
 
 port_ :: Parser Int
@@ -53,6 +53,30 @@ reflow string =
   P.fillSep $ map P.text $ words string
 
 
-run :: () -> Flags -> IO ()
-run _ (Flags maybePort) =
-  Watchtower.Server.serve (Watchtower.Server.Flags maybePort)
+run :: Maybe FilePath -> Flags -> IO ()
+run maybeRoot (Flags maybePort) =
+  Watchtower.Server.serve maybeRoot (Watchtower.Server.Flags maybePort)
+
+
+
+dir :: Parser FilePath
+dir =
+  Parser
+    { _singular = "elm project directory"
+    , _plural = "elm project directories"
+    , _parser = parseDir
+    , _suggest = \_ -> return []
+    , _examples = exampleProjectDir
+    }
+
+
+parseDir :: String -> Maybe FilePath
+parseDir chars =  
+  Just chars
+
+
+
+exampleProjectDir :: String -> IO [String]
+exampleProjectDir _ =
+  return ["/path/to/my/project" ]
+
