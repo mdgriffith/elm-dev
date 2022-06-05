@@ -30,10 +30,12 @@ Last line is optional, but it's cool! Lambda prompt!
 
 Easier to change the target definition than constantly adjust the `:def` in `~/.ghci`!
 
+Check out `WatchTower.Test` to see the cli args provided for development.
+
 ## What the server does
 
 When the server starts, then `Watchtower.Project.discover` will run in the current directory.
 
-This recursively searches for `elm.json` files.
+This recursively searches for `elm.json` files and notes them.
 
-If any
+At the moment, it also looks for `src/Main.elm` as the entrypoint, though there are still questions about what to do about files that aren't imported by the entrypoint.
