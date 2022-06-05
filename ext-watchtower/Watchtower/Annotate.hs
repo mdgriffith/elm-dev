@@ -154,7 +154,8 @@ listMissingAnnotations root file = do
                                       Nothing
                                     Just annotationJson ->
                                       Json.Encode.object
-                                        [ "name" ==> nameToJsonString (A.toValue locatedName),
+                                        [ "filepath" ==> Json.Encode.string (Json.String.fromChars file),
+                                          "name" ==> nameToJsonString (A.toValue locatedName),
                                           "region" ==> Watchtower.Details.encodeRegion (A.toRegion locatedName),
                                           "signature" ==> annotationJson
                                         ]
