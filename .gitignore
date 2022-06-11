@@ -10,3 +10,4 @@ travis.log
 
 .stack-work
 index.html
+node_modules

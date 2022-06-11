@@ -1,0 +1,17 @@
+{
+  "name": "elm-watchtower",
+  "version": "1.0.0",
+  "description": "Elm editor tooling based on the Elm compiler!",
+  "main": "index.js",
+  "repository": "https://github.com/mdgriffith/elm-watchtower-compiler.git",
+  "author": "Matthew Griffith <mdg.griffith@gmail.com>",
+  "license": "BSD 3",
+  "private": true,
+  "workspaces": [
+    "watchtower-frontends/*"
+  ],
+  "scripts": {
+    "vscode": "yarn --cwd watchtower-frontends/vscode",
+    "watchtower": "stack ghci"
+  }
+}
