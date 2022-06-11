@@ -2,7 +2,7 @@
 
 ## Development Installation
 
-First, run `yarn install` and `yarn run compile`.
+First, run `yarn install` and `yarn build`.
 
 Then, you might be able to use VSCode's fancy Development Extension Host by pressing `f5`.
 
@@ -14,11 +14,8 @@ Then reload VSCode in the window you want to develop in via `Cmd + R`
 
 ## Developing
 
-- Make changes to any of the src/\*.ts files.
-- Run `npm run build`
-- Reload VSCode via Cmd + R
-
-Or have `npm run watch` running and just reload via `Cmd + R`
+- run `yarn watch`.
+- When you change the code, you can reload the extension in VSCode by running `Cmd + R`
 
 ## Overview of code
 
