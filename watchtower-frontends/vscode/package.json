@@ -4,8 +4,10 @@
   "description": "An Elm extension for handling large Elm codebases",
   "version": "0.0.1",
   "publisher": "mgriffith",
+  "license": "BSD 3",
+  "repository": "https://github.com/mdgriffith/elm-watchtower-compiler.git",
   "engines": {
-    "vscode": "^1.58.0"
+    "vscode": "^1.8.0"
   },
   "categories": [
     "Other"
@@ -61,6 +63,7 @@
   },
   "scripts": {
     "vscode:prepublish": "yarn run build",
+    "build-package": "vsce package --out ./dist/elm-watchtower-vscode.vsix",
     "link": "ln -s $PWD ~/.vscode/extensions/mgriff.elm-watchtower-0.0.1",
     "build": "tsc -p ./ & cp ../../node_modules/elm-format/unpacked_bin/elm-format ./out/elm-format",
     "watch": "tsc -watch -p ./",
@@ -68,15 +71,17 @@
     "test": "yarn run build && node ./node_modules/vscode/bin/test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.58.0",
     "@types/node": "^11.12.21",
+    "@types/vscode": "^1.8.0",
+    "vsce": "^2.9.1",
     "eslint": "^7.21.0",
     "typescript": "^4.4.3"
   },
   "dependencies": {
     "cross-spawn": "^6.0.5",
+    "elm-format": "0.8.5",
+    
     "websocket": "^1.0.31",
-    "which": "^1.3.1",
-    "elm-format": "0.8.5"
+    "which": "^1.3.1"
   }
 }
