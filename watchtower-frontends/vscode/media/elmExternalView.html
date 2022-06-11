@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="elmViewer.js"></script>
+    <title>Elm ErrorView Live View</title>
+</head>
+<body>
+    <script>
+        
+        var app = Elm.Main.init();
+        //const vscode = acquireVsCodeApi();
+        // const oldState = vscode.getState();
+    
+        // Handle messages sent from the extension to the webview
+        // window.addEventListener('message', event => {
+        //    const message = event.data; // The json data that the extension sent
+        //    app.ports.editorChange.send(message);
+        //});
+
+        const refresh = {"command":"RefreshEditor","fileName":"/Users/matthewgriffith/elm-markup/src/Mark.elm","ranges":[{"start":{"character":0,"line":2701},"end":{"character":28,"line":2754}}],"selections":[{"start":{"line":2712,"character":22},"end":{"line":2712,"character":22},"active":{"line":2712,"character":22},"anchor":{"line":2712,"character":22}}]}
+        const errors = {"command":"Show","json":{"type":"compile-errors","errors":[{"path":"/Users/matthewgriffith/elm-markup/src/Mark.elm","name":"Mark","problems":[{"title":"TYPE MISMATCH","region":{"start":{"line":2731,"column":17},"end":{"line":2733,"column":18}},"message":["The 1st argument to `uncertain` is not what I expect:\n\n2730|             uncertain\n2731|",{"bold":false,"underline":false,"color":"red","string":">"},"                { problem = prob\n2732|",{"bold":false,"underline":false,"color":"red","string":">"},"                , range = pos\n2733|",{"bold":false,"underline":false,"color":"red","string":">"},"                }\n\nThis argument is a record of type:\n\n    { problem : error, range : a }\n\nBut `uncertain` needs the 1st argument to be:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Error.UnexpectedDetails"},"\n\n",{"bold":false,"underline":true,"color":null,"string":"Hint"},": Looks like the ",{"bold":false,"underline":false,"color":"GREEN","string":"source"}," field is missing."]},{"title":"TYPE MISMATCH","region":{"start":{"line":2714,"column":17},"end":{"line":2716,"column":18}},"message":["The 1st argument to `Unexpected` is not what I expect:\n\n2713|             Unexpected\n2714|",{"bold":false,"underline":false,"color":"red","string":">"},"                { range = range\n2715|",{"bold":false,"underline":false,"color":"red","string":">"},"                , problem = prob\n2716|",{"bold":false,"underline":false,"color":"red","string":">"},"                }\n\nThis argument is a record of type:\n\n    { problem : a, range : b }\n\nBut `Unexpected` needs the 1st argument to be:\n\n    ",{"bold":false,"underline":false,"color":"yellow","string":"Error.UnexpectedDetails"},"\n\n",{"bold":false,"underline":true,"color":null,"string":"Hint"},": Looks like the ",{"bold":false,"underline":false,"color":"GREEN","string":"source"}," field is missing."]}]}]}}
+
+        var replay = function(){
+            // Replay a set of messages so we have some state.
+            var messages = [refresh, errors]
+            //var messages = [refresh]
+            const len = messages.length;
+            for (i = 0; i < len; i++) {
+                app.ports.editorChange.send(messages[i]);
+            }
+        }
+        setTimeout(replay, 0);
+        
+        //app.ports.notify.subscribe(function(message) {
+        //    vscode.postMessage(message);
+        //});
+
+    </script>
+</body>
+</html>
