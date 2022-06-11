@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+## Copy this file to `.envrc.private`
+## Then running `direnv allow` in the terminal will load your environment 
+## whenever you're in this directory
+
+export ELM_WATCHTOWER_START_PROJECT=$(CHANGEME)

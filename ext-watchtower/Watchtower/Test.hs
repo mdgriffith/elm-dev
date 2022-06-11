@@ -6,7 +6,7 @@ import qualified System.Environment as Env
 
 import Ext.Common
 import qualified Watchtower.Server
-
+import qualified Control.Exception
 {-
 
 Allows us to use `:rr` in GHCI to quickly kill, typecheck, rebuild & reboot the server,
@@ -15,12 +15,12 @@ without having to build a binary and reboot it in shell.
 -}
 
 serve = do
-  dir <- Dir.getCurrentDirectory
-  Env.setEnv "PROJECT" $ dir </> "ext-watchtower/app"
-  threadDelay (10 * 1000) -- 10ms delay to let env changes settle
+  projectDir <- Control.Exception.catch (Env.lookupEnv "ELM_WATCHTOWER_START_PROJECT")
+                  (const $ pure Nothing ::  Control.Exception.IOException -> IO (Maybe String))
 
   trackedForkIO $
     withDebug $
       Watchtower.Server.serve
-          (Just "/Users/matthewgriffith/projects/blissfully/elm-watchtower-compiler/watchtower-frontends/vscode/testProject")
+          -- (Just "/Users/matthewgriffith/projects/blissfully/elm-watchtower-compiler/watchtower-frontends/vscode/testProject")
+          projectDir
           (Watchtower.Server.Flags Nothing)
