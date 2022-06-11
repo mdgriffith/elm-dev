@@ -1,0 +1,5 @@
+:set -fbyte-code
+:set -fobject-code
+:def restart const $ return $ unlines [":r","Watchtower.Test.serve"]
+:set prompt "\ESC[34mλ: \ESC[m"
+:set -XOverloadedStrings
