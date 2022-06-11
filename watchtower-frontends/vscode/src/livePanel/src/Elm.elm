@@ -26,6 +26,7 @@ successful statuses =
         statuses
 
 
+
 type alias Project =
     { root : String
     , entrypoints : List String
@@ -108,6 +109,9 @@ decodeProject =
 
 
 decodeStatus =
+    let
+        _ = Editor.visibleRanges
+    in
     Decode.oneOf
         [ Decode.field "compiled" Decode.bool
             |> Decode.map (\_ -> Success)

@@ -36,7 +36,7 @@ main =
 
 init =
     ( { active = Nothing
-      , visible = []
+      , versible = []
       , projects = []
       , projectsVersion = 0
       , viewing = Overview

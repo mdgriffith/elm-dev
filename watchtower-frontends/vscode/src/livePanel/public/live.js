@@ -5520,55 +5520,82 @@ var $elm$json$Json$Decode$nullable = function (decoder) {
 				A2($elm$json$Json$Decode$map, $elm$core$Maybe$Just, decoder)
 			]));
 };
-var $author$project$Elm$decodeStatus = $elm$json$Json$Decode$oneOf(
-	_List_fromArray(
-		[
-			A2(
-			$elm$json$Json$Decode$map,
-			function (_v0) {
-				return $author$project$Elm$Success;
-			},
-			A2($elm$json$Json$Decode$field, 'compiled', $elm$json$Json$Decode$bool)),
-			A2(
-			$elm$json$Json$Decode$andThen,
-			function (errorType) {
-				if (errorType.$ === 'Single') {
-					return A2(
-						$elm$json$Json$Decode$map,
-						$author$project$Elm$GlobalError,
-						A4(
-							$elm$json$Json$Decode$map3,
-							F3(
-								function (path, title, message) {
-									return A2(
-										$author$project$Elm$GlobalErrorDetails,
-										path,
-										{message: message, title: title});
-								}),
+var $elm$core$List$append = F2(
+	function (xs, ys) {
+		if (!ys.b) {
+			return xs;
+		} else {
+			return A3($elm$core$List$foldr, $elm$core$List$cons, ys, xs);
+		}
+	});
+var $elm$core$List$concat = function (lists) {
+	return A3($elm$core$List$foldr, $elm$core$List$append, _List_Nil, lists);
+};
+var $elm$core$List$concatMap = F2(
+	function (f, list) {
+		return $elm$core$List$concat(
+			A2($elm$core$List$map, f, list));
+	});
+var $author$project$Editor$visibleRanges = function (editors) {
+	return A2(
+		$elm$core$List$concatMap,
+		function ($) {
+			return $.ranges;
+		},
+		editors);
+};
+var $author$project$Elm$decodeStatus = function () {
+	var _v0 = $author$project$Editor$visibleRanges;
+	return $elm$json$Json$Decode$oneOf(
+		_List_fromArray(
+			[
+				A2(
+				$elm$json$Json$Decode$map,
+				function (_v1) {
+					return $author$project$Elm$Success;
+				},
+				A2($elm$json$Json$Decode$field, 'compiled', $elm$json$Json$Decode$bool)),
+				A2(
+				$elm$json$Json$Decode$andThen,
+				function (errorType) {
+					if (errorType.$ === 'Single') {
+						return A2(
+							$elm$json$Json$Decode$map,
+							$author$project$Elm$GlobalError,
+							A4(
+								$elm$json$Json$Decode$map3,
+								F3(
+									function (path, title, message) {
+										return A2(
+											$author$project$Elm$GlobalErrorDetails,
+											path,
+											{message: message, title: title});
+									}),
+								A2(
+									$elm$json$Json$Decode$field,
+									'path',
+									$elm$json$Json$Decode$nullable($elm$json$Json$Decode$string)),
+								A2($elm$json$Json$Decode$field, 'title', $elm$json$Json$Decode$string),
+								A2(
+									$elm$json$Json$Decode$field,
+									'message',
+									$elm$json$Json$Decode$list($author$project$Elm$text))));
+					} else {
+						return A2(
+							$elm$json$Json$Decode$map,
+							function (err) {
+								return $author$project$Elm$CompilerError(
+									{errors: err});
+							},
 							A2(
 								$elm$json$Json$Decode$field,
-								'path',
-								$elm$json$Json$Decode$nullable($elm$json$Json$Decode$string)),
-							A2($elm$json$Json$Decode$field, 'title', $elm$json$Json$Decode$string),
-							A2(
-								$elm$json$Json$Decode$field,
-								'message',
-								$elm$json$Json$Decode$list($author$project$Elm$text))));
-				} else {
-					return A2(
-						$elm$json$Json$Decode$map,
-						function (err) {
-							return $author$project$Elm$CompilerError(
-								{errors: err});
-						},
-						A2(
-							$elm$json$Json$Decode$field,
-							'errors',
-							$elm$json$Json$Decode$list($author$project$Elm$fileError)));
-				}
-			},
-			A2($elm$json$Json$Decode$field, 'type', $author$project$Elm$decodeErrorType))
-		]));
+								'errors',
+								$elm$json$Json$Decode$list($author$project$Elm$fileError)));
+					}
+				},
+				A2($elm$json$Json$Decode$field, 'type', $author$project$Elm$decodeErrorType))
+			]));
+}();
 var $elm$core$Debug$log = _Debug_log;
 var $author$project$Ports$incomingDecoder = A2(
 	$elm$json$Json$Decode$andThen,
@@ -7226,22 +7253,6 @@ var $mdgriffith$elm_ui$Internal$Style$CenterY = {$: 'CenterY'};
 var $mdgriffith$elm_ui$Internal$Style$Top = {$: 'Top'};
 var $mdgriffith$elm_ui$Internal$Style$alignments = _List_fromArray(
 	[$mdgriffith$elm_ui$Internal$Style$Top, $mdgriffith$elm_ui$Internal$Style$Bottom, $mdgriffith$elm_ui$Internal$Style$Right, $mdgriffith$elm_ui$Internal$Style$Left, $mdgriffith$elm_ui$Internal$Style$CenterX, $mdgriffith$elm_ui$Internal$Style$CenterY]);
-var $elm$core$List$append = F2(
-	function (xs, ys) {
-		if (!ys.b) {
-			return xs;
-		} else {
-			return A3($elm$core$List$foldr, $elm$core$List$cons, ys, xs);
-		}
-	});
-var $elm$core$List$concat = function (lists) {
-	return A3($elm$core$List$foldr, $elm$core$List$append, _List_Nil, lists);
-};
-var $elm$core$List$concatMap = F2(
-	function (f, list) {
-		return $elm$core$List$concat(
-			A2($elm$core$List$map, f, list));
-	});
 var $mdgriffith$elm_ui$Internal$Style$contentName = function (desc) {
 	switch (desc.a.$) {
 		case 'Top':
