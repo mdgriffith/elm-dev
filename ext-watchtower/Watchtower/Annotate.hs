@@ -406,7 +406,6 @@ canonicalTypeToString self imports tipe =
     TType mod name paramTypes ->
       qualifier self imports mod name
         <> T.pack (Name.toChars name)
-        <> T.pack "wut?"
         <> ( case paramTypes of
                [] -> ""
                _ ->
