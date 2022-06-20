@@ -7,12 +7,12 @@ import qualified Control.FoldDebounce as Debounce
 import Control.Monad (forever)
 import qualified Data.List as List
 import Ext.Common
-import System.FSNotify
+import qualified System.FSNotify
 
 watch :: FilePath -> ([FilePath] -> IO ()) -> IO ()
 watch root action =
   trackedForkIO $
-    withManager $ \mgr -> do
+     System.FSNotify.withManager $ \mgr -> do
       trigger <-
         Debounce.new
           Debounce.Args
@@ -26,21 +26,22 @@ watch root action =
             }
 
       -- start a watching job (in the background)
-      watchTree
+      System.FSNotify.watchTree
         mgr -- manager
         root -- directory to watch
         (const True) -- predicate
         ( \e -> do
             let f = case e of
-                  Added f _ _ -> f
-                  Modified f _ _ -> f
-                  Removed f _ _ -> f
-                  Unknown f _ _ -> f
+                  System.FSNotify.Added f _ _ -> f
+                  System.FSNotify.Modified f _ _ -> f
+                  System.FSNotify.Removed f _ _ -> f
+                  System.FSNotify.Unknown f _ _ -> f
 
                 shouldRefresh =
                   do
                     not (List.isInfixOf ".git" f)
                     && not (List.isInfixOf "elm-stuff" f)
+                    && not (List.isInfixOf "node_modules" f)
 
             if shouldRefresh
               then do
