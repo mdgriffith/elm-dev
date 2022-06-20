@@ -29,25 +29,29 @@ watch root action =
       System.FSNotify.watchTree
         mgr -- manager
         root -- directory to watch
-        (const True) -- predicate
-        ( \e -> do
-            let f = case e of
-                  System.FSNotify.Added f _ _ -> f
-                  System.FSNotify.Modified f _ _ -> f
-                  System.FSNotify.Removed f _ _ -> f
-                  System.FSNotify.Unknown f _ _ -> f
-
-                shouldRefresh =
-                  do
-                    not (List.isInfixOf ".git" f)
-                    && not (List.isInfixOf "elm-stuff" f)
-                    && not (List.isInfixOf "node_modules" f)
-
-            if shouldRefresh
-              then do
-                Debounce.send trigger f
-              else pure ()
+        shouldTrigger -- predicate
+        (\event ->
+            Debounce.send trigger (getEventFilePath event)
         )
 
       -- sleep forever (until interrupted)
       forever $ threadDelay 1000000
+
+
+getEventFilePath :: System.FSNotify.Event -> FilePath
+getEventFilePath event =
+  case event of
+    System.FSNotify.Added filepath _ _ -> filepath
+    System.FSNotify.Modified filepath _ _ -> filepath
+    System.FSNotify.Removed filepath _ _ -> filepath
+    System.FSNotify.Unknown filepath _ _ -> filepath
+
+
+shouldTrigger :: System.FSNotify.Event -> Bool
+shouldTrigger e =
+    let 
+        path = getEventFilePath event
+    in
+    not (List.isInfixOf ".git" path)
+        && not (List.isInfixOf "elm-stuff" path)
+        && not (List.isInfixOf "node_modules" path)
