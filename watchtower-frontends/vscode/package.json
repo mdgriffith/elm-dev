@@ -14,14 +14,14 @@
   ],
   "activationEvents": [
     "onLanguage:elm",
-    "onCommand:elm.liveErrorView"
+    "onCommand:elm.projectPanel"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "elm.liveErrorView",
-        "title": "Elm Live Errors"
+        "command": "elm.projectPanel",
+        "title": "Elm Project Panel"
       }
     ],
     "languages": [

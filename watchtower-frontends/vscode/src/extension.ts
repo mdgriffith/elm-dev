@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { ElmFormatProvider, ElmRangeFormatProvider } from "./elmFormat";
 import * as log from "./utils/log";
 import * as watchtower from "./watchtower";
+import { ElmProjectPane, ElmProjectSerializer } from "./panel/panel";
 
 const ElmLanguage: vscode.DocumentFilter = { language: "elm", scheme: "file" };
 
@@ -51,26 +52,16 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  // var iconCache = icons.createIcons(context);
+  context.subscriptions.push(
+    vscode.commands.registerCommand("elm.projectPanel", () => {
+      ElmProjectPane.createOrShow(context.extensionPath);
+    })
+  );
 
-  // context.subscriptions.push(
-  //   vscode.commands.registerCommand("elm.liveErrorView", () => {
-  //     ElmErrorPanel.createOrShow(context.extensionPath, iconCache);
-  //   })
-  // );
-
-  // if (vscode.window.registerWebviewPanelSerializer) {
-  //   // Make sure we register a serilizer in activation event
-  //   vscode.window.registerWebviewPanelSerializer(ElmErrorPanel.viewType, {
-  //     async deserializeWebviewPanel(
-  //       webviewPanel: vscode.WebviewPanel,
-  //       state: any
-  //     ) {
-  //       log.log(`Got state: ${state}`);
-  //       ElmErrorPanel.revive(webviewPanel, context.extensionPath);
-  //     },
-  //   });
-  // }
+  vscode.window.registerWebviewPanelSerializer(
+    ElmProjectPane.viewType,
+    new ElmProjectSerializer(context.extensionPath)
+  );
 }
 
 export function deactivate() {}
