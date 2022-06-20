@@ -48,7 +48,7 @@ getEventFilePath event =
 
 
 shouldTrigger :: System.FSNotify.Event -> Bool
-shouldTrigger e =
+shouldTrigger event =
     let 
         path = getEventFilePath event
     in
