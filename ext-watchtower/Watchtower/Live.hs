@@ -95,18 +95,22 @@ getRootHelp path projects found =
         else getRootHelp path remain found
 
 recompile :: Watchtower.Live.State -> [String] -> IO ()
-recompile (Watchtower.Live.State mClients projects) changedFiles = do
-  debug $ "🛫  recompile starting: " ++ show changedFiles
-  trackedForkIO $
-    track "recompile" $ do
-      
-      Monad.foldM
-        -- (recompileProjectIfSubFile mClients)
-        (recompileChangedFile mClients)
-        changedFiles
-        projects
+recompile (Watchtower.Live.State mClients projects) allChangedFiles = do
+  let changedElmFiles = List.filter (\filepath -> ".elm" `List.isSuffixOf` filepath ) allChangedFiles
+  if (changedElmFiles /= []) then do
+    debug $ "🛫  recompile starting: " ++ show changedElmFiles
+    trackedForkIO $
+      track "recompile" $ do
+        
+        Monad.foldM
+          -- (recompileProjectIfSubFile mClients)
+          (recompileChangedFile mClients)
+          changedElmFiles
+          projects
 
-      debug $ "🛬  recompile finished: " ++ show changedFiles
+        debug $ "🛬  recompile finished: " ++ show changedElmFiles
+    else
+        pure ()
 
 
 
