@@ -176,16 +176,14 @@ export class Watchtower {
           log.obj("PROJECT.STATUS", project.status)
           if ("errors" in project.status) {
             for (const error of project.status["errors"]) {
+              log.obj("ERROR", error)
               const uri = vscode.Uri.file(error["path"]);
               for (const prob of error["problems"]) {
                 self.diagnostics.set(uri, [
                   {
                     code: "elm-compiler-error",
                     message: formatMessage(prob["message"]),
-                    range: new vscode.Range(
-                      preparePosition(prob["region"]["start"]),
-                      preparePosition(prob["region"]["end"])
-                    ),
+                    range: prepareRange(prob["region"]),
                     severity: vscode.DiagnosticSeverity.Error,
                     source: "",
                     relatedInformation: [],
@@ -289,8 +287,15 @@ const formatSource = (items: any): string => {
 
 /*   Asking questions!  */
 
+function prepareRange(region) {
+  return new vscode.Range(
+    preparePosition(region["start"]),
+    preparePosition(region["end"])
+  )
+}
+
 function preparePosition(pos: any) {
-  return new vscode.Position(pos["line"] - 1, pos["column"]);
+  return new vscode.Position(pos["line"] - 1, pos["column"] - 1);
 }
 
 function prepareRanges(ranges) {
