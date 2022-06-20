@@ -83,9 +83,7 @@ export class Watchtower {
           let projectRoots = [];
           for (const proj of self.projects) {
             projectRoots.push(proj.root);
-            log.log(`Watching: ${proj.root}`);
           }
-          // log.log("WATCHING")
           log.obj("WATCHING", projectRoots)
           self.send(watch(projectRoots));
 
