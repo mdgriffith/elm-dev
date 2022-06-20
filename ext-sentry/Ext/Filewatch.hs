@@ -60,7 +60,7 @@ getEventFilePath event =
 
 shouldTrigger :: System.FSNotify.Event -> Bool
 shouldTrigger event =
-    let 
+    let
         path = getEventFilePath event
     in
     not (List.isInfixOf ".git" path)

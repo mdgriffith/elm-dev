@@ -20,6 +20,9 @@ import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
 import Data.Maybe as Maybe
 
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+
 newtype Flags = Flags
   { _port :: Maybe Int
   }
@@ -30,7 +33,7 @@ serve maybeRoot (Flags maybePort) =
     let port = Ext.Common.withDefault 9000 maybePort
     Ext.Common.atomicPutStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
 
-  
+
     cwd <- Dir.getCurrentDirectory
     let root = Maybe.fromMaybe cwd maybeRoot
     liveState <- Watchtower.Live.init root
@@ -48,12 +51,18 @@ serve maybeRoot (Flags maybePort) =
 
 config :: Int -> Snap.Http.Server.Config Snap a
 config port =
-  Snap.Http.Server.setVerbose False $
+  Snap.Http.Server.setVerbose True $
     Snap.Http.Server.setPort port $
-      Snap.Http.Server.setAccessLog Snap.Http.Server.ConfigNoLog $
+      Snap.Http.Server.setAccessLog (Snap.Http.Server.ConfigIoLog logger) $
         Snap.Http.Server.setErrorLog
-          Snap.Http.Server.ConfigNoLog
+          (Snap.Http.Server.ConfigIoLog logger)
           Snap.Http.Server.defaultConfig
+
+logger =
+  (\bs ->
+    Ext.Common.atomicPutStrLn $ T.unpack $ T.decodeUtf8 bs
+  )
+
 
 -- SERVE STATIC ASSETS
 

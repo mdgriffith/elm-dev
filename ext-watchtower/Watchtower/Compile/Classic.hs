@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Compile (compileToJson, compileToBuilder, warnings, parse) where
+module Watchtower.Compile.Classic (ompileToJson, compileToBuilder, warnings, parse) where
 
 -- @TODO cleanup imports
 
@@ -140,7 +140,7 @@ compileToDevNull root paths =
           do
             details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
             artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
-           
+
             return ()
 
 
@@ -160,7 +160,7 @@ warnings root path =
     source <- File.readUtf8 path
     case Parse.fromByteString Parse.Application source of
       Right srcModule ->
-        do 
+        do
           let (canWarnings, eitherCanned) = Reporting.Result.run $ Canonicalize.canonicalize Pkg.dummyName ifaces srcModule
           case eitherCanned of
             Left errs ->
@@ -170,7 +170,7 @@ warnings root path =
                 case typeCheck srcModule canModule of
                   Left typeErrors ->
                       pure (Right (srcModule, canWarnings))
-                  
+
                   Right annotations ->
                     do
                       let (optWarnings, _) = Reporting.Result.run $ Optimize.optimize annotations canModule

@@ -220,7 +220,8 @@ Executable watchtower
         Watchtower
         Watchtower.Project
         Watchtower.Annotate
-        Watchtower.Compile
+        Watchtower.Compile.Classic
+        Watchtower.Compile.FileCache
         Watchtower.Details
         Watchtower.Live
         Watchtower.Questions
