@@ -106,7 +106,7 @@ export class ElmProjectPane {
   private _getHtmlForWebview() {
     // Local path to main script run in the webview
     const scriptPathOnDisk = vscode.Uri.file(
-      path.join(this._extensionPath, "media", "test.js")
+      path.join(this._extensionPath, "media", "panel.js")
     );
 
     // And the uri we use to load this script in the webview
@@ -128,16 +128,13 @@ export class ElmProjectPane {
   
                   <meta name="viewport" content="width=device-width, initial-scale=1.0">
                   <script nonce="${nonce}" src="${scriptUri}"></script>
-                  <title>Elm Project</title>
+                  <title>Elm Live Project</title>
               </head>
               <body>
-                  <div> Hello! </div>
-                  <script nonce="${nonce}">
-                      console.log("boot?!");
-                    
+                  <script nonce="${nonce}">                    
                       const vscode = acquireVsCodeApi();
                       
-                      console.log("Hello!")
+                      var app = Elm.Main.init();
   
                   </script>
               </body>

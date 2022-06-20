@@ -1,1 +1,0 @@
-elm make src/Main.elm --output public/live.js
