@@ -30,12 +30,11 @@ export class Watchtower {
 
   send(msg: Msg) {
     if (this.connection.connected) {
-      log.log("sending");
-      log.log(msg);
+      log.obj("SENDING", msg);
       this.connection.sendUTF(JSON.stringify(msg));
     } else {
       log.log("not connected, attempting to send -> ");
-      log.log(msg);
+      log.obj("SENDING", msg);
     }
   }
 
@@ -76,6 +75,7 @@ export class Watchtower {
 
       if (vscode.workspace.workspaceFolders.length > 0) {
         const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        log.log("ROOT: " + root)
         Question.ask(Question.questions.discover(root), (resp) => {
           self.projects = resp;
 
@@ -85,6 +85,8 @@ export class Watchtower {
             projectRoots.push(proj.root);
             log.log(`Watching: ${proj.root}`);
           }
+          // log.log("WATCHING")
+          log.obj("WATCHING", projectRoots)
           self.send(watch(projectRoots));
 
           vscode.window.visibleTextEditors.forEach((editor) => {
@@ -174,24 +176,31 @@ export class Watchtower {
         for (const project of msg["details"]) {
           log.obj("PROJECT", project)
           log.obj("PROJECT.STATUS", project.status)
-          for (const error of project.status["errors"]) {
-            const uri = vscode.Uri.file(error["path"]);
-            for (const prob of error["problems"]) {
-              self.diagnostics.set(uri, [
-                {
-                  code: "elm-compiler-error",
-                  message: formatMessage(prob["message"]),
-                  range: new vscode.Range(
-                    preparePosition(prob["region"]["start"]),
-                    preparePosition(prob["region"]["end"])
-                  ),
-                  severity: vscode.DiagnosticSeverity.Error,
-                  source: "",
-                  relatedInformation: [],
-                },
-              ]);
+          if ("errors" in project.status) {
+            for (const error of project.status["errors"]) {
+              const uri = vscode.Uri.file(error["path"]);
+              for (const prob of error["problems"]) {
+                self.diagnostics.set(uri, [
+                  {
+                    code: "elm-compiler-error",
+                    message: formatMessage(prob["message"]),
+                    range: new vscode.Range(
+                      preparePosition(prob["region"]["start"]),
+                      preparePosition(prob["region"]["end"])
+                    ),
+                    severity: vscode.DiagnosticSeverity.Error,
+                    source: "",
+                    relatedInformation: [],
+                  },
+                ]);
+              }
             }
+          } else {
+            // Global error
+            log.log("GLOBAL ERROR -> elm-vscode doesn't do anything with this right now, we should!")
           }
+
+         
         }
         break;
       }
@@ -207,6 +216,11 @@ export class Watchtower {
   }
 
   refreshCodeLenses(document: vscode.TextDocument) {
+    if (document.languageId != "elm") {
+      // We only care about Elm files
+      return 
+    }
+
     const self = this;
     if (document.isDirty) {
       // Only ask for type signatures if the file is as it is on disk
