@@ -1,5 +1,6 @@
 import * as log from "../utils/log";
 import * as http from "http";
+import * as JSONSafe from "../utils/json";
 
 export type MissingSignature = {
   filepath: String;
@@ -113,7 +114,7 @@ const captureRequest = (onCapture: any) => {
 
     //the whole response has been received, so we just print it out here
     response.on("end", function () {
-      onCapture(JSON.parse(str));
+      onCapture(JSONSafe.parse(str));
     });
   };
 };

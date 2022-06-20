@@ -2,6 +2,7 @@
 import { send } from "process";
 import * as vscode from "vscode";
 import * as log from "./utils/log";
+import * as JSONSafe from "./utils/json";
 import * as Question from "./watchtower/question";
 
 var WebSocketClient = require("websocket").client;
@@ -16,6 +17,9 @@ type Project = {
   root: String;
   entrypoints: String[];
 };
+
+
+
 export class Watchtower {
   private websocket;
   private connection;
@@ -156,14 +160,20 @@ export class Watchtower {
   }
   private receive(msgString: string) {
     const self = this;
-    const msg = JSON.parse(msgString);
-    log.log("Received: " + msg["msg"]);
-    log.obj(msg);
+    const msg = JSONSafe.parse(msgString);
+   
+    if (msg == null) {
+      return
+    }
+    
+    log.obj("Received", msg);
     switch (msg["msg"]) {
       case "Status": {
         self.diagnostics.clear();
-        // self.diagnostics
+        
         for (const project of msg["details"]) {
+          log.obj("PROJECT", project)
+          log.obj("PROJECT.STATUS", project.status)
           for (const error of project.status["errors"]) {
             const uri = vscode.Uri.file(error["path"]);
             for (const prob of error["problems"]) {

@@ -6,7 +6,8 @@ export function log(str) {
   watchtower.appendLine(str);
 }
 
-export function obj(o) {
+export function obj(name, o) {
+  watchtower.appendLine(name);
   for (const [key, value] of Object.entries(o)) {
     watchtower.appendLine("  " + key + ": " + value);
   }
