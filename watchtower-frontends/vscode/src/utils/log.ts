@@ -6,17 +6,19 @@ export function log(str) {
   watchtower.appendLine(str);
 }
 
+
 export function obj(name, o) {
   watchtower.appendLine(name);
   for (const [key, value] of Object.entries(o)) {
 
     if (Array.isArray(value)) {
       let first = true
-      watchtower.appendLine("  " + key);
+      watchtower.appendLine("  " + key + ":");
       if (value.length == 0) {
         watchtower.appendLine("    []");
       } else {
-        for (const subval in value) {
+        for (const index in value) {
+          const subval = value[index]
           if (first) {
             watchtower.appendLine("    [ " + subval);
             first = false
@@ -43,3 +45,5 @@ export function obj(name, o) {
     
   }
 }
+
+
