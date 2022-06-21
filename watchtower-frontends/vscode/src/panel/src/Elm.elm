@@ -26,7 +26,6 @@ successful statuses =
         statuses
 
 
-
 type alias Project =
     { root : String
     , entrypoints : List String
@@ -104,14 +103,13 @@ inEditor file editor =
 decodeProject =
     Decode.map3 Project
         (Decode.field "root" Decode.string)
-        (Decode.field "entrypoints" (Decode.list Decode.string))
+        -- disabled for now, it's not being reported
+        -- (Decode.field "entrypoints" (Decode.succeed []))
+        (Decode.succeed [])
         (Decode.field "status" decodeStatus)
 
 
 decodeStatus =
-    let
-        _ = Editor.visibleRanges
-    in
     Decode.oneOf
         [ Decode.field "compiled" Decode.bool
             |> Decode.map (\_ -> Success)

@@ -12,20 +12,20 @@ import Json.Decode as Decode
 import Json.Encode
 
 
-port editorChange : (Json.Encode.Value -> msg) -> Sub msg
+port toElm : (Json.Encode.Value -> msg) -> Sub msg
 
 
-port notify : Json.Encode.Value -> Cmd msg
+port toWorld : Json.Encode.Value -> Cmd msg
 
 
 incoming : (Result Decode.Error Incoming -> msg) -> Sub msg
 incoming toMsg =
-    editorChange (toMsg << Decode.decodeValue incomingDecoder)
+    toElm (toMsg << Decode.decodeValue incomingDecoder)
 
 
 outgoing : Outgoing -> Cmd msg
 outgoing out =
-    notify (encodeOutgoing out)
+    toWorld (encodeOutgoing out)
 
 
 type Incoming
@@ -74,7 +74,7 @@ incomingDecoder =
                 case Debug.log "found msg" msg of
                     "Status" ->
                         Decode.map ProjectsStatusUpdated
-                            (Decode.field "details" (Decode.list Elm.decodeStatus))
+                            (Decode.field "details" (Decode.list (Decode.map .status Elm.decodeProject)))
 
                     "Visible" ->
                         Decode.field "details"
