@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as log from "../utils/log";
 import * as watchtower from "../watchtower";
+import * as Message from "./messages"
 
 export class ElmProjectPane {
   /**
@@ -20,7 +21,6 @@ export class ElmProjectPane {
     this._watchtower = new watchtower.Watchtower();
     this._panel = panel;
     this._extensionPath = extensionPath;
-    log.log("constructing webview");
     // Set the webview's initial html content
     this._update();
 
@@ -31,7 +31,7 @@ export class ElmProjectPane {
     // Handle messages from the webview
     this._panel.webview.onDidReceiveMessage(
       (message) => {
-        log.log(message);
+        log.obj("WEB-RECEIVED", message);
         // switch (message.command) {
         //     case 'highlight':
         //         // vscode.window.showErrorMessage(message.text);
@@ -49,11 +49,9 @@ export class ElmProjectPane {
     let self = this;
     // If we already have a panel, show it.
     if (ElmProjectPane.currentPanel) {
-      log.log("showing existing panel");
       ElmProjectPane.currentPanel._panel.reveal(vscode.ViewColumn.Two);
       return;
     }
-    log.log("create panel");
     // Otherwise, create a new panel.
     const panel = vscode.window.createWebviewPanel(
       ElmProjectPane.viewType,
@@ -63,7 +61,8 @@ export class ElmProjectPane {
         // Enable javascript in the webview
         enableScripts: true,
 
-        // And restric the webview to only loading content from our extension's `media` directory.
+        // restrict the webview to only loading content 
+        // from our extension's `media` directory.
         localResourceRoots: [
           vscode.Uri.file(path.join(extensionPath, "media")),
         ],
@@ -74,18 +73,18 @@ export class ElmProjectPane {
   }
 
   public static revive(panel: vscode.WebviewPanel, extensionPath: string) {
-    log.log("revive");
     ElmProjectPane.currentPanel = new ElmProjectPane(panel, extensionPath);
   }
 
-  public sendMessage(event) {
-    // log.log("MSG");
-    // log.log(JSON.stringify(event));
-    this._panel.webview.postMessage(event);
+  public static send(msg : Message.ToProjectPanel) {
+    if (ElmProjectPane.currentPanel) {
+      ElmProjectPane.currentPanel._panel.webview.postMessage(msg);
+    } else {
+      log.log("No panel, dropping msg")
+    }
   }
 
   public dispose() {
-    log.log("DISPOSING WEBVIEW");
     ElmProjectPane.currentPanel = undefined;
 
     // Clean up our resources
@@ -135,6 +134,16 @@ export class ElmProjectPane {
                       const vscode = acquireVsCodeApi();
                       
                       var app = Elm.Main.init();
+
+                      // Handle messages sent from the extension to the webview
+                      window.addEventListener('message', event => {
+                          console.log(event)
+                          app.ports.toElm.send(event.data);
+                      });
+                      
+                      app.ports.toWorld.subscribe(function(message) {
+                          vscode.postMessage(message);
+                      });
   
                   </script>
               </body>

@@ -4,6 +4,7 @@ import * as vscode from "vscode";
 import * as log from "./utils/log";
 import * as JSONSafe from "./utils/json";
 import * as Question from "./watchtower/question";
+import { ElmProjectPane } from "./panel/panel";
 
 var WebSocketClient = require("websocket").client;
 
@@ -165,6 +166,7 @@ export class Watchtower {
     if (msg == null) {
       return
     }
+    ElmProjectPane.send(msg)
     
     log.obj("Received", msg);
     switch (msg["msg"]) {
@@ -191,6 +193,8 @@ export class Watchtower {
                 ]);
               }
             }
+          } else if ("compiled" in project.status) {
+            // success
           } else {
             // Global error
             log.log("GLOBAL ERROR -> elm-vscode doesn't do anything with this right now, we should!")
@@ -225,7 +229,9 @@ export class Watchtower {
     }
     const filepath = document.uri.fsPath;
     Question.ask(Question.questions.listMissingSignatures(filepath), (resp) => {
-      self.codelensProvider.setSignatures(filepath, resp);
+      if (resp != null) {
+        self.codelensProvider.setSignatures(filepath, resp);
+      }
     });
   }
 }
@@ -425,6 +431,14 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
     this._onDidChangeCodeLenses.fire();
   }
 
+  private getSignaturesFor(filepath: string) {
+    if (filepath in this.signatures) {
+      return this.signatures[filepath].signatures
+    } else {
+      return []
+    }
+  }
+
   public lineAdjustment(
     filepath: string,
     affectedRange: vscode.Range,
@@ -438,7 +452,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
     if (filepath in self.signatures) {
       let newSigs = [];
       // All signatures passed the affected range will be pushed or pulled.
-      for (const sig of self.signatures[filepath].signatures) {
+      for (const sig of self.getSignaturesFor(filepath)) {
         const startingPoint = new vscode.Position(
           sig.region.start.line - 1,
           sig.region.start.column - 1
@@ -475,14 +489,15 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
       // remove the signature from the list
       if (document.uri.fsPath in self.signatures) {
         const newSignatures = [];
-        for (const sig of self.signatures[document.uri.fsPath].signatures) {
+        for (const sig of self.getSignaturesFor(document.uri.fsPath)) {
           if (action.signature.name !== sig.name) {
             newSignatures.push(sig);
           }
         }
 
         // We don't need to call `setSignatures` because we're already in a render loop.
-        self.signatures[document.uri.fsPath].signatures = newSignatures;
+        let existing = self.signatures[document.uri.fsPath]
+        existing.signatures = newSignatures;
       }
     }
     self.actions = [];
@@ -522,6 +537,8 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
       } else {
         // Recreate them!
         cache.lenses = [];
+        
+ 
         for (const sig of cache.signatures) {
           var skip = false;
           // if this signature matches an action, then don't do anything with it

@@ -1,5 +1,5 @@
 //
-type ToProjectPanel =
+export type ToProjectPanel =
   | {
       msg: "VisibleRangesUpdated";
       fileName: string;
@@ -10,23 +10,23 @@ type ToProjectPanel =
       details: ProjectStatus[]
     }
 
-type ProjectStatus = {
+export type ProjectStatus = {
     root: string
     status: any
 }
 
-type Selection = {
+export type Selection = {
   start: Position;
   end: Position;
   cursor: Position;
 };
 
-type Range = {
+export type Range = {
   start: Position;
   end: Position;
 };
 
-type Position = {
+export type Position = {
   line: number;
   column: number;
 };
@@ -34,7 +34,7 @@ type Position = {
 // Focus clicked:
 //     like when a type error is clicked
 //     Or a card in the autodoc.
-type FromProjectPanel = {
+export type FromProjectPanel = {
   msg: "FocusClicked";
   fileName: string;
   range: Range;
