@@ -20,35 +20,28 @@ import Ext.Common
 
 type HashTable k v = H.CuckooHashTable k v
 
--- foo :: IO (HashTable Int Int)
--- foo = do
---   ht <- H.new
---   H.insert ht 1 1
---   return ht
-
-
 -- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
 {-# NOINLINE fileCache #-}
 fileCache :: HashTable FilePath BS.ByteString
 fileCache = unsafePerformIO $ do
   ht <- H.new
   -- H.insert ht "" 1
-  return ht
+  pure ht
 
 
 lookup path = do
-  log $ "👀 " ++ show path
+  -- log $ "👀 " ++ show path
   H.lookup fileCache path
 
 insert path value = do
-  log $ "✍️ " ++ show path
+  -- log $ "✍️ " ++ show path
   H.insert fileCache path value
 
 
 log :: String -> IO ()
 log v =
-  pure ()
-  -- debug v
+  -- pure ()
+  debug v
 
 
 {- builder/src/File.* interface equivalents -}
@@ -57,9 +50,11 @@ exists :: FilePath -> IO Bool
 exists path = do
   res <- lookup path
   case res of
-    Just x -> pure True
+    Just x -> do
+      log $ "✅👀x " ++ show path
+      pure True
     Nothing -> do
-      log $ "❌👀 " ++ show path
+      log $ "❌👀x " ++ show path
       exists <- File.exists path
       -- @watch can probably be dropped when we know we can rely on fsnotify setup
       onlyWhen exists $ do
@@ -73,9 +68,11 @@ readUtf8 :: FilePath -> IO BS.ByteString
 readUtf8 path = do
   res <- lookup path
   case res of
-    Just x -> pure x
+    Just x -> do
+      log $ "✅👀r " ++ show path
+      pure x
     Nothing -> do
-      log $ "❌👀 " ++ show path
+      log $ "❌👀r " ++ show path
       -- @watch can probably be dropped when we know we can rely on fsnotify setup
       t <- File.readUtf8 path
       insert path t
@@ -95,6 +92,7 @@ readBinary path = do
   res <- lookup path
   case res of
     Just x -> do
+      log $ "✅👀rb " ++ show path
       case Binary.decodeOrFail $ BSL.fromStrict x of
         Right (bs, offset, a) ->
           pure (Just a)
@@ -102,8 +100,15 @@ readBinary path = do
           pure Nothing
 
     Nothing -> do
-      log $ "❌👀 " ++ show path
-      File.readBinary path
+      -- log $ "❌👀rb " ++ show path
+      t <- readUtf8 path
+      insert path t
+      case Binary.decodeOrFail $ BSL.fromStrict t of
+        Right (bs, offset, a) ->
+          pure (Just a)
+        Left (bs, offset, message) ->
+          pure Nothing
+
 
 type Time = File.Time
 

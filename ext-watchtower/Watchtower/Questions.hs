@@ -104,10 +104,11 @@ actionHandler state =
               writeBS "Needs location"
             Just file -> do
               let strPath = Data.ByteString.Char8.unpack file
-              if Path.takeExtension strPath == ".elm" then 
-                questionHandler state (ListMissingSignaturesPlease strPath)
-              else 
-                writeBS ("Requested missing signatures, but this isn't an elm file" <> file)
+              if Path.takeExtension strPath == ".elm"
+                then
+                  questionHandler state (ListMissingSignaturesPlease strPath)
+                else
+                  writeBS ("Requested missing signatures, but this isn't an elm file" <> file)
       Just "signature" ->
         do
           maybeFile <- getQueryParam "file"
