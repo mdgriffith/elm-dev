@@ -33,6 +33,7 @@ import Snap.Http.Server
 import Snap.Util.FileServe
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
 import qualified Watchtower.Compile.Classic
+import qualified Watchtower.Compile.FileCache
 import qualified Watchtower.Details
 import qualified Watchtower.Project
 import qualified Watchtower.StaticAssets
@@ -205,6 +206,10 @@ recompile (Watchtower.Live.State mClients mProjects) allChangedFiles = do
           projects
 
 
+-- compileMode = Watchtower.Compile.Classic.compileToJson
+compileMode = Watchtower.Compile.FileCache.compileToJson
+
+
 recompile :: Watchtower.Live.State -> [String] -> IO ()
 recompile (Watchtower.Live.State mClients projects) changedFiles = do
   debug $ "🛫  recompile starting: " ++ show changedFiles
@@ -245,7 +250,7 @@ recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchto
                   let entry = (NonEmpty.List top remain)
                   -- Can compileToJson take multiple entrypoints like elm make?
                   eitherStatusJson <-
-                    Watchtower.Compile.Classic.compileToJson
+                    compileMode
                       projectRoot
                       entry
 
@@ -316,7 +321,7 @@ recompileProjectIfSubFile mClients remainingFiles (ProjectCache proj@(Watchtower
           do
             -- Can compileToJson take multiple entrypoints like elm make?
             eitherStatusJson <-
-              Watchtower.Compile.Classic.compileToJson
+              compileMode
                 projectRoot
                 entry
 

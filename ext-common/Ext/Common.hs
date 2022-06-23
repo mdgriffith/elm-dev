@@ -12,6 +12,7 @@ import System.Exit (exitFailure)
 import qualified System.FilePath as FP
 import qualified System.Directory as Dir
 import qualified System.Environment as Env
+import Control.Monad (unless)
 
 import Control.Exception ()
 import Formatting (fprint, (%))
@@ -211,6 +212,11 @@ ghciRoot :: MVar FilePath
 ghciRoot = unsafePerformIO $ do
   dir <- Dir.getCurrentDirectory
   newMVar dir
+
+-- Inversion of `unless` that runs IO only when condition is True
+onlyWhen :: Monad f => Bool -> f () -> f ()
+onlyWhen condition io =
+  unless (not condition) io
 
 
 -- Re-exports

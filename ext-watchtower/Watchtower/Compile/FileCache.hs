@@ -9,6 +9,7 @@ module Watchtower.Compile.FileCache (compileToJson) where
 
 import qualified BackgroundWriter as BW
 import qualified Build
+import qualified Ext.FileCached.Build
 import Control.Applicative ((<|>))
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
 import Control.Monad (guard)
@@ -80,7 +81,7 @@ compile root paths =
         Task.run $
           do
             details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-            artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
+            artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.FileCached.Build.fromPaths Reporting.silent root details paths
             javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
-            let (NE.List name _) = Build.getRootNames artifacts
+            let (NE.List name _) = Ext.FileCached.Build.getRootNames artifacts
             return $ Html.sandwich name javascript

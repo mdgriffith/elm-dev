@@ -210,6 +210,10 @@ Executable watchtower
         -- elmx
         -- ext-common
         Ext.Common
+        Ext.FileCached
+        Ext.FileCached.Details
+        Ext.FileCached.Build
+        Ext.FileCached.BackgroundWriter
         Ext.ElmFormat
 
         -- ext-sentry
@@ -274,6 +278,7 @@ Executable watchtower
 
         -- ext-common
         text,
+        hashtables,
 
         -- ext-sentry
         clock,
