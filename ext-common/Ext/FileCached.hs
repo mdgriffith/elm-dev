@@ -162,7 +162,8 @@ debugSummary = do
   let
     entries = Prelude.length fileCacheList
 
-    size = fileCacheList & fmap (\(k,v) -> BS.length v) & sum & fromIntegral & bytesToMb & show
+    -- @TODO memory overhead for string is 4 words per char + 2 words for the char... should swap to text/BS instead.
+    size = fileCacheList & fmap (\(k,v) -> (length k * 6) + BS.length v) & sum & fromIntegral & bytesToMb & show
     -- (show $ bytesToMb (fromIntegral size))
 
     -- Sum of live bytes across all major GCs. Divided by major_gcs gives the average live data over the lifetime of the program.
