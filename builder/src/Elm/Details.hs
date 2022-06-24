@@ -10,6 +10,8 @@ module Elm.Details
   , loadObjects
   , loadInterfaces
   , verifyInstall
+  -- extensions
+  , Extras(..)
   )
   where
 

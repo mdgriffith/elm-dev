@@ -106,7 +106,7 @@ debug :: String -> IO ()
 debug str = do
   debugM <- Env.lookupEnv "LDEBUG"
   case debugM of
-    Just _ -> atomicPutStrLn $ "DEBUG: " ++ str ++ "\n"
+    Just _ -> atomicPutStrLn $ "DEBUG: " ++ str
     Nothing -> pure ()
 
 

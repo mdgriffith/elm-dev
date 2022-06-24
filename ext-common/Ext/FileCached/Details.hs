@@ -63,26 +63,29 @@ import qualified Stuff
 
 
 
+-- import Elm.Details (Details(..), Extras(..), ValidOutline(..))
+import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..))
+
 -- DETAILS
 
 
-data Details =
-  Details
-    { _outlineTime :: File.Time
-    , _outline :: ValidOutline
-    , _buildID :: BuildID
-    , _locals :: Map.Map ModuleName.Raw Local
-    , _foreigns :: Map.Map ModuleName.Raw Foreign
-    , _extras :: Extras
-    }
+-- data Details =
+--   Details
+--     { _outlineTime :: File.Time
+--     , _outline :: ValidOutline
+--     , _buildID :: BuildID
+--     , _locals :: Map.Map ModuleName.Raw Local
+--     , _foreigns :: Map.Map ModuleName.Raw Foreign
+--     , _extras :: Extras
+--     }
 
 
 type BuildID = Word64
 
 
-data ValidOutline
-  = ValidApp (NE.List Outline.SrcDir)
-  | ValidPkg Pkg.Name [ModuleName.Raw] (Map.Map Pkg.Name V.Version {- for docs in reactor -})
+-- data ValidOutline
+--   = ValidApp (NE.List Outline.SrcDir)
+--   | ValidPkg Pkg.Name [ModuleName.Raw] (Map.Map Pkg.Name V.Version {- for docs in reactor -})
 
 
 -- NOTE: we need two ways to detect if a file must be recompiled:
@@ -109,13 +112,13 @@ data Local =
     }
 
 
-data Foreign =
-  Foreign Pkg.Name [Pkg.Name]
+-- data Foreign =
+--   Foreign Pkg.Name [Pkg.Name]
 
 
-data Extras
-  = ArtifactsCached
-  | ArtifactsFresh Interfaces Opt.GlobalGraph
+-- data Extras
+--   = ArtifactsCached
+--   | ArtifactsFresh Interfaces Opt.GlobalGraph
 
 
 type Interfaces =
@@ -783,29 +786,29 @@ endpointDecoder =
 -- BINARY
 
 
-instance Binary Details where
-  put (Details a b c d e _) = put a >> put b >> put c >> put d >> put e
-  get =
-    do  a <- get
-        b <- get
-        c <- get
-        d <- get
-        e <- get
-        return (Details a b c d e ArtifactsCached)
+-- instance Binary Details where
+--   put (Details a b c d e _) = put a >> put b >> put c >> put d >> put e
+--   get =
+--     do  a <- get
+--         b <- get
+--         c <- get
+--         d <- get
+--         e <- get
+--         return (Details a b c d e ArtifactsCached)
 
 
-instance Binary ValidOutline where
-  put outline =
-    case outline of
-      ValidApp a     -> putWord8 0 >> put a
-      ValidPkg a b c -> putWord8 1 >> put a >> put b >> put c
+-- instance Binary ValidOutline where
+--   put outline =
+--     case outline of
+--       ValidApp a     -> putWord8 0 >> put a
+--       ValidPkg a b c -> putWord8 1 >> put a >> put b >> put c
 
-  get =
-    do  n <- getWord8
-        case n of
-          0 -> liftM  ValidApp get
-          1 -> liftM3 ValidPkg get get get
-          _ -> fail "binary encoding of ValidOutline was corrupted"
+--   get =
+--     do  n <- getWord8
+--         case n of
+--           0 -> liftM  ValidApp get
+--           1 -> liftM3 ValidPkg get get get
+--           _ -> fail "binary encoding of ValidOutline was corrupted"
 
 
 instance Binary Local where
@@ -820,9 +823,9 @@ instance Binary Local where
         return (Local a b c d e f)
 
 
-instance Binary Foreign where
-  get = liftM2 Foreign get get
-  put (Foreign a b) = put a >> put b
+-- instance Binary Foreign where
+--   get = liftM2 Foreign get get
+--   put (Foreign a b) = put a >> put b
 
 
 instance Binary Artifacts where

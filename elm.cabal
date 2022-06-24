@@ -211,9 +211,10 @@ Executable watchtower
         -- ext-common
         Ext.Common
         Ext.FileCached
-        Ext.FileCached.Details
-        Ext.FileCached.Build
         Ext.FileCached.BackgroundWriter
+        Ext.FileCached.Build
+        Ext.FileCached.Details
+        Ext.FileCached.Generate
         Ext.ElmFormat
 
         -- ext-sentry

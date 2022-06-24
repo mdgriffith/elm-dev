@@ -28,7 +28,7 @@ import Ext.Common (getProjectRootFor, trackedForkIO)
 import qualified Ext.Common
 import qualified Ext.Filewatch as Filewatch
 import qualified Ext.Sentry as Sentry
-import qualified Generate
+import qualified Ext.FileCached.Generate as Generate
 import qualified Generate.Html as Html
 import Json.Encode ((==>))
 import qualified Json.Encode as Encode
@@ -42,6 +42,7 @@ import StandaloneInstances
 import qualified Stuff
 import qualified System.Directory as Dir
 import System.FilePath as FP
+import qualified Ext.FileCached
 
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
@@ -51,6 +52,8 @@ compileToJson root paths =
     result <- compile root paths
 
     -- hindentPrintValue "Exit.Reactor" result
+
+    Ext.FileCached.debugSummary
 
     pure $
       case result of
