@@ -16941,8 +16941,8 @@ var $mdgriffith$elm_ui$Element$rgb = F3(
 var $author$project$Ui$colors = {
 	dark: {
 		dark: A3($mdgriffith$elm_ui$Element$rgb, 0.15, 0.15, 0.15),
-		light: A3($mdgriffith$elm_ui$Element$rgb, 0.05, 0.05, 0.05),
-		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.1, 0.1, 0.1)
+		light: A3($mdgriffith$elm_ui$Element$rgb, 0.45, 0.45, 0.45),
+		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.2, 0.2, 0.2)
 	},
 	grey: {
 		dark: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95),
@@ -16953,20 +16953,14 @@ var $author$project$Ui$colors = {
 	white: A3($mdgriffith$elm_ui$Element$rgb, 1, 1, 1)
 };
 var $author$project$Ui$border = {
-	dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.dark),
+	dark: {
+		dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.dark),
+		light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.light),
+		medium: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.medium)
+	},
 	light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.light),
 	primary: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.primary)
 };
-var $mdgriffith$elm_ui$Internal$Model$AlignX = function (a) {
-	return {$: 'AlignX', a: a};
-};
-var $mdgriffith$elm_ui$Internal$Model$CenterX = {$: 'CenterX'};
-var $mdgriffith$elm_ui$Element$centerX = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$CenterX);
-var $mdgriffith$elm_ui$Internal$Model$AlignY = function (a) {
-	return {$: 'AlignY', a: a};
-};
-var $mdgriffith$elm_ui$Internal$Model$CenterY = {$: 'CenterY'};
-var $mdgriffith$elm_ui$Element$centerY = $mdgriffith$elm_ui$Internal$Model$AlignY($mdgriffith$elm_ui$Internal$Model$CenterY);
 var $mdgriffith$elm_ui$Internal$Model$AsColumn = {$: 'AsColumn'};
 var $mdgriffith$elm_ui$Internal$Model$asColumn = $mdgriffith$elm_ui$Internal$Model$AsColumn;
 var $mdgriffith$elm_ui$Internal$Model$Height = function (a) {
@@ -17035,6 +17029,16 @@ var $mdgriffith$elm_ui$Internal$Model$Fill = function (a) {
 	return {$: 'Fill', a: a};
 };
 var $mdgriffith$elm_ui$Element$fill = $mdgriffith$elm_ui$Internal$Model$Fill(1);
+var $mdgriffith$elm_ui$Element$Font$color = function (fontColor) {
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$fontColor,
+		A3(
+			$mdgriffith$elm_ui$Internal$Model$Colored,
+			'fc-' + $mdgriffith$elm_ui$Internal$Model$formatColorClass(fontColor),
+			'color',
+			fontColor));
+};
 var $mdgriffith$elm_ui$Element$Font$size = function (i) {
 	return A2(
 		$mdgriffith$elm_ui$Internal$Model$StyleClass,
@@ -17042,9 +17046,14 @@ var $mdgriffith$elm_ui$Element$Font$size = function (i) {
 		$mdgriffith$elm_ui$Internal$Model$FontSize(i));
 };
 var $author$project$Ui$font = {
-	body: $mdgriffith$elm_ui$Element$Font$size(16),
+	body: $mdgriffith$elm_ui$Element$Font$size(14),
 	cyan: $mdgriffith$elm_ui$Element$htmlAttribute(
 		A2($elm$html$Html$Attributes$style, 'color', 'cyan')),
+	dark: {
+		dark: $mdgriffith$elm_ui$Element$Font$color($author$project$Ui$colors.dark.dark),
+		light: $mdgriffith$elm_ui$Element$Font$color($author$project$Ui$colors.dark.light),
+		medium: $mdgriffith$elm_ui$Element$Font$color($author$project$Ui$colors.dark.medium)
+	},
 	info: $mdgriffith$elm_ui$Element$htmlAttribute(
 		$elm$html$Html$Attributes$class('info'))
 };
@@ -17066,7 +17075,7 @@ var $author$project$Ui$header = {
 			$mdgriffith$elm_ui$Element$el,
 			_List_fromArray(
 				[
-					$mdgriffith$elm_ui$Element$Font$size(20),
+					$mdgriffith$elm_ui$Element$Font$size(14),
 					$mdgriffith$elm_ui$Element$Font$bold
 				]),
 			$mdgriffith$elm_ui$Element$text(str));
@@ -17076,32 +17085,12 @@ var $author$project$Ui$header = {
 			$mdgriffith$elm_ui$Element$el,
 			_List_fromArray(
 				[
-					$mdgriffith$elm_ui$Element$Font$size(25),
+					$mdgriffith$elm_ui$Element$Font$size(16),
 					$mdgriffith$elm_ui$Element$Font$bold
 				]),
 			$mdgriffith$elm_ui$Element$text(str));
 	}
 };
-var $author$project$Editor$overlap = F2(
-	function (one, two) {
-		return ((_Utils_cmp(one.start.row, two.start.row) > -1) && (_Utils_cmp(one.start.row, two.end.row) < 1)) ? true : (((_Utils_cmp(one.end.row, two.start.row) > -1) && (_Utils_cmp(one.end.row, two.end.row) < 1)) ? true : false);
-	});
-var $author$project$Editor$visible = F2(
-	function (rng, viewing) {
-		return A2(
-			$elm$core$List$any,
-			$author$project$Editor$overlap(rng),
-			viewing);
-	});
-var $author$project$Main$isVisible = F3(
-	function (editors, path, region) {
-		return A2(
-			$elm$core$List$any,
-			function (e) {
-				return _Utils_eq(e.fileName, path) ? A2($author$project$Editor$visible, region, e.ranges) : false;
-			},
-			editors);
-	});
 var $mdgriffith$elm_ui$Element$Events$onClick = A2($elm$core$Basics$composeL, $mdgriffith$elm_ui$Internal$Model$Attr, $elm$html$Html$Events$onClick);
 var $author$project$Ui$mapSpacing = F2(
 	function (fn, sp) {
@@ -17109,7 +17098,8 @@ var $author$project$Ui$mapSpacing = F2(
 			lg: fn(sp.lg),
 			md: fn(sp.md),
 			sm: fn(sp.sm),
-			xl: fn(sp.xl)
+			xl: fn(sp.xl),
+			zero: fn(sp.zero)
 		};
 	});
 var $mdgriffith$elm_ui$Internal$Model$PaddingStyle = F5(
@@ -17151,7 +17141,7 @@ var $mdgriffith$elm_ui$Element$paddingXY = F2(
 				y,
 				x));
 	});
-var $author$project$Ui$spaceValues = {lg: 25, md: 10, sm: 5, xl: 50};
+var $author$project$Ui$spaceValues = {lg: 15, md: 10, sm: 5, xl: 20, zero: 0};
 var $author$project$Ui$pad = {
 	lg: $mdgriffith$elm_ui$Element$padding($author$project$Ui$spaceValues.lg),
 	md: $mdgriffith$elm_ui$Element$padding($author$project$Ui$spaceValues.md),
@@ -17190,7 +17180,7 @@ var $mdgriffith$elm_ui$Element$Border$rounded = function (radius) {
 };
 var $author$project$Ui$rounded = {
 	full: $mdgriffith$elm_ui$Element$Border$rounded(10000),
-	md: $mdgriffith$elm_ui$Element$Border$rounded(3)
+	md: $mdgriffith$elm_ui$Element$Border$rounded(5)
 };
 var $mdgriffith$elm_ui$Internal$Model$AsRow = {$: 'AsRow'};
 var $mdgriffith$elm_ui$Internal$Model$asRow = $mdgriffith$elm_ui$Internal$Model$AsRow;
@@ -17256,6 +17246,7 @@ var $mdgriffith$elm_ui$Element$paragraph = F2(
 						attrs))),
 			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
 	});
+var $elm$core$String$trim = _String_trim;
 var $author$project$Main$colorAttribute = function (maybeColor) {
 	if (maybeColor.$ === 'Nothing') {
 		return A2($elm$html$Html$Attributes$style, '', '');
@@ -17289,91 +17280,6 @@ var $author$project$Main$viewText = function (txt) {
 			$mdgriffith$elm_ui$Element$text(styled.string));
 	}
 };
-var $author$project$Main$viewIssueDetails = F3(
-	function (expanded, file, issue) {
-		return A2(
-			$mdgriffith$elm_ui$Element$column,
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$Events$onClick(
-					A2($author$project$Model$EditorGoTo, file.path, issue.region)),
-					$mdgriffith$elm_ui$Element$pointer,
-					$author$project$Ui$space.lg
-				]),
-			_List_fromArray(
-				[
-					A2(
-					$mdgriffith$elm_ui$Element$row,
-					_List_Nil,
-					_List_fromArray(
-						[
-							_Utils_eq(issue.region.start.row, issue.region.end.row) ? A2(
-							$mdgriffith$elm_ui$Element$el,
-							_List_fromArray(
-								[
-									$author$project$Ui$font.cyan,
-									$mdgriffith$elm_ui$Element$alpha(0.5),
-									$mdgriffith$elm_ui$Element$width(
-									$mdgriffith$elm_ui$Element$px(50))
-								]),
-							$mdgriffith$elm_ui$Element$text(
-								$elm$core$String$fromInt(issue.region.start.row))) : A2(
-							$mdgriffith$elm_ui$Element$row,
-							_List_fromArray(
-								[
-									$author$project$Ui$font.cyan,
-									$mdgriffith$elm_ui$Element$alpha(0.5),
-									$mdgriffith$elm_ui$Element$width(
-									$mdgriffith$elm_ui$Element$px(50))
-								]),
-							_List_fromArray(
-								[
-									$mdgriffith$elm_ui$Element$text(
-									$elm$core$String$fromInt(issue.region.start.row)),
-									$mdgriffith$elm_ui$Element$text(':'),
-									$mdgriffith$elm_ui$Element$text(
-									$elm$core$String$fromInt(issue.region.end.row))
-								])),
-							A2(
-							$mdgriffith$elm_ui$Element$el,
-							_List_fromArray(
-								[$author$project$Ui$font.cyan]),
-							$mdgriffith$elm_ui$Element$text(issue.title))
-						])),
-					expanded ? A2(
-					$mdgriffith$elm_ui$Element$paragraph,
-					_List_fromArray(
-						[$author$project$Ui$pad.xy.xl.sm, $author$project$Ui$precise]),
-					A2($elm$core$List$map, $author$project$Main$viewText, issue.message)) : $mdgriffith$elm_ui$Element$none
-				]));
-	});
-var $author$project$Ui$when = F2(
-	function (condition, content) {
-		return condition ? content : $mdgriffith$elm_ui$Element$none;
-	});
-var $author$project$Main$viewMetric = F3(
-	function (name, viewer, vals) {
-		if (!vals.b) {
-			return $mdgriffith$elm_ui$Element$none;
-		} else {
-			return A2(
-				$mdgriffith$elm_ui$Element$column,
-				_List_fromArray(
-					[$author$project$Ui$space.lg]),
-				_List_fromArray(
-					[
-						A2(
-						$author$project$Ui$when,
-						!$elm$core$List$isEmpty(vals),
-						$author$project$Ui$header.three(name)),
-						A2(
-						$mdgriffith$elm_ui$Element$column,
-						_List_fromArray(
-							[$author$project$Ui$space.lg]),
-						A2($elm$core$List$map, viewer, vals))
-					]));
-		}
-	});
 var $mdgriffith$elm_ui$Internal$Model$BorderWidth = F5(
 	function (a, b, c, d, e) {
 		return {$: 'BorderWidth', a: a, b: b, c: c, d: d, e: e};
@@ -17390,6 +17296,111 @@ var $mdgriffith$elm_ui$Element$Border$width = function (v) {
 			v,
 			v));
 };
+var $author$project$Main$viewIssueDetails = F3(
+	function (expanded, file, issue) {
+		return A2(
+			$mdgriffith$elm_ui$Element$row,
+			_List_fromArray(
+				[
+					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+					$author$project$Ui$space.md,
+					$author$project$Ui$border.light,
+					$author$project$Ui$pad.lg,
+					$author$project$Ui$rounded.md,
+					$mdgriffith$elm_ui$Element$Border$width(1)
+				]),
+			_List_fromArray(
+				[
+					A2(
+					$mdgriffith$elm_ui$Element$column,
+					_List_fromArray(
+						[
+							$mdgriffith$elm_ui$Element$Events$onClick(
+							A2($author$project$Model$EditorGoTo, file.path, issue.region)),
+							$mdgriffith$elm_ui$Element$pointer,
+							$author$project$Ui$space.lg,
+							$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
+						]),
+					_List_fromArray(
+						[
+							A2(
+							$mdgriffith$elm_ui$Element$row,
+							_List_fromArray(
+								[$author$project$Ui$space.md]),
+							_List_fromArray(
+								[
+									_Utils_eq(issue.region.start.row, issue.region.end.row) ? A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$Ui$font.dark.light]),
+									$mdgriffith$elm_ui$Element$text(
+										$elm$core$String$fromInt(issue.region.start.row))) : A2(
+									$mdgriffith$elm_ui$Element$row,
+									_List_fromArray(
+										[$author$project$Ui$font.dark.light]),
+									_List_fromArray(
+										[
+											$mdgriffith$elm_ui$Element$text(
+											$elm$core$String$fromInt(issue.region.start.row)),
+											$mdgriffith$elm_ui$Element$text(':'),
+											$mdgriffith$elm_ui$Element$text(
+											$elm$core$String$fromInt(issue.region.end.row))
+										])),
+									A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$Ui$font.dark.light]),
+									$mdgriffith$elm_ui$Element$text(
+										$elm$core$String$trim(issue.title)))
+								])),
+							expanded ? A2(
+							$mdgriffith$elm_ui$Element$paragraph,
+							_List_fromArray(
+								[$author$project$Ui$pad.xy.zero.sm, $author$project$Ui$precise]),
+							A2($elm$core$List$map, $author$project$Main$viewText, issue.message)) : $mdgriffith$elm_ui$Element$none
+						]))
+				]));
+	});
+var $author$project$Main$viewFileOverview = function (file) {
+	return A2(
+		$mdgriffith$elm_ui$Element$column,
+		_List_fromArray(
+			[$author$project$Ui$space.sm]),
+		_List_fromArray(
+			[
+				A2(
+				$mdgriffith$elm_ui$Element$el,
+				_List_fromArray(
+					[$author$project$Ui$font.dark.light]),
+				$mdgriffith$elm_ui$Element$text(file.name + '.elm')),
+				A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[$author$project$Ui$space.md]),
+				A2(
+					$elm$core$List$map,
+					function (issue) {
+						return A3($author$project$Main$viewIssueDetails, true, file, issue);
+					},
+					file.problem))
+			]));
+};
+var $author$project$Main$viewMetric = F3(
+	function (name, viewer, vals) {
+		if (!vals.b) {
+			return $mdgriffith$elm_ui$Element$none;
+		} else {
+			return A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[$author$project$Ui$space.md]),
+				A2($elm$core$List$map, viewer, vals));
+		}
+	});
+var $author$project$Ui$when = F2(
+	function (condition, content) {
+		return condition ? content : $mdgriffith$elm_ui$Element$none;
+	});
 var $author$project$Main$viewOverview = function (model) {
 	var viewTypeSignature = F2(
 		function (file, signature) {
@@ -17504,30 +17515,6 @@ var $author$project$Main$viewOverview = function (model) {
 					A2($elm$core$List$map, $author$project$Main$viewText, global.problem.message))
 				]));
 	};
-	var viewFileOverview = function (file) {
-		return A2(
-			$mdgriffith$elm_ui$Element$column,
-			_List_fromArray(
-				[$author$project$Ui$space.md]),
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$text(file.name + '.elm'),
-					A2(
-					$mdgriffith$elm_ui$Element$column,
-					_List_fromArray(
-						[$author$project$Ui$space.md]),
-					A2(
-						$elm$core$List$map,
-						function (issue) {
-							return A3(
-								$author$project$Main$viewIssueDetails,
-								A3($author$project$Main$isVisible, model.visible, file.path, issue.region),
-								file,
-								issue);
-						},
-						file.problem))
-				]));
-	};
 	var missing = A2(
 		$elm$core$List$filterMap,
 		function (editor) {
@@ -17573,14 +17560,11 @@ var $author$project$Main$viewOverview = function (model) {
 		_List_fromArray(
 			[
 				$author$project$Ui$space.lg,
-				$mdgriffith$elm_ui$Element$centerX,
-				$mdgriffith$elm_ui$Element$centerY,
 				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
 				$author$project$Ui$pad.xl
 			]),
 		_List_fromArray(
 			[
-				$author$project$Ui$header.two('Overview'),
 				A2(
 				$author$project$Ui$when,
 				$elm$core$List$isEmpty(found.globals) && ($elm$core$List$isEmpty(found.errs) && $elm$core$List$isEmpty(missing)),
@@ -17596,7 +17580,7 @@ var $author$project$Main$viewOverview = function (model) {
 							$mdgriffith$elm_ui$Element$text('No errors 🎉'))))),
 				A3($author$project$Main$viewMetric, 'Missing typesignatures', viewSignatureGroup, missing),
 				A3($author$project$Main$viewMetric, 'Global', viewGlobalError, found.globals),
-				A3($author$project$Main$viewMetric, 'Errors', viewFileOverview, found.errs)
+				A3($author$project$Main$viewMetric, 'Errors', $author$project$Main$viewFileOverview, found.errs)
 			]));
 };
 var $author$project$Main$view = function (model) {

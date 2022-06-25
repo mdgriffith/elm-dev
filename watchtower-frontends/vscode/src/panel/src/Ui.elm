@@ -103,6 +103,20 @@ body {
 """
 
 
+colors :
+    { dark :
+        { dark : Ui.Color
+        , light : Ui.Color
+        , medium : Ui.Color
+        }
+    , grey :
+        { dark : Ui.Color
+        , light : Ui.Color
+        , medium : Ui.Color
+        }
+    , primary : Ui.Color
+    , white : Ui.Color
+    }
 colors =
     { primary = Ui.rgb 0 0.5 0.25
     , white = Ui.rgb 1 1 1
@@ -112,23 +126,26 @@ colors =
         , dark = Ui.rgb 0.95 0.95 0.95
         }
     , dark =
-        { light = Ui.rgb 0.05 0.05 0.05
-        , medium = Ui.rgb 0.1 0.1 0.1
+        { light = Ui.rgb 0.45 0.45 0.45
+        , medium = Ui.rgb 0.2 0.2 0.2
         , dark = Ui.rgb 0.15 0.15 0.15
         }
     }
 
 
 spaceValues =
-    { sm = 5
+    { zero = 0
+    , sm = 5
     , md = 10
-    , lg = 25
-    , xl = 50
+    , lg = 15
+    , xl = 20
     }
 
 
+mapSpacing : (a -> b) -> { c | zero : a, lg : a, md : a, sm : a, xl : a } -> { zero : b, lg : b, md : b, sm : b, xl : b }
 mapSpacing fn sp =
-    { sm = fn sp.sm
+    { zero = fn sp.zero
+    , sm = fn sp.sm
     , md = fn sp.md
     , lg = fn sp.lg
     , xl = fn sp.xl
@@ -160,7 +177,7 @@ pad =
 
 
 rounded =
-    { md = Border.rounded 3
+    { md = Border.rounded 5
     , full = Border.rounded 10000
     }
 
@@ -168,7 +185,11 @@ rounded =
 border =
     { primary = Border.color colors.primary
     , light = Border.color colors.grey.light
-    , dark = Border.color colors.dark.dark
+    , dark =
+        { light = Border.color colors.dark.light
+        , medium = Border.color colors.dark.medium
+        , dark = Border.color colors.dark.dark
+        }
     }
 
 
@@ -179,11 +200,16 @@ background =
 
 
 font =
-    { body = Font.size 16
+    { body = Font.size 14
     , cyan =
         Ui.htmlAttribute (Attr.style "color" "cyan")
     , info =
         Ui.htmlAttribute (Attr.class "info")
+    , dark =
+        { light = Font.color colors.dark.light
+        , medium = Font.color colors.dark.medium
+        , dark = Font.color colors.dark.dark
+        }
     }
 
 
@@ -195,10 +221,10 @@ anim =
 header =
     { two =
         \str ->
-            Ui.el [ Font.size 25, Font.bold ] (Ui.text str)
+            Ui.el [ Font.size 16, Font.bold ] (Ui.text str)
     , three =
         \str ->
-            Ui.el [ Font.size 20, Font.bold ] (Ui.text str)
+            Ui.el [ Font.size 14, Font.bold ] (Ui.text str)
     }
 
 

@@ -227,21 +227,6 @@ viewOverview model =
                 }
                 model.projects
 
-        viewFileOverview file =
-            Ui.column [ Ui.space.md ]
-                [ Ui.text (file.name ++ ".elm")
-                , Ui.column [ Ui.space.md ]
-                    (List.map
-                        (\issue ->
-                            viewIssueDetails
-                                (isVisible model.visible file.path issue.region)
-                                file
-                                issue
-                        )
-                        file.problem
-                    )
-                ]
-
         viewGlobalError global =
             Ui.column
                 [ Ui.space.md ]
@@ -338,13 +323,10 @@ viewOverview model =
     in
     Ui.column
         [ Ui.space.lg
-        , Ui.centerX
-        , Ui.centerY
         , Ui.width Ui.fill
         , Ui.pad.xl
         ]
-        [ Ui.header.two "Overview"
-        , Keyed.el []
+        [ Keyed.el []
             ( String.fromInt model.projectsVersion
             , Ui.el
                 [ Ui.anim.blink
@@ -370,12 +352,25 @@ viewMetric name viewer vals =
             Ui.none
 
         _ ->
-            Ui.column [ Ui.space.lg ]
-                [ Ui.header.three name
-                    |> Ui.when (not (List.isEmpty vals))
-                , Ui.column [ Ui.space.lg ]
-                    (List.map viewer vals)
-                ]
+            Ui.column [ Ui.space.md ]
+                (List.map viewer vals)
+
+
+viewFileOverview file =
+    Ui.column [ Ui.space.sm ]
+        [ Ui.el [ Ui.font.dark.light ] (Ui.text (file.name ++ ".elm"))
+        , Ui.column [ Ui.space.md ]
+            (List.map
+                (\issue ->
+                    viewIssueDetails
+                        -- (isVisible model.visible file.path issue.region)
+                        True
+                        file
+                        issue
+                )
+                file.problem
+            )
+        ]
 
 
 isVisible : List Editor.Editor -> String -> Editor.Region -> Bool
@@ -392,42 +387,48 @@ isVisible editors path region =
 
 
 viewIssueDetails expanded file issue =
-    Ui.column
-        [ Events.onClick (EditorGoTo file.path issue.region)
-        , Ui.pointer
-        , Ui.space.lg
+    Ui.row
+        [ Ui.width Ui.fill
+        , Ui.space.md
+        , Ui.border.light
+        , Ui.pad.lg
+        , Ui.rounded.md
+        , Border.width 1
         ]
-        [ Ui.row []
-            [ if issue.region.start.row == issue.region.end.row then
-                Ui.el
-                    [ Ui.font.cyan
-                    , Ui.alpha 0.5
-                    , Ui.width (Ui.px 50)
+        [ Ui.column
+            [ Events.onClick (EditorGoTo file.path issue.region)
+            , Ui.pointer
+            , Ui.space.lg
+            , Ui.width Ui.fill
+            ]
+            [ Ui.row [ Ui.space.md ]
+                [ if issue.region.start.row == issue.region.end.row then
+                    Ui.el
+                        [ Ui.font.dark.light
+                        ]
+                        (Ui.text (String.fromInt issue.region.start.row))
+
+                  else
+                    Ui.row
+                        [ Ui.font.dark.light
+                        ]
+                        [ Ui.text (String.fromInt issue.region.start.row)
+                        , Ui.text ":"
+                        , Ui.text (String.fromInt issue.region.end.row)
+                        ]
+                , Ui.el [ Ui.font.dark.light ]
+                    (Ui.text (String.trim issue.title))
+                ]
+            , if expanded then
+                Ui.paragraph
+                    [ Ui.pad.xy.zero.sm
+                    , Ui.precise
                     ]
-                    (Ui.text (String.fromInt issue.region.start.row))
+                    (List.map viewText issue.message)
 
               else
-                Ui.row
-                    [ Ui.font.cyan
-                    , Ui.alpha 0.5
-                    , Ui.width (Ui.px 50)
-                    ]
-                    [ Ui.text (String.fromInt issue.region.start.row)
-                    , Ui.text ":"
-                    , Ui.text (String.fromInt issue.region.end.row)
-                    ]
-            , Ui.el [ Ui.font.cyan ]
-                (Ui.text issue.title)
+                Ui.none
             ]
-        , if expanded then
-            Ui.paragraph
-                [ Ui.pad.xy.xl.sm
-                , Ui.precise
-                ]
-                (List.map viewText issue.message)
-
-          else
-            Ui.none
         ]
 
 
@@ -498,14 +499,6 @@ onlyBelow maybeViewing iss =
 
         Just viewing ->
             Editor.below iss.region viewing.ranges
-
-
-viewIf condition html =
-    if condition then
-        html
-
-    else
-        Ui.text ""
 
 
 viewFileIssue fileIssue =
