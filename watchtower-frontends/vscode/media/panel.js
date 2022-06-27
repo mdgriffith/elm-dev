@@ -10733,11 +10733,11 @@ var $elm$json$Json$Decode$map4 = _Json_map4;
 var $author$project$Editor$decodeEditor = A5(
 	$elm$json$Json$Decode$map4,
 	$author$project$Editor$Editor,
-	A2($elm$json$Json$Decode$field, 'path', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'fileName', $elm$json$Json$Decode$string),
 	A2($elm$json$Json$Decode$field, 'unsavedChanges', $elm$json$Json$Decode$bool),
 	A2(
 		$elm$json$Json$Decode$field,
-		'visibleRegions',
+		'ranges',
 		$elm$json$Json$Decode$list($author$project$Editor$decodeRegion)),
 	A2(
 		$elm$json$Json$Decode$field,
@@ -10941,7 +10941,7 @@ var $author$project$Ports$incomingDecoder = A2(
 									return $.status;
 								},
 								$author$project$Elm$decodeProject))));
-			case 'Visible':
+			case 'EditorVisibilityChanged':
 				return A2(
 					$elm$json$Json$Decode$field,
 					'details',

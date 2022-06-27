@@ -128,36 +128,7 @@ export class Watchtower {
       }
     });
 
-    /*  vscode.window.onDidChangeActiveTextEditor((editor) => {
-      if (editor) {
-        self.send({
-          command: "CodeViewChanged",
-          fileName: editor.document.fileName,
-          ranges: prepareRanges(editor.visibleRanges),
-          selections: editor.selections,
-        });
-      }
-    }); */
-
-    /* vscode.window.onDidChangeTextEditorVisibleRanges((visibleRanges) => {
-      if (visibleRanges) {
-        self.send({
-          command: "CodeViewChanged",
-          fileName: visibleRanges.textEditor.document.fileName,
-          ranges: prepareRanges(visibleRanges.visibleRanges),
-          selections: visibleRanges.textEditor.selections,
-        });
-      }
-    }); */
-
-    /* if (vscode.window.activeTextEditor) {
-      self.send({
-        command: "CodeViewChanged",
-        fileName: vscode.window.activeTextEditor.document.fileName,
-        ranges: prepareRanges(vscode.window.activeTextEditor.visibleRanges),
-        selections: vscode.window.activeTextEditor.selections,
-      });
-    } */
+   
   }
   private receive(msgString: string) {
     const self = this;

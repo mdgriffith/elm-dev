@@ -5,6 +5,8 @@ import * as log from "./utils/log";
 import * as watchtower from "./watchtower";
 import { ElmProjectPane, ElmProjectSerializer } from "./panel/panel";
 
+import * as PanelMsg from "./panel/messages";
+
 const ElmLanguage: vscode.DocumentFilter = { language: "elm", scheme: "file" };
 
 // this method is called when your extension is activated
@@ -62,6 +64,20 @@ export function activate(context: vscode.ExtensionContext) {
     ElmProjectPane.viewType,
     new ElmProjectSerializer(context.extensionPath)
   );
+
+  /*  Send editor visibility msgs to the Panel */
+
+  vscode.window.onDidChangeActiveTextEditor((editor) => {
+    ElmProjectPane.send(PanelMsg.sendEditorVisibility());
+  });
+
+  vscode.window.onDidChangeTextEditorVisibleRanges((visibleRanges) => {
+    ElmProjectPane.send(PanelMsg.sendEditorVisibility());
+  });
+
+  if (vscode.window.activeTextEditor) {
+    ElmProjectPane.send(PanelMsg.sendEditorVisibility());
+  }
 }
 
 export function deactivate() {}

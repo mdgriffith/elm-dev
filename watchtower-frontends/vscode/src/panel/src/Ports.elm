@@ -76,7 +76,7 @@ incomingDecoder =
                         Decode.map ProjectsStatusUpdated
                             (Decode.field "details" (Decode.list (Decode.map .status Elm.decodeProject)))
 
-                    "Visible" ->
+                    "EditorVisibilityChanged" ->
                         Decode.field "details"
                             (Decode.map2
                                 (\active vis ->

@@ -86,9 +86,9 @@ encodePosition pos =
 decodeEditor : Decode.Decoder Editor
 decodeEditor =
     Decode.map4 Editor
-        (Decode.field "path" Decode.string)
+        (Decode.field "fileName" Decode.string)
         (Decode.field "unsavedChanges" Decode.bool)
-        (Decode.field "visibleRegions" (Decode.list decodeRegion))
+        (Decode.field "ranges" (Decode.list decodeRegion))
         (Decode.field "selections" (Decode.list decodeRegion))
 
 
