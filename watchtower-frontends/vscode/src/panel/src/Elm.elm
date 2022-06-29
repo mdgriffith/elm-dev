@@ -134,7 +134,12 @@ decodeStatus =
                                 )
 
                         Many ->
-                            Decode.map (\err -> CompilerError { errors = err })
+                            Decode.map
+                                (\err ->
+                                    CompilerError
+                                        { errors = err
+                                        }
+                                )
                                 (Decode.field "errors" (Decode.list fileError))
                 )
         ]
@@ -160,7 +165,12 @@ fileError =
     Decode.map3 File
         (Decode.field "path" Decode.string)
         (Decode.field "name" Decode.string)
-        (Decode.field "problems" (Decode.list decodeProblem))
+        (Decode.field "problems"
+            (Decode.map
+                (List.sortBy (.region >> .start >> .row))
+                (Decode.list decodeProblem)
+            )
+        )
 
 
 decodeProblem =

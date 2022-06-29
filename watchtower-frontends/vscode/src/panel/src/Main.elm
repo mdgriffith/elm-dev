@@ -349,7 +349,7 @@ viewOverview model =
             viewSignatureGroup
             missing
         , viewMetric "Global" viewGlobalError found.globals
-        , viewMetric "Errors" viewFileOverview found.errs
+        , viewMetric "Errors" (viewFileOverview model) found.errs
         ]
 
 
@@ -363,15 +363,14 @@ viewMetric name viewer vals =
                 (List.map viewer vals)
 
 
-viewFileOverview file =
+viewFileOverview model file =
     Ui.column [ Ui.space.sm ]
         [ Ui.el [ Ui.font.dark.light ] (Ui.text (file.name ++ ".elm"))
         , Ui.column [ Ui.space.md ]
             (List.map
                 (\issue ->
                     viewIssueDetails
-                        -- (isVisible model.visible file.path issue.region)
-                        True
+                        (isVisible model.visible file.path issue.region)
                         file
                         issue
                 )
@@ -426,15 +425,38 @@ viewIssueDetails expanded file issue =
                 , Ui.el [ Ui.font.dark.light ]
                     (Ui.text (String.trim issue.title))
                 ]
-            , if expanded then
+            , Ui.el
+                [ Ui.width Ui.fill
+                , if expanded then
+                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 250ms")
+
+                  else
+                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 100ms")
+                , Ui.htmlAttribute (Html.Attributes.style "overflow" "hidden")
+                , Ui.htmlAttribute
+                    (Html.Attributes.style "max-height"
+                        (if expanded then
+                            "1000px"
+
+                         else
+                            "0px"
+                        )
+                    )
+                , Ui.htmlAttribute
+                    (if expanded then
+                        Html.Attributes.class ""
+
+                     else
+                        Html.Attributes.style "margin"
+                            "0px"
+                    )
+                ]
+              <|
                 Ui.paragraph
                     [ Ui.pad.xy.zero.sm
                     , Ui.precise
                     ]
                     (List.map viewText issue.message)
-
-              else
-                Ui.none
             ]
         ]
 

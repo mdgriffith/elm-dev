@@ -10849,6 +10849,7 @@ var $author$project$Elm$decodeProblem = A4(
 		'message',
 		$elm$json$Json$Decode$list($author$project$Elm$text)),
 	A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion));
+var $elm$core$List$sortBy = _List_sortBy;
 var $author$project$Elm$fileError = A4(
 	$elm$json$Json$Decode$map3,
 	$author$project$Elm$File,
@@ -10857,7 +10858,23 @@ var $author$project$Elm$fileError = A4(
 	A2(
 		$elm$json$Json$Decode$field,
 		'problems',
-		$elm$json$Json$Decode$list($author$project$Elm$decodeProblem)));
+		A2(
+			$elm$json$Json$Decode$map,
+			$elm$core$List$sortBy(
+				A2(
+					$elm$core$Basics$composeR,
+					function ($) {
+						return $.region;
+					},
+					A2(
+						$elm$core$Basics$composeR,
+						function ($) {
+							return $.start;
+						},
+						function ($) {
+							return $.row;
+						}))),
+			$elm$json$Json$Decode$list($author$project$Elm$decodeProblem))));
 var $elm$json$Json$Decode$nullable = function (decoder) {
 	return $elm$json$Json$Decode$oneOf(
 		_List_fromArray(
@@ -11393,7 +11410,6 @@ var $author$project$Ports$outgoing = function (out) {
 	return $author$project$Ports$toWorld(
 		$author$project$Ports$encodeOutgoing(out));
 };
-var $elm$core$List$sortBy = _List_sortBy;
 var $elm$core$List$any = F2(
 	function (isOkay, list) {
 		any:
@@ -17222,8 +17238,26 @@ var $mdgriffith$elm_ui$Element$spacing = function (x) {
 			x));
 };
 var $author$project$Ui$space = A2($author$project$Ui$mapSpacing, $mdgriffith$elm_ui$Element$spacing, $author$project$Ui$spaceValues);
-var $mdgriffith$elm_ui$Internal$Model$Empty = {$: 'Empty'};
-var $mdgriffith$elm_ui$Element$none = $mdgriffith$elm_ui$Internal$Model$Empty;
+var $author$project$Editor$overlap = F2(
+	function (one, two) {
+		return ((_Utils_cmp(one.start.row, two.start.row) > -1) && (_Utils_cmp(one.start.row, two.end.row) < 1)) ? true : (((_Utils_cmp(one.end.row, two.start.row) > -1) && (_Utils_cmp(one.end.row, two.end.row) < 1)) ? true : false);
+	});
+var $author$project$Editor$visible = F2(
+	function (rng, viewing) {
+		return A2(
+			$elm$core$List$any,
+			$author$project$Editor$overlap(rng),
+			viewing);
+	});
+var $author$project$Main$isVisible = F3(
+	function (editors, path, region) {
+		return A2(
+			$elm$core$List$any,
+			function (e) {
+				return _Utils_eq(e.fileName, path) ? A2($author$project$Editor$visible, region, e.ranges) : false;
+			},
+			editors);
+	});
 var $mdgriffith$elm_ui$Internal$Model$Describe = function (a) {
 	return {$: 'Describe', a: a};
 };
@@ -17353,38 +17387,63 @@ var $author$project$Main$viewIssueDetails = F3(
 									$mdgriffith$elm_ui$Element$text(
 										$elm$core$String$trim(issue.title)))
 								])),
-							expanded ? A2(
-							$mdgriffith$elm_ui$Element$paragraph,
+							A2(
+							$mdgriffith$elm_ui$Element$el,
 							_List_fromArray(
-								[$author$project$Ui$pad.xy.zero.sm, $author$project$Ui$precise]),
-							A2($elm$core$List$map, $author$project$Main$viewText, issue.message)) : $mdgriffith$elm_ui$Element$none
+								[
+									$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+									expanded ? $mdgriffith$elm_ui$Element$htmlAttribute(
+									A2($elm$html$Html$Attributes$style, 'transition', 'max-height 250ms')) : $mdgriffith$elm_ui$Element$htmlAttribute(
+									A2($elm$html$Html$Attributes$style, 'transition', 'max-height 100ms')),
+									$mdgriffith$elm_ui$Element$htmlAttribute(
+									A2($elm$html$Html$Attributes$style, 'overflow', 'hidden')),
+									$mdgriffith$elm_ui$Element$htmlAttribute(
+									A2(
+										$elm$html$Html$Attributes$style,
+										'max-height',
+										expanded ? '1000px' : '0px')),
+									$mdgriffith$elm_ui$Element$htmlAttribute(
+									expanded ? $elm$html$Html$Attributes$class('') : A2($elm$html$Html$Attributes$style, 'margin', '0px'))
+								]),
+							A2(
+								$mdgriffith$elm_ui$Element$paragraph,
+								_List_fromArray(
+									[$author$project$Ui$pad.xy.zero.sm, $author$project$Ui$precise]),
+								A2($elm$core$List$map, $author$project$Main$viewText, issue.message)))
 						]))
 				]));
 	});
-var $author$project$Main$viewFileOverview = function (file) {
-	return A2(
-		$mdgriffith$elm_ui$Element$column,
-		_List_fromArray(
-			[$author$project$Ui$space.sm]),
-		_List_fromArray(
-			[
-				A2(
-				$mdgriffith$elm_ui$Element$el,
-				_List_fromArray(
-					[$author$project$Ui$font.dark.light]),
-				$mdgriffith$elm_ui$Element$text(file.name + '.elm')),
-				A2(
-				$mdgriffith$elm_ui$Element$column,
-				_List_fromArray(
-					[$author$project$Ui$space.md]),
-				A2(
-					$elm$core$List$map,
-					function (issue) {
-						return A3($author$project$Main$viewIssueDetails, true, file, issue);
-					},
-					file.problem))
-			]));
-};
+var $author$project$Main$viewFileOverview = F2(
+	function (model, file) {
+		return A2(
+			$mdgriffith$elm_ui$Element$column,
+			_List_fromArray(
+				[$author$project$Ui$space.sm]),
+			_List_fromArray(
+				[
+					A2(
+					$mdgriffith$elm_ui$Element$el,
+					_List_fromArray(
+						[$author$project$Ui$font.dark.light]),
+					$mdgriffith$elm_ui$Element$text(file.name + '.elm')),
+					A2(
+					$mdgriffith$elm_ui$Element$column,
+					_List_fromArray(
+						[$author$project$Ui$space.md]),
+					A2(
+						$elm$core$List$map,
+						function (issue) {
+							return A3(
+								$author$project$Main$viewIssueDetails,
+								A3($author$project$Main$isVisible, model.visible, file.path, issue.region),
+								file,
+								issue);
+						},
+						file.problem))
+				]));
+	});
+var $mdgriffith$elm_ui$Internal$Model$Empty = {$: 'Empty'};
+var $mdgriffith$elm_ui$Element$none = $mdgriffith$elm_ui$Internal$Model$Empty;
 var $author$project$Main$viewMetric = F3(
 	function (name, viewer, vals) {
 		if (!vals.b) {
@@ -17583,7 +17642,11 @@ var $author$project$Main$viewOverview = function (model) {
 							$mdgriffith$elm_ui$Element$text('No errors 🎉'))))),
 				A3($author$project$Main$viewMetric, 'Missing typesignatures', viewSignatureGroup, missing),
 				A3($author$project$Main$viewMetric, 'Global', viewGlobalError, found.globals),
-				A3($author$project$Main$viewMetric, 'Errors', $author$project$Main$viewFileOverview, found.errs)
+				A3(
+				$author$project$Main$viewMetric,
+				'Errors',
+				$author$project$Main$viewFileOverview(model),
+				found.errs)
 			]));
 };
 var $author$project$Main$view = function (model) {
