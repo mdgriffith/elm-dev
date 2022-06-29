@@ -43,13 +43,13 @@ compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.
 compileToJson root paths =
   do
     let toBS = BSL.toStrict . B.toLazyByteString
-    result <- compile root paths
+    result <- compileToDevNull root paths
 
     -- hindentPrintValue "Exit.Reactor" result
 
     pure $
       case result of
-        Right builder ->
+        Right () ->
           Right $
             Encode.object
               [ "compiled" ==> Encode.bool True
@@ -104,3 +104,20 @@ compile root paths =
             javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
             let (NE.List name _) = Build.getRootNames artifacts
             return $ Html.sandwich name javascript
+
+
+
+compileToDevNull :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
+compileToDevNull root paths =
+  do
+    -- Ext.Common.debug $ " compiling " ++ show root ++ " -> " ++ show paths
+    Dir.withCurrentDirectory root $
+      BW.withScope $ \scope -> Stuff.withRootLock root $
+        Task.run $
+          do
+            details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
+            artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
+            -- javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
+            -- let (NE.List name _) = Build.getRootNames artifacts
+            -- return $ Html.sandwich name javascript
+            return ()
