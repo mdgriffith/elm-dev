@@ -46,7 +46,10 @@ export class ElmProjectPane {
                   message.details.region.end.column
                 );
                 const targetRange = new vscode.Range(start, end);
-                editor.revealRange(targetRange);
+                editor.revealRange(
+                  targetRange,
+                  vscode.TextEditorRevealType.InCenterIfOutsideViewport
+                );
               }
             }
 
