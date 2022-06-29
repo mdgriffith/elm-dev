@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as log from "../utils/log";
-import * as watchtower from "../watchtower";
 import * as Message from "./messages";
 
 export class ElmProjectPane {
@@ -14,11 +13,10 @@ export class ElmProjectPane {
 
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionPath: string;
-  private _watchtower: watchtower.Watchtower;
+
   private _disposables: vscode.Disposable[] = [];
 
   private constructor(panel: vscode.WebviewPanel, extensionPath: string) {
-    this._watchtower = new watchtower.Watchtower();
     this._panel = panel;
     this._extensionPath = extensionPath;
     // Set the webview's initial html content
@@ -31,7 +29,6 @@ export class ElmProjectPane {
     // Handle messages from the webview
     this._panel.webview.onDidReceiveMessage(
       (message) => {
-        log.obj("FROM PANEL", message);
         switch (message.msg) {
           case "Jump":
             for (const editorIndex in vscode.window.visibleTextEditors) {
@@ -67,7 +64,6 @@ export class ElmProjectPane {
   }
 
   public static createOrShow(extensionPath: string) {
-    let self = this;
     // If we already have a panel, show it.
     if (ElmProjectPane.currentPanel) {
       ElmProjectPane.currentPanel._panel.reveal(vscode.ViewColumn.Two);
