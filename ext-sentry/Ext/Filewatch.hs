@@ -6,12 +6,13 @@ import Control.Concurrent (forkIO, threadDelay)
 import qualified Control.FoldDebounce as Debounce
 import Control.Monad (forever)
 import qualified Data.List as List
-import Ext.Common
+import qualified Ext.Common
 import qualified System.FSNotify
+import qualified System.FilePath
 
 watch :: FilePath -> ([FilePath] -> IO ()) -> IO ()
 watch root action =
-  trackedForkIO $
+  Ext.Common.trackedForkIO $
      System.FSNotify.withManager $ \mgr -> do
       trigger <-
         Debounce.new
@@ -30,13 +31,23 @@ watch root action =
         mgr -- manager
         root -- directory to watch
         shouldTrigger -- predicate
-        (\event ->
+        (\event -> do
+            Ext.Common.debug ("Changed: " <> toString event)
             Debounce.send trigger (getEventFilePath event)
         )
 
       -- sleep forever (until interrupted)
       forever $ threadDelay 1000000
 
+
+
+toString :: System.FSNotify.Event -> String
+toString event =
+  case event of
+    System.FSNotify.Added filepath _ _ -> "Added " <> System.FilePath.takeFileName filepath
+    System.FSNotify.Modified filepath _ _ -> "Modified " <> System.FilePath.takeFileName filepath
+    System.FSNotify.Removed filepath _ _ -> "Removed " <> System.FilePath.takeFileName filepath
+    System.FSNotify.Unknown filepath _ _ -> "Unknown " <> System.FilePath.takeFileName filepath
 
 getEventFilePath :: System.FSNotify.Event -> FilePath
 getEventFilePath event =
