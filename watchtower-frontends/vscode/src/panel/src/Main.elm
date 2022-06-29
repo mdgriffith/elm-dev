@@ -192,7 +192,12 @@ view model =
     { title = "Watchtower"
     , body =
         [ Ui.overrides
-        , Ui.layout [ Ui.htmlAttribute (Html.Attributes.class "base") ] <|
+        , Ui.layout
+            [ Ui.htmlAttribute (Html.Attributes.class "base")
+            , Ui.width Ui.fill
+            , Ui.height Ui.fill
+            ]
+          <|
             case model.viewing of
                 Overview ->
                     viewOverview model
@@ -324,7 +329,9 @@ viewOverview model =
     Ui.column
         [ Ui.space.lg
         , Ui.width Ui.fill
+        , Ui.height Ui.fill
         , Ui.pad.xl
+        , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
         ]
         [ Keyed.el []
             ( String.fromInt model.projectsVersion
