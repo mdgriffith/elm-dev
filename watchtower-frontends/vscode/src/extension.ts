@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 
 import { ElmFormatProvider, ElmRangeFormatProvider } from "./elmFormat";
 import * as log from "./utils/log";
-import * as watchtower from "./watchtower";
+import * as Watchtower from "./watchtower";
 import { ElmProjectPane, ElmProjectSerializer } from "./panel/panel";
 
 import * as PanelMsg from "./panel/messages";
@@ -11,7 +11,6 @@ const ElmLanguage: vscode.DocumentFilter = { language: "elm", scheme: "file" };
 
 // this method is called when your extension is activated
 export function activate(context: vscode.ExtensionContext) {
-  log.log(`Watchtower activating`);
   const elmFormatStatusBar = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left
   );
@@ -36,7 +35,7 @@ export function activate(context: vscode.ExtensionContext) {
   /* 
       Start watch tower
   */
-  let tower = new watchtower.Watchtower();
+  let tower = new Watchtower.Watchtower();
   vscode.languages.registerCodeLensProvider(
     ElmLanguage,
     tower.codelensProvider
