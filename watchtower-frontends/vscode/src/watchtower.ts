@@ -19,8 +19,6 @@ type Project = {
   entrypoints: String[];
 };
 
-
-
 export class Watchtower {
   private websocket;
   private connection;
@@ -40,7 +38,6 @@ export class Watchtower {
   }
 
   constructor() {
-    log.log("creating watchtower");
     let self = this;
     // create code lens provider
     self.codelensProvider = new SignatureCodeLensProvider();
@@ -57,8 +54,6 @@ export class Watchtower {
     });
 
     self.websocket.on("connect", function (connection) {
-      log.log("WebSocket Client Connected");
-
       connection.on("error", function (error) {
         log.log("Connection Error: " + error.toString());
       });
@@ -76,7 +71,6 @@ export class Watchtower {
 
       if (vscode.workspace.workspaceFolders.length > 0) {
         const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
-        log.log("ROOT: " + root)
         Question.ask(Question.questions.discover(root), (resp) => {
           self.projects = resp;
 
@@ -85,7 +79,6 @@ export class Watchtower {
           for (const proj of self.projects) {
             projectRoots.push(proj.root);
           }
-          log.obj("WATCHING", projectRoots)
           self.send(watch(projectRoots));
 
           vscode.window.visibleTextEditors.forEach((editor) => {
@@ -127,51 +120,49 @@ export class Watchtower {
         self.refreshCodeLenses(editor.document);
       }
     });
-
-   
   }
   private receive(msgString: string) {
     const self = this;
     const msg = JSONSafe.parse(msgString);
-   
+
     if (msg == null) {
-      return
+      return;
     }
-    ElmProjectPane.send(msg)
-    
+    ElmProjectPane.send(msg);
+
     log.obj("Received", msg);
     switch (msg["msg"]) {
       case "Status": {
         self.diagnostics.clear();
-        
+
         for (const project of msg["details"]) {
-          log.obj("PROJECT", project)
-          log.obj("PROJECT.STATUS", project.status)
+          log.obj("PROJECT", project);
+          log.obj("PROJECT.STATUS", project.status);
           if ("errors" in project.status) {
             for (const error of project.status["errors"]) {
-              log.obj("ERROR", error)
+              log.obj("ERROR", error);
               const uri = vscode.Uri.file(error["path"]);
+              const problems = [];
               for (const prob of error["problems"]) {
-                self.diagnostics.set(uri, [
-                  {
-                    code: "elm-compiler-error",
-                    message: formatMessage(prob["message"]),
-                    range: prepareRange(prob["region"]),
-                    severity: vscode.DiagnosticSeverity.Error,
-                    source: "",
-                    relatedInformation: [],
-                  },
-                ]);
+                problems.push({
+                  code: "elm-compiler",
+                  message: formatMessage(prob["message"]),
+                  range: prepareRange(prob["region"]),
+                  severity: vscode.DiagnosticSeverity.Error,
+                  source: "",
+                  relatedInformation: [],
+                });
               }
+              self.diagnostics.set(uri, problems);
             }
           } else if ("compiled" in project.status) {
             // success
           } else {
             // Global error
-            log.log("GLOBAL ERROR -> elm-vscode doesn't do anything with this right now, we should!")
+            log.log(
+              "GLOBAL ERROR -> elm-vscode doesn't do anything with this right now, we should!"
+            );
           }
-
-         
         }
         break;
       }
@@ -189,7 +180,7 @@ export class Watchtower {
   refreshCodeLenses(document: vscode.TextDocument) {
     if (document.languageId != "elm") {
       // We only care about Elm files
-      return 
+      return;
     }
 
     const self = this;
@@ -268,7 +259,7 @@ function prepareRange(region) {
   return new vscode.Range(
     preparePosition(region["start"]),
     preparePosition(region["end"])
-  )
+  );
 }
 
 function preparePosition(pos: any) {
@@ -404,9 +395,9 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
 
   private getSignaturesFor(filepath: string) {
     if (filepath in this.signatures) {
-      return this.signatures[filepath].signatures
+      return this.signatures[filepath].signatures;
     } else {
-      return []
+      return [];
     }
   }
 
@@ -467,7 +458,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
         }
 
         // We don't need to call `setSignatures` because we're already in a render loop.
-        let existing = self.signatures[document.uri.fsPath]
+        let existing = self.signatures[document.uri.fsPath];
         existing.signatures = newSignatures;
       }
     }
@@ -508,8 +499,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
       } else {
         // Recreate them!
         cache.lenses = [];
-        
- 
+
         for (const sig of cache.signatures) {
           var skip = false;
           // if this signature matches an action, then don't do anything with it
