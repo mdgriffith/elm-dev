@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as log from "../utils/log";
 import * as watchtower from "../watchtower";
-import * as Message from "./messages"
+import * as Message from "./messages";
 
 export class ElmProjectPane {
   /**
@@ -31,14 +31,32 @@ export class ElmProjectPane {
     // Handle messages from the webview
     this._panel.webview.onDidReceiveMessage(
       (message) => {
-        log.obj("WEB-RECEIVED", message);
-        // switch (message.command) {
-        //     case 'highlight':
-        //         // vscode.window.showErrorMessage(message.text);
-        //         console.log("Message found")
-        //         console.log(message);
-        //         return;
-        // }
+        log.obj("FROM PANEL", message);
+        switch (message.msg) {
+          case "Jump":
+            for (const editorIndex in vscode.window.visibleTextEditors) {
+              const editor = vscode.window.visibleTextEditors[editorIndex];
+              if (editor.document.uri.path == message.details.path) {
+                const start = new vscode.Position(
+                  message.details.region.start.line,
+                  message.details.region.start.column
+                );
+                const end = new vscode.Position(
+                  message.details.region.end.line,
+                  message.details.region.end.column
+                );
+                const targetRange = new vscode.Range(start, end);
+                editor.revealRange(targetRange);
+              }
+            }
+
+            break;
+
+          default:
+            log.log("Unrecognized msg from elm panel");
+            log.obj("WEB-RECEIVED", message);
+            break;
+        }
       },
       null,
       this._disposables
@@ -61,7 +79,7 @@ export class ElmProjectPane {
         // Enable javascript in the webview
         enableScripts: true,
 
-        // restrict the webview to only loading content 
+        // restrict the webview to only loading content
         // from our extension's `media` directory.
         localResourceRoots: [
           vscode.Uri.file(path.join(extensionPath, "media")),
@@ -76,11 +94,11 @@ export class ElmProjectPane {
     ElmProjectPane.currentPanel = new ElmProjectPane(panel, extensionPath);
   }
 
-  public static send(msg : Message.ToProjectPanel) {
+  public static send(msg: Message.ToProjectPanel) {
     if (ElmProjectPane.currentPanel) {
       ElmProjectPane.currentPanel._panel.webview.postMessage(msg);
     } else {
-      log.log("No panel, dropping msg")
+      log.log("No panel, dropping msg");
     }
   }
 
@@ -178,6 +196,3 @@ export class ElmProjectSerializer implements vscode.WebviewPanelSerializer {
     ElmProjectPane.revive(webviewPanel, this._extensionPath);
   }
 }
-
-
-
