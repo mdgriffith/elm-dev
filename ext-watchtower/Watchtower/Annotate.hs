@@ -2,13 +2,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Watchtower.Annotate
-  ( run,
-    listMissingAnnotations,
-    printListMissingAnnotations,
+  ( listMissingAnnotations,
     annotation,
-    printAnnotation,
     callgraph,
-    printCallGraph,
   )
 where
 
@@ -49,28 +45,6 @@ import Terminal (Parser (..))
 import qualified Text.Show.Unicode
 import qualified Watchtower.Details
 
-{-
-
-Lookup and print out the type annotation for the given file:expression.
-
-@TODO this only works if we've already compiled successfully (no errors) before!
-
-If we instead want to do a check compile first, we'll need to use Lamdera.Compile.make.
-
-Note: if we do this, this annotation query will involve a full disk read of all
-.elm file metadata for the entire project on every single query, as Elm tries to
-figure out if there's any changes requiring an incremental compile.
-
-@FUTURE @TRACK inotify-mode feature (https://trello.com/c/S1LmVKbK) would solve this!
-
--}
-run :: Args -> () -> IO ()
-run (Args file expressionName) () = do
-  Llamadera.debug_ "Starting annotation..."
-
-  elmHome <- PerUserCache.getElmHome
-  root <- Llamadera.getProjectRoot
-  printAnnotation root file expressionName
 
 -- getTopLevelNameAt :: A.Position -> Src.Module -> Maybe Name.Name
 -- getTopLevelNameAt position mod =
@@ -87,40 +61,7 @@ run (Args file expressionName) () = do
 --               Nothing
 --       )
 
-{- For editors to add a button that prompts to insert a missing type annotation, they need to know which annotations are missing.
 
-This will list those annotations as well as their coordinates
-
--}
-printListMissingAnnotations :: FilePath -> FilePath -> IO ()
-printListMissingAnnotations root file = do
-  mSource <- Llamadera.loadFileSource root file
-  case mSource of
-    Left err ->
-      putStrLn $ show err
-    Right (source, modul) -> do
-      let values =
-            modul
-              & Src._values
-              & fmap
-                ( \val ->
-                    case A.toValue val of
-                      Src.Value locatedName _ _ Nothing ->
-                        Json.Encode.object
-                          [ "name" ==> nameToJsonString (A.toValue locatedName),
-                            "region" ==> Watchtower.Details.encodeRegion (A.toRegion locatedName)
-                          ]
-                          & Just
-                      _ ->
-                        Nothing
-                )
-              & Maybe.catMaybes
-              & Json.Encode.list (\a -> a)
-              & Json.Encode.encode
-
-      B.hPutBuilder stderr values
-
-      pure ()
 
 {- For editors to add a button that prompts to insert a missing type annotation, they need to know which annotations are missing.
 
@@ -137,7 +78,7 @@ listMissingAnnotations root file = do
     Right (source, modul) ->
       case eitherArtifacts of
         Left err ->
-          pure $ Json.Encode.string (Json.String.fromChars "Not compiling")
+          pure $ jsonError err
         Right artifacts ->
           do
             let values =
@@ -168,35 +109,6 @@ listMissingAnnotations root file = do
 
             pure values
 
-{-  Print a type signature!
-
--}
-printAnnotation :: FilePath -> FilePath -> Name.Name -> IO ()
-printAnnotation root file expressionName = do
-  mSource <- Llamadera.loadFileSource root file
-  case mSource of
-    Left err ->
-      putStrLn $ show err
-    Right (source, modul) -> do
-      Dir.withCurrentDirectory root $ do
-        Llamadera.debug_ "Getting artifacts..."
-
-        eitherArtifacts <- Llamadera.loadSingleArtifacts root file
-        case eitherArtifacts of
-          Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
-            case annotations & Map.lookup expressionName of
-              Just annotation -> do
-                let imports = modul & Src._imports
-                    selfName = modul & Src.getName
-
-                -- Llamadera.formatHaskellValue ("debug AST") annotation
-                putStrLn $ T.unpack $ canonicalAnnotationToString selfName imports annotation
-              Nothing ->
-                putStrLn "Oops! Something went wrong!"
-          Left err ->
-            putStrLn $ show err
-
-      pure ()
 
 {-  Return a type signature!
 -}
@@ -613,31 +525,7 @@ callgraph root file expressionName = do
         -- @TODO can we use Elm's error JSON formatter here?
         pure $ jsonError err
 
--- |
-printCallGraph :: FilePath -> FilePath -> Name.Name -> IO ()
-printCallGraph root file expressionName = do
-  do
-    Llamadera.debug_ "Getting artifacts..."
 
-    eitherArtifacts <- Llamadera.loadSingleArtifacts root file
-    case eitherArtifacts of
-      Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
-        let moduleName =
-              case mod of
-                Can.Module modName _ _ _ _ _ _ _ ->
-                  modName
-
-        let json = Json.Encode.encode (graphToJson graph (Opt.Global moduleName expressionName))
-        case graph & Map.lookup (Opt.Global moduleName expressionName) of
-          Just annotation -> do
-            --  Llamadera.formatHaskellValue ("local GRAPH") graph
-            B.hPutBuilder stderr json
-          Nothing ->
-            putStrLn "Not found!"
-      Left err ->
-        putStrLn $ show err
-
-  pure ()
 
 -- |
 --
