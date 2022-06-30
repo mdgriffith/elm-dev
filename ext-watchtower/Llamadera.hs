@@ -76,7 +76,7 @@ allDepArtifacts :: IO Artifacts
 allDepArtifacts =
   BW.withScope $ \scope ->
   do  --debug "Loading allDeps"
-      style <- Reporting.terminal
+      let style = Reporting.silent
       root <- getProjectRoot
       result <- Details.load style scope root
       case result of
@@ -244,7 +244,7 @@ loadProject :: IO Details.Details
 loadProject =
   BW.withScope $ \scope ->
   do  --debug "Loading allDeps"
-      style <- Reporting.terminal
+      let style = Reporting.silent
       root <- getProjectRoot
       result <- Details.load style scope root
       case result of
