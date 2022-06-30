@@ -29,7 +29,6 @@ import qualified Reporting.Annotation as Ann
 import Snap.Core hiding (path)
 import Snap.Http.Server
 import Snap.Util.FileServe
-import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
 import qualified Watchtower.Compile
 import qualified Watchtower.Details
 import qualified Watchtower.Project

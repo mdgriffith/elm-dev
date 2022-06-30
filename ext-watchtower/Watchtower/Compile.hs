@@ -110,14 +110,11 @@ compile root paths =
 compileToDevNull :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
 compileToDevNull root paths =
   do
-    -- Ext.Common.debug $ " compiling " ++ show root ++ " -> " ++ show paths
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope -> Stuff.withRootLock root $
         Task.run $
           do
             details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
             artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
-            -- javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
-            -- let (NE.List name _) = Build.getRootNames artifacts
-            -- return $ Html.sandwich name javascript
+           
             return ()
