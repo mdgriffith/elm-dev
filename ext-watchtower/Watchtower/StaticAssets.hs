@@ -40,8 +40,8 @@ dict =
     , cssPath      ==> (css     , "text/css")
     , codeFontPath ==> (codeFont, "font/ttf")
     , sansFontPath ==> (sansFont, "font/ttf")
-    , elmLivePanePath ==> (livePane, "text/html")
-    , elmLivePaneJsPath ==> (livePaneJs, "application/javascript")
+    -- , elmLivePanePath ==> (livePane, "text/html")
+    -- , elmLivePaneJsPath ==> (livePaneJs, "application/javascript")
     ]
 
 
@@ -139,15 +139,15 @@ favicon =
 
 
 
-livePane :: BS.ByteString
-livePane =
-  $(bsToExp =<< runIO (BS.readFile ("watchtower-frontends" </> "vscode" </> "src" </> "livePanel" </> "public" </> "app.html")))
+-- livePane :: BS.ByteString
+-- livePane =
+--   $(bsToExp =<< runIO (BS.readFile ("watchtower-frontends" </> "vscode" </> "src" </> "livePanel" </> "public" </> "app.html")))
 
 
 
-livePaneJs :: BS.ByteString
-livePaneJs =
-  $(bsToExp =<< runIO (BS.readFile ("watchtower-frontends" </> "vscode" </> "src" </> "livePanel" </> "public" </> "live.js")))
+-- livePaneJs :: BS.ByteString
+-- livePaneJs =
+--   $(bsToExp =<< runIO (BS.readFile ("watchtower-frontends" </> "vscode" </> "src" </> "livePanel" </> "public" </> "live.js")))
 
 
 x = 130
