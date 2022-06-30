@@ -22,7 +22,7 @@ import qualified Text.Show.Unicode
 import qualified Data.Text as T
 import Data.Text (Text)
 
-import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout, hClose, openTempFile)
+
 import qualified AST.Optimized as Opt
 import qualified AST.Canonical as Can
 import qualified AST.Source as Src
@@ -126,7 +126,6 @@ allProjectInterfaces paths =
       do  details    <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
           artifacts  <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
 
-          -- Task.io $ putStrLn $ show $ fmap (moduleName) (Build._modules artifacts)
           Task.io $ extractInterfaces $ Build._modules artifacts
 
 runTaskUnsafe :: Task.Task Exit.Reactor a -> IO a
@@ -137,7 +136,7 @@ runTaskUnsafe task = do
       return a
 
     Left exit ->
-      do  Exit.toStderr (Exit.reactorToReport exit)
+      do  --Exit.toStderr (Exit.reactorToReport exit)
           error
             "\n-------------------------------------------------\
             \\nError in task, please report this.\
