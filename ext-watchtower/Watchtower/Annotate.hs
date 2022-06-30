@@ -40,7 +40,7 @@ import qualified Reporting.Exit as Exit
 import StandaloneInstances
 import qualified Stuff as PerUserCache
 import qualified System.Directory as Dir
-import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
+import System.IO
 import Terminal (Parser (..))
 import qualified Text.Show.Unicode
 import qualified Watchtower.Details
