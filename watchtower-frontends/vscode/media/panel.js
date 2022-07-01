@@ -17238,6 +17238,15 @@ var $mdgriffith$elm_ui$Element$spacing = function (x) {
 			x));
 };
 var $author$project$Ui$space = A2($author$project$Ui$mapSpacing, $mdgriffith$elm_ui$Element$spacing, $author$project$Ui$spaceValues);
+var $author$project$Main$isEditorVisible = F2(
+	function (file, visible) {
+		return A2(
+			$elm$core$List$any,
+			function (e) {
+				return _Utils_eq(e.fileName, file.path);
+			},
+			visible);
+	});
 var $author$project$Editor$overlap = F2(
 	function (one, two) {
 		return ((_Utils_cmp(one.start.row, two.start.row) > -1) && (_Utils_cmp(one.start.row, two.end.row) < 1)) ? true : (((_Utils_cmp(one.end.row, two.start.row) > -1) && (_Utils_cmp(one.end.row, two.end.row) < 1)) ? true : false);
@@ -17249,7 +17258,7 @@ var $author$project$Editor$visible = F2(
 			$author$project$Editor$overlap(rng),
 			viewing);
 	});
-var $author$project$Main$isVisible = F3(
+var $author$project$Main$isRegionVisible = F3(
 	function (editors, path, region) {
 		return A2(
 			$elm$core$List$any,
@@ -17258,6 +17267,8 @@ var $author$project$Main$isVisible = F3(
 			},
 			editors);
 	});
+var $mdgriffith$elm_ui$Internal$Model$Empty = {$: 'Empty'};
+var $mdgriffith$elm_ui$Element$none = $mdgriffith$elm_ui$Internal$Model$Empty;
 var $mdgriffith$elm_ui$Internal$Model$Describe = function (a) {
 	return {$: 'Describe', a: a};
 };
@@ -17415,35 +17426,61 @@ var $author$project$Main$viewIssueDetails = F3(
 	});
 var $author$project$Main$viewFileOverview = F2(
 	function (model, file) {
-		return A2(
-			$mdgriffith$elm_ui$Element$column,
-			_List_fromArray(
-				[$author$project$Ui$space.sm]),
-			_List_fromArray(
-				[
-					A2(
-					$mdgriffith$elm_ui$Element$el,
-					_List_fromArray(
-						[$author$project$Ui$font.dark.light]),
-					$mdgriffith$elm_ui$Element$text(file.name + '.elm')),
-					A2(
+		if (!A2($author$project$Main$isEditorVisible, file, model.visible)) {
+			var _v0 = file.problem;
+			if (!_v0.b) {
+				return $mdgriffith$elm_ui$Element$none;
+			} else {
+				var top = _v0.a;
+				return A2(
 					$mdgriffith$elm_ui$Element$column,
 					_List_fromArray(
-						[$author$project$Ui$space.md]),
-					A2(
-						$elm$core$List$map,
-						function (issue) {
-							return A3(
-								$author$project$Main$viewIssueDetails,
-								A3($author$project$Main$isVisible, model.visible, file.path, issue.region),
-								file,
-								issue);
-						},
-						file.problem))
-				]));
+						[
+							$author$project$Ui$space.sm,
+							$mdgriffith$elm_ui$Element$Events$onClick(
+							A2($author$project$Model$EditorGoTo, file.path, top.region)),
+							$mdgriffith$elm_ui$Element$pointer
+						]),
+					_List_fromArray(
+						[
+							A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$author$project$Ui$font.dark.light]),
+							$mdgriffith$elm_ui$Element$text(
+								file.name + ('.elm (' + ($elm$core$String$fromInt(
+									$elm$core$List$length(file.problem)) + ')'))))
+						]));
+			}
+		} else {
+			return A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[$author$project$Ui$space.sm]),
+				_List_fromArray(
+					[
+						A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_fromArray(
+							[$author$project$Ui$font.dark.light]),
+						$mdgriffith$elm_ui$Element$text(file.name + '.elm')),
+						A2(
+						$mdgriffith$elm_ui$Element$column,
+						_List_fromArray(
+							[$author$project$Ui$space.md]),
+						A2(
+							$elm$core$List$map,
+							function (issue) {
+								return A3(
+									$author$project$Main$viewIssueDetails,
+									A3($author$project$Main$isRegionVisible, model.visible, file.path, issue.region),
+									file,
+									issue);
+							},
+							file.problem))
+					]));
+		}
 	});
-var $mdgriffith$elm_ui$Internal$Model$Empty = {$: 'Empty'};
-var $mdgriffith$elm_ui$Element$none = $mdgriffith$elm_ui$Internal$Model$Empty;
 var $author$project$Main$viewMetric = F3(
 	function (name, viewer, vals) {
 		if (!vals.b) {

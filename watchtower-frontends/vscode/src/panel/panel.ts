@@ -31,23 +31,37 @@ export class ElmProjectPane {
       (message) => {
         switch (message.msg) {
           case "Jump":
+            let jumped = false;
+            const start = new vscode.Position(
+              message.details.region.start.line,
+              message.details.region.start.column
+            );
+            const end = new vscode.Position(
+              message.details.region.end.line,
+              message.details.region.end.column
+            );
+            const targetRange = new vscode.Range(start, end);
             for (const editorIndex in vscode.window.visibleTextEditors) {
               const editor = vscode.window.visibleTextEditors[editorIndex];
               if (editor.document.uri.path == message.details.path) {
-                const start = new vscode.Position(
-                  message.details.region.start.line,
-                  message.details.region.start.column
-                );
-                const end = new vscode.Position(
-                  message.details.region.end.line,
-                  message.details.region.end.column
-                );
-                const targetRange = new vscode.Range(start, end);
                 editor.revealRange(
                   targetRange,
                   vscode.TextEditorRevealType.InCenterIfOutsideViewport
                 );
+                jumped = true;
+                break;
               }
+            }
+            if (!jumped) {
+              const uri = vscode.Uri.file(message.details.path);
+              vscode.window
+                .showTextDocument(uri, { viewColumn: vscode.ViewColumn.One })
+                .then((newEditor) => {
+                  newEditor.revealRange(
+                    targetRange,
+                    vscode.TextEditorRevealType.InCenterIfOutsideViewport
+                  );
+                });
             }
 
             break;
