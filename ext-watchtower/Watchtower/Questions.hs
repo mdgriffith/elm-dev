@@ -4,6 +4,7 @@ module Watchtower.Questions where
 
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad.Trans (MonadIO (liftIO))
+import qualified Control.Monad as Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Char8
@@ -12,6 +13,8 @@ import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
 import qualified Develop.Generate.Help
 import qualified Ext.Common
+import qualified Ext.Sentry
+import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Reporting.Annotation
 import qualified System.FilePath as Path
@@ -32,6 +35,7 @@ data Question
   | FindDefinitionPlease Watchtower.Details.PointLocation
   | FindAllInstancesPlease Watchtower.Details.PointLocation
   | Discover FilePath
+  | Status
 
 serve :: Watchtower.Live.State -> Snap ()
 serve state =
@@ -54,6 +58,9 @@ actionHandler state =
   do
     maybeAction <- getParam "action"
     case maybeAction of
+      Just "status" ->
+        questionHandler state Status
+
       Just "discover" ->
         do
           maybeFile <- getQueryParam "dir"
@@ -165,6 +172,41 @@ getPosition =
 ask :: Watchtower.Live.State -> Question -> IO Data.ByteString.Builder.Builder
 ask state question =
   case question of
+    Status ->
+      case state of
+        Watchtower.Live.State clients projects ->
+          do
+            projectStatuses <- 
+                Monad.foldM 
+                  (\gathered (Watchtower.Live.ProjectCache proj sentry) ->
+                    do 
+                      result <- Ext.Sentry.getCompileResult sentry
+                      pure 
+                        (Json.Encode.object 
+                          [ "project" ==> Watchtower.Project.encodeProjectJson proj
+                          , "status" ==>
+                              (case result of
+                                  Right json ->
+                                    json
+                                  Left json ->
+                                    json
+                              )
+                          ] : gathered
+                        )
+                  )
+                  []
+                  projects
+
+
+
+            pure 
+              (Json.Encode.encode 
+                (Json.Encode.list 
+                    (\a -> a)
+                    projectStatuses
+                )
+              )
+
     Discover dir ->
       do
         Ext.Common.debug $ "Discover: " ++ show dir
