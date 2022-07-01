@@ -126,7 +126,6 @@ recompile (Watchtower.Live.State mClients projects) allChangedFiles = do
       track "recompile" $ do
         
         Monad.foldM
-          -- (recompileProjectIfSubFile mClients)
           (recompileChangedFile mClients)
           changedElmFiles
           projects
@@ -317,6 +316,11 @@ receive state clientId text = do
 receiveAction :: State -> ClientId -> Incoming -> IO ()
 receiveAction state@(State mClients projects) clientId incoming =
   case incoming of
+    Changed fileChanged ->
+      do 
+        Ext.Common.log "👀 file changed" fileChanged
+        recompile state [fileChanged]
+
     Watch roots ->
       do
         let newRootSet = Set.fromList roots
@@ -383,6 +387,11 @@ decodeIncoming =
   Json.Decode.field "msg" Json.Decode.string
     >>= ( \msg ->
             case msg of
+              "Changed" ->
+                Changed 
+                  <$> (Json.Decode.field "details" 
+                          (Json.Decode.field "path" (Json.String.toChars <$> Json.Decode.string))
+                      )
               "Watch" ->
                 Watch <$> Json.Decode.field "details" (Json.Decode.list decodeWatch)
               "Visible" ->
@@ -429,8 +438,9 @@ data Incoming
     Visible Watchtower.Details.Visible
   | JumpTo Watchtower.Details.Location
   | InsertMissingTypeSignatures FilePath
-  | -- watch the provided filepath, which must match a project root
-    Watch [FilePath]
+  -- watch the provided filepath, which must match a project root
+  | Watch [FilePath]
+  | Changed FilePath
 
 data Outgoing
   = -- forwarding information

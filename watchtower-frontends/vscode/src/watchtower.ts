@@ -1,5 +1,5 @@
 // import { setFlagsFromString } from "v8";
-import { send } from "process";
+
 import * as vscode from "vscode";
 import * as log from "./utils/log";
 import * as JSONSafe from "./utils/json";
@@ -8,10 +8,16 @@ import { ElmProjectPane } from "./panel/panel";
 
 var WebSocketClient = require("websocket").client;
 
-type Msg = { msg: "Watch"; details: String[] };
+type Msg =
+  | { msg: "Watch"; details: String[] }
+  | { msg: "Changed"; details: { path: String } };
 
 const watch = (roots: String[]): Msg => {
   return { msg: "Watch", details: roots };
+};
+
+const changed = (filepath: String): Msg => {
+  return { msg: "Changed", details: { path: filepath } };
 };
 
 type Project = {
@@ -94,6 +100,7 @@ export class Watchtower {
 
     vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
       self.refreshCodeLenses(document);
+      self.send(changed(document.uri.path));
     });
 
     vscode.workspace.onDidChangeTextDocument(

@@ -37,7 +37,8 @@ serve maybeRoot (Flags maybePort) =
 
     -- compile project
     Watchtower.Live.recompileAllProjects liveState
-    Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
+    
+    -- Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
     Snap.Http.Server.httpServe (config port) $
       serveAssets
