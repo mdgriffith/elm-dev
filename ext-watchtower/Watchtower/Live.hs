@@ -11,6 +11,7 @@ import Control.Monad.Trans (liftIO)
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
 import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 import qualified Data.NonEmptyList as NonEmpty
 import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -58,18 +59,23 @@ init root =
     <$> Watchtower.Websocket.clientsInit
     <*> discoverProjects root
 
+getProjectShorthand :: FilePath -> Watchtower.Project.Project -> FilePath
+getProjectShorthand root proj =
+    case (List.stripPrefix root (Watchtower.Project.getRoot proj)) of 
+      Nothing -> "."
+      Just "" -> "."
+      Just str ->
+        str
+
+discoverProjects :: FilePath -> IO [ProjectCache]
 discoverProjects root = do
-  debug $ "   searching " <> (show root)
   projects <- Watchtower.Project.discover root
-  debug $ "👁️  found projects: "
-  Monad.foldM
-    ( \() project ->
-        debug $ "   👉 " <> (show project)
-    )
-    ()
-    projects
+  let projectTails = fmap (getProjectShorthand root) projects
+  Ext.Common.logList ("DISCOVER 👁️ found projects:" ++ root) projectTails
+    
   Monad.foldM initializeProject [] projects
 
+initializeProject :: [ProjectCache] -> Watchtower.Project.Project -> IO [ProjectCache]
 initializeProject accum project =
   do
     cache <- Ext.Sentry.init
@@ -93,6 +99,24 @@ getRootHelp path projects found =
               else getRootHelp path remain found
         else getRootHelp path remain found
 
+
+recompileAllProjects :: Watchtower.Live.State -> IO ()
+recompileAllProjects (Watchtower.Live.State mClients projects) = do
+  
+  Ext.Common.log "🛫" "Recompile everything"
+  trackedForkIO $
+    track "recompile" $ do
+      
+      Monad.foldM
+        (\files proj -> recompileProject mClients proj)
+        []
+        projects
+
+      Ext.Common.log "🛬"  "Recompile everything finished"
+  
+
+
+
 recompile :: Watchtower.Live.State -> [String] -> IO ()
 recompile (Watchtower.Live.State mClients projects) allChangedFiles = do
   let changedElmFiles = List.filter (\filepath -> ".elm" `List.isSuffixOf` filepath ) allChangedFiles
@@ -113,9 +137,20 @@ recompile (Watchtower.Live.State mClients projects) allChangedFiles = do
 
 
 
+recompileProject :: TVar [Client] -> ProjectCache -> IO [FilePath]
+recompileProject mClients proj@(ProjectCache (Watchtower.Project.Project projectRoot entrypoints) cache) =
+  case entrypoints of
+    [] ->
+      do
+        Ext.Common.log "Skipping compile, no entrypoint" projectRoot
+        pure []
+
+    _ ->
+        recompileChangedFile mClients entrypoints proj
+
 
 recompileChangedFile :: TVar [Client] -> [String] -> ProjectCache -> IO [FilePath]
-recompileChangedFile mClients changedFiles (ProjectCache proj@(Watchtower.Project.Project projectRoot entrypoints) cache) =
+recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchtower.Project.Project projectRoot entrypoints) cache) =
     do
       case changedFiles of
         [] ->
@@ -138,13 +173,10 @@ recompileChangedFile mClients changedFiles (ProjectCache proj@(Watchtower.Projec
 
                   case eitherStatusJson of
                     Right statusJson ->
-                      broadcastToMany
-                        mClients
-                        ( \client ->
-                            let clientData = Watchtower.Websocket.clientData client
-                              in Set.member (Watchtower.Project._root proj) clientData
-                        )
-                        (ElmStatus [(proj, statusJson)])
+                      do
+                        -- If this file compiled successfully, compile the entire project
+                        recompileProjectIfSubFile mClients changedFiles projCache
+                        pure ()
 
                     Left errJson ->
                       -- send the errors to any client that's listening
@@ -154,11 +186,7 @@ recompileChangedFile mClients changedFiles (ProjectCache proj@(Watchtower.Projec
                             let clientData = Watchtower.Websocket.clientData client
                               in Set.member (Watchtower.Project._root proj) clientData
                         )
-                        (ElmStatus [(proj, errJson)])
-
-                  -- broadcastAll
-                  --   mClients
-                  --   (ElmStatus [(proj, errJson)])
+                        (ElmStatus [ ProjectStatus proj False errJson ])
 
                   pure []
 
@@ -216,14 +244,13 @@ recompileProjectIfSubFile mClients remainingFiles (ProjectCache proj@(Watchtower
 
             case eitherStatusJson of
               Right statusJson ->
-                -- pure ()
                 broadcastToMany
                   mClients
                   ( \client ->
                       let clientData = Watchtower.Websocket.clientData client
                         in Set.member (Watchtower.Project._root proj) clientData
                   )
-                  (ElmStatus [(proj, statusJson)])
+                  (ElmStatus [ ProjectStatus proj True statusJson ])
               Left errJson ->
                 -- send the errors to any client that's listening
                 broadcastToMany
@@ -232,11 +259,8 @@ recompileProjectIfSubFile mClients remainingFiles (ProjectCache proj@(Watchtower
                       let clientData = Watchtower.Websocket.clientData client
                         in Set.member (Watchtower.Project._root proj) clientData
                   )
-                  (ElmStatus [(proj, errJson)])
+                  (ElmStatus [ ProjectStatus proj False errJson ])
 
-            -- broadcastAll
-            --   mClients
-            --   (ElmStatus [(proj, errJson)])
 
             pure remaining
           
@@ -310,8 +334,8 @@ receiveAction state@(State mClients projects) clientId incoming =
             []
             projects
 
-        debug $
-          "👀  watch, init status: " ++ show statuses
+        -- debug $
+        --   "👀  watch, init status: " ++ show statuses
         atomically $
           do
             modifyTVar
@@ -334,13 +358,17 @@ receiveAction state@(State mClients projects) clientId incoming =
       debug $ "forwarding insert-missing"
       broadcastAll mClients (FwdInsertMissingTypeSignatures path)
 
-addProjectStatusIfErr :: Watchtower.Project.Project -> Either Json.Encode.Value Json.Encode.Value -> [(Watchtower.Project.Project, Json.Encode.Value)] -> [(Watchtower.Project.Project, Json.Encode.Value)]
+addProjectStatusIfErr ::
+      Watchtower.Project.Project 
+        -> Either Json.Encode.Value Json.Encode.Value 
+        -> [ProjectStatus] 
+        -> [ProjectStatus]
 addProjectStatusIfErr proj either ls =
   case either of
     Right json ->
       ls
     Left json ->
-      (proj, json) : ls
+      (ProjectStatus proj False json) : ls
 
 reduceStatus :: Either Json.Encode.Value Json.Encode.Value -> Json.Encode.Value
 reduceStatus either =
@@ -409,9 +437,15 @@ data Outgoing
     FwdVisible Watchtower.Details.Visible
   | FwdJumpTo Watchtower.Details.Location
   | FwdInsertMissingTypeSignatures FilePath
-  | -- new information is available
-    ElmStatus
-      [(Watchtower.Project.Project, Json.Encode.Value)]
+  | ElmStatus [ ProjectStatus ]
+
+
+data ProjectStatus = ProjectStatus 
+  { _project :: Watchtower.Project.Project
+  , _success :: Bool
+  , _json :: Json.Encode.Value
+  }
+
 
 encodeOutgoing :: Outgoing -> Data.ByteString.Builder.Builder
 encodeOutgoing out =
@@ -440,7 +474,7 @@ encodeOutgoing out =
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "Status"),
             "details"
               ==> Json.Encode.list
-                ( \(project, status) ->
+                ( \(ProjectStatus project success status) ->
                     Json.Encode.object
                       [ "root"
                           ==> Json.Encode.string
@@ -471,21 +505,48 @@ broadcastAll allClients outgoing =
         encodeOutgoing outgoing
     )
 
+
 broadcastTo :: TVar [Client] -> ClientId -> Outgoing -> IO ()
 broadcastTo allClients id outgoing =
-  Watchtower.Websocket.broadcastWith
-    allClients
-    ( Watchtower.Websocket.matchId id
-    )
-    ( builderToString $
-        encodeOutgoing outgoing
-    )
+  do 
+    Ext.Common.log "◀️" (outgoingToLog outgoing)
+    Watchtower.Websocket.broadcastWith
+      allClients
+      ( Watchtower.Websocket.matchId id
+      )
+      ( builderToString $
+          encodeOutgoing outgoing
+      )
+
 
 broadcastToMany :: TVar [Client] -> (Client -> Bool) -> Outgoing -> IO ()
 broadcastToMany allClients shouldBroadcast outgoing =
-  Watchtower.Websocket.broadcastWith
-    allClients
-    shouldBroadcast
-    ( builderToString $
-        encodeOutgoing outgoing
-    )
+  do 
+    Ext.Common.log "◀️" (outgoingToLog outgoing)
+    Watchtower.Websocket.broadcastWith
+      allClients
+      shouldBroadcast
+      ( builderToString $
+          encodeOutgoing outgoing
+      )
+
+
+outgoingToLog :: Outgoing -> String
+outgoingToLog outgoing =
+  case outgoing of
+    ElmStatus projectStatusList ->
+      "Status: " ++ Ext.Common.formatList (fmap projectStatusToString projectStatusList)
+    FwdVisible vis ->
+      "fwd:visibility"
+    FwdJumpTo jump ->
+      "fwd:jump"
+    FwdInsertMissingTypeSignatures path ->
+      "fwd:missing signatures"
+
+
+projectStatusToString :: ProjectStatus -> String
+projectStatusToString (ProjectStatus proj success json) =
+    if success then 
+        "Success @" ++ Watchtower.Project.getRoot proj
+    else
+        "Failing @" ++ Watchtower.Project.getRoot proj
