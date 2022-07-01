@@ -363,24 +363,50 @@ viewMetric name viewer vals =
                 (List.map viewer vals)
 
 
+isEditorVisible : Elm.File -> List Editor.Editor -> Bool
+isEditorVisible file visible =
+    List.any
+        (\e ->
+            e.fileName == file.path
+        )
+        visible
+
+
+viewFileOverview : Model -> Elm.File -> Ui.Element Msg
 viewFileOverview model file =
-    Ui.column [ Ui.space.sm ]
-        [ Ui.el [ Ui.font.dark.light ] (Ui.text (file.name ++ ".elm"))
-        , Ui.column [ Ui.space.md ]
-            (List.map
-                (\issue ->
-                    viewIssueDetails
-                        (isVisible model.visible file.path issue.region)
-                        file
-                        issue
+    if not (isEditorVisible file model.visible) then
+        case file.problem of
+            [] ->
+                Ui.none
+
+            top :: _ ->
+                Ui.column
+                    [ Ui.space.sm
+                    , Events.onClick (EditorGoTo file.path top.region)
+                    , Ui.pointer
+                    ]
+                    [ Ui.el [ Ui.font.dark.light ]
+                        (Ui.text (file.name ++ ".elm (" ++ String.fromInt (List.length file.problem) ++ ")"))
+                    ]
+
+    else
+        Ui.column [ Ui.space.sm ]
+            [ Ui.el [ Ui.font.dark.light ] (Ui.text (file.name ++ ".elm"))
+            , Ui.column [ Ui.space.md ]
+                (List.map
+                    (\issue ->
+                        viewIssueDetails
+                            (isRegionVisible model.visible file.path issue.region)
+                            file
+                            issue
+                    )
+                    file.problem
                 )
-                file.problem
-            )
-        ]
+            ]
 
 
-isVisible : List Editor.Editor -> String -> Editor.Region -> Bool
-isVisible editors path region =
+isRegionVisible : List Editor.Editor -> String -> Editor.Region -> Bool
+isRegionVisible editors path region =
     List.any
         (\e ->
             if e.fileName == path then
