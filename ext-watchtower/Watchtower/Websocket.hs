@@ -155,5 +155,5 @@ send_ clients clientId text =
 
 broadcast_ :: [Client clientData] -> T.Text -> IO ()
 broadcast_ clients message = do
-  debug (T.unpack ("[websocket] ◀️  " <> T.pack (show $ fmap (\(Client id _ _) -> id) clients) <> ":" <> T.take 130 message))
+  -- debug (T.unpack ("[websocket] ◀️  " <> T.pack (show $ fmap (\(Client id _ _) -> id) clients) <> ":" <> T.take 130 message))
   forM_ clients $ \(Client _ conn _) -> WS.sendTextData conn message
