@@ -36,7 +36,7 @@ serve maybeRoot (Flags maybePort) =
     liveState <- Watchtower.Live.init root
 
     -- compile project
-    Watchtower.Live.recompile liveState []
+    Watchtower.Live.recompileAllProjects liveState
     Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
     Snap.Http.Server.httpServe (config port) $
