@@ -5,6 +5,7 @@ module Ext.Common where
 import Control.Concurrent
 import Control.Concurrent.MVar
 
+import qualified Data.List as List
 import System.IO.Unsafe (unsafePerformIO)
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout, hClose, openTempFile)
 import System.Exit (exitFailure)
@@ -76,6 +77,28 @@ justs xs = [ x | Just x <- xs ]
 
 {- Debugging
 -}
+
+
+indent :: Int -> String -> String
+indent i str =
+    List.replicate i ' ' ++ str
+
+logList :: String -> [String] -> IO ()
+logList label strs =
+  Ext.Common.log label 
+    (formatList strs)
+
+formatList :: [String] -> String
+formatList strs =
+  List.foldr (\tail gathered ->  gathered ++ indent 4 tail ++ "\n") "\n" strs
+
+
+log :: String -> String -> IO ()
+log label str = do
+  debugM <- Env.lookupEnv "LDEBUG"
+  case debugM of
+    Just _ -> atomicPutStrLn $ label ++ ": " ++ str ++ "\n"
+    Nothing -> pure ()
 
 
 debug :: String -> IO ()
