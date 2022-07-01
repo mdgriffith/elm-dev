@@ -2,7 +2,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 
-module Watchtower.Project (contains, discover, decodeProject, Project (..), encodeProjectJson) where
+module Watchtower.Project (getRoot, contains, discover, decodeProject, Project (..), encodeProjectJson) where
 
 import qualified Control.Monad as Monad
 import qualified Data.List as List
@@ -18,6 +18,7 @@ import qualified Json.String
 import qualified System.Directory as Dir
 import System.FilePath as FP ((</>))
 import Prelude hiding (lookup)
+import qualified Ext.Common
 
 {-
     A project is an instance of `elm.json` that lives in _root as well
@@ -48,6 +49,11 @@ data Project = Project
     _entrypoints :: [FilePath]
   }
   deriving (Show)
+
+
+getRoot :: Project -> FilePath
+getRoot (Project root _) =
+    root
 
 contains :: FilePath -> Project -> Bool
 contains path (Project root entries) =
@@ -102,16 +108,45 @@ searchProjectHelp projs root =
 
 
 
-
-{--}
 createProject :: FilePath -> IO Project
 createProject root =
   do
-    elmMainExists <- Dir.doesFileExist (root </> "src" </> "Main.elm")
-    if elmMainExists
-      then pure (Project root [(root </> "src" </> "Main.elm")])
-      else pure (Project root [])
+    maybeElmMain <- findFirstFileNamed "Main.elm" root
+    case maybeElmMain of
+      Nothing ->
+        pure (Project root [])
+      Just main ->
+        do
+          pure (Project root [main])
      
+
+findFirstFileNamed :: String -> FilePath -> IO (Maybe FilePath)
+findFirstFileNamed named dir =
+  if shouldSkip dir
+    then pure Nothing
+    else do
+      fileExists <- Dir.doesFileExist (dir </> named)
+      
+      if fileExists
+        then pure (Just (dir </> named))
+        else
+          do
+            subdirs <- Dir.listDirectory dir
+            let paths = map (dir </>) subdirs
+            dirs <- Monad.filterM Dir.doesDirectoryExist paths
+            Monad.foldM 
+               (\found subdir ->
+                  case found of
+                    Nothing ->
+                      findFirstFileNamed named subdir
+                    Just _ ->
+                      pure found
+               )
+               Nothing
+               dirs
+
+
+
 
 decodeProject :: Json.Decode.Decoder x Project
 decodeProject =
