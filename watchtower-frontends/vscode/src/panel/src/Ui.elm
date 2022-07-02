@@ -122,8 +122,8 @@ colors =
     , white = Ui.rgb 1 1 1
     , grey =
         { light = Ui.rgb 0.95 0.95 0.95
-        , medium = Ui.rgb 0.95 0.95 0.95
-        , dark = Ui.rgb 0.95 0.95 0.95
+        , medium = Ui.rgb 0.85 0.85 0.85
+        , dark = Ui.rgb 0.55 0.55 0.55
         }
     , dark =
         { light = Ui.rgb 0.45 0.45 0.45
@@ -185,6 +185,11 @@ rounded =
 border =
     { primary = Border.color colors.primary
     , light = Border.color colors.grey.light
+    , grey =
+        { light = Border.color colors.grey.light
+        , medium = Border.color colors.grey.medium
+        , dark = Border.color colors.grey.dark
+        }
     , dark =
         { light = Border.color colors.dark.light
         , medium = Border.color colors.dark.medium
