@@ -10782,15 +10782,300 @@ var $author$project$Elm$Problem = F3(
 	function (title, message, region) {
 		return {message: message, region: region, title: title};
 	});
+var $author$project$Elm$CodeSection = function (a) {
+	return {$: 'CodeSection', a: a};
+};
 var $author$project$Elm$Plain = function (a) {
 	return {$: 'Plain', a: a};
 };
-var $author$project$Elm$Styled = function (a) {
-	return {$: 'Styled', a: a};
+var $author$project$Elm$Styled = F2(
+	function (a, b) {
+		return {$: 'Styled', a: a, b: b};
+	});
+var $author$project$Elm$startsWithNum = function (str) {
+	var _v0 = $elm$core$String$uncons(
+		A2($elm$core$String$left, 1, str));
+	if (_v0.$ === 'Nothing') {
+		return false;
+	} else {
+		var _v1 = _v0.a;
+		var top = _v1.a;
+		return $elm$core$Char$isDigit(top);
+	}
 };
-var $author$project$Elm$StyledText = F4(
-	function (color, underline, bold, string) {
-		return {bold: bold, color: color, string: string, underline: underline};
+var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
+	function (toText, lines, isFirst, maybeRegion, accum) {
+		gatherCodeSectionRecurseHelper:
+		while (true) {
+			if (!lines.b) {
+				return _Utils_Tuple2(maybeRegion, accum);
+			} else {
+				if (!lines.b.b) {
+					var last = lines.a;
+					if (isFirst) {
+						if (maybeRegion.$ === 'Nothing') {
+							return _Utils_Tuple2(
+								$elm$core$Maybe$Nothing,
+								A2(
+									$elm$core$List$cons,
+									toText(last),
+									accum));
+						} else {
+							var reg = maybeRegion.a;
+							return _Utils_Tuple2(
+								$elm$core$Maybe$Just(
+									A2(
+										$elm$core$List$cons,
+										toText(last),
+										reg)),
+								accum);
+						}
+					} else {
+						var line = '\n' + last;
+						if ($author$project$Elm$startsWithNum(last)) {
+							if (maybeRegion.$ === 'Nothing') {
+								return _Utils_Tuple2(
+									$elm$core$Maybe$Just(
+										_List_fromArray(
+											[
+												toText(line)
+											])),
+									accum);
+							} else {
+								var reg = maybeRegion.a;
+								return _Utils_Tuple2(
+									$elm$core$Maybe$Just(
+										A2(
+											$elm$core$List$cons,
+											toText(line),
+											reg)),
+									accum);
+							}
+						} else {
+							if (maybeRegion.$ === 'Nothing') {
+								return _Utils_Tuple2(
+									$elm$core$Maybe$Nothing,
+									A2(
+										$elm$core$List$cons,
+										toText(line),
+										accum));
+							} else {
+								var reg = maybeRegion.a;
+								return _Utils_Tuple2(
+									$elm$core$Maybe$Nothing,
+									A2(
+										$elm$core$List$cons,
+										toText(line),
+										A2(
+											$elm$core$List$cons,
+											$author$project$Elm$CodeSection(
+												$elm$core$List$reverse(reg)),
+											accum)));
+							}
+						}
+					}
+				} else {
+					var topLine = lines.a;
+					var remainingLines = lines.b;
+					if (isFirst) {
+						if (maybeRegion.$ === 'Nothing') {
+							var $temp$toText = toText,
+								$temp$lines = remainingLines,
+								$temp$isFirst = false,
+								$temp$maybeRegion = $elm$core$Maybe$Nothing,
+								$temp$accum = A2(
+								$elm$core$List$cons,
+								toText(topLine),
+								accum);
+							toText = $temp$toText;
+							lines = $temp$lines;
+							isFirst = $temp$isFirst;
+							maybeRegion = $temp$maybeRegion;
+							accum = $temp$accum;
+							continue gatherCodeSectionRecurseHelper;
+						} else {
+							var reg = maybeRegion.a;
+							var $temp$toText = toText,
+								$temp$lines = remainingLines,
+								$temp$isFirst = false,
+								$temp$maybeRegion = $elm$core$Maybe$Just(
+								A2(
+									$elm$core$List$cons,
+									toText(topLine),
+									reg)),
+								$temp$accum = accum;
+							toText = $temp$toText;
+							lines = $temp$lines;
+							isFirst = $temp$isFirst;
+							maybeRegion = $temp$maybeRegion;
+							accum = $temp$accum;
+							continue gatherCodeSectionRecurseHelper;
+						}
+					} else {
+						var line = '\n' + topLine;
+						if ($author$project$Elm$startsWithNum(topLine)) {
+							if (maybeRegion.$ === 'Nothing') {
+								var $temp$toText = toText,
+									$temp$lines = remainingLines,
+									$temp$isFirst = false,
+									$temp$maybeRegion = $elm$core$Maybe$Just(
+									_List_fromArray(
+										[
+											toText(line)
+										])),
+									$temp$accum = accum;
+								toText = $temp$toText;
+								lines = $temp$lines;
+								isFirst = $temp$isFirst;
+								maybeRegion = $temp$maybeRegion;
+								accum = $temp$accum;
+								continue gatherCodeSectionRecurseHelper;
+							} else {
+								var reg = maybeRegion.a;
+								var $temp$toText = toText,
+									$temp$lines = remainingLines,
+									$temp$isFirst = false,
+									$temp$maybeRegion = $elm$core$Maybe$Just(
+									A2(
+										$elm$core$List$cons,
+										toText(line),
+										reg)),
+									$temp$accum = accum;
+								toText = $temp$toText;
+								lines = $temp$lines;
+								isFirst = $temp$isFirst;
+								maybeRegion = $temp$maybeRegion;
+								accum = $temp$accum;
+								continue gatherCodeSectionRecurseHelper;
+							}
+						} else {
+							if (maybeRegion.$ === 'Nothing') {
+								var $temp$toText = toText,
+									$temp$lines = remainingLines,
+									$temp$isFirst = false,
+									$temp$maybeRegion = $elm$core$Maybe$Nothing,
+									$temp$accum = A2(
+									$elm$core$List$cons,
+									toText(line),
+									accum);
+								toText = $temp$toText;
+								lines = $temp$lines;
+								isFirst = $temp$isFirst;
+								maybeRegion = $temp$maybeRegion;
+								accum = $temp$accum;
+								continue gatherCodeSectionRecurseHelper;
+							} else {
+								var reg = maybeRegion.a;
+								var $temp$toText = toText,
+									$temp$lines = remainingLines,
+									$temp$isFirst = false,
+									$temp$maybeRegion = $elm$core$Maybe$Nothing,
+									$temp$accum = A2(
+									$elm$core$List$cons,
+									toText(line),
+									A2(
+										$elm$core$List$cons,
+										$author$project$Elm$CodeSection(
+											$elm$core$List$reverse(reg)),
+										accum));
+								toText = $temp$toText;
+								lines = $temp$lines;
+								isFirst = $temp$isFirst;
+								maybeRegion = $temp$maybeRegion;
+								accum = $temp$accum;
+								continue gatherCodeSectionRecurseHelper;
+							}
+						}
+					}
+				}
+			}
+		}
+	});
+var $elm$core$String$lines = _String_lines;
+var $author$project$Elm$gatherCodeSectionRecurse = F4(
+	function (toText, str, maybeRegion, accum) {
+		return A5(
+			$author$project$Elm$gatherCodeSectionRecurseHelper,
+			toText,
+			$elm$core$String$lines(str),
+			true,
+			maybeRegion,
+			accum);
+	});
+var $author$project$Elm$nestCodingSectionsHelper = F3(
+	function (texts, gatheredCodeRegion, gathered) {
+		nestCodingSectionsHelper:
+		while (true) {
+			if (!texts.b) {
+				if (gatheredCodeRegion.$ === 'Nothing') {
+					return $elm$core$List$reverse(gathered);
+				} else {
+					var codeRegion = gatheredCodeRegion.a;
+					return $elm$core$List$reverse(
+						A2(
+							$elm$core$List$cons,
+							$author$project$Elm$CodeSection(
+								$elm$core$List$reverse(codeRegion)),
+							gathered));
+				}
+			} else {
+				switch (texts.a.$) {
+					case 'Plain':
+						var txt = texts.a.a;
+						var remaining = texts.b;
+						var _v2 = A4($author$project$Elm$gatherCodeSectionRecurse, $author$project$Elm$Plain, txt, gatheredCodeRegion, gathered);
+						var newCodeRegion = _v2.a;
+						var newGathered = _v2.b;
+						var $temp$texts = remaining,
+							$temp$gatheredCodeRegion = newCodeRegion,
+							$temp$gathered = newGathered;
+						texts = $temp$texts;
+						gatheredCodeRegion = $temp$gatheredCodeRegion;
+						gathered = $temp$gathered;
+						continue nestCodingSectionsHelper;
+					case 'Styled':
+						var _v3 = texts.a;
+						var style = _v3.a;
+						var txt = _v3.b;
+						var remaining = texts.b;
+						var _v4 = A4(
+							$author$project$Elm$gatherCodeSectionRecurse,
+							$author$project$Elm$Styled(style),
+							txt,
+							gatheredCodeRegion,
+							gathered);
+						var newCodeRegion = _v4.a;
+						var newGathered = _v4.b;
+						var $temp$texts = remaining,
+							$temp$gatheredCodeRegion = newCodeRegion,
+							$temp$gathered = newGathered;
+						texts = $temp$texts;
+						gatheredCodeRegion = $temp$gatheredCodeRegion;
+						gathered = $temp$gathered;
+						continue nestCodingSectionsHelper;
+					default:
+						var txt = texts.a.a;
+						var remaining = texts.b;
+						var $temp$texts = remaining,
+							$temp$gatheredCodeRegion = gatheredCodeRegion,
+							$temp$gathered = A2(
+							$elm$core$List$cons,
+							$author$project$Elm$CodeSection(txt),
+							gathered);
+						texts = $temp$texts;
+						gatheredCodeRegion = $temp$gatheredCodeRegion;
+						gathered = $temp$gathered;
+						continue nestCodingSectionsHelper;
+				}
+			}
+		}
+	});
+var $author$project$Elm$nestCodingSections = function (texts) {
+	return A3($author$project$Elm$nestCodingSectionsHelper, texts, $elm$core$Maybe$Nothing, _List_Nil);
+};
+var $author$project$Elm$StyledText = F3(
+	function (color, underline, bold) {
+		return {bold: bold, color: color, underline: underline};
 	});
 var $author$project$Elm$Cyan = {$: 'Cyan'};
 var $author$project$Elm$Green = {$: 'Green'};
@@ -10827,18 +11112,21 @@ var $author$project$Elm$maybeColor = $elm$json$Json$Decode$oneOf(
 			$elm$json$Json$Decode$string),
 			$elm$json$Json$Decode$null($elm$core$Maybe$Nothing)
 		]));
-var $author$project$Elm$styledText = A5(
-	$elm$json$Json$Decode$map4,
+var $author$project$Elm$styledText = A4(
+	$elm$json$Json$Decode$map3,
 	$author$project$Elm$StyledText,
 	A2($elm$json$Json$Decode$field, 'color', $author$project$Elm$maybeColor),
 	A2($elm$json$Json$Decode$field, 'underline', $elm$json$Json$Decode$bool),
-	A2($elm$json$Json$Decode$field, 'bold', $elm$json$Json$Decode$bool),
-	A2($elm$json$Json$Decode$field, 'string', $elm$json$Json$Decode$string));
+	A2($elm$json$Json$Decode$field, 'bold', $elm$json$Json$Decode$bool));
 var $author$project$Elm$text = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
 		[
 			A2($elm$json$Json$Decode$map, $author$project$Elm$Plain, $elm$json$Json$Decode$string),
-			A2($elm$json$Json$Decode$map, $author$project$Elm$Styled, $author$project$Elm$styledText)
+			A3(
+			$elm$json$Json$Decode$map2,
+			$author$project$Elm$Styled,
+			$author$project$Elm$styledText,
+			A2($elm$json$Json$Decode$field, 'string', $elm$json$Json$Decode$string))
 		]));
 var $author$project$Elm$decodeProblem = A4(
 	$elm$json$Json$Decode$map3,
@@ -10847,7 +11135,10 @@ var $author$project$Elm$decodeProblem = A4(
 	A2(
 		$elm$json$Json$Decode$field,
 		'message',
-		$elm$json$Json$Decode$list($author$project$Elm$text)),
+		A2(
+			$elm$json$Json$Decode$map,
+			$author$project$Elm$nestCodingSections,
+			$elm$json$Json$Decode$list($author$project$Elm$text))),
 	A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion));
 var $elm$core$List$sortBy = _List_sortBy;
 var $author$project$Elm$fileError = A4(
@@ -17310,19 +17601,34 @@ var $author$project$Main$colorAttribute = function (maybeColor) {
 	}
 };
 var $author$project$Main$viewText = function (txt) {
-	if (txt.$ === 'Plain') {
-		var str = txt.a;
-		return $mdgriffith$elm_ui$Element$text(str);
-	} else {
-		var styled = txt.a;
-		return A2(
-			$mdgriffith$elm_ui$Element$el,
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$htmlAttribute(
-					$author$project$Main$colorAttribute(styled.color))
-				]),
-			$mdgriffith$elm_ui$Element$text(styled.string));
+	switch (txt.$) {
+		case 'Plain':
+			var str = txt.a;
+			return $mdgriffith$elm_ui$Element$text(str);
+		case 'Styled':
+			var styled = txt.a;
+			var str = txt.b;
+			return A2(
+				$mdgriffith$elm_ui$Element$el,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$htmlAttribute(
+						$author$project$Main$colorAttribute(styled.color))
+					]),
+				$mdgriffith$elm_ui$Element$text(str));
+		default:
+			var section = txt.a;
+			return A2(
+				$mdgriffith$elm_ui$Element$paragraph,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+						$mdgriffith$elm_ui$Element$htmlAttribute(
+						A2($elm$html$Html$Attributes$style, 'overflow', 'auto')),
+						$mdgriffith$elm_ui$Element$htmlAttribute(
+						A2($elm$html$Html$Attributes$style, 'max-height', '250px'))
+					]),
+				A2($elm$core$List$map, $author$project$Main$viewText, section));
 	}
 };
 var $mdgriffith$elm_ui$Internal$Model$BorderWidth = F5(
@@ -17407,12 +17713,12 @@ var $author$project$Main$viewIssueDetails = F3(
 									A2($elm$html$Html$Attributes$style, 'transition', 'max-height 250ms')) : $mdgriffith$elm_ui$Element$htmlAttribute(
 									A2($elm$html$Html$Attributes$style, 'transition', 'max-height 100ms')),
 									$mdgriffith$elm_ui$Element$htmlAttribute(
-									A2($elm$html$Html$Attributes$style, 'overflow', 'hidden')),
+									A2($elm$html$Html$Attributes$style, 'overflow', 'auto')),
 									$mdgriffith$elm_ui$Element$htmlAttribute(
 									A2(
 										$elm$html$Html$Attributes$style,
 										'max-height',
-										expanded ? '1000px' : '0px')),
+										expanded ? '500px' : '0px')),
 									$mdgriffith$elm_ui$Element$htmlAttribute(
 									expanded ? $elm$html$Html$Attributes$class('') : A2($elm$html$Html$Attributes$style, 'margin', '0px'))
 								]),
@@ -17724,4 +18030,4 @@ var $author$project$Main$main = $elm$browser$Browser$document(
 		view: $author$project$Main$view
 	});
 _Platform_export({'Main':{'init':$author$project$Main$main(
-	$elm$json$Json$Decode$succeed(_Utils_Tuple0))({"versions":{"elm":"0.19.1"},"types":{"message":"Model.Msg","aliases":{"Model.FilePath":{"args":[],"type":"String.String"},"Editor.Position":{"args":[],"type":"{ row : Basics.Int, col : Basics.Int }"},"Editor.Region":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Editor.Editor":{"args":[],"type":"{ fileName : String.String, unsavedChanges : Basics.Bool, ranges : List.List Editor.Range, selections : List.List Editor.Range }"},"Editor.Range":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Question.TypeSignature":{"args":[],"type":"{ name : String.String, region : Editor.Region, signature : String.String }"},"Json.Decode.Value":{"args":[],"type":"Json.Encode.Value"},"Elm.File":{"args":[],"type":"{ path : String.String, name : String.String, problem : List.List Elm.Problem }"},"Elm.GlobalErrorDetails":{"args":[],"type":"{ path : Maybe.Maybe String.String, problem : { title : String.String, message : List.List Elm.Text } }"},"Elm.Problem":{"args":[],"type":"{ title : String.String, message : List.List Elm.Text, region : Editor.Region }"},"Elm.StyledText":{"args":[],"type":"{ color : Maybe.Maybe Elm.Color, underline : Basics.Bool, bold : Basics.Bool, string : String.String }"}},"unions":{"Model.Msg":{"args":[],"tags":{"Incoming":["Result.Result Json.Decode.Error Ports.Incoming"],"View":["Model.Viewing"],"AnswerReceived":["Result.Result Http.Error Question.Answer"],"EditorGoTo":["Model.FilePath","Editor.Region"],"EditorFillTypeSignatures":["Model.FilePath"]}},"Question.Answer":{"args":[],"tags":{"MissingTypeSignatures":["String.String","List.List Question.TypeSignature"]}},"Http.Error":{"args":[],"tags":{"BadUrl":["String.String"],"Timeout":[],"NetworkError":[],"BadStatus":["Basics.Int"],"BadBody":["String.String"]}},"Json.Decode.Error":{"args":[],"tags":{"Field":["String.String","Json.Decode.Error"],"Index":["Basics.Int","Json.Decode.Error"],"OneOf":["List.List Json.Decode.Error"],"Failure":["String.String","Json.Decode.Value"]}},"Ports.Incoming":{"args":[],"tags":{"VisibleEditorsUpdated":["{ active : Maybe.Maybe Editor.Editor, visible : List.List Editor.Editor }"],"ProjectsStatusUpdated":["List.List Elm.Status"]}},"Basics.Int":{"args":[],"tags":{"Int":[]}},"Result.Result":{"args":["error","value"],"tags":{"Ok":["value"],"Err":["error"]}},"String.String":{"args":[],"tags":{"String":[]}},"Model.Viewing":{"args":[],"tags":{"Overview":[]}},"Basics.Bool":{"args":[],"tags":{"True":[],"False":[]}},"List.List":{"args":["a"],"tags":{}},"Maybe.Maybe":{"args":["a"],"tags":{"Just":["a"],"Nothing":[]}},"Elm.Status":{"args":[],"tags":{"NoData":[],"Success":[],"GlobalError":["Elm.GlobalErrorDetails"],"CompilerError":["{ errors : List.List Elm.File }"]}},"Json.Encode.Value":{"args":[],"tags":{"Value":[]}},"Elm.Text":{"args":[],"tags":{"Plain":["String.String"],"Styled":["Elm.StyledText"]}},"Elm.Color":{"args":[],"tags":{"Red":[],"Yellow":[],"Green":[],"Cyan":[]}}}}})}});}(this));
+	$elm$json$Json$Decode$succeed(_Utils_Tuple0))({"versions":{"elm":"0.19.1"},"types":{"message":"Model.Msg","aliases":{"Model.FilePath":{"args":[],"type":"String.String"},"Editor.Position":{"args":[],"type":"{ row : Basics.Int, col : Basics.Int }"},"Editor.Region":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Editor.Editor":{"args":[],"type":"{ fileName : String.String, unsavedChanges : Basics.Bool, ranges : List.List Editor.Range, selections : List.List Editor.Range }"},"Editor.Range":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Question.TypeSignature":{"args":[],"type":"{ name : String.String, region : Editor.Region, signature : String.String }"},"Json.Decode.Value":{"args":[],"type":"Json.Encode.Value"},"Elm.File":{"args":[],"type":"{ path : String.String, name : String.String, problem : List.List Elm.Problem }"},"Elm.GlobalErrorDetails":{"args":[],"type":"{ path : Maybe.Maybe String.String, problem : { title : String.String, message : List.List Elm.Text } }"},"Elm.Problem":{"args":[],"type":"{ title : String.String, message : List.List Elm.Text, region : Editor.Region }"},"Elm.StyledText":{"args":[],"type":"{ color : Maybe.Maybe Elm.Color, underline : Basics.Bool, bold : Basics.Bool }"}},"unions":{"Model.Msg":{"args":[],"tags":{"Incoming":["Result.Result Json.Decode.Error Ports.Incoming"],"View":["Model.Viewing"],"AnswerReceived":["Result.Result Http.Error Question.Answer"],"EditorGoTo":["Model.FilePath","Editor.Region"],"EditorFillTypeSignatures":["Model.FilePath"]}},"Question.Answer":{"args":[],"tags":{"MissingTypeSignatures":["String.String","List.List Question.TypeSignature"]}},"Http.Error":{"args":[],"tags":{"BadUrl":["String.String"],"Timeout":[],"NetworkError":[],"BadStatus":["Basics.Int"],"BadBody":["String.String"]}},"Json.Decode.Error":{"args":[],"tags":{"Field":["String.String","Json.Decode.Error"],"Index":["Basics.Int","Json.Decode.Error"],"OneOf":["List.List Json.Decode.Error"],"Failure":["String.String","Json.Decode.Value"]}},"Ports.Incoming":{"args":[],"tags":{"VisibleEditorsUpdated":["{ active : Maybe.Maybe Editor.Editor, visible : List.List Editor.Editor }"],"ProjectsStatusUpdated":["List.List Elm.Status"]}},"Basics.Int":{"args":[],"tags":{"Int":[]}},"Result.Result":{"args":["error","value"],"tags":{"Ok":["value"],"Err":["error"]}},"String.String":{"args":[],"tags":{"String":[]}},"Model.Viewing":{"args":[],"tags":{"Overview":[]}},"Basics.Bool":{"args":[],"tags":{"True":[],"False":[]}},"List.List":{"args":["a"],"tags":{}},"Maybe.Maybe":{"args":["a"],"tags":{"Just":["a"],"Nothing":[]}},"Elm.Status":{"args":[],"tags":{"NoData":[],"Success":[],"GlobalError":["Elm.GlobalErrorDetails"],"CompilerError":["{ errors : List.List Elm.File }"]}},"Json.Encode.Value":{"args":[],"tags":{"Value":[]}},"Elm.Text":{"args":[],"tags":{"Plain":["String.String"],"Styled":["Elm.StyledText","String.String"],"CodeSection":["List.List Elm.Text"]}},"Elm.Color":{"args":[],"tags":{"Red":[],"Yellow":[],"Green":[],"Cyan":[]}}}}})}});}(this));

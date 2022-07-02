@@ -67,14 +67,14 @@ type alias Problem =
 
 type Text
     = Plain String
-    | Styled StyledText
+    | Styled StyledText String
+    | CodeSection (List Text)
 
 
 type alias StyledText =
     { color : Maybe Color
     , underline : Bool
     , bold : Bool
-    , string : String
     }
 
 
@@ -100,6 +100,7 @@ inEditor file editor =
 {- HELPERS -}
 
 
+decodeProject : Decode.Decoder Project
 decodeProject =
     Decode.map3 Project
         (Decode.field "root" Decode.string)
@@ -109,6 +110,7 @@ decodeProject =
         (Decode.field "status" decodeStatus)
 
 
+decodeStatus : Decode.Decoder Status
 decodeStatus =
     Decode.oneOf
         [ Decode.field "compiled" Decode.bool
@@ -145,6 +147,7 @@ decodeStatus =
         ]
 
 
+decodeErrorType : Decode.Decoder ErrType
 decodeErrorType =
     Decode.string
         |> Decode.andThen
@@ -161,6 +164,7 @@ decodeErrorType =
             )
 
 
+fileError : Decode.Decoder File
 fileError =
     Decode.map3 File
         (Decode.field "path" Decode.string)
@@ -173,28 +177,273 @@ fileError =
         )
 
 
+decodeProblem : Decode.Decoder Problem
 decodeProblem =
     Decode.map3 Problem
         (Decode.field "title" Decode.string)
-        (Decode.field "message" (Decode.list text))
+        (Decode.field "message"
+            (Decode.map nestCodingSections (Decode.list text))
+        )
         (Decode.field "region" Editor.decodeRegion)
 
 
+nestCodingSections : List Text -> List Text
+nestCodingSections texts =
+    nestCodingSectionsHelper texts Nothing []
+
+
+nestCodingSectionsHelper texts gatheredCodeRegion gathered =
+    case texts of
+        [] ->
+            case gatheredCodeRegion of
+                Nothing ->
+                    List.reverse gathered
+
+                Just codeRegion ->
+                    List.reverse (CodeSection (List.reverse codeRegion) :: gathered)
+
+        (Plain txt) :: remaining ->
+            let
+                ( newCodeRegion, newGathered ) =
+                    gatherCodeSectionRecurse Plain
+                        txt
+                        gatheredCodeRegion
+                        gathered
+            in
+            nestCodingSectionsHelper remaining newCodeRegion newGathered
+
+        (Styled style txt) :: remaining ->
+            let
+                ( newCodeRegion, newGathered ) =
+                    gatherCodeSectionRecurse (Styled style)
+                        txt
+                        gatheredCodeRegion
+                        gathered
+            in
+            nestCodingSectionsHelper remaining newCodeRegion newGathered
+
+        (CodeSection txt) :: remaining ->
+            -- This branch generally shouldn't happen because we haven't built code sections yet
+            nestCodingSectionsHelper remaining gatheredCodeRegion (CodeSection txt :: gathered)
+
+
+gatherCodeSectionRecurse toText str maybeRegion accum =
+    gatherCodeSectionRecurseHelper toText (String.lines str) True maybeRegion accum
+
+
+{-| -}
+gatherCodeSectionRecurseHelper toText lines isFirst maybeRegion accum =
+    case lines of
+        [] ->
+            ( maybeRegion, accum )
+
+        [ last ] ->
+            if isFirst then
+                -- there were no newlines
+                -- just add normally
+                case maybeRegion of
+                    Nothing ->
+                        ( Nothing
+                        , toText last :: accum
+                        )
+
+                    Just reg ->
+                        ( Just (toText last :: reg)
+                        , accum
+                        )
+
+            else
+                let
+                    line =
+                        "\n" ++ last
+                in
+                -- there were newlines previously
+                if startsWithNum last then
+                    case maybeRegion of
+                        Nothing ->
+                            ( Just [ toText line ]
+                            , accum
+                            )
+
+                        Just reg ->
+                            ( Just (toText line :: reg)
+                            , accum
+                            )
+
+                else
+                    case maybeRegion of
+                        Nothing ->
+                            ( Nothing
+                            , toText line :: accum
+                            )
+
+                        Just reg ->
+                            ( Nothing
+                            , toText line :: CodeSection (List.reverse reg) :: accum
+                            )
+
+        topLine :: remainingLines ->
+            if isFirst then
+                -- there were no newlines
+                -- just add normally
+                case maybeRegion of
+                    Nothing ->
+                        gatherCodeSectionRecurseHelper toText
+                            remainingLines
+                            False
+                            Nothing
+                            (toText topLine :: accum)
+
+                    Just reg ->
+                        gatherCodeSectionRecurseHelper toText
+                            remainingLines
+                            False
+                            (Just (toText topLine :: reg))
+                            accum
+
+            else
+                let
+                    line =
+                        "\n" ++ topLine
+                in
+                -- there were newlines previously
+                if startsWithNum topLine then
+                    case maybeRegion of
+                        Nothing ->
+                            gatherCodeSectionRecurseHelper toText
+                                remainingLines
+                                False
+                                (Just [ toText line ])
+                                accum
+
+                        Just reg ->
+                            gatherCodeSectionRecurseHelper toText
+                                remainingLines
+                                False
+                                (Just (toText line :: reg))
+                                accum
+
+                else
+                    case maybeRegion of
+                        Nothing ->
+                            gatherCodeSectionRecurseHelper toText
+                                remainingLines
+                                False
+                                Nothing
+                                (toText line :: accum)
+
+                        Just reg ->
+                            gatherCodeSectionRecurseHelper toText
+                                remainingLines
+                                False
+                                Nothing
+                                (toText line :: CodeSection (List.reverse reg) :: accum)
+
+
+startsWithNum str =
+    case String.uncons (String.left 1 str) of
+        Nothing ->
+            False
+
+        Just ( top, _ ) ->
+            Char.isDigit top
+
+
+gatherCodeSection toText line ( maybeRegion, accum ) =
+    case String.uncons (String.left 1 line) of
+        Nothing ->
+            -- we are not in a code section or have exited one
+            case maybeRegion of
+                Nothing ->
+                    ( Nothing
+                    , toText (line ++ "\n") :: accum
+                    )
+
+                Just reg ->
+                    ( Nothing
+                    , toText (line ++ "\n") :: CodeSection reg :: accum
+                    )
+
+        Just ( top, remain ) ->
+            if Char.isDigit top then
+                -- We are in a code section or started one
+                case maybeRegion of
+                    Nothing ->
+                        ( Just [ toText line ]
+                        , accum
+                        )
+
+                    Just reg ->
+                        ( Just (toText line :: reg)
+                        , accum
+                        )
+
+            else
+                -- we are not in a code section or have exited one
+                case maybeRegion of
+                    Nothing ->
+                        ( Nothing
+                        , toText line :: accum
+                        )
+
+                    Just reg ->
+                        ( Just (toText line :: reg)
+                        , accum
+                        )
+
+
+
+-- type alias Section =
+--     { before : String
+--     , code : String
+--     }
+-- splitCodeRegionText inCodeRegion str =
+--     List.foldl
+--         (\line gathered ->
+--             case String.uncons (String.left 1 line) of
+--                 Nothing ->
+--                     -- we are not in a code section or have exited one
+--                     { inCodeRegion = False
+--                     }
+--                 Just ( top, remain ) ->
+--                     if Char.isDigit top then
+--                         -- We are in a code section or started one
+--                         -- if gathered.inCodeRegion then
+--                         { inCodeRegion = True
+--                         }
+--                     else
+--                         -- we are not in a code section or have exited one
+--                         { inCodeRegion = False
+--                         }
+--         )
+--         { inCodeRegion = inCodeRegion
+--         , before = []
+--         , codeRegion = []
+--         , after = []
+--         }
+--         (String.lines str)
+--         |> List.reverse
+
+
+text : Decode.Decoder Text
 text =
     Decode.oneOf
         [ Decode.map Plain Decode.string
-        , Decode.map Styled styledText
+        , Decode.map2 Styled
+            styledText
+            (Decode.field "string" Decode.string)
         ]
 
 
+styledText : Decode.Decoder StyledText
 styledText =
-    Decode.map4 StyledText
+    Decode.map3 StyledText
         (Decode.field "color" maybeColor)
         (Decode.field "underline" Decode.bool)
         (Decode.field "bold" Decode.bool)
-        (Decode.field "string" Decode.string)
 
 
+maybeColor : Decode.Decoder (Maybe Color)
 maybeColor =
     Decode.oneOf
         [ Decode.string

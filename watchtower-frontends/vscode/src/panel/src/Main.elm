@@ -458,11 +458,11 @@ viewIssueDetails expanded file issue =
 
                   else
                     Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 100ms")
-                , Ui.htmlAttribute (Html.Attributes.style "overflow" "hidden")
+                , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
                 , Ui.htmlAttribute
                     (Html.Attributes.style "max-height"
                         (if expanded then
-                            "1000px"
+                            "500px"
 
                          else
                             "0px"
@@ -596,11 +596,22 @@ viewText txt =
         Elm.Plain str ->
             Ui.text str
 
-        Elm.Styled styled ->
+        Elm.Styled styled str ->
             Ui.el
                 [ Ui.htmlAttribute (colorAttribute styled.color)
                 ]
-                (Ui.text styled.string)
+                (Ui.text str)
+
+        Elm.CodeSection section ->
+            Ui.paragraph
+                [ Ui.width Ui.fill
+                , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
+                , Ui.htmlAttribute
+                    (Html.Attributes.style "max-height"
+                        "250px"
+                    )
+                ]
+                (List.map viewText section)
 
 
 colorAttribute maybeColor =
