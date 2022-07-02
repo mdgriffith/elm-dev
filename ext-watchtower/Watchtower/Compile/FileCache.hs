@@ -75,7 +75,8 @@ compileToJson root paths =
           Left $ Exit.toJson $ Exit.reactorToReport exit
 
 
-compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor B.Builder)
+-- compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor B.Builder)
+compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
 compile root paths =
   do
     Ext.Common.debug $ " compiling " ++ show root ++ " -> " ++ show paths
@@ -85,6 +86,7 @@ compile root paths =
           do
             details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
             artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.FileCached.Build.fromPaths Reporting.silent root details paths
-            javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
-            let (NE.List name _) = Ext.FileCached.Build.getRootNames artifacts
-            return $ Html.sandwich name javascript
+            -- javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
+            -- let (NE.List name _) = Ext.FileCached.Build.getRootNames artifacts
+            -- return $ Html.sandwich name javascript
+            pure ()

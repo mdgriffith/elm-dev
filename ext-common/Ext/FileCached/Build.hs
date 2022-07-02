@@ -62,6 +62,8 @@ import qualified Stuff
 
 import qualified Build
 import Build (Module(..), Artifacts(..), CachedInterface(..), Root(..))
+import Ext.Common (debug)
+import StandaloneInstances
 
 -- ENVIRONMENT
 
@@ -369,6 +371,7 @@ data Result
 
 checkModule :: Env -> Dependencies -> MVar ResultDict -> ModuleName.Raw -> Status -> IO Result
 checkModule env@(Env _ root projectType _ _ _ _) foreigns resultsMVar name status =
+ do
   case status of
     SCached local@(Details.Local path time deps hasMain lastChange lastCompile) ->
       do  results <- readMVar resultsMVar
@@ -376,6 +379,7 @@ checkModule env@(Env _ root projectType _ _ _ _) foreigns resultsMVar name statu
           case depsStatus of
             DepsChange ifaces ->
               do  source <- File.readUtf8 path
+                  debug $ "checkModule:SCached:DepsChange " ++ show name
                   case Parse.fromByteString projectType source of
                     Right modul -> compile env (DocsNeed False) local source ifaces modul
                     Left err ->
@@ -384,13 +388,17 @@ checkModule env@(Env _ root projectType _ _ _ _) foreigns resultsMVar name statu
 
             DepsSame _ _ ->
               do  mvar <- newMVar Unneeded
+                  debug $ "checkModule:SCached:DepsSame " ++ show name
                   return (RCached hasMain lastChange mvar)
 
             DepsBlock ->
+             do
+              debug $ "checkModule:SCached:DepsBlock " ++ show name
               return RBlocked
 
             DepsNotFound problems ->
               do  source <- File.readUtf8 path
+                  debug $ "checkModule:SCached:DepsNotFound " ++ show name
                   return $ RProblem $ Error.Module name path time source $
                     case Parse.fromByteString projectType source of
                       Right (Src.Module _ _ _ imports _ _ _ _ _) ->
@@ -404,34 +412,49 @@ checkModule env@(Env _ root projectType _ _ _ _) foreigns resultsMVar name statu
           depsStatus <- checkDeps root results deps lastCompile
           case depsStatus of
             DepsChange ifaces ->
+             do
+              debug $ "checkModule:SChanged:DepsChange " ++ show name
               compile env docsNeed local source ifaces modul
 
             DepsSame same cached ->
-              do  maybeLoaded <- loadInterfaces root same cached
+              do  debug $ "checkModule:SChanged:DepsSame " ++ show name
+                  maybeLoaded <- loadInterfaces root same cached
                   case maybeLoaded of
                     Nothing     -> return RBlocked
                     Just ifaces -> compile env docsNeed local source ifaces modul
 
             DepsBlock ->
+             do
+              debug $ "checkModule:SChanged:DepsBlock " ++ show name
               return RBlocked
 
             DepsNotFound problems ->
+             do
+              debug $ "checkModule:SChanged:DepsNotFound " ++ show name
               return $ RProblem $ Error.Module name path time source $
                 Error.BadImports (toImportErrors env results imports problems)
 
     SBadImport importProblem ->
+     do
+      debug $ "checkModule:SBadImport " ++ show name
       return (RNotFound importProblem)
 
     SBadSyntax path time source err ->
+     do
+      debug $ "checkModule:SBadSyntax " ++ show name
       return $ RProblem $ Error.Module name path time source $
         Error.BadSyntax err
 
     SForeign home ->
+     do
+      debug $ "checkModule:SForeign " ++ show name
       case foreigns ! ModuleName.Canonical home name of
         I.Public iface -> return (RForeign iface)
         I.Private _ _ _ -> error $ "mistakenly seeing private interface for " ++ Pkg.toChars home ++ " " ++ ModuleName.toChars name
 
     SKernel ->
+     do
+      debug $ "checkModule:SKernel " ++ show name
       return RKernel
 
 
