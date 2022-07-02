@@ -12,10 +12,12 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BSL
 import qualified Codec.Archive.Zip as Zip
+import qualified Data.Time.Clock as Time
+import qualified Data.Time.Clock.POSIX as Time
 
 import qualified File
 
-import Ext.Common ((&), debug, track)
+import Ext.Common ((&), debug, track, onlyWhen)
 import qualified GHC.Stats as RT
 -- import qualified GHC.DataSize
 import qualified System.Mem
@@ -25,11 +27,23 @@ type HashTable k v = H.CuckooHashTable k v
 
 -- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
 {-# NOINLINE fileCache #-}
-fileCache :: HashTable FilePath BS.ByteString
-fileCache = unsafePerformIO $ do
-  ht <- H.new
-  -- H.insert ht "" 1
-  pure ht
+fileCache :: HashTable FilePath (Time, BS.ByteString)
+fileCache = unsafePerformIO H.new
+
+
+lookup path = do
+  -- log $ "👀 " ++ show path
+  H.lookup fileCache path
+
+insert path value = do
+  -- log $ "✍️ " ++ show path
+  t <- currentTime
+  H.insert fileCache path (t, value)
+
+
+currentTime :: IO Time
+currentTime =
+  fmap (File.Time . Time.nominalDiffTimeToSeconds . Time.utcTimeToPOSIXSeconds) Time.getCurrentTime
 
 
 
@@ -39,32 +53,35 @@ exists :: FilePath -> IO Bool
 exists path = do
   res <- lookup path
   case res of
-    Just x -> do
+    Just (t, x) -> do
       -- log $ "✅👀x " ++ show path
-      pure (x /= "EMPTY")
+      pure (x /= "X")
     Nothing -> do
-      log $ "❌👀x " ++ show path
+      -- log $ "❌👀x " ++ show path
       exists <- File.exists path
       if exists
         then do
+          insert path "E"
+          pure exists
           -- Optimistically cache the file knowing it will likely be read shortly
-          t <- File.readUtf8 path
-          insert path t
+          -- t <- File.readUtf8 path
+          -- insert path t
         else do
-          insert path "EMPTY"
+          insert path "X"
+          pure exists
       -- @watch can probably be dropped when we know we can rely on fsnotify setup
       -- onlyWhen exists $ do
       --   -- Optimistically cache the file knowing it will likely be ready shortly
       --   t <- File.readUtf8 path
       --   insert path t
-      pure exists
+      -- pure exists
 
 
 readUtf8 :: FilePath -> IO BS.ByteString
 readUtf8 path = do
   res <- lookup path
   case res of
-    Just x -> do
+    Just (t, x) -> do
       -- log $ "✅👀r " ++ show path
       pure x
     Nothing -> do
@@ -77,6 +94,7 @@ readUtf8 path = do
 writeUtf8 :: FilePath -> BS.ByteString -> IO ()
 writeUtf8 path content = do
   log $ "✍️ " ++ show path
+  -- onlyWhen (not $ List.isInfixOf "/elm-stuff/" path) $
   insert path content
 
 
@@ -84,6 +102,7 @@ writeUtf8 path content = do
 writeBinary :: (Binary.Binary a) => FilePath -> a -> IO ()
 writeBinary path value = do
   log $ "✍️ B " ++ show path
+  -- onlyWhen (not $ List.isInfixOf "/elm-stuff/" path) $
   insert path $ BSL.toStrict $ Binary.encode value
 
 
@@ -92,7 +111,7 @@ readBinary :: (Binary.Binary a) => FilePath -> IO (Maybe a)
 readBinary path = do
   res <- lookup path
   case res of
-    Just x -> do
+    Just (t, x) -> do
       -- log $ "✅👀rb " ++ show path
       case Binary.decodeOrFail $ BSL.fromStrict x of
         Right (bs, offset, a) ->
@@ -115,9 +134,15 @@ type Time = File.Time
 
 
 getTime :: FilePath -> IO Time
-getTime path =
-  -- @TODO File modification times should become irrelevant in FileCached mode
-  pure (File.Time 0)
+getTime path = do
+  -- @TODO File modification times should become irrelevant in FileCached mode?
+  res <- lookup path
+  case res of
+    Just (t, x) -> do
+      pure t
+
+    Nothing -> do
+      File.getTime path
 
 
 zeroTime :: Time
@@ -141,17 +166,6 @@ removeDir path = File.removeDir path
 
 -- Debugging
 
-
-
-lookup path = do
-  -- log $ "👀 " ++ show path
-  H.lookup fileCache path
-
-insert path value = do
-  -- log $ "✍️ " ++ show path
-  H.insert fileCache path value
-
-
 log :: String -> IO ()
 log v =
   -- pure ()
@@ -173,7 +187,7 @@ debugSummary = do
     entries = Prelude.length fileCacheList
 
     -- @TODO memory overhead for string is 4 words per char + 2 words for the char... should swap to text/BS instead.
-    size = fileCacheList & fmap (\(k,v) -> (length k * 6) + BS.length v) & sum & fromIntegral & bytesToMb & show
+    size = fileCacheList & fmap (\(k,(t, v)) -> (length k * 6) + BS.length v) & sum & fromIntegral & bytesToMb & show
     -- (show $ bytesToMb (fromIntegral size))
 
     -- Sum of live bytes across all major GCs. Divided by major_gcs gives the average live data over the lifetime of the program.

@@ -149,8 +149,8 @@ getRootHelp path projects found =
               else getRootHelp path remain found
         else getRootHelp path remain found
 
--- compileMode = Watchtower.Compile.Classic.compileToJson
-compileMode = Watchtower.Compile.FileCache.compileToJson
+compileMode = Watchtower.Compile.Classic.compileToJson
+-- compileMode = Watchtower.Compile.FileCache.compileToJson
 
 
 

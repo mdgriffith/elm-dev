@@ -1,6 +1,8 @@
 module Ext.FileProxy where
 
-{- This is a proxy for Elm's regular File.hs, allowing us to replace the project-wide implementation -}
+{- This is a proxy for Elm's regular File.hs, allowing us to dynamically
+   replace the project-wide implementation for performance testing.
+ -}
 
 -- Only ONE of the following two imports can be set
 import qualified File
@@ -8,19 +10,30 @@ import qualified Ext.FileCached as FileCached
 
 import Control.Concurrent.MVar
 import System.IO.Unsafe (unsafePerformIO)
+import qualified System.Environment as Env
 
 import qualified Codec.Archive.Zip as Zip
 import qualified Data.Binary as Binary
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 
+import Ext.Common (debug)
 
-data ProxyMode = Disk | Memory
+data ProxyMode = Disk | Memory deriving (Show)
 
 -- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
 {-# NOINLINE proxyMode #-}
 proxyMode :: MVar ProxyMode
-proxyMode = unsafePerformIO $ newMVar Memory
+proxyMode = unsafePerformIO $ do
+  debugM <- Env.lookupEnv "MODE"
+  let mode =
+        case debugM of
+          Just "disk" -> Disk
+          Just "memory" -> Memory
+          _ -> Memory
+  debug $ "setting fileproxy mode: " <> show mode
+  newMVar mode
+
 
 withModeDisk :: IO a -> IO a
 withModeDisk io = do
