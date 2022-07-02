@@ -70,6 +70,10 @@ export function activate(context: vscode.ExtensionContext) {
     ElmProjectPane.send(PanelMsg.sendEditorVisibility());
   });
 
+  vscode.window.onDidChangeTextEditorSelection((selection) => {
+    ElmProjectPane.send(PanelMsg.sendEditorVisibility());
+  });
+
   vscode.window.onDidChangeTextEditorVisibleRanges((visibleRanges) => {
     ElmProjectPane.send(PanelMsg.sendEditorVisibility());
   });
