@@ -7,18 +7,15 @@ import Prelude hiding (lookup, log)
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.HashTable.IO as H
 import qualified Data.List as List
--- import Data.Text (Text)
--- import qualified Data.Text as T
--- import qualified Data.Text.IO
--- import qualified Data.Text.Lazy.Encoding as TLE
-
-import qualified File
 import qualified Data.Binary as Binary
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BSL
 import qualified Codec.Archive.Zip as Zip
 
-import Ext.Common
+import qualified File
+
+import Ext.Common ((&), debug, track)
 import qualified GHC.Stats as RT
 -- import qualified GHC.DataSize
 import qualified System.Mem
@@ -77,11 +74,16 @@ readUtf8 path = do
       insert path t
       pure t
 
+writeUtf8 :: FilePath -> BS.ByteString -> IO ()
+writeUtf8 path content = do
+  log $ "✍️ " ++ show path
+  insert path content
+
 
 -- @TODO potentially skip binary serialisation entirely
 writeBinary :: (Binary.Binary a) => FilePath -> a -> IO ()
 writeBinary path value = do
-  log $ "✍️ " ++ show path
+  log $ "✍️ B " ++ show path
   insert path $ BSL.toStrict $ Binary.encode value
 
 
@@ -118,15 +120,23 @@ getTime path =
   pure (File.Time 0)
 
 
+zeroTime :: Time
+zeroTime =
+  File.Time 0
+
+
 -- Not needed in cache?
 writePackage :: FilePath -> Zip.Archive -> IO ()
 writePackage = File.writePackage
 
+writeBuilder :: FilePath -> B.Builder -> IO ()
+writeBuilder = File.writeBuilder
 
+remove :: FilePath -> IO ()
+remove path = File.remove path
 
-
-
-
+removeDir :: FilePath -> IO ()
+removeDir path = File.removeDir path
 
 
 -- Debugging

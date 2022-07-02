@@ -22,7 +22,7 @@ import qualified BackgroundWriter as BW
 import qualified Build
 import qualified Elm.Details as Details
 import qualified Elm.ModuleName as ModuleName
-import qualified File
+import qualified Ext.FileProxy as File
 import qualified Generate
 import qualified Generate.Html as Html
 import qualified Reporting

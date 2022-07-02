@@ -22,7 +22,7 @@ import qualified Data.Map.Strict as Map
 import qualified Deps.Website as Website
 import qualified Elm.Package as Pkg
 import qualified Elm.Version as V
-import qualified File
+import qualified Ext.FileProxy as File
 import qualified Http
 import qualified Json.Decode as D
 import qualified Parse.Primitives as P

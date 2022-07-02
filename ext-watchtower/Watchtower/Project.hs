@@ -10,7 +10,7 @@ import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Elm.Outline
-import qualified File
+import qualified Ext.FileProxy as File
 import qualified Json.Decode
 import Json.Encode ((==>))
 import qualified Json.Encode
@@ -61,7 +61,7 @@ getRoot (Project root _) =
 
 contains :: FilePath -> Project -> Bool
 contains path (Project root entries) =
-    root `List.isPrefixOf` path 
+    root `List.isPrefixOf` path
 
 {- Recursively find files named elm.json.
 
@@ -122,7 +122,7 @@ createProject root =
       Just main ->
         do
           pure (Project root [main])
-     
+
 
 findFirstFileNamed :: String -> FilePath -> IO (Maybe FilePath)
 findFirstFileNamed named dir =
@@ -130,7 +130,7 @@ findFirstFileNamed named dir =
     then pure Nothing
     else do
       fileExists <- Dir.doesFileExist (dir </> named)
-      
+
       if fileExists
         then pure (Just (dir </> named))
         else
@@ -138,7 +138,7 @@ findFirstFileNamed named dir =
             subdirs <- Dir.listDirectory dir
             let paths = map (dir </>) subdirs
             dirs <- Monad.filterM Dir.doesDirectoryExist paths
-            Monad.foldM 
+            Monad.foldM
                (\found subdir ->
                   case found of
                     Nothing ->

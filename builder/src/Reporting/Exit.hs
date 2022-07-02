@@ -46,7 +46,7 @@ import qualified Elm.Magnitude as M
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
 import qualified Elm.Version as V
-import qualified File
+import qualified Ext.FileProxy as File
 import qualified Http
 import qualified Json.Decode as Decode
 import qualified Json.Encode as Encode

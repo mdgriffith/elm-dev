@@ -32,7 +32,7 @@ import qualified Elm.Licenses as Licenses
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
 import qualified Elm.Version as V
-import qualified File
+import qualified Ext.FileProxy as File
 import qualified Json.Decode as D
 import qualified Json.Encode as E
 import Json.Encode ((==>))

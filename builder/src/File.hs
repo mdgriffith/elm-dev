@@ -80,8 +80,8 @@ writeBinary path value =
 
 readBinary :: (Binary.Binary a) => FilePath -> IO (Maybe a)
 readBinary path =
-  do  pathExists <- Dir.doesFileExist path
-      debug_ $ "💥 missed readBinary" ++ show path
+  do  debug_ $ "💥 missed readBinary" ++ show path
+      pathExists <- Dir.doesFileExist path
       if pathExists
         then
           do  result <- Binary.decodeFileOrFail path
@@ -207,12 +207,12 @@ writeEntry destination root entry = do
     || path == "LICENSE"
     || path == "README.md"
     || path == "elm.json"
-  then
-      if not (null path) && last path == '/'
-      then Dir.createDirectoryIfMissing True (destination </> path)
-      else LBS.writeFile (destination </> path) (Zip.fromEntry entry)
-  else
-      return ()
+    then
+        if not (null path) && last path == '/'
+        then Dir.createDirectoryIfMissing True (destination </> path)
+        else LBS.writeFile (destination </> path) (Zip.fromEntry entry)
+    else
+        return ()
 
 
 

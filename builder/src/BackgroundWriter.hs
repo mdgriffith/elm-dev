@@ -12,7 +12,7 @@ import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
 import qualified Data.Binary as Binary
 import Data.Foldable (traverse_)
 
-import qualified File
+import qualified Ext.FileProxy as File
 
 
 

@@ -44,7 +44,7 @@ import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline as Outline
 import qualified Elm.Package as Pkg
-import qualified File
+import qualified Ext.FileProxy as File
 import qualified Json.Encode as E
 import qualified Parse.Module as Parse
 import qualified Reporting

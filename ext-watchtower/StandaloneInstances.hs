@@ -63,7 +63,7 @@ import qualified Type.UnionFind
 import qualified Reporting.Error.Type
 import qualified Deps.Registry
 import qualified Json.Encode
-import qualified File
+import qualified Ext.FileProxy as File
 
 
 -- Show

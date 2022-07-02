@@ -149,6 +149,11 @@ getRootHelp path projects found =
               else getRootHelp path remain found
         else getRootHelp path remain found
 
+-- compileMode = Watchtower.Compile.Classic.compileToJson
+compileMode = Watchtower.Compile.FileCache.compileToJson
+
+
+
 
 recompileAllProjects :: Watchtower.Live.State -> IO ()
 recompileAllProjects (Watchtower.Live.State mClients mProjects) = do
@@ -205,24 +210,11 @@ recompile (Watchtower.Live.State mClients mProjects) allChangedFiles = do
           changedElmFiles
           projects
 
+        debug $ "🛬  recompile finished: " ++ show changedElmFiles
+    else
+        pure ()
 
--- compileMode = Watchtower.Compile.Classic.compileToJson
-compileMode = Watchtower.Compile.FileCache.compileToJson
 
-
-recompile :: Watchtower.Live.State -> [String] -> IO ()
-recompile (Watchtower.Live.State mClients projects) changedFiles = do
-  debug $ "🛫  recompile starting: " ++ show changedFiles
-  trackedForkIO $
-    track "recompile" $ do
-
-      Monad.foldM
-        -- (recompileProjectIfSubFile mClients)
-        (recompileChangedFile mClients)
-        changedFiles
-        projects
-
-      debug $ "🛬  recompile finished: " ++ show changedFiles
 
 recompileProject :: STM.TVar [Client] -> ProjectCache -> IO [FilePath]
 recompileProject mClients proj@(ProjectCache (Watchtower.Project.Project projectRoot entrypoints) cache) =

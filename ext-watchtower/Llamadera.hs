@@ -33,7 +33,7 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Compile
 import qualified Parse.Module as Parse
 import qualified BackgroundWriter as BW
-import qualified File
+import qualified Ext.FileCached as File
 import qualified Reporting
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
@@ -200,7 +200,7 @@ Compile.Artifacts is defined as
 
 - Can.Module is the canonicalized AST!
 - A map of all the types
-- and 
+- and
 
 
 
