@@ -4,27 +4,21 @@ import * as Code from "vscode";
 export type ToProjectPanel =
   | {
       msg: "EditorVisibilityChanged";
-      details: { active:EditorVisibility | null,
-        visible: EditorVisibility[]
-      }
+      details: { active: EditorVisibility | null; visible: EditorVisibility[] };
     }
-  | { msg: "Status" ,
-      details: ProjectStatus[]
-    }
-
-
+  | { msg: "Status"; details: ProjectStatus[] };
 
 export type EditorVisibility = {
   fileName: string;
   ranges: Range[];
   selections: Selection[];
   unsavedChanges: Boolean;
-}
+};
 
 export type ProjectStatus = {
-    root: string
-    status: any
-}
+  root: string;
+  status: any;
+};
 
 export type Selection = {
   start: Position;
@@ -53,57 +47,52 @@ export type FromProjectPanel = {
 
 /* Message constructors */
 export const sendEditorVisibility = (): ToProjectPanel => {
-  let active = null
+  let active = null;
   if (Code.window.activeTextEditor) {
-    active = prepareVisibility(Code.window.activeTextEditor)
+    active = prepareVisibility(Code.window.activeTextEditor);
   }
-  const visible = []
+  const visible = [];
   for (const index in Code.window.visibleTextEditors) {
-    visible.push(prepareVisibility(Code.window.visibleTextEditors[index]))
+    visible.push(prepareVisibility(Code.window.visibleTextEditors[index]));
   }
 
   return {
     msg: "EditorVisibilityChanged",
     details: {
       active: active,
-      visible: visible
-    }
-  }
+      visible: visible,
+    },
+  };
+};
 
-}
-
-const prepareVisibility = (editor : Code.TextEditor): EditorVisibility => {
+const prepareVisibility = (editor: Code.TextEditor): EditorVisibility => {
   return {
     fileName: editor.document.fileName,
     ranges: prepareRanges(editor.visibleRanges),
     selections: prepareSelections(editor.selections),
-    unsavedChanges: editor.document.isDirty
-  }
-}
-
-
+    unsavedChanges: editor.document.isDirty,
+  };
+};
 
 /* Helpers */
-function prepareSelections(selections: readonly Code.Selection[]): Selection[]{
+function prepareSelections(selections: readonly Code.Selection[]): Selection[] {
   const len = selections.length;
 
   var prepared = [];
   for (var i = 0; i < len; i++) {
-    const selection = selections[i]
+    const selection = selections[i];
     const start = {
       character: selection.start.character,
-      line: selection.start.line,
+      line: selection.start.line + 1,
     };
     const end = {
       character: selection.end.character,
-      line: selection.end.line,
-      
+      line: selection.end.line + 1,
     };
-    let cursorPosition = end
+    let cursorPosition = end;
     if (selection.isReversed) {
-      cursorPosition = start
+      cursorPosition = start;
     }
-
 
     prepared.push({ start: start, end: end, cursor: cursorPosition });
   }
