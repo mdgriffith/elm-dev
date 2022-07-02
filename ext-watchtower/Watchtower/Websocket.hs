@@ -135,7 +135,7 @@ broadcastImpl mClients message = do
 talk :: OnReceive -> WS.Connection -> TVar [Client clientData] -> Client clientData -> IO ()
 talk onReceive conn _ (Client clientId _ _) = forever $ do
   msg <- WS.receiveData conn
-  debug $ T.unpack $ "[websocket] ▶️  " <> T.pack (show clientId) <> ":" <> T.take 130 msg
+  -- debug $ T.unpack $ "[websocket] ▶️  " <> T.pack (show clientId) <> ":" <> T.take 130 msg
   onReceive clientId msg
 
 addClient :: Client clientData -> [Client clientData] -> [Client clientData]

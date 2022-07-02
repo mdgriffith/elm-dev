@@ -220,7 +220,7 @@ ask state question =
     ListMissingSignaturesPlease path ->
       do
         let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
-        Ext.Common.debug $ "🛫  List signatures: " ++ show root ++ " <> " ++ show path
+        Ext.Common.log "✍️  list signatures" (show (Path.takeFileName path))
         Watchtower.Annotate.listMissingAnnotations root path
           & fmap Json.Encode.encodeUgly
     SignaturePlease path name ->

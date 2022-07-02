@@ -71,7 +71,7 @@ discoverProjects :: FilePath -> IO [ProjectCache]
 discoverProjects root = do
   projects <- Watchtower.Project.discover root
   let projectTails = fmap (getProjectShorthand root) projects
-  Ext.Common.logList ("DISCOVER 👁️ found projects:" ++ root) projectTails
+  Ext.Common.logList ("DISCOVER 👁️  found projects\n" ++ root) projectTails
     
   Monad.foldM initializeProject [] projects
 
@@ -158,7 +158,6 @@ recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchto
         (top : remain) ->
             if List.any (\f -> Watchtower.Project.contains f proj) changedFiles then 
               do
-                  debug $ "🧟 affected project"
 
                   let entry = (NonEmpty.List top remain)
                   -- Can compileToJson take multiple entrypoints like elm make?
@@ -231,7 +230,6 @@ recompileProjectIfSubFile mClients remainingFiles (ProjectCache proj@(Watchtower
             pure remaining
         Just entry ->
           do
-            debug $ "🧟 affected project"
             -- Can compileToJson take multiple entrypoints like elm make?
             eitherStatusJson <-
               Watchtower.Compile.compileToJson
@@ -310,7 +308,6 @@ receive state clientId text = do
       debug $ (T.unpack "Error decoding!" <> T.unpack text)
       pure ()
     Right action -> do
-      debug $ (T.unpack "Action!" <> T.unpack text)
       receiveAction state clientId action
 
 receiveAction :: State -> ClientId -> Incoming -> IO ()
@@ -324,7 +321,8 @@ receiveAction state@(State mClients projects) clientId incoming =
     Watch roots ->
       do
         let newRootSet = Set.fromList roots
-        debug $ "watching " <> List.concat roots
+        
+        Ext.Common.log "👀 watching" (List.concat roots)
         statuses <-
           Monad.foldM
             ( \gathered (ProjectCache proj cache) ->
@@ -337,9 +335,7 @@ receiveAction state@(State mClients projects) clientId incoming =
             )
             []
             projects
-
-        -- debug $
-        --   "👀  watch, init status: " ++ show statuses
+        
         atomically $
           do
             modifyTVar
