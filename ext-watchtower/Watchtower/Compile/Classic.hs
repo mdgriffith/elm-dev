@@ -26,6 +26,7 @@ import qualified Elm.Package as Pkg
 import Ext.Common (getProjectRootFor, trackedForkIO)
 import qualified Ext.Common
 import qualified Ext.Filewatch as Filewatch
+import qualified Ext.FileProxy
 import qualified Ext.Sentry as Sentry
 import qualified Generate
 import qualified Generate.Html as Html
@@ -70,6 +71,7 @@ compileToJson root paths =
     result <- compileToDevNull root paths
 
     -- hindentPrintValue "Exit.Reactor" result
+    Ext.FileProxy.debugSummary
 
     pure $
       case result of

@@ -41,6 +41,12 @@ insert path value = do
   H.insert fileCache path (t, value)
 
 
+log :: String -> IO ()
+log v =
+  -- pure ()
+  debug v
+
+
 currentTime :: IO Time
 currentTime =
   fmap (File.Time . Time.nominalDiffTimeToSeconds . Time.utcTimeToPOSIXSeconds) Time.getCurrentTime
@@ -83,7 +89,14 @@ readUtf8 path = do
   case res of
     Just (t, x) -> do
       -- log $ "✅👀r " ++ show path
-      pure x
+      if x == "E"
+        then do
+          t <- File.readUtf8 path
+          insert path t
+          pure t
+        else
+          pure x
+
     Nothing -> do
       log $ "❌👀r " ++ show path
       -- @watch can probably be dropped when we know we can rely on fsnotify setup
@@ -112,12 +125,22 @@ readBinary path = do
   res <- lookup path
   case res of
     Just (t, x) -> do
-      -- log $ "✅👀rb " ++ show path
-      case Binary.decodeOrFail $ BSL.fromStrict x of
-        Right (bs, offset, a) ->
-          pure (Just a)
-        Left (bs, offset, message) ->
-          pure Nothing
+      if x == "E"
+        then do
+          t <- readUtf8 path
+          insert path t
+          case Binary.decodeOrFail $ BSL.fromStrict t of
+            Right (bs, offset, a) ->
+              pure (Just a)
+            Left (bs, offset, message) ->
+              pure Nothing
+        else
+          -- log $ "✅👀rb " ++ show path
+          case Binary.decodeOrFail $ BSL.fromStrict x of
+            Right (bs, offset, a) ->
+              pure (Just a)
+            Left (bs, offset, message) ->
+              pure Nothing
 
     Nothing -> do
       -- log $ "❌👀rb " ++ show path
@@ -164,13 +187,9 @@ removeDir :: FilePath -> IO ()
 removeDir path = File.removeDir path
 
 
+
+
 -- Debugging
-
-log :: String -> IO ()
-log v =
-  -- pure ()
-  debug v
-
 
 debugSummary = do
   track "🧹 majorGC" $ System.Mem.performMajorGC

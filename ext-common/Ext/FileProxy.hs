@@ -51,6 +51,11 @@ type Time = File.Time
 
 
 
+debugSummary =
+  case getMode of
+    Memory -> FileCached.debugSummary
+    Disk -> FileCached.debugSummary -- @TODO specialise for disk mode
+
 -- Interface proxies
 
 getTime :: FilePath -> IO Time
