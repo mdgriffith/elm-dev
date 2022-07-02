@@ -26,6 +26,7 @@ type alias Model =
     -- per-file information
     , missingTypesignatures :
         Dict FilePath (List Question.TypeSignature)
+    , errorMenuVisible : Bool
     }
 
 
@@ -44,3 +45,5 @@ type Msg
       -- Editor actions
     | EditorGoTo FilePath Editor.Region
     | EditorFillTypeSignatures FilePath
+      --
+    | ErrorMenuUpdated Bool

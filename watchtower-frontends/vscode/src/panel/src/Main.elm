@@ -41,6 +41,7 @@ init =
       , projectsVersion = 0
       , viewing = Overview
       , missingTypesignatures = Dict.empty
+      , errorMenuVisible = False
       }
     , Cmd.none
     )
@@ -115,6 +116,11 @@ update msg model =
                       else
                         Cmd.none
                     )
+
+        ErrorMenuUpdated new ->
+            ( { model | errorMenuVisible = new }
+            , Cmd.none
+            )
 
         EditorGoTo path region ->
             ( model
@@ -325,15 +331,33 @@ viewOverview model =
                 --   else
                 --     Ui.none
                 ]
+
+        ( visibleErrors, notVisibleErrors ) =
+            List.partition
+                (\file ->
+                    isEditorVisible file model.visible
+                )
+                found.errs
+
+        visibleFileNames =
+            visibleErrors
+                |> List.map .name
+                |> String.join ", "
     in
     Ui.column
         [ Ui.space.lg
         , Ui.width Ui.fill
         , Ui.height Ui.fill
         , Ui.pad.xl
-        , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
+
+        -- , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
         ]
-        [ Keyed.el []
+        [ Ui.row [ Ui.width Ui.fill ]
+            [ Ui.el [ Ui.font.cyan ]
+                (Ui.text visibleFileNames)
+            , foundErrorsMenu model found
+            ]
+        , Keyed.el []
             ( String.fromInt model.projectsVersion
             , Ui.el
                 [ Ui.anim.blink
@@ -345,12 +369,89 @@ viewOverview model =
                     && List.isEmpty found.errs
                     && List.isEmpty missing
                 )
-        , viewMetric "Missing typesignatures"
-            viewSignatureGroup
-            missing
-        , viewMetric "Global" viewGlobalError found.globals
-        , viewMetric "Errors" (viewFileOverview model) found.errs
+
+        -- , viewMetric "Missing typesignatures"
+        --     viewSignatureGroup
+        --     missing
+        -- ,
+        , viewMetric
+            "Global"
+            viewGlobalError
+            found.globals
+        , case visibleErrors of
+            [] ->
+                case notVisibleErrors of
+                    [] ->
+                        Ui.none
+
+                    _ ->
+                        Ui.column
+                            [ Ui.space.lg
+                            ]
+                            [ Ui.header.three "Errors"
+                            , Ui.column [ Ui.space.md ]
+                                (List.map (viewFileSummary model) notVisibleErrors)
+                            ]
+
+            _ ->
+                Ui.column
+                    [ Ui.space.md
+                    , Ui.width (Ui.px 700)
+                    , Ui.htmlAttribute (Html.Attributes.style "height" "calc(100% - 50px)")
+                    , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
+                    ]
+                    (List.map (viewFileErrorDetails model) visibleErrors)
         ]
+
+
+foundErrorsMenu model found =
+    let
+        fileCount =
+            List.length found.errs
+    in
+    if fileCount == 0 then
+        Ui.none
+
+    else
+        let
+            problemCount =
+                List.map (.problem >> List.length) found.errs
+                    |> List.sum
+
+            summaryText =
+                if fileCount == 1 then
+                    String.fromInt problemCount ++ " errors in " ++ String.fromInt fileCount ++ " file"
+
+                else
+                    String.fromInt problemCount ++ " errors in " ++ String.fromInt fileCount ++ " files"
+        in
+        Ui.row
+            [ Ui.alignRight
+            , Ui.pad.xy.lg.sm
+            , Ui.rounded.md
+            , Ui.pointer
+            , Events.onClick (ErrorMenuUpdated (not model.errorMenuVisible))
+            , Ui.below
+                (viewErrorMenuContent model found)
+            ]
+            [ Ui.text summaryText
+            ]
+
+
+viewErrorMenuContent model found =
+    Ui.column
+        [ Ui.pad.lg
+        , Ui.background.dark
+        , Ui.rounded.md
+        , Ui.alignRight
+        , Ui.space.lg
+        , Ui.htmlAttribute (Html.Attributes.style "transition" "opacity 100ms")
+        , Ui.alpha 1
+        ]
+        (List.map
+            (viewFileSummary model)
+            found.errs
+        )
 
 
 viewMetric name viewer vals =
@@ -359,7 +460,7 @@ viewMetric name viewer vals =
             Ui.none
 
         _ ->
-            Ui.column [ Ui.space.md ]
+            Ui.column [ Ui.space.md, Ui.alignRight, Ui.space.lg ]
                 (List.map viewer vals)
 
 
@@ -372,37 +473,53 @@ isEditorVisible file visible =
         visible
 
 
-viewFileOverview : Model -> Elm.File -> Ui.Element Msg
-viewFileOverview model file =
-    if not (isEditorVisible file model.visible) then
-        case file.problem of
-            [] ->
-                Ui.none
+viewFileSummary model file =
+    case file.problem of
+        [] ->
+            Ui.none
 
-            top :: _ ->
-                Ui.column
-                    [ Ui.space.sm
-                    , Events.onClick (EditorGoTo file.path top.region)
-                    , Ui.pointer
-                    ]
-                    [ Ui.el [ Ui.font.dark.light ]
-                        (Ui.text (file.name ++ ".elm (" ++ String.fromInt (List.length file.problem) ++ ")"))
-                    ]
+        top :: _ ->
+            Ui.column
+                [ Ui.space.sm
+                , Events.onClick (EditorGoTo file.path top.region)
+                , Ui.pointer
+                ]
+                [ Ui.row []
+                    [ Ui.text "▶ "
+                        |> Ui.el
+                            [ Ui.font.cyan
+                            , if isEditorVisible file model.visible then
+                                Ui.alpha 1
 
-    else
-        Ui.column [ Ui.space.sm ]
-            [ Ui.el [ Ui.font.dark.light ] (Ui.text (file.name ++ ".elm"))
-            , Ui.column [ Ui.space.md ]
-                (List.map
-                    (\issue ->
-                        viewIssueDetails
-                            (isRegionVisible model.visible file.path issue.region)
-                            file
-                            issue
-                    )
-                    file.problem
-                )
-            ]
+                              else
+                                Ui.alpha 0
+                            ]
+                    , Ui.text "("
+                        |> Ui.el [ Ui.font.dark.light ]
+                    , Ui.text
+                        (String.fromInt (List.length file.problem))
+                        |> Ui.el []
+                    , Ui.text ") "
+                        |> Ui.el [ Ui.font.dark.light ]
+                    , Ui.text file.name
+                        |> Ui.el []
+                    ]
+                ]
+
+
+viewFileErrorDetails : Model -> Elm.File -> Ui.Element Msg
+viewFileErrorDetails model file =
+    Ui.column [ Ui.space.md, Ui.width Ui.fill ]
+        (List.map
+            (\issue ->
+                viewIssueDetails
+                    (isRegionVisible model.visible file.path issue.region)
+                    (isCursorPresent model.visible file.path issue.region)
+                    file
+                    issue
+            )
+            file.problem
+        )
 
 
 isRegionVisible : List Editor.Editor -> String -> Editor.Region -> Bool
@@ -418,13 +535,31 @@ isRegionVisible editors path region =
         editors
 
 
-viewIssueDetails expanded file issue =
+isCursorPresent : List Editor.Editor -> String -> Editor.Region -> Bool
+isCursorPresent editors path region =
+    List.any
+        (\e ->
+            if e.fileName == path then
+                Editor.visible region e.selections
+
+            else
+                False
+        )
+        editors
+
+
+viewIssueDetails expanded cursorPresent file issue =
     Ui.row
         [ Ui.width Ui.fill
         , Ui.space.md
-        , Ui.border.light
-        , Ui.pad.lg
+        , Ui.pad.xl
         , Ui.rounded.md
+        , Ui.background.dark
+        , if cursorPresent then
+            Ui.border.light
+
+          else
+            Ui.border.dark.medium
         , Border.width 1
         ]
         [ Ui.column
@@ -434,22 +569,22 @@ viewIssueDetails expanded file issue =
             , Ui.width Ui.fill
             ]
             [ Ui.row [ Ui.space.md ]
-                [ if issue.region.start.row == issue.region.end.row then
+                [ Ui.el []
+                    (Ui.text (String.trim issue.title))
+                , if issue.region.start.row == issue.region.end.row then
                     Ui.el
-                        [ Ui.font.dark.light
+                        [ Ui.font.cyan
                         ]
                         (Ui.text (String.fromInt issue.region.start.row))
 
                   else
                     Ui.row
-                        [ Ui.font.dark.light
+                        [ Ui.font.cyan
                         ]
                         [ Ui.text (String.fromInt issue.region.start.row)
                         , Ui.text ":"
                         , Ui.text (String.fromInt issue.region.end.row)
                         ]
-                , Ui.el [ Ui.font.dark.light ]
-                    (Ui.text (String.trim issue.title))
                 ]
             , Ui.el
                 [ Ui.width Ui.fill
@@ -462,7 +597,7 @@ viewIssueDetails expanded file issue =
                 , Ui.htmlAttribute
                     (Html.Attributes.style "max-height"
                         (if expanded then
-                            "500px"
+                            "700px"
 
                          else
                             "0px"
@@ -591,6 +726,7 @@ fillToEighty str =
     str ++ fill
 
 
+viewText : Elm.Text -> Ui.Element msg
 viewText txt =
     case txt of
         Elm.Plain str ->
@@ -608,10 +744,18 @@ viewText txt =
                 , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
                 , Ui.htmlAttribute
                     (Html.Attributes.style "max-height"
-                        "250px"
+                        "150px"
+                    )
+                , Ui.htmlAttribute
+                    (Html.Attributes.style "max-width"
+                        "600px"
                     )
                 ]
                 (List.map viewText section)
+
+        -- Ui.el [ Ui.font.cyan ] (Ui.text "\n◀ see editor")
+        Elm.CodeQuote section ->
+            Ui.none
 
 
 colorAttribute maybeColor =

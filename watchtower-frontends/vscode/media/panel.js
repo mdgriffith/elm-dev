@@ -10782,6 +10782,10 @@ var $author$project$Elm$Problem = F3(
 	function (title, message, region) {
 		return {message: message, region: region, title: title};
 	});
+var $author$project$Elm$NoCapture = {$: 'NoCapture'};
+var $author$project$Elm$CodeQuote = function (a) {
+	return {$: 'CodeQuote', a: a};
+};
 var $author$project$Elm$CodeSection = function (a) {
 	return {$: 'CodeSection', a: a};
 };
@@ -10792,6 +10796,12 @@ var $author$project$Elm$Styled = F2(
 	function (a, b) {
 		return {$: 'Styled', a: a, b: b};
 	});
+var $author$project$Elm$Quote = function (a) {
+	return {$: 'Quote', a: a};
+};
+var $author$project$Elm$Reference = function (a) {
+	return {$: 'Reference', a: a};
+};
 var $author$project$Elm$startsWithNum = function (str) {
 	var _v0 = $elm$core$String$uncons(
 		A2($elm$core$String$left, 1, str));
@@ -10803,74 +10813,127 @@ var $author$project$Elm$startsWithNum = function (str) {
 		return $elm$core$Char$isDigit(top);
 	}
 };
+var $author$project$Elm$startsWithWs = function (str) {
+	var _v0 = $elm$core$String$uncons(
+		A2($elm$core$String$left, 1, str));
+	if (_v0.$ === 'Nothing') {
+		return false;
+	} else {
+		var _v1 = _v0.a;
+		var top = _v1.a;
+		return _Utils_eq(
+			top,
+			_Utils_chr(' '));
+	}
+};
 var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
-	function (toText, lines, isFirst, maybeRegion, accum) {
+	function (toText, lines, isFirst, capture, accum) {
 		gatherCodeSectionRecurseHelper:
 		while (true) {
 			if (!lines.b) {
-				return _Utils_Tuple2(maybeRegion, accum);
+				return _Utils_Tuple2(capture, accum);
 			} else {
 				if (!lines.b.b) {
 					var last = lines.a;
 					if (isFirst) {
-						if (maybeRegion.$ === 'Nothing') {
-							return _Utils_Tuple2(
-								$elm$core$Maybe$Nothing,
-								A2(
-									$elm$core$List$cons,
-									toText(last),
-									accum));
-						} else {
-							var reg = maybeRegion.a;
-							return _Utils_Tuple2(
-								$elm$core$Maybe$Just(
+						switch (capture.$) {
+							case 'NoCapture':
+								return _Utils_Tuple2(
+									$author$project$Elm$NoCapture,
 									A2(
 										$elm$core$List$cons,
 										toText(last),
-										reg)),
-								accum);
+										accum));
+							case 'Quote':
+								var reg = capture.a;
+								return _Utils_Tuple2(
+									$author$project$Elm$Quote(
+										A2(
+											$elm$core$List$cons,
+											toText(last),
+											reg)),
+									accum);
+							default:
+								var reg = capture.a;
+								return _Utils_Tuple2(
+									$author$project$Elm$Reference(
+										A2(
+											$elm$core$List$cons,
+											toText(last),
+											reg)),
+									accum);
 						}
 					} else {
 						var line = '\n' + last;
-						if ($author$project$Elm$startsWithNum(last)) {
-							if (maybeRegion.$ === 'Nothing') {
-								return _Utils_Tuple2(
-									$elm$core$Maybe$Just(
-										_List_fromArray(
-											[
-												toText(line)
-											])),
-									accum);
-							} else {
-								var reg = maybeRegion.a;
-								return _Utils_Tuple2(
-									$elm$core$Maybe$Just(
+						if ($author$project$Elm$startsWithNum(last) || $author$project$Elm$startsWithWs(last)) {
+							switch (capture.$) {
+								case 'NoCapture':
+									return _Utils_Tuple2(
+										$author$project$Elm$startsWithWs(last) ? $author$project$Elm$Reference(
+											_List_fromArray(
+												[
+													toText(last)
+												])) : $author$project$Elm$Quote(
+											_List_fromArray(
+												[
+													toText(last)
+												])),
+										A2(
+											$elm$core$List$cons,
+											toText('\n'),
+											accum));
+								case 'Quote':
+									var reg = capture.a;
+									return _Utils_Tuple2(
+										$author$project$Elm$Quote(
+											A2(
+												$elm$core$List$cons,
+												toText(line),
+												reg)),
+										accum);
+								default:
+									var reg = capture.a;
+									return _Utils_Tuple2(
+										$author$project$Elm$Reference(
+											A2(
+												$elm$core$List$cons,
+												toText(line),
+												reg)),
+										accum);
+							}
+						} else {
+							switch (capture.$) {
+								case 'NoCapture':
+									return _Utils_Tuple2(
+										$author$project$Elm$NoCapture,
 										A2(
 											$elm$core$List$cons,
 											toText(line),
-											reg)),
-									accum);
-							}
-						} else {
-							if (maybeRegion.$ === 'Nothing') {
-								return _Utils_Tuple2(
-									$elm$core$Maybe$Nothing,
-									A2(
-										$elm$core$List$cons,
-										toText(line),
-										accum));
-							} else {
-								var reg = maybeRegion.a;
-								return _Utils_Tuple2(
-									$elm$core$Maybe$Nothing,
-									A2(
-										$elm$core$List$cons,
-										toText(line),
+											accum));
+								case 'Quote':
+									var reg = capture.a;
+									return _Utils_Tuple2(
+										$author$project$Elm$NoCapture,
 										A2(
 											$elm$core$List$cons,
-											$author$project$Elm$CodeSection(
-												$elm$core$List$reverse(reg)),
-											accum)));
+											toText(line),
+											A2(
+												$elm$core$List$cons,
+												$author$project$Elm$CodeQuote(
+													$elm$core$List$reverse(reg)),
+												accum)));
+								default:
+									var reg = capture.a;
+									return _Utils_Tuple2(
+										$author$project$Elm$NoCapture,
+										A2(
+											$elm$core$List$cons,
+											toText(line),
+											A2(
+												$elm$core$List$cons,
+												$author$project$Elm$CodeSection(
+													$elm$core$List$reverse(reg)),
+												accum)));
 							}
 						}
 					}
@@ -10878,112 +10941,176 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 					var topLine = lines.a;
 					var remainingLines = lines.b;
 					if (isFirst) {
-						if (maybeRegion.$ === 'Nothing') {
-							var $temp$toText = toText,
-								$temp$lines = remainingLines,
-								$temp$isFirst = false,
-								$temp$maybeRegion = $elm$core$Maybe$Nothing,
-								$temp$accum = A2(
-								$elm$core$List$cons,
-								toText(topLine),
-								accum);
-							toText = $temp$toText;
-							lines = $temp$lines;
-							isFirst = $temp$isFirst;
-							maybeRegion = $temp$maybeRegion;
-							accum = $temp$accum;
-							continue gatherCodeSectionRecurseHelper;
-						} else {
-							var reg = maybeRegion.a;
-							var $temp$toText = toText,
-								$temp$lines = remainingLines,
-								$temp$isFirst = false,
-								$temp$maybeRegion = $elm$core$Maybe$Just(
-								A2(
-									$elm$core$List$cons,
-									toText(topLine),
-									reg)),
-								$temp$accum = accum;
-							toText = $temp$toText;
-							lines = $temp$lines;
-							isFirst = $temp$isFirst;
-							maybeRegion = $temp$maybeRegion;
-							accum = $temp$accum;
-							continue gatherCodeSectionRecurseHelper;
-						}
-					} else {
-						var line = '\n' + topLine;
-						if ($author$project$Elm$startsWithNum(topLine)) {
-							if (maybeRegion.$ === 'Nothing') {
+						switch (capture.$) {
+							case 'NoCapture':
 								var $temp$toText = toText,
 									$temp$lines = remainingLines,
 									$temp$isFirst = false,
-									$temp$maybeRegion = $elm$core$Maybe$Just(
-									_List_fromArray(
-										[
-											toText(line)
-										])),
-									$temp$accum = accum;
+									$temp$capture = $author$project$Elm$NoCapture,
+									$temp$accum = A2(
+									$elm$core$List$cons,
+									toText(topLine),
+									accum);
 								toText = $temp$toText;
 								lines = $temp$lines;
 								isFirst = $temp$isFirst;
-								maybeRegion = $temp$maybeRegion;
+								capture = $temp$capture;
 								accum = $temp$accum;
 								continue gatherCodeSectionRecurseHelper;
-							} else {
-								var reg = maybeRegion.a;
+							case 'Quote':
+								var reg = capture.a;
 								var $temp$toText = toText,
 									$temp$lines = remainingLines,
 									$temp$isFirst = false,
-									$temp$maybeRegion = $elm$core$Maybe$Just(
+									$temp$capture = $author$project$Elm$Quote(
 									A2(
 										$elm$core$List$cons,
-										toText(line),
+										toText(topLine),
 										reg)),
 									$temp$accum = accum;
 								toText = $temp$toText;
 								lines = $temp$lines;
 								isFirst = $temp$isFirst;
-								maybeRegion = $temp$maybeRegion;
+								capture = $temp$capture;
 								accum = $temp$accum;
 								continue gatherCodeSectionRecurseHelper;
-							}
-						} else {
-							if (maybeRegion.$ === 'Nothing') {
+							default:
+								var reg = capture.a;
 								var $temp$toText = toText,
 									$temp$lines = remainingLines,
 									$temp$isFirst = false,
-									$temp$maybeRegion = $elm$core$Maybe$Nothing,
-									$temp$accum = A2(
-									$elm$core$List$cons,
-									toText(line),
-									accum);
-								toText = $temp$toText;
-								lines = $temp$lines;
-								isFirst = $temp$isFirst;
-								maybeRegion = $temp$maybeRegion;
-								accum = $temp$accum;
-								continue gatherCodeSectionRecurseHelper;
-							} else {
-								var reg = maybeRegion.a;
-								var $temp$toText = toText,
-									$temp$lines = remainingLines,
-									$temp$isFirst = false,
-									$temp$maybeRegion = $elm$core$Maybe$Nothing,
-									$temp$accum = A2(
-									$elm$core$List$cons,
-									toText(line),
+									$temp$capture = $author$project$Elm$Reference(
 									A2(
 										$elm$core$List$cons,
-										$author$project$Elm$CodeSection(
-											$elm$core$List$reverse(reg)),
-										accum));
+										toText(topLine),
+										reg)),
+									$temp$accum = accum;
 								toText = $temp$toText;
 								lines = $temp$lines;
 								isFirst = $temp$isFirst;
-								maybeRegion = $temp$maybeRegion;
+								capture = $temp$capture;
 								accum = $temp$accum;
 								continue gatherCodeSectionRecurseHelper;
+						}
+					} else {
+						var line = '\n' + topLine;
+						if ($author$project$Elm$startsWithNum(topLine) || $author$project$Elm$startsWithWs(topLine)) {
+							switch (capture.$) {
+								case 'NoCapture':
+									var $temp$toText = toText,
+										$temp$lines = remainingLines,
+										$temp$isFirst = false,
+										$temp$capture = $author$project$Elm$startsWithWs(topLine) ? $author$project$Elm$Reference(
+										_List_fromArray(
+											[
+												toText(topLine)
+											])) : $author$project$Elm$Quote(
+										_List_fromArray(
+											[
+												toText(topLine)
+											])),
+										$temp$accum = A2(
+										$elm$core$List$cons,
+										toText('\n'),
+										accum);
+									toText = $temp$toText;
+									lines = $temp$lines;
+									isFirst = $temp$isFirst;
+									capture = $temp$capture;
+									accum = $temp$accum;
+									continue gatherCodeSectionRecurseHelper;
+								case 'Quote':
+									var reg = capture.a;
+									var $temp$toText = toText,
+										$temp$lines = remainingLines,
+										$temp$isFirst = false,
+										$temp$capture = $author$project$Elm$Quote(
+										A2(
+											$elm$core$List$cons,
+											toText(line),
+											reg)),
+										$temp$accum = accum;
+									toText = $temp$toText;
+									lines = $temp$lines;
+									isFirst = $temp$isFirst;
+									capture = $temp$capture;
+									accum = $temp$accum;
+									continue gatherCodeSectionRecurseHelper;
+								default:
+									var reg = capture.a;
+									var $temp$toText = toText,
+										$temp$lines = remainingLines,
+										$temp$isFirst = false,
+										$temp$capture = $author$project$Elm$Reference(
+										A2(
+											$elm$core$List$cons,
+											toText(line),
+											reg)),
+										$temp$accum = accum;
+									toText = $temp$toText;
+									lines = $temp$lines;
+									isFirst = $temp$isFirst;
+									capture = $temp$capture;
+									accum = $temp$accum;
+									continue gatherCodeSectionRecurseHelper;
+							}
+						} else {
+							switch (capture.$) {
+								case 'NoCapture':
+									var $temp$toText = toText,
+										$temp$lines = remainingLines,
+										$temp$isFirst = false,
+										$temp$capture = $author$project$Elm$NoCapture,
+										$temp$accum = A2(
+										$elm$core$List$cons,
+										toText(line),
+										accum);
+									toText = $temp$toText;
+									lines = $temp$lines;
+									isFirst = $temp$isFirst;
+									capture = $temp$capture;
+									accum = $temp$accum;
+									continue gatherCodeSectionRecurseHelper;
+								case 'Quote':
+									var reg = capture.a;
+									var $temp$toText = toText,
+										$temp$lines = remainingLines,
+										$temp$isFirst = false,
+										$temp$capture = $author$project$Elm$NoCapture,
+										$temp$accum = A2(
+										$elm$core$List$cons,
+										toText(line),
+										A2(
+											$elm$core$List$cons,
+											$author$project$Elm$CodeQuote(
+												$elm$core$List$reverse(reg)),
+											accum));
+									toText = $temp$toText;
+									lines = $temp$lines;
+									isFirst = $temp$isFirst;
+									capture = $temp$capture;
+									accum = $temp$accum;
+									continue gatherCodeSectionRecurseHelper;
+								default:
+									var reg = capture.a;
+									var $temp$toText = toText,
+										$temp$lines = remainingLines,
+										$temp$isFirst = false,
+										$temp$capture = $author$project$Elm$NoCapture,
+										$temp$accum = A2(
+										$elm$core$List$cons,
+										toText(line),
+										A2(
+											$elm$core$List$cons,
+											$author$project$Elm$CodeSection(
+												$elm$core$List$reverse(reg)),
+											accum));
+									toText = $temp$toText;
+									lines = $temp$lines;
+									isFirst = $temp$isFirst;
+									capture = $temp$capture;
+									accum = $temp$accum;
+									continue gatherCodeSectionRecurseHelper;
 							}
 						}
 					}
@@ -10993,13 +11120,13 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 	});
 var $elm$core$String$lines = _String_lines;
 var $author$project$Elm$gatherCodeSectionRecurse = F4(
-	function (toText, str, maybeRegion, accum) {
+	function (toText, str, capture, accum) {
 		return A5(
 			$author$project$Elm$gatherCodeSectionRecurseHelper,
 			toText,
 			$elm$core$String$lines(str),
 			true,
-			maybeRegion,
+			capture,
 			accum);
 	});
 var $author$project$Elm$nestCodingSectionsHelper = F3(
@@ -11007,16 +11134,25 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 		nestCodingSectionsHelper:
 		while (true) {
 			if (!texts.b) {
-				if (gatheredCodeRegion.$ === 'Nothing') {
-					return $elm$core$List$reverse(gathered);
-				} else {
-					var codeRegion = gatheredCodeRegion.a;
-					return $elm$core$List$reverse(
-						A2(
-							$elm$core$List$cons,
-							$author$project$Elm$CodeSection(
-								$elm$core$List$reverse(codeRegion)),
-							gathered));
+				switch (gatheredCodeRegion.$) {
+					case 'NoCapture':
+						return $elm$core$List$reverse(gathered);
+					case 'Quote':
+						var codeRegion = gatheredCodeRegion.a;
+						return $elm$core$List$reverse(
+							A2(
+								$elm$core$List$cons,
+								$author$project$Elm$CodeQuote(
+									$elm$core$List$reverse(codeRegion)),
+								gathered));
+					default:
+						var codeRegion = gatheredCodeRegion.a;
+						return $elm$core$List$reverse(
+							A2(
+								$elm$core$List$cons,
+								$author$project$Elm$CodeSection(
+									$elm$core$List$reverse(codeRegion)),
+								gathered));
 				}
 			} else {
 				switch (texts.a.$) {
@@ -11053,7 +11189,7 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 						gatheredCodeRegion = $temp$gatheredCodeRegion;
 						gathered = $temp$gathered;
 						continue nestCodingSectionsHelper;
-					default:
+					case 'CodeSection':
 						var txt = texts.a.a;
 						var remaining = texts.b;
 						var $temp$texts = remaining,
@@ -11066,12 +11202,25 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 						gatheredCodeRegion = $temp$gatheredCodeRegion;
 						gathered = $temp$gathered;
 						continue nestCodingSectionsHelper;
+					default:
+						var txt = texts.a.a;
+						var remaining = texts.b;
+						var $temp$texts = remaining,
+							$temp$gatheredCodeRegion = gatheredCodeRegion,
+							$temp$gathered = A2(
+							$elm$core$List$cons,
+							$author$project$Elm$CodeQuote(txt),
+							gathered);
+						texts = $temp$texts;
+						gatheredCodeRegion = $temp$gatheredCodeRegion;
+						gathered = $temp$gathered;
+						continue nestCodingSectionsHelper;
 				}
 			}
 		}
 	});
 var $author$project$Elm$nestCodingSections = function (texts) {
-	return A3($author$project$Elm$nestCodingSectionsHelper, texts, $elm$core$Maybe$Nothing, _List_Nil);
+	return A3($author$project$Elm$nestCodingSectionsHelper, texts, $author$project$Elm$NoCapture, _List_Nil);
 };
 var $author$project$Elm$StyledText = F3(
 	function (color, underline, bold) {
@@ -11284,7 +11433,7 @@ var $author$project$Ports$incoming = function (toMsg) {
 };
 var $author$project$Model$Overview = {$: 'Overview'};
 var $author$project$Main$init = _Utils_Tuple2(
-	{active: $elm$core$Maybe$Nothing, missingTypesignatures: $elm$core$Dict$empty, projects: _List_Nil, projectsVersion: 0, viewing: $author$project$Model$Overview, visible: _List_Nil},
+	{active: $elm$core$Maybe$Nothing, errorMenuVisible: false, missingTypesignatures: $elm$core$Dict$empty, projects: _List_Nil, projectsVersion: 0, viewing: $author$project$Model$Overview, visible: _List_Nil},
 	$elm$core$Platform$Cmd$none);
 var $author$project$Model$AnswerReceived = function (a) {
 	return {$: 'AnswerReceived', a: a};
@@ -11797,6 +11946,13 @@ var $author$project$Main$update = F2(
 									model.visible)) : $elm$core$Platform$Cmd$none);
 					}
 				}
+			case 'ErrorMenuUpdated':
+				var _new = _v0.a;
+				return _Utils_Tuple2(
+					_Utils_update(
+						model,
+						{errorMenuVisible: _new}),
+					$elm$core$Platform$Cmd$none);
 			case 'EditorGoTo':
 				var path = _v0.a;
 				var region = _v0.b;
@@ -17260,9 +17416,9 @@ var $author$project$Ui$colors = {
 		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.2, 0.2, 0.2)
 	},
 	grey: {
-		dark: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95),
+		dark: A3($mdgriffith$elm_ui$Element$rgb, 0.55, 0.55, 0.55),
 		light: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95),
-		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.95, 0.95, 0.95)
+		medium: A3($mdgriffith$elm_ui$Element$rgb, 0.85, 0.85, 0.85)
 	},
 	primary: A3($mdgriffith$elm_ui$Element$rgb, 0, 0.5, 0.25),
 	white: A3($mdgriffith$elm_ui$Element$rgb, 1, 1, 1)
@@ -17272,6 +17428,11 @@ var $author$project$Ui$border = {
 		dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.dark),
 		light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.light),
 		medium: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.medium)
+	},
+	grey: {
+		dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.dark),
+		light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.light),
+		medium: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.medium)
 	},
 	light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.light),
 	primary: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.primary)
@@ -17364,40 +17525,24 @@ var $author$project$Ui$font = {
 	info: $mdgriffith$elm_ui$Element$htmlAttribute(
 		$elm$html$Html$Attributes$class('info'))
 };
-var $mdgriffith$elm_ui$Internal$Model$Class = F2(
+var $author$project$Model$ErrorMenuUpdated = function (a) {
+	return {$: 'ErrorMenuUpdated', a: a};
+};
+var $mdgriffith$elm_ui$Internal$Model$AlignX = function (a) {
+	return {$: 'AlignX', a: a};
+};
+var $mdgriffith$elm_ui$Internal$Model$Right = {$: 'Right'};
+var $mdgriffith$elm_ui$Element$alignRight = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$Right);
+var $mdgriffith$elm_ui$Internal$Model$Below = {$: 'Below'};
+var $mdgriffith$elm_ui$Internal$Model$Nearby = F2(
 	function (a, b) {
-		return {$: 'Class', a: a, b: b};
+		return {$: 'Nearby', a: a, b: b};
 	});
-var $mdgriffith$elm_ui$Internal$Flag$fontWeight = $mdgriffith$elm_ui$Internal$Flag$flag(13);
-var $mdgriffith$elm_ui$Element$Font$bold = A2($mdgriffith$elm_ui$Internal$Model$Class, $mdgriffith$elm_ui$Internal$Flag$fontWeight, $mdgriffith$elm_ui$Internal$Style$classes.bold);
-var $mdgriffith$elm_ui$Internal$Model$Text = function (a) {
-	return {$: 'Text', a: a};
+var $mdgriffith$elm_ui$Element$below = function (element) {
+	return A2($mdgriffith$elm_ui$Internal$Model$Nearby, $mdgriffith$elm_ui$Internal$Model$Below, element);
 };
-var $mdgriffith$elm_ui$Element$text = function (content) {
-	return $mdgriffith$elm_ui$Internal$Model$Text(content);
-};
-var $author$project$Ui$header = {
-	three: function (str) {
-		return A2(
-			$mdgriffith$elm_ui$Element$el,
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$Font$size(14),
-					$mdgriffith$elm_ui$Element$Font$bold
-				]),
-			$mdgriffith$elm_ui$Element$text(str));
-	},
-	two: function (str) {
-		return A2(
-			$mdgriffith$elm_ui$Element$el,
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$Font$size(16),
-					$mdgriffith$elm_ui$Element$Font$bold
-				]),
-			$mdgriffith$elm_ui$Element$text(str));
-	}
-};
+var $mdgriffith$elm_ui$Internal$Model$Empty = {$: 'Empty'};
+var $mdgriffith$elm_ui$Element$none = $mdgriffith$elm_ui$Internal$Model$Empty;
 var $mdgriffith$elm_ui$Element$Events$onClick = A2($elm$core$Basics$composeL, $mdgriffith$elm_ui$Internal$Model$Attr, $elm$html$Html$Events$onClick);
 var $author$project$Ui$mapSpacing = F2(
 	function (fn, sp) {
@@ -17466,14 +17611,12 @@ var $author$project$Ui$pad = {
 		},
 		$author$project$Ui$spaceValues)
 };
+var $mdgriffith$elm_ui$Internal$Model$Class = F2(
+	function (a, b) {
+		return {$: 'Class', a: a, b: b};
+	});
 var $mdgriffith$elm_ui$Internal$Flag$cursor = $mdgriffith$elm_ui$Internal$Flag$flag(21);
 var $mdgriffith$elm_ui$Element$pointer = A2($mdgriffith$elm_ui$Internal$Model$Class, $mdgriffith$elm_ui$Internal$Flag$cursor, $mdgriffith$elm_ui$Internal$Style$classes.cursorPointer);
-var $author$project$Ui$precise = $mdgriffith$elm_ui$Element$htmlAttribute(
-	$elm$html$Html$Attributes$class('precise'));
-var $mdgriffith$elm_ui$Internal$Model$Px = function (a) {
-	return {$: 'Px', a: a};
-};
-var $mdgriffith$elm_ui$Element$px = $mdgriffith$elm_ui$Internal$Model$Px;
 var $mdgriffith$elm_ui$Internal$Flag$borderRound = $mdgriffith$elm_ui$Internal$Flag$flag(17);
 var $mdgriffith$elm_ui$Element$Border$rounded = function (radius) {
 	return A2(
@@ -17509,6 +17652,29 @@ var $mdgriffith$elm_ui$Element$row = F2(
 						attrs))),
 			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
 	});
+var $elm$core$List$sum = function (numbers) {
+	return A3($elm$core$List$foldl, $elm$core$Basics$add, 0, numbers);
+};
+var $mdgriffith$elm_ui$Internal$Model$Text = function (a) {
+	return {$: 'Text', a: a};
+};
+var $mdgriffith$elm_ui$Element$text = function (content) {
+	return $mdgriffith$elm_ui$Internal$Model$Text(content);
+};
+var $mdgriffith$elm_ui$Element$Background$color = function (clr) {
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$bgColor,
+		A3(
+			$mdgriffith$elm_ui$Internal$Model$Colored,
+			'bg-' + $mdgriffith$elm_ui$Internal$Model$formatColorClass(clr),
+			'background-color',
+			clr));
+};
+var $author$project$Ui$background = {
+	dark: $mdgriffith$elm_ui$Element$Background$color($author$project$Ui$colors.dark.medium),
+	white: $mdgriffith$elm_ui$Element$Background$color($author$project$Ui$colors.white)
+};
 var $mdgriffith$elm_ui$Internal$Model$SpacingStyle = F3(
 	function (a, b, c) {
 		return {$: 'SpacingStyle', a: a, b: b, c: c};
@@ -17538,6 +17704,165 @@ var $author$project$Main$isEditorVisible = F2(
 			},
 			visible);
 	});
+var $author$project$Main$viewFileSummary = F2(
+	function (model, file) {
+		var _v0 = file.problem;
+		if (!_v0.b) {
+			return $mdgriffith$elm_ui$Element$none;
+		} else {
+			var top = _v0.a;
+			return A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[
+						$author$project$Ui$space.sm,
+						$mdgriffith$elm_ui$Element$Events$onClick(
+						A2($author$project$Model$EditorGoTo, file.path, top.region)),
+						$mdgriffith$elm_ui$Element$pointer
+					]),
+				_List_fromArray(
+					[
+						A2(
+						$mdgriffith$elm_ui$Element$row,
+						_List_Nil,
+						_List_fromArray(
+							[
+								A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[
+										$author$project$Ui$font.cyan,
+										A2($author$project$Main$isEditorVisible, file, model.visible) ? $mdgriffith$elm_ui$Element$alpha(1) : $mdgriffith$elm_ui$Element$alpha(0)
+									]),
+								$mdgriffith$elm_ui$Element$text('▶ ')),
+								A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$font.dark.light]),
+								$mdgriffith$elm_ui$Element$text('(')),
+								A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_Nil,
+								$mdgriffith$elm_ui$Element$text(
+									$elm$core$String$fromInt(
+										$elm$core$List$length(file.problem)))),
+								A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$font.dark.light]),
+								$mdgriffith$elm_ui$Element$text(') ')),
+								A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_Nil,
+								$mdgriffith$elm_ui$Element$text(file.name))
+							]))
+					]));
+		}
+	});
+var $author$project$Main$viewErrorMenuContent = F2(
+	function (model, found) {
+		return A2(
+			$mdgriffith$elm_ui$Element$column,
+			_List_fromArray(
+				[
+					$author$project$Ui$pad.lg,
+					$author$project$Ui$background.dark,
+					$author$project$Ui$rounded.md,
+					$mdgriffith$elm_ui$Element$alignRight,
+					$author$project$Ui$space.lg,
+					$mdgriffith$elm_ui$Element$htmlAttribute(
+					A2($elm$html$Html$Attributes$style, 'transition', 'opacity 100ms')),
+					$mdgriffith$elm_ui$Element$alpha(1)
+				]),
+			A2(
+				$elm$core$List$map,
+				$author$project$Main$viewFileSummary(model),
+				found.errs));
+	});
+var $author$project$Main$foundErrorsMenu = F2(
+	function (model, found) {
+		var fileCount = $elm$core$List$length(found.errs);
+		if (!fileCount) {
+			return $mdgriffith$elm_ui$Element$none;
+		} else {
+			var problemCount = $elm$core$List$sum(
+				A2(
+					$elm$core$List$map,
+					A2(
+						$elm$core$Basics$composeR,
+						function ($) {
+							return $.problem;
+						},
+						$elm$core$List$length),
+					found.errs));
+			var summaryText = (fileCount === 1) ? ($elm$core$String$fromInt(problemCount) + (' errors in ' + ($elm$core$String$fromInt(fileCount) + ' file'))) : ($elm$core$String$fromInt(problemCount) + (' errors in ' + ($elm$core$String$fromInt(fileCount) + ' files')));
+			return A2(
+				$mdgriffith$elm_ui$Element$row,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$alignRight,
+						$author$project$Ui$pad.xy.lg.sm,
+						$author$project$Ui$rounded.md,
+						$mdgriffith$elm_ui$Element$pointer,
+						$mdgriffith$elm_ui$Element$Events$onClick(
+						$author$project$Model$ErrorMenuUpdated(!model.errorMenuVisible)),
+						$mdgriffith$elm_ui$Element$below(
+						A2($author$project$Main$viewErrorMenuContent, model, found))
+					]),
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$text(summaryText)
+					]));
+		}
+	});
+var $mdgriffith$elm_ui$Internal$Flag$fontWeight = $mdgriffith$elm_ui$Internal$Flag$flag(13);
+var $mdgriffith$elm_ui$Element$Font$bold = A2($mdgriffith$elm_ui$Internal$Model$Class, $mdgriffith$elm_ui$Internal$Flag$fontWeight, $mdgriffith$elm_ui$Internal$Style$classes.bold);
+var $author$project$Ui$header = {
+	three: function (str) {
+		return A2(
+			$mdgriffith$elm_ui$Element$el,
+			_List_fromArray(
+				[
+					$mdgriffith$elm_ui$Element$Font$size(14),
+					$mdgriffith$elm_ui$Element$Font$bold
+				]),
+			$mdgriffith$elm_ui$Element$text(str));
+	},
+	two: function (str) {
+		return A2(
+			$mdgriffith$elm_ui$Element$el,
+			_List_fromArray(
+				[
+					$mdgriffith$elm_ui$Element$Font$size(16),
+					$mdgriffith$elm_ui$Element$Font$bold
+				]),
+			$mdgriffith$elm_ui$Element$text(str));
+	}
+};
+var $elm$core$List$partition = F2(
+	function (pred, list) {
+		var step = F2(
+			function (x, _v0) {
+				var trues = _v0.a;
+				var falses = _v0.b;
+				return pred(x) ? _Utils_Tuple2(
+					A2($elm$core$List$cons, x, trues),
+					falses) : _Utils_Tuple2(
+					trues,
+					A2($elm$core$List$cons, x, falses));
+			});
+		return A3(
+			$elm$core$List$foldr,
+			step,
+			_Utils_Tuple2(_List_Nil, _List_Nil),
+			list);
+	});
+var $author$project$Ui$precise = $mdgriffith$elm_ui$Element$htmlAttribute(
+	$elm$html$Html$Attributes$class('precise'));
+var $mdgriffith$elm_ui$Internal$Model$Px = function (a) {
+	return {$: 'Px', a: a};
+};
+var $mdgriffith$elm_ui$Element$px = $mdgriffith$elm_ui$Internal$Model$Px;
 var $author$project$Editor$overlap = F2(
 	function (one, two) {
 		return ((_Utils_cmp(one.start.row, two.start.row) > -1) && (_Utils_cmp(one.start.row, two.end.row) < 1)) ? true : (((_Utils_cmp(one.end.row, two.start.row) > -1) && (_Utils_cmp(one.end.row, two.end.row) < 1)) ? true : false);
@@ -17546,8 +17871,19 @@ var $author$project$Editor$visible = F2(
 	function (rng, viewing) {
 		return A2(
 			$elm$core$List$any,
-			$author$project$Editor$overlap(rng),
+			function (v) {
+				return A2($author$project$Editor$overlap, rng, v) || A2($author$project$Editor$overlap, v, rng);
+			},
 			viewing);
+	});
+var $author$project$Main$isCursorPresent = F3(
+	function (editors, path, region) {
+		return A2(
+			$elm$core$List$any,
+			function (e) {
+				return _Utils_eq(e.fileName, path) ? A2($author$project$Editor$visible, region, e.selections) : false;
+			},
+			editors);
 	});
 var $author$project$Main$isRegionVisible = F3(
 	function (editors, path, region) {
@@ -17558,8 +17894,6 @@ var $author$project$Main$isRegionVisible = F3(
 			},
 			editors);
 	});
-var $mdgriffith$elm_ui$Internal$Model$Empty = {$: 'Empty'};
-var $mdgriffith$elm_ui$Element$none = $mdgriffith$elm_ui$Internal$Model$Empty;
 var $mdgriffith$elm_ui$Internal$Model$Describe = function (a) {
 	return {$: 'Describe', a: a};
 };
@@ -17616,7 +17950,7 @@ var $author$project$Main$viewText = function (txt) {
 						$author$project$Main$colorAttribute(styled.color))
 					]),
 				$mdgriffith$elm_ui$Element$text(str));
-		default:
+		case 'CodeSection':
 			var section = txt.a;
 			return A2(
 				$mdgriffith$elm_ui$Element$paragraph,
@@ -17626,9 +17960,14 @@ var $author$project$Main$viewText = function (txt) {
 						$mdgriffith$elm_ui$Element$htmlAttribute(
 						A2($elm$html$Html$Attributes$style, 'overflow', 'auto')),
 						$mdgriffith$elm_ui$Element$htmlAttribute(
-						A2($elm$html$Html$Attributes$style, 'max-height', '250px'))
+						A2($elm$html$Html$Attributes$style, 'max-height', '150px')),
+						$mdgriffith$elm_ui$Element$htmlAttribute(
+						A2($elm$html$Html$Attributes$style, 'max-width', '600px'))
 					]),
 				A2($elm$core$List$map, $author$project$Main$viewText, section));
+		default:
+			var section = txt.a;
+			return $mdgriffith$elm_ui$Element$none;
 	}
 };
 var $mdgriffith$elm_ui$Internal$Model$BorderWidth = F5(
@@ -17647,17 +17986,18 @@ var $mdgriffith$elm_ui$Element$Border$width = function (v) {
 			v,
 			v));
 };
-var $author$project$Main$viewIssueDetails = F3(
-	function (expanded, file, issue) {
+var $author$project$Main$viewIssueDetails = F4(
+	function (expanded, cursorPresent, file, issue) {
 		return A2(
 			$mdgriffith$elm_ui$Element$row,
 			_List_fromArray(
 				[
 					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
 					$author$project$Ui$space.md,
-					$author$project$Ui$border.light,
-					$author$project$Ui$pad.lg,
+					$author$project$Ui$pad.xl,
 					$author$project$Ui$rounded.md,
+					$author$project$Ui$background.dark,
+					cursorPresent ? $author$project$Ui$border.light : $author$project$Ui$border.dark.medium,
 					$mdgriffith$elm_ui$Element$Border$width(1)
 				]),
 			_List_fromArray(
@@ -17680,15 +18020,20 @@ var $author$project$Main$viewIssueDetails = F3(
 								[$author$project$Ui$space.md]),
 							_List_fromArray(
 								[
+									A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_Nil,
+									$mdgriffith$elm_ui$Element$text(
+										$elm$core$String$trim(issue.title))),
 									_Utils_eq(issue.region.start.row, issue.region.end.row) ? A2(
 									$mdgriffith$elm_ui$Element$el,
 									_List_fromArray(
-										[$author$project$Ui$font.dark.light]),
+										[$author$project$Ui$font.cyan]),
 									$mdgriffith$elm_ui$Element$text(
 										$elm$core$String$fromInt(issue.region.start.row))) : A2(
 									$mdgriffith$elm_ui$Element$row,
 									_List_fromArray(
-										[$author$project$Ui$font.dark.light]),
+										[$author$project$Ui$font.cyan]),
 									_List_fromArray(
 										[
 											$mdgriffith$elm_ui$Element$text(
@@ -17696,13 +18041,7 @@ var $author$project$Main$viewIssueDetails = F3(
 											$mdgriffith$elm_ui$Element$text(':'),
 											$mdgriffith$elm_ui$Element$text(
 											$elm$core$String$fromInt(issue.region.end.row))
-										])),
-									A2(
-									$mdgriffith$elm_ui$Element$el,
-									_List_fromArray(
-										[$author$project$Ui$font.dark.light]),
-									$mdgriffith$elm_ui$Element$text(
-										$elm$core$String$trim(issue.title)))
+										]))
 								])),
 							A2(
 							$mdgriffith$elm_ui$Element$el,
@@ -17718,7 +18057,7 @@ var $author$project$Main$viewIssueDetails = F3(
 									A2(
 										$elm$html$Html$Attributes$style,
 										'max-height',
-										expanded ? '500px' : '0px')),
+										expanded ? '700px' : '0px')),
 									$mdgriffith$elm_ui$Element$htmlAttribute(
 									expanded ? $elm$html$Html$Attributes$class('') : A2($elm$html$Html$Attributes$style, 'margin', '0px'))
 								]),
@@ -17730,62 +18069,26 @@ var $author$project$Main$viewIssueDetails = F3(
 						]))
 				]));
 	});
-var $author$project$Main$viewFileOverview = F2(
+var $author$project$Main$viewFileErrorDetails = F2(
 	function (model, file) {
-		if (!A2($author$project$Main$isEditorVisible, file, model.visible)) {
-			var _v0 = file.problem;
-			if (!_v0.b) {
-				return $mdgriffith$elm_ui$Element$none;
-			} else {
-				var top = _v0.a;
-				return A2(
-					$mdgriffith$elm_ui$Element$column,
-					_List_fromArray(
-						[
-							$author$project$Ui$space.sm,
-							$mdgriffith$elm_ui$Element$Events$onClick(
-							A2($author$project$Model$EditorGoTo, file.path, top.region)),
-							$mdgriffith$elm_ui$Element$pointer
-						]),
-					_List_fromArray(
-						[
-							A2(
-							$mdgriffith$elm_ui$Element$el,
-							_List_fromArray(
-								[$author$project$Ui$font.dark.light]),
-							$mdgriffith$elm_ui$Element$text(
-								file.name + ('.elm (' + ($elm$core$String$fromInt(
-									$elm$core$List$length(file.problem)) + ')'))))
-						]));
-			}
-		} else {
-			return A2(
-				$mdgriffith$elm_ui$Element$column,
-				_List_fromArray(
-					[$author$project$Ui$space.sm]),
-				_List_fromArray(
-					[
-						A2(
-						$mdgriffith$elm_ui$Element$el,
-						_List_fromArray(
-							[$author$project$Ui$font.dark.light]),
-						$mdgriffith$elm_ui$Element$text(file.name + '.elm')),
-						A2(
-						$mdgriffith$elm_ui$Element$column,
-						_List_fromArray(
-							[$author$project$Ui$space.md]),
-						A2(
-							$elm$core$List$map,
-							function (issue) {
-								return A3(
-									$author$project$Main$viewIssueDetails,
-									A3($author$project$Main$isRegionVisible, model.visible, file.path, issue.region),
-									file,
-									issue);
-							},
-							file.problem))
-					]));
-		}
+		return A2(
+			$mdgriffith$elm_ui$Element$column,
+			_List_fromArray(
+				[
+					$author$project$Ui$space.md,
+					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
+				]),
+			A2(
+				$elm$core$List$map,
+				function (issue) {
+					return A4(
+						$author$project$Main$viewIssueDetails,
+						A3($author$project$Main$isRegionVisible, model.visible, file.path, issue.region),
+						A3($author$project$Main$isCursorPresent, model.visible, file.path, issue.region),
+						file,
+						issue);
+				},
+				file.problem));
 	});
 var $author$project$Main$viewMetric = F3(
 	function (name, viewer, vals) {
@@ -17795,7 +18098,7 @@ var $author$project$Main$viewMetric = F3(
 			return A2(
 				$mdgriffith$elm_ui$Element$column,
 				_List_fromArray(
-					[$author$project$Ui$space.md]),
+					[$author$project$Ui$space.md, $mdgriffith$elm_ui$Element$alignRight, $author$project$Ui$space.lg]),
 				A2($elm$core$List$map, viewer, vals));
 		}
 	});
@@ -17869,9 +18172,9 @@ var $author$project$Main$viewOverview = function (model) {
 							]))
 					]));
 		});
-	var viewSignatureGroup = function (_v2) {
-		var editor = _v2.a;
-		var signatures = _v2.b;
+	var viewSignatureGroup = function (_v5) {
+		var editor = _v5.a;
+		var signatures = _v5.b;
 		return A2(
 			$mdgriffith$elm_ui$Element$column,
 			_List_fromArray(
@@ -17920,11 +18223,11 @@ var $author$project$Main$viewOverview = function (model) {
 	var missing = A2(
 		$elm$core$List$filterMap,
 		function (editor) {
-			var _v1 = A2($elm$core$Dict$get, editor.fileName, model.missingTypesignatures);
-			if (_v1.$ === 'Nothing') {
+			var _v4 = A2($elm$core$Dict$get, editor.fileName, model.missingTypesignatures);
+			if (_v4.$ === 'Nothing') {
 				return $elm$core$Maybe$Nothing;
 			} else {
-				var signatures = _v1.a;
+				var signatures = _v4.a;
 				return $elm$core$Maybe$Just(
 					_Utils_Tuple2(editor, signatures));
 			}
@@ -17957,6 +18260,23 @@ var $author$project$Main$viewOverview = function (model) {
 			}),
 		{errs: _List_Nil, globals: _List_Nil},
 		model.projects);
+	var _v0 = A2(
+		$elm$core$List$partition,
+		function (file) {
+			return A2($author$project$Main$isEditorVisible, file, model.visible);
+		},
+		found.errs);
+	var visibleErrors = _v0.a;
+	var notVisibleErrors = _v0.b;
+	var visibleFileNames = A2(
+		$elm$core$String$join,
+		', ',
+		A2(
+			$elm$core$List$map,
+			function ($) {
+				return $.name;
+			},
+			visibleErrors));
 	return A2(
 		$mdgriffith$elm_ui$Element$column,
 		_List_fromArray(
@@ -17964,12 +18284,25 @@ var $author$project$Main$viewOverview = function (model) {
 				$author$project$Ui$space.lg,
 				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
 				$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-				$author$project$Ui$pad.xl,
-				$mdgriffith$elm_ui$Element$htmlAttribute(
-				A2($elm$html$Html$Attributes$style, 'overflow', 'auto'))
+				$author$project$Ui$pad.xl
 			]),
 		_List_fromArray(
 			[
+				A2(
+				$mdgriffith$elm_ui$Element$row,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
+					]),
+				_List_fromArray(
+					[
+						A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_fromArray(
+							[$author$project$Ui$font.cyan]),
+						$mdgriffith$elm_ui$Element$text(visibleFileNames)),
+						A2($author$project$Main$foundErrorsMenu, model, found)
+					])),
 				A2(
 				$author$project$Ui$when,
 				$elm$core$List$isEmpty(found.globals) && ($elm$core$List$isEmpty(found.errs) && $elm$core$List$isEmpty(missing)),
@@ -17983,13 +18316,48 @@ var $author$project$Main$viewOverview = function (model) {
 							_List_fromArray(
 								[$author$project$Ui$anim.blink]),
 							$mdgriffith$elm_ui$Element$text('No errors 🎉'))))),
-				A3($author$project$Main$viewMetric, 'Missing typesignatures', viewSignatureGroup, missing),
 				A3($author$project$Main$viewMetric, 'Global', viewGlobalError, found.globals),
-				A3(
-				$author$project$Main$viewMetric,
-				'Errors',
-				$author$project$Main$viewFileOverview(model),
-				found.errs)
+				function () {
+				if (!visibleErrors.b) {
+					if (!notVisibleErrors.b) {
+						return $mdgriffith$elm_ui$Element$none;
+					} else {
+						return A2(
+							$mdgriffith$elm_ui$Element$column,
+							_List_fromArray(
+								[$author$project$Ui$space.lg]),
+							_List_fromArray(
+								[
+									$author$project$Ui$header.three('Errors'),
+									A2(
+									$mdgriffith$elm_ui$Element$column,
+									_List_fromArray(
+										[$author$project$Ui$space.md]),
+									A2(
+										$elm$core$List$map,
+										$author$project$Main$viewFileSummary(model),
+										notVisibleErrors))
+								]));
+					}
+				} else {
+					return A2(
+						$mdgriffith$elm_ui$Element$column,
+						_List_fromArray(
+							[
+								$author$project$Ui$space.md,
+								$mdgriffith$elm_ui$Element$width(
+								$mdgriffith$elm_ui$Element$px(700)),
+								$mdgriffith$elm_ui$Element$htmlAttribute(
+								A2($elm$html$Html$Attributes$style, 'height', 'calc(100% - 50px)')),
+								$mdgriffith$elm_ui$Element$htmlAttribute(
+								A2($elm$html$Html$Attributes$style, 'overflow', 'auto'))
+							]),
+						A2(
+							$elm$core$List$map,
+							$author$project$Main$viewFileErrorDetails(model),
+							visibleErrors));
+				}
+			}()
 			]));
 };
 var $author$project$Main$view = function (model) {
@@ -18030,4 +18398,4 @@ var $author$project$Main$main = $elm$browser$Browser$document(
 		view: $author$project$Main$view
 	});
 _Platform_export({'Main':{'init':$author$project$Main$main(
-	$elm$json$Json$Decode$succeed(_Utils_Tuple0))({"versions":{"elm":"0.19.1"},"types":{"message":"Model.Msg","aliases":{"Model.FilePath":{"args":[],"type":"String.String"},"Editor.Position":{"args":[],"type":"{ row : Basics.Int, col : Basics.Int }"},"Editor.Region":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Editor.Editor":{"args":[],"type":"{ fileName : String.String, unsavedChanges : Basics.Bool, ranges : List.List Editor.Range, selections : List.List Editor.Range }"},"Editor.Range":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Question.TypeSignature":{"args":[],"type":"{ name : String.String, region : Editor.Region, signature : String.String }"},"Json.Decode.Value":{"args":[],"type":"Json.Encode.Value"},"Elm.File":{"args":[],"type":"{ path : String.String, name : String.String, problem : List.List Elm.Problem }"},"Elm.GlobalErrorDetails":{"args":[],"type":"{ path : Maybe.Maybe String.String, problem : { title : String.String, message : List.List Elm.Text } }"},"Elm.Problem":{"args":[],"type":"{ title : String.String, message : List.List Elm.Text, region : Editor.Region }"},"Elm.StyledText":{"args":[],"type":"{ color : Maybe.Maybe Elm.Color, underline : Basics.Bool, bold : Basics.Bool }"}},"unions":{"Model.Msg":{"args":[],"tags":{"Incoming":["Result.Result Json.Decode.Error Ports.Incoming"],"View":["Model.Viewing"],"AnswerReceived":["Result.Result Http.Error Question.Answer"],"EditorGoTo":["Model.FilePath","Editor.Region"],"EditorFillTypeSignatures":["Model.FilePath"]}},"Question.Answer":{"args":[],"tags":{"MissingTypeSignatures":["String.String","List.List Question.TypeSignature"]}},"Http.Error":{"args":[],"tags":{"BadUrl":["String.String"],"Timeout":[],"NetworkError":[],"BadStatus":["Basics.Int"],"BadBody":["String.String"]}},"Json.Decode.Error":{"args":[],"tags":{"Field":["String.String","Json.Decode.Error"],"Index":["Basics.Int","Json.Decode.Error"],"OneOf":["List.List Json.Decode.Error"],"Failure":["String.String","Json.Decode.Value"]}},"Ports.Incoming":{"args":[],"tags":{"VisibleEditorsUpdated":["{ active : Maybe.Maybe Editor.Editor, visible : List.List Editor.Editor }"],"ProjectsStatusUpdated":["List.List Elm.Status"]}},"Basics.Int":{"args":[],"tags":{"Int":[]}},"Result.Result":{"args":["error","value"],"tags":{"Ok":["value"],"Err":["error"]}},"String.String":{"args":[],"tags":{"String":[]}},"Model.Viewing":{"args":[],"tags":{"Overview":[]}},"Basics.Bool":{"args":[],"tags":{"True":[],"False":[]}},"List.List":{"args":["a"],"tags":{}},"Maybe.Maybe":{"args":["a"],"tags":{"Just":["a"],"Nothing":[]}},"Elm.Status":{"args":[],"tags":{"NoData":[],"Success":[],"GlobalError":["Elm.GlobalErrorDetails"],"CompilerError":["{ errors : List.List Elm.File }"]}},"Json.Encode.Value":{"args":[],"tags":{"Value":[]}},"Elm.Text":{"args":[],"tags":{"Plain":["String.String"],"Styled":["Elm.StyledText","String.String"],"CodeSection":["List.List Elm.Text"]}},"Elm.Color":{"args":[],"tags":{"Red":[],"Yellow":[],"Green":[],"Cyan":[]}}}}})}});}(this));
+	$elm$json$Json$Decode$succeed(_Utils_Tuple0))({"versions":{"elm":"0.19.1"},"types":{"message":"Model.Msg","aliases":{"Model.FilePath":{"args":[],"type":"String.String"},"Editor.Position":{"args":[],"type":"{ row : Basics.Int, col : Basics.Int }"},"Editor.Region":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Editor.Editor":{"args":[],"type":"{ fileName : String.String, unsavedChanges : Basics.Bool, ranges : List.List Editor.Range, selections : List.List Editor.Range }"},"Editor.Range":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Question.TypeSignature":{"args":[],"type":"{ name : String.String, region : Editor.Region, signature : String.String }"},"Json.Decode.Value":{"args":[],"type":"Json.Encode.Value"},"Elm.File":{"args":[],"type":"{ path : String.String, name : String.String, problem : List.List Elm.Problem }"},"Elm.GlobalErrorDetails":{"args":[],"type":"{ path : Maybe.Maybe String.String, problem : { title : String.String, message : List.List Elm.Text } }"},"Elm.Problem":{"args":[],"type":"{ title : String.String, message : List.List Elm.Text, region : Editor.Region }"},"Elm.StyledText":{"args":[],"type":"{ color : Maybe.Maybe Elm.Color, underline : Basics.Bool, bold : Basics.Bool }"}},"unions":{"Model.Msg":{"args":[],"tags":{"Incoming":["Result.Result Json.Decode.Error Ports.Incoming"],"View":["Model.Viewing"],"AnswerReceived":["Result.Result Http.Error Question.Answer"],"EditorGoTo":["Model.FilePath","Editor.Region"],"EditorFillTypeSignatures":["Model.FilePath"],"ErrorMenuUpdated":["Basics.Bool"]}},"Question.Answer":{"args":[],"tags":{"MissingTypeSignatures":["String.String","List.List Question.TypeSignature"]}},"Basics.Bool":{"args":[],"tags":{"True":[],"False":[]}},"Http.Error":{"args":[],"tags":{"BadUrl":["String.String"],"Timeout":[],"NetworkError":[],"BadStatus":["Basics.Int"],"BadBody":["String.String"]}},"Json.Decode.Error":{"args":[],"tags":{"Field":["String.String","Json.Decode.Error"],"Index":["Basics.Int","Json.Decode.Error"],"OneOf":["List.List Json.Decode.Error"],"Failure":["String.String","Json.Decode.Value"]}},"Ports.Incoming":{"args":[],"tags":{"VisibleEditorsUpdated":["{ active : Maybe.Maybe Editor.Editor, visible : List.List Editor.Editor }"],"ProjectsStatusUpdated":["List.List Elm.Status"]}},"Basics.Int":{"args":[],"tags":{"Int":[]}},"Result.Result":{"args":["error","value"],"tags":{"Ok":["value"],"Err":["error"]}},"String.String":{"args":[],"tags":{"String":[]}},"Model.Viewing":{"args":[],"tags":{"Overview":[]}},"List.List":{"args":["a"],"tags":{}},"Maybe.Maybe":{"args":["a"],"tags":{"Just":["a"],"Nothing":[]}},"Elm.Status":{"args":[],"tags":{"NoData":[],"Success":[],"GlobalError":["Elm.GlobalErrorDetails"],"CompilerError":["{ errors : List.List Elm.File }"]}},"Json.Encode.Value":{"args":[],"tags":{"Value":[]}},"Elm.Text":{"args":[],"tags":{"Plain":["String.String"],"Styled":["Elm.StyledText","String.String"],"CodeQuote":["List.List Elm.Text"],"CodeSection":["List.List Elm.Text"]}},"Elm.Color":{"args":[],"tags":{"Red":[],"Yellow":[],"Green":[],"Cyan":[]}}}}})}});}(this));

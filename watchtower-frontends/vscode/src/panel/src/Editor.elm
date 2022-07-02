@@ -6,6 +6,14 @@ import Json.Decode as Decode
 import Json.Encode as Encode
 
 
+type alias Editor =
+    { fileName : String
+    , unsavedChanges : Bool
+    , ranges : List Range
+    , selections : List Range
+    }
+
+
 type alias Location =
     { file : Path
     , region : Region
@@ -43,14 +51,6 @@ type alias Region =
 type alias Position =
     { row : Int
     , col : Int
-    }
-
-
-type alias Editor =
-    { fileName : String
-    , unsavedChanges : Bool
-    , ranges : List Range
-    , selections : List Range
     }
 
 
@@ -125,7 +125,7 @@ decodeRegion =
 
 visible : Range -> List Range -> Bool
 visible rng viewing =
-    List.any (overlap rng) viewing
+    List.any (\v -> overlap rng v || overlap v rng) viewing
 
 
 above : Range -> List Range -> Bool

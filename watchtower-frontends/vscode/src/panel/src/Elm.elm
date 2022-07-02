@@ -68,6 +68,10 @@ type alias Problem =
 type Text
     = Plain String
     | Styled StyledText String
+      -- This is when we're quoting code from the actual elm file
+    | CodeQuote (List Text)
+      -- This is when we're referencing new code
+      -- Like "did you mean xyz?"
     | CodeSection (List Text)
 
 
@@ -189,17 +193,20 @@ decodeProblem =
 
 nestCodingSections : List Text -> List Text
 nestCodingSections texts =
-    nestCodingSectionsHelper texts Nothing []
+    nestCodingSectionsHelper texts NoCapture []
 
 
 nestCodingSectionsHelper texts gatheredCodeRegion gathered =
     case texts of
         [] ->
             case gatheredCodeRegion of
-                Nothing ->
+                NoCapture ->
                     List.reverse gathered
 
-                Just codeRegion ->
+                Quote codeRegion ->
+                    List.reverse (CodeQuote (List.reverse codeRegion) :: gathered)
+
+                Reference codeRegion ->
                     List.reverse (CodeSection (List.reverse codeRegion) :: gathered)
 
         (Plain txt) :: remaining ->
@@ -226,29 +233,44 @@ nestCodingSectionsHelper texts gatheredCodeRegion gathered =
             -- This branch generally shouldn't happen because we haven't built code sections yet
             nestCodingSectionsHelper remaining gatheredCodeRegion (CodeSection txt :: gathered)
 
+        (CodeQuote txt) :: remaining ->
+            -- This branch generally shouldn't happen because we haven't built code sections yet
+            nestCodingSectionsHelper remaining gatheredCodeRegion (CodeQuote txt :: gathered)
 
-gatherCodeSectionRecurse toText str maybeRegion accum =
-    gatherCodeSectionRecurseHelper toText (String.lines str) True maybeRegion accum
+
+type Capture
+    = NoCapture
+    | Quote (List Text)
+    | Reference (List Text)
+
+
+gatherCodeSectionRecurse toText str capture accum =
+    gatherCodeSectionRecurseHelper toText (String.lines str) True capture accum
 
 
 {-| -}
-gatherCodeSectionRecurseHelper toText lines isFirst maybeRegion accum =
+gatherCodeSectionRecurseHelper toText lines isFirst capture accum =
     case lines of
         [] ->
-            ( maybeRegion, accum )
+            ( capture, accum )
 
         [ last ] ->
             if isFirst then
                 -- there were no newlines
                 -- just add normally
-                case maybeRegion of
-                    Nothing ->
-                        ( Nothing
+                case capture of
+                    NoCapture ->
+                        ( NoCapture
                         , toText last :: accum
                         )
 
-                    Just reg ->
-                        ( Just (toText last :: reg)
+                    Quote reg ->
+                        ( Quote (toText last :: reg)
+                        , accum
+                        )
+
+                    Reference reg ->
+                        ( Reference (toText last :: reg)
                         , accum
                         )
 
@@ -258,27 +280,41 @@ gatherCodeSectionRecurseHelper toText lines isFirst maybeRegion accum =
                         "\n" ++ last
                 in
                 -- there were newlines previously
-                if startsWithNum last then
-                    case maybeRegion of
-                        Nothing ->
-                            ( Just [ toText line ]
+                if startsWithNum last || startsWithWs last then
+                    case capture of
+                        NoCapture ->
+                            ( if startsWithWs last then
+                                Reference [ toText last ]
+
+                              else
+                                Quote [ toText last ]
+                            , toText "\n" :: accum
+                            )
+
+                        Quote reg ->
+                            ( Quote (toText line :: reg)
                             , accum
                             )
 
-                        Just reg ->
-                            ( Just (toText line :: reg)
+                        Reference reg ->
+                            ( Reference (toText line :: reg)
                             , accum
                             )
 
                 else
-                    case maybeRegion of
-                        Nothing ->
-                            ( Nothing
+                    case capture of
+                        NoCapture ->
+                            ( NoCapture
                             , toText line :: accum
                             )
 
-                        Just reg ->
-                            ( Nothing
+                        Quote reg ->
+                            ( NoCapture
+                            , toText line :: CodeQuote (List.reverse reg) :: accum
+                            )
+
+                        Reference reg ->
+                            ( NoCapture
                             , toText line :: CodeSection (List.reverse reg) :: accum
                             )
 
@@ -286,19 +322,26 @@ gatherCodeSectionRecurseHelper toText lines isFirst maybeRegion accum =
             if isFirst then
                 -- there were no newlines
                 -- just add normally
-                case maybeRegion of
-                    Nothing ->
+                case capture of
+                    NoCapture ->
                         gatherCodeSectionRecurseHelper toText
                             remainingLines
                             False
-                            Nothing
+                            NoCapture
                             (toText topLine :: accum)
 
-                    Just reg ->
+                    Quote reg ->
                         gatherCodeSectionRecurseHelper toText
                             remainingLines
                             False
-                            (Just (toText topLine :: reg))
+                            (Quote (toText topLine :: reg))
+                            accum
+
+                    Reference reg ->
+                        gatherCodeSectionRecurseHelper toText
+                            remainingLines
+                            False
+                            (Reference (toText topLine :: reg))
                             accum
 
             else
@@ -307,39 +350,59 @@ gatherCodeSectionRecurseHelper toText lines isFirst maybeRegion accum =
                         "\n" ++ topLine
                 in
                 -- there were newlines previously
-                if startsWithNum topLine then
-                    case maybeRegion of
-                        Nothing ->
+                if startsWithNum topLine || startsWithWs topLine then
+                    case capture of
+                        NoCapture ->
                             gatherCodeSectionRecurseHelper toText
                                 remainingLines
                                 False
-                                (Just [ toText line ])
+                                (if startsWithWs topLine then
+                                    Reference [ toText topLine ]
+
+                                 else
+                                    Quote [ toText topLine ]
+                                )
+                                (toText "\n" :: accum)
+
+                        Quote reg ->
+                            gatherCodeSectionRecurseHelper toText
+                                remainingLines
+                                False
+                                (Quote (toText line :: reg))
                                 accum
 
-                        Just reg ->
+                        Reference reg ->
                             gatherCodeSectionRecurseHelper toText
                                 remainingLines
                                 False
-                                (Just (toText line :: reg))
+                                (Reference (toText line :: reg))
                                 accum
 
                 else
-                    case maybeRegion of
-                        Nothing ->
+                    case capture of
+                        NoCapture ->
                             gatherCodeSectionRecurseHelper toText
                                 remainingLines
                                 False
-                                Nothing
+                                NoCapture
                                 (toText line :: accum)
 
-                        Just reg ->
+                        Quote reg ->
                             gatherCodeSectionRecurseHelper toText
                                 remainingLines
                                 False
-                                Nothing
+                                NoCapture
+                                (toText line :: CodeQuote (List.reverse reg) :: accum)
+
+                        Reference reg ->
+                            gatherCodeSectionRecurseHelper toText
+                                remainingLines
+                                False
+                                NoCapture
                                 (toText line :: CodeSection (List.reverse reg) :: accum)
 
 
+startsWithNum : String -> Bool
 startsWithNum str =
     case String.uncons (String.left 1 str) of
         Nothing ->
@@ -349,80 +412,14 @@ startsWithNum str =
             Char.isDigit top
 
 
-gatherCodeSection toText line ( maybeRegion, accum ) =
-    case String.uncons (String.left 1 line) of
+startsWithWs : String -> Bool
+startsWithWs str =
+    case String.uncons (String.left 1 str) of
         Nothing ->
-            -- we are not in a code section or have exited one
-            case maybeRegion of
-                Nothing ->
-                    ( Nothing
-                    , toText (line ++ "\n") :: accum
-                    )
+            False
 
-                Just reg ->
-                    ( Nothing
-                    , toText (line ++ "\n") :: CodeSection reg :: accum
-                    )
-
-        Just ( top, remain ) ->
-            if Char.isDigit top then
-                -- We are in a code section or started one
-                case maybeRegion of
-                    Nothing ->
-                        ( Just [ toText line ]
-                        , accum
-                        )
-
-                    Just reg ->
-                        ( Just (toText line :: reg)
-                        , accum
-                        )
-
-            else
-                -- we are not in a code section or have exited one
-                case maybeRegion of
-                    Nothing ->
-                        ( Nothing
-                        , toText line :: accum
-                        )
-
-                    Just reg ->
-                        ( Just (toText line :: reg)
-                        , accum
-                        )
-
-
-
--- type alias Section =
---     { before : String
---     , code : String
---     }
--- splitCodeRegionText inCodeRegion str =
---     List.foldl
---         (\line gathered ->
---             case String.uncons (String.left 1 line) of
---                 Nothing ->
---                     -- we are not in a code section or have exited one
---                     { inCodeRegion = False
---                     }
---                 Just ( top, remain ) ->
---                     if Char.isDigit top then
---                         -- We are in a code section or started one
---                         -- if gathered.inCodeRegion then
---                         { inCodeRegion = True
---                         }
---                     else
---                         -- we are not in a code section or have exited one
---                         { inCodeRegion = False
---                         }
---         )
---         { inCodeRegion = inCodeRegion
---         , before = []
---         , codeRegion = []
---         , after = []
---         }
---         (String.lines str)
---         |> List.reverse
+        Just ( top, _ ) ->
+            top == ' '
 
 
 text : Decode.Decoder Text
