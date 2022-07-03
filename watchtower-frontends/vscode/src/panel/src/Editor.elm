@@ -54,6 +54,11 @@ type alias Position =
     }
 
 
+regionToString : Region -> String
+regionToString region =
+    String.fromInt region.start.row ++ ":" ++ String.fromInt region.end.row
+
+
 visibleRanges : List Editor -> List Range
 visibleRanges editors =
     List.concatMap .ranges editors

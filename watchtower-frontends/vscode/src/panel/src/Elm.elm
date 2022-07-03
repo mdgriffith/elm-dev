@@ -4,6 +4,7 @@ module Elm exposing (..)
 
 import Editor
 import Json.Decode as Decode
+import Set
 
 
 successful : List Status -> Bool
@@ -65,14 +66,28 @@ type alias Problem =
     }
 
 
+type alias CodeReferenceKey =
+    String
+
+
+globalKey : GlobalErrorDetails -> Int -> CodeReferenceKey
+globalKey global index =
+    Maybe.withDefault "global" global.path ++ ":" ++ String.fromInt index
+
+
+fileKey : File -> Problem -> Int -> CodeReferenceKey
+fileKey file problem index =
+    file.path ++ ":" ++ Editor.regionToString problem.region ++ String.fromInt index
+
+
 type Text
     = Plain String
     | Styled StyledText String
       -- This is when we're quoting code from the actual elm file
-    | CodeQuote (List Text)
+    | CodeQuote Int (List Text)
       -- This is when we're referencing new code
       -- Like "did you mean xyz?"
-    | CodeSection (List Text)
+    | CodeSection Int (List Text)
 
 
 type alias StyledText =
@@ -204,10 +219,18 @@ nestCodingSectionsHelper texts gatheredCodeRegion gathered =
                     List.reverse gathered
 
                 Quote codeRegion ->
-                    List.reverse (CodeQuote (List.reverse codeRegion) :: gathered)
+                    let
+                        ( reversed, lineCount ) =
+                            reverseAndCount codeRegion
+                    in
+                    List.reverse (CodeQuote lineCount reversed :: gathered)
 
                 Reference codeRegion ->
-                    List.reverse (CodeSection (List.reverse codeRegion) :: gathered)
+                    let
+                        ( reversed, lineCount ) =
+                            reverseAndCount codeRegion
+                    in
+                    List.reverse (CodeSection lineCount reversed :: gathered)
 
         (Plain txt) :: remaining ->
             let
@@ -229,13 +252,26 @@ nestCodingSectionsHelper texts gatheredCodeRegion gathered =
             in
             nestCodingSectionsHelper remaining newCodeRegion newGathered
 
-        (CodeSection txt) :: remaining ->
+        (CodeSection lineCount txt) :: remaining ->
             -- This branch generally shouldn't happen because we haven't built code sections yet
-            nestCodingSectionsHelper remaining gatheredCodeRegion (CodeSection txt :: gathered)
+            nestCodingSectionsHelper remaining gatheredCodeRegion (CodeSection lineCount txt :: gathered)
 
-        (CodeQuote txt) :: remaining ->
+        (CodeQuote lineCount txt) :: remaining ->
             -- This branch generally shouldn't happen because we haven't built code sections yet
-            nestCodingSectionsHelper remaining gatheredCodeRegion (CodeQuote txt :: gathered)
+            nestCodingSectionsHelper remaining gatheredCodeRegion (CodeQuote lineCount txt :: gathered)
+
+
+reverseAndCount items =
+    reverseAndCountHelper items ( [], 0 )
+
+
+reverseAndCountHelper items ( reved, count ) =
+    case items of
+        [] ->
+            ( reved, count )
+
+        top :: remain ->
+            reverseAndCountHelper remain ( top :: reved, count + 1 )
 
 
 type Capture
@@ -308,14 +344,22 @@ gatherCodeSectionRecurseHelper toText lines isFirst capture accum =
                             , toText line :: accum
                             )
 
-                        Quote reg ->
+                        Quote items ->
+                            let
+                                ( reversed, lineCount ) =
+                                    reverseAndCount items
+                            in
                             ( NoCapture
-                            , toText line :: CodeQuote (List.reverse reg) :: accum
+                            , toText line :: CodeQuote lineCount reversed :: accum
                             )
 
-                        Reference reg ->
+                        Reference items ->
+                            let
+                                ( reversed, lineCount ) =
+                                    reverseAndCount items
+                            in
                             ( NoCapture
-                            , toText line :: CodeSection (List.reverse reg) :: accum
+                            , toText line :: CodeSection lineCount reversed :: accum
                             )
 
         topLine :: remainingLines ->
@@ -387,19 +431,27 @@ gatherCodeSectionRecurseHelper toText lines isFirst capture accum =
                                 NoCapture
                                 (toText line :: accum)
 
-                        Quote reg ->
+                        Quote items ->
+                            let
+                                ( reversed, lineCount ) =
+                                    reverseAndCount items
+                            in
                             gatherCodeSectionRecurseHelper toText
                                 remainingLines
                                 False
                                 NoCapture
-                                (toText line :: CodeQuote (List.reverse reg) :: accum)
+                                (toText line :: CodeQuote lineCount reversed :: accum)
 
-                        Reference reg ->
+                        Reference items ->
+                            let
+                                ( reversed, lineCount ) =
+                                    reverseAndCount items
+                            in
                             gatherCodeSectionRecurseHelper toText
                                 remainingLines
                                 False
                                 NoCapture
-                                (toText line :: CodeSection (List.reverse reg) :: accum)
+                                (toText line :: CodeSection lineCount reversed :: accum)
 
 
 startsWithNum : String -> Bool

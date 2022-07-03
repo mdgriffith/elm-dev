@@ -17,6 +17,7 @@ import Json.Encode
 import Model exposing (..)
 import Ports
 import Question
+import Set exposing (Set)
 import Ui
 
 
@@ -42,6 +43,7 @@ init =
       , viewing = Overview
       , missingTypesignatures = Dict.empty
       , errorMenuVisible = False
+      , errorCodeExpanded = Set.empty
       }
     , Cmd.none
     )
@@ -90,6 +92,8 @@ update msg model =
                     ( { model
                         | projects = statuses
                         , projectsVersion = model.projectsVersion + 1
+                        , errorMenuVisible = False
+                        , errorCodeExpanded = Set.empty
                         , missingTypesignatures =
                             if success then
                                 model.missingTypesignatures
@@ -119,6 +123,18 @@ update msg model =
 
         ErrorMenuUpdated new ->
             ( { model | errorMenuVisible = new }
+            , Cmd.none
+            )
+
+        ErrorCodeToggled ref bool ->
+            ( { model
+                | errorCodeExpanded =
+                    if bool then
+                        Set.insert ref model.errorCodeExpanded
+
+                    else
+                        Set.remove ref model.errorCodeExpanded
+              }
             , Cmd.none
             )
 
@@ -237,14 +253,6 @@ viewOverview model =
                 , errs = []
                 }
                 model.projects
-
-        viewGlobalError global =
-            Ui.column
-                [ Ui.space.md ]
-                [ Ui.header.three global.problem.title
-                , Ui.column [ Ui.space.md ]
-                    (List.map viewText global.problem.message)
-                ]
 
         missing =
             List.filterMap
@@ -404,6 +412,15 @@ viewOverview model =
         ]
 
 
+viewGlobalError global =
+    Ui.column
+        [ Ui.space.md ]
+        [ Ui.header.three global.problem.title
+        , Ui.column [ Ui.space.md ]
+            (List.map viewExpandedText global.problem.message)
+        ]
+
+
 foundErrorsMenu model found =
     let
         fileCount =
@@ -513,6 +530,7 @@ viewFileErrorDetails model file =
         (List.map
             (\issue ->
                 viewIssueDetails
+                    model.errorCodeExpanded
                     (isRegionVisible model.visible file.path issue.region)
                     (isCursorPresent model.visible file.path issue.region)
                     file
@@ -548,7 +566,7 @@ isCursorPresent editors path region =
         editors
 
 
-viewIssueDetails expanded cursorPresent file issue =
+viewIssueDetails errorCodeExpanded expanded cursorPresent file issue =
     Ui.row
         [ Ui.width Ui.fill
         , Ui.space.md
@@ -563,41 +581,56 @@ viewIssueDetails expanded cursorPresent file issue =
         , Border.width 1
         ]
         [ Ui.column
-            [ Events.onClick (EditorGoTo file.path issue.region)
-            , Ui.pointer
+            [ if expanded then
+                Ui.htmlAttribute (Html.Attributes.class "")
+
+              else
+                Events.onClick (EditorGoTo file.path issue.region)
+            , if expanded then
+                Ui.htmlAttribute (Html.Attributes.class "")
+
+              else
+                Ui.pointer
             , Ui.space.lg
             , Ui.width Ui.fill
             ]
-            [ Ui.row [ Ui.space.md ]
+            [ Ui.row [ Ui.space.md, Ui.width Ui.fill ]
                 [ Ui.el []
                     (Ui.text (String.trim issue.title))
                 , if issue.region.start.row == issue.region.end.row then
                     Ui.el
-                        [ Ui.font.cyan
+                        [ Ui.font.dark.light
+                        , Ui.alignRight
                         ]
-                        (Ui.text (String.fromInt issue.region.start.row))
+                        (Ui.text ("line " ++ String.fromInt issue.region.start.row))
 
                   else
                     Ui.row
-                        [ Ui.font.cyan
+                        [ Ui.font.dark.light
+                        , Ui.alignRight
                         ]
-                        [ Ui.text (String.fromInt issue.region.start.row)
-                        , Ui.text ":"
+                        [ Ui.text "lines "
+                        , Ui.text (String.fromInt issue.region.start.row)
+                        , Ui.text "–"
                         , Ui.text (String.fromInt issue.region.end.row)
                         ]
                 ]
             , Ui.el
                 [ Ui.width Ui.fill
                 , if expanded then
-                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 250ms")
+                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 280ms")
 
                   else
-                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 100ms")
-                , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
+                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 200ms")
+                , if expanded then
+                    Ui.htmlAttribute (Html.Attributes.style "overflow" "visible")
+
+                  else
+                    Ui.htmlAttribute (Html.Attributes.style "overflow" "hidden")
                 , Ui.htmlAttribute
                     (Html.Attributes.style "max-height"
                         (if expanded then
-                            "700px"
+                            "30000px"
 
                          else
                             "0px"
@@ -617,55 +650,9 @@ viewIssueDetails expanded cursorPresent file issue =
                     [ Ui.pad.xy.zero.sm
                     , Ui.precise
                     ]
-                    (List.map viewText issue.message)
+                    (List.indexedMap (viewText file issue errorCodeExpanded) issue.message)
             ]
         ]
-
-
-viewFile path model =
-    let
-        foundErrs =
-            List.foldl
-                (\project ({ handled, errs } as gathered) ->
-                    if handled then
-                        gathered
-
-                    else
-                        case project of
-                            Elm.NoData ->
-                                gathered
-
-                            Elm.Success ->
-                                gathered
-
-                            Elm.GlobalError globe ->
-                                gathered
-
-                            Elm.CompilerError { errors } ->
-                                let
-                                    newErrs =
-                                        List.filter
-                                            (\e ->
-                                                path == e.path
-                                            )
-                                            errors
-                                in
-                                case newErrs of
-                                    [] ->
-                                        gathered
-
-                                    _ ->
-                                        { handled = True
-                                        , errs = newErrs ++ errs
-                                        }
-                )
-                { handled = False
-                , errs = []
-                }
-                model.projects
-                |> .errs
-    in
-    List.concatMap viewFileIssue foundErrs
 
 
 onlyActiveFile viewing fileIssue =
@@ -691,33 +678,6 @@ onlyBelow maybeViewing iss =
             Editor.below iss.region viewing.ranges
 
 
-viewFileIssue fileIssue =
-    List.map (viewProblemDetails fileIssue)
-        fileIssue.problem
-
-
-viewIssue viewing iss =
-    Ui.column [ Ui.precise ]
-        [ Ui.column [ Ui.font.info ]
-            [ Ui.text (fillToEighty ("-- " ++ String.toUpper iss.title ++ " ")) ]
-        , Ui.column []
-            (List.map viewText iss.message)
-        ]
-
-
-viewProblemDetails file issue =
-    Ui.column
-        [ Ui.precise
-        , Events.onClick (EditorGoTo file.path issue.region)
-        , Ui.pointer
-        ]
-        [ Ui.column [ Ui.font.cyan ]
-            [ Ui.text (fillToEighty ("-- " ++ String.toUpper issue.title ++ " ")) ]
-        , Ui.column []
-            (List.map viewText issue.message)
-        ]
-
-
 fillToEighty str =
     let
         fill =
@@ -726,8 +686,8 @@ fillToEighty str =
     str ++ fill
 
 
-viewText : Elm.Text -> Ui.Element msg
-viewText txt =
+viewText : Elm.File -> Elm.Problem -> Set Elm.CodeReferenceKey -> Int -> Elm.Text -> Ui.Element Msg
+viewText file problem errorCodeExpanded index txt =
     case txt of
         Elm.Plain str ->
             Ui.text str
@@ -738,26 +698,90 @@ viewText txt =
                 ]
                 (Ui.text str)
 
-        Elm.CodeSection section ->
+        Elm.CodeSection lineCount section ->
+            viewSection file problem errorCodeExpanded index lineCount section
+
+        Elm.CodeQuote lineCount section ->
+            viewSection file problem errorCodeExpanded index lineCount section
+
+
+viewSection file problem errorCodeExpanded index lineCount section =
+    if lineCount < 7 then
+        Ui.paragraph
+            [ Ui.width Ui.fill
+            ]
+            (List.indexedMap (viewText file problem errorCodeExpanded) section)
+
+    else
+        let
+            currentKey =
+                Elm.fileKey file problem index
+
+            expanded =
+                Set.member currentKey errorCodeExpanded
+        in
+        Ui.column [ Ui.width Ui.fill ]
+            [ if expanded then
+                Ui.row
+                    [ Ui.pointer
+                    , Events.onClick (ErrorCodeToggled currentKey (not expanded))
+                    ]
+                    [ Ui.text
+                        "▼"
+                        |> Ui.el [ Ui.font.cyan ]
+                    , Ui.text (" hide code (" ++ String.fromInt lineCount ++ " lines)")
+                        |> Ui.el [ Ui.font.dark.light ]
+                    ]
+
+              else
+                Ui.row
+                    [ Ui.pointer
+                    , Events.onClick (ErrorCodeToggled currentKey (not expanded))
+                    ]
+                    [ Ui.text
+                        "▶"
+                        |> Ui.el [ Ui.font.cyan ]
+                    , Ui.text (" show code (" ++ String.fromInt lineCount ++ " lines)\n")
+                        |> Ui.el [ Ui.font.dark.light ]
+                    ]
+            , if expanded then
+                Ui.paragraph
+                    [ Ui.width Ui.fill
+                    , Ui.pad.lg
+                    ]
+                    (List.indexedMap (viewText file problem errorCodeExpanded) section)
+
+              else
+                Ui.none
+            ]
+
+
+viewExpandedText : Elm.Text -> Ui.Element msg
+viewExpandedText txt =
+    case txt of
+        Elm.Plain str ->
+            Ui.text str
+
+        Elm.Styled styled str ->
+            Ui.el
+                [ Ui.htmlAttribute (colorAttribute styled.color)
+                ]
+                (Ui.text str)
+
+        Elm.CodeSection lineCount section ->
             Ui.paragraph
                 [ Ui.width Ui.fill
-                , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
-                , Ui.htmlAttribute
-                    (Html.Attributes.style "max-height"
-                        "150px"
-                    )
-                , Ui.htmlAttribute
-                    (Html.Attributes.style "max-width"
-                        "600px"
-                    )
                 ]
-                (List.map viewText section)
+                (List.map viewExpandedText section)
 
-        -- Ui.el [ Ui.font.cyan ] (Ui.text "\n◀ see editor")
-        Elm.CodeQuote section ->
-            Ui.none
+        Elm.CodeQuote lineCount section ->
+            Ui.paragraph
+                [ Ui.width Ui.fill
+                ]
+                (List.map viewExpandedText section)
 
 
+colorAttribute : Maybe Elm.Color -> Html.Attribute msg
 colorAttribute maybeColor =
     case maybeColor of
         Nothing ->
@@ -776,43 +800,3 @@ colorAttribute maybeColor =
 
                 Elm.Green ->
                     Html.Attributes.class "success"
-
-
-viewRange sel =
-    Ui.column []
-        [ Ui.column []
-            [ Ui.text "start"
-            , viewPos sel.start
-            ]
-        , Ui.column []
-            [ Ui.text "end"
-            , viewPos sel.end
-            ]
-        ]
-
-
-viewSelection sel =
-    Ui.column [ Ui.space.md ]
-        [ Ui.column []
-            [ Ui.text "anchor"
-            , viewPos sel.anchor
-            ]
-        , Ui.column []
-            [ Ui.text "active"
-            , viewPos sel.active
-            ]
-        ]
-
-
-viewPos { row, col } =
-    Ui.column [ Ui.space.md ]
-        [ Ui.text ("row: " ++ String.fromInt row)
-        , Ui.text ("col: " ++ String.fromInt col)
-        ]
-
-
-viewFileName name =
-    String.split "/" name
-        |> List.reverse
-        |> List.head
-        |> Maybe.withDefault "Empty File"

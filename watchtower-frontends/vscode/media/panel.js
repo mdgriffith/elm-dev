@@ -10783,12 +10783,14 @@ var $author$project$Elm$Problem = F3(
 		return {message: message, region: region, title: title};
 	});
 var $author$project$Elm$NoCapture = {$: 'NoCapture'};
-var $author$project$Elm$CodeQuote = function (a) {
-	return {$: 'CodeQuote', a: a};
-};
-var $author$project$Elm$CodeSection = function (a) {
-	return {$: 'CodeSection', a: a};
-};
+var $author$project$Elm$CodeQuote = F2(
+	function (a, b) {
+		return {$: 'CodeQuote', a: a, b: b};
+	});
+var $author$project$Elm$CodeSection = F2(
+	function (a, b) {
+		return {$: 'CodeSection', a: a, b: b};
+	});
 var $author$project$Elm$Plain = function (a) {
 	return {$: 'Plain', a: a};
 };
@@ -10801,6 +10803,33 @@ var $author$project$Elm$Quote = function (a) {
 };
 var $author$project$Elm$Reference = function (a) {
 	return {$: 'Reference', a: a};
+};
+var $author$project$Elm$reverseAndCountHelper = F2(
+	function (items, _v0) {
+		reverseAndCountHelper:
+		while (true) {
+			var reved = _v0.a;
+			var count = _v0.b;
+			if (!items.b) {
+				return _Utils_Tuple2(reved, count);
+			} else {
+				var top = items.a;
+				var remain = items.b;
+				var $temp$items = remain,
+					$temp$_v0 = _Utils_Tuple2(
+					A2($elm$core$List$cons, top, reved),
+					count + 1);
+				items = $temp$items;
+				_v0 = $temp$_v0;
+				continue reverseAndCountHelper;
+			}
+		}
+	});
+var $author$project$Elm$reverseAndCount = function (items) {
+	return A2(
+		$author$project$Elm$reverseAndCountHelper,
+		items,
+		_Utils_Tuple2(_List_Nil, 0));
 };
 var $author$project$Elm$startsWithNum = function (str) {
 	var _v0 = $elm$core$String$uncons(
@@ -10911,7 +10940,10 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 											toText(line),
 											accum));
 								case 'Quote':
-									var reg = capture.a;
+									var items = capture.a;
+									var _v4 = $author$project$Elm$reverseAndCount(items);
+									var reversed = _v4.a;
+									var lineCount = _v4.b;
 									return _Utils_Tuple2(
 										$author$project$Elm$NoCapture,
 										A2(
@@ -10919,11 +10951,13 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 											toText(line),
 											A2(
 												$elm$core$List$cons,
-												$author$project$Elm$CodeQuote(
-													$elm$core$List$reverse(reg)),
+												A2($author$project$Elm$CodeQuote, lineCount, reversed),
 												accum)));
 								default:
-									var reg = capture.a;
+									var items = capture.a;
+									var _v5 = $author$project$Elm$reverseAndCount(items);
+									var reversed = _v5.a;
+									var lineCount = _v5.b;
 									return _Utils_Tuple2(
 										$author$project$Elm$NoCapture,
 										A2(
@@ -10931,8 +10965,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 											toText(line),
 											A2(
 												$elm$core$List$cons,
-												$author$project$Elm$CodeSection(
-													$elm$core$List$reverse(reg)),
+												A2($author$project$Elm$CodeSection, lineCount, reversed),
 												accum)));
 							}
 						}
@@ -11072,7 +11105,10 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 									accum = $temp$accum;
 									continue gatherCodeSectionRecurseHelper;
 								case 'Quote':
-									var reg = capture.a;
+									var items = capture.a;
+									var _v9 = $author$project$Elm$reverseAndCount(items);
+									var reversed = _v9.a;
+									var lineCount = _v9.b;
 									var $temp$toText = toText,
 										$temp$lines = remainingLines,
 										$temp$isFirst = false,
@@ -11082,8 +11118,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 										toText(line),
 										A2(
 											$elm$core$List$cons,
-											$author$project$Elm$CodeQuote(
-												$elm$core$List$reverse(reg)),
+											A2($author$project$Elm$CodeQuote, lineCount, reversed),
 											accum));
 									toText = $temp$toText;
 									lines = $temp$lines;
@@ -11092,7 +11127,10 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 									accum = $temp$accum;
 									continue gatherCodeSectionRecurseHelper;
 								default:
-									var reg = capture.a;
+									var items = capture.a;
+									var _v10 = $author$project$Elm$reverseAndCount(items);
+									var reversed = _v10.a;
+									var lineCount = _v10.b;
 									var $temp$toText = toText,
 										$temp$lines = remainingLines,
 										$temp$isFirst = false,
@@ -11102,8 +11140,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 										toText(line),
 										A2(
 											$elm$core$List$cons,
-											$author$project$Elm$CodeSection(
-												$elm$core$List$reverse(reg)),
+											A2($author$project$Elm$CodeSection, lineCount, reversed),
 											accum));
 									toText = $temp$toText;
 									lines = $temp$lines;
@@ -11139,19 +11176,23 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 						return $elm$core$List$reverse(gathered);
 					case 'Quote':
 						var codeRegion = gatheredCodeRegion.a;
+						var _v2 = $author$project$Elm$reverseAndCount(codeRegion);
+						var reversed = _v2.a;
+						var lineCount = _v2.b;
 						return $elm$core$List$reverse(
 							A2(
 								$elm$core$List$cons,
-								$author$project$Elm$CodeQuote(
-									$elm$core$List$reverse(codeRegion)),
+								A2($author$project$Elm$CodeQuote, lineCount, reversed),
 								gathered));
 					default:
 						var codeRegion = gatheredCodeRegion.a;
+						var _v3 = $author$project$Elm$reverseAndCount(codeRegion);
+						var reversed = _v3.a;
+						var lineCount = _v3.b;
 						return $elm$core$List$reverse(
 							A2(
 								$elm$core$List$cons,
-								$author$project$Elm$CodeSection(
-									$elm$core$List$reverse(codeRegion)),
+								A2($author$project$Elm$CodeSection, lineCount, reversed),
 								gathered));
 				}
 			} else {
@@ -11159,27 +11200,7 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 					case 'Plain':
 						var txt = texts.a.a;
 						var remaining = texts.b;
-						var _v2 = A4($author$project$Elm$gatherCodeSectionRecurse, $author$project$Elm$Plain, txt, gatheredCodeRegion, gathered);
-						var newCodeRegion = _v2.a;
-						var newGathered = _v2.b;
-						var $temp$texts = remaining,
-							$temp$gatheredCodeRegion = newCodeRegion,
-							$temp$gathered = newGathered;
-						texts = $temp$texts;
-						gatheredCodeRegion = $temp$gatheredCodeRegion;
-						gathered = $temp$gathered;
-						continue nestCodingSectionsHelper;
-					case 'Styled':
-						var _v3 = texts.a;
-						var style = _v3.a;
-						var txt = _v3.b;
-						var remaining = texts.b;
-						var _v4 = A4(
-							$author$project$Elm$gatherCodeSectionRecurse,
-							$author$project$Elm$Styled(style),
-							txt,
-							gatheredCodeRegion,
-							gathered);
+						var _v4 = A4($author$project$Elm$gatherCodeSectionRecurse, $author$project$Elm$Plain, txt, gatheredCodeRegion, gathered);
 						var newCodeRegion = _v4.a;
 						var newGathered = _v4.b;
 						var $temp$texts = remaining,
@@ -11189,27 +11210,51 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 						gatheredCodeRegion = $temp$gatheredCodeRegion;
 						gathered = $temp$gathered;
 						continue nestCodingSectionsHelper;
+					case 'Styled':
+						var _v5 = texts.a;
+						var style = _v5.a;
+						var txt = _v5.b;
+						var remaining = texts.b;
+						var _v6 = A4(
+							$author$project$Elm$gatherCodeSectionRecurse,
+							$author$project$Elm$Styled(style),
+							txt,
+							gatheredCodeRegion,
+							gathered);
+						var newCodeRegion = _v6.a;
+						var newGathered = _v6.b;
+						var $temp$texts = remaining,
+							$temp$gatheredCodeRegion = newCodeRegion,
+							$temp$gathered = newGathered;
+						texts = $temp$texts;
+						gatheredCodeRegion = $temp$gatheredCodeRegion;
+						gathered = $temp$gathered;
+						continue nestCodingSectionsHelper;
 					case 'CodeSection':
-						var txt = texts.a.a;
+						var _v7 = texts.a;
+						var lineCount = _v7.a;
+						var txt = _v7.b;
 						var remaining = texts.b;
 						var $temp$texts = remaining,
 							$temp$gatheredCodeRegion = gatheredCodeRegion,
 							$temp$gathered = A2(
 							$elm$core$List$cons,
-							$author$project$Elm$CodeSection(txt),
+							A2($author$project$Elm$CodeSection, lineCount, txt),
 							gathered);
 						texts = $temp$texts;
 						gatheredCodeRegion = $temp$gatheredCodeRegion;
 						gathered = $temp$gathered;
 						continue nestCodingSectionsHelper;
 					default:
-						var txt = texts.a.a;
+						var _v8 = texts.a;
+						var lineCount = _v8.a;
+						var txt = _v8.b;
 						var remaining = texts.b;
 						var $temp$texts = remaining,
 							$temp$gatheredCodeRegion = gatheredCodeRegion,
 							$temp$gathered = A2(
 							$elm$core$List$cons,
-							$author$project$Elm$CodeQuote(txt),
+							A2($author$project$Elm$CodeQuote, lineCount, txt),
 							gathered);
 						texts = $temp$texts;
 						gatheredCodeRegion = $temp$gatheredCodeRegion;
@@ -11432,8 +11477,12 @@ var $author$project$Ports$incoming = function (toMsg) {
 			$elm$json$Json$Decode$decodeValue($author$project$Ports$incomingDecoder)));
 };
 var $author$project$Model$Overview = {$: 'Overview'};
+var $elm$core$Set$Set_elm_builtin = function (a) {
+	return {$: 'Set_elm_builtin', a: a};
+};
+var $elm$core$Set$empty = $elm$core$Set$Set_elm_builtin($elm$core$Dict$empty);
 var $author$project$Main$init = _Utils_Tuple2(
-	{active: $elm$core$Maybe$Nothing, errorMenuVisible: false, missingTypesignatures: $elm$core$Dict$empty, projects: _List_Nil, projectsVersion: 0, viewing: $author$project$Model$Overview, visible: _List_Nil},
+	{active: $elm$core$Maybe$Nothing, errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, missingTypesignatures: $elm$core$Dict$empty, projects: _List_Nil, projectsVersion: 0, viewing: $author$project$Model$Overview, visible: _List_Nil},
 	$elm$core$Platform$Cmd$none);
 var $author$project$Model$AnswerReceived = function (a) {
 	return {$: 'AnswerReceived', a: a};
@@ -11769,6 +11818,12 @@ var $author$project$Question$ask = {
 			});
 	}
 };
+var $elm$core$Set$insert = F2(
+	function (key, _v0) {
+		var dict = _v0.a;
+		return $elm$core$Set$Set_elm_builtin(
+			A3($elm$core$Dict$insert, key, _Utils_Tuple0, dict));
+	});
 var $elm$core$Dict$member = F2(
 	function (key, dict) {
 		var _v0 = A2($elm$core$Dict$get, key, dict);
@@ -11850,6 +11905,12 @@ var $author$project$Ports$outgoing = function (out) {
 	return $author$project$Ports$toWorld(
 		$author$project$Ports$encodeOutgoing(out));
 };
+var $elm$core$Set$remove = F2(
+	function (key, _v0) {
+		var dict = _v0.a;
+		return $elm$core$Set$Set_elm_builtin(
+			A2($elm$core$Dict$remove, key, dict));
+	});
 var $elm$core$List$any = F2(
 	function (isOkay, list) {
 		any:
@@ -11929,6 +11990,8 @@ var $author$project$Main$update = F2(
 							_Utils_update(
 								model,
 								{
+									errorCodeExpanded: $elm$core$Set$empty,
+									errorMenuVisible: false,
 									missingTypesignatures: success ? model.missingTypesignatures : $elm$core$Dict$empty,
 									projects: statuses,
 									projectsVersion: model.projectsVersion + 1
@@ -11952,6 +12015,16 @@ var $author$project$Main$update = F2(
 					_Utils_update(
 						model,
 						{errorMenuVisible: _new}),
+					$elm$core$Platform$Cmd$none);
+			case 'ErrorCodeToggled':
+				var ref = _v0.a;
+				var bool = _v0.b;
+				return _Utils_Tuple2(
+					_Utils_update(
+						model,
+						{
+							errorCodeExpanded: bool ? A2($elm$core$Set$insert, ref, model.errorCodeExpanded) : A2($elm$core$Set$remove, ref, model.errorCodeExpanded)
+						}),
 					$elm$core$Platform$Cmd$none);
 			case 'EditorGoTo':
 				var path = _v0.a;
@@ -12146,10 +12219,6 @@ var $mdgriffith$elm_ui$Internal$Flag$alignBottom = $mdgriffith$elm_ui$Internal$F
 var $mdgriffith$elm_ui$Internal$Flag$alignRight = $mdgriffith$elm_ui$Internal$Flag$flag(40);
 var $mdgriffith$elm_ui$Internal$Flag$centerX = $mdgriffith$elm_ui$Internal$Flag$flag(42);
 var $mdgriffith$elm_ui$Internal$Flag$centerY = $mdgriffith$elm_ui$Internal$Flag$flag(43);
-var $elm$core$Set$Set_elm_builtin = function (a) {
-	return {$: 'Set_elm_builtin', a: a};
-};
-var $elm$core$Set$empty = $elm$core$Set$Set_elm_builtin($elm$core$Dict$empty);
 var $mdgriffith$elm_ui$Internal$Model$lengthClassName = function (x) {
 	switch (x.$) {
 		case 'Px':
@@ -12295,12 +12364,6 @@ var $mdgriffith$elm_ui$Internal$Model$getStyleName = function (style) {
 				$mdgriffith$elm_ui$Internal$Model$transformClass(x));
 	}
 };
-var $elm$core$Set$insert = F2(
-	function (key, _v0) {
-		var dict = _v0.a;
-		return $elm$core$Set$Set_elm_builtin(
-			A3($elm$core$Dict$insert, key, _Utils_Tuple0, dict));
-	});
 var $elm$core$Set$member = F2(
 	function (key, _v0) {
 		var dict = _v0.a;
@@ -17917,6 +17980,10 @@ var $mdgriffith$elm_ui$Element$paragraph = F2(
 			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
 	});
 var $elm$core$String$trim = _String_trim;
+var $author$project$Model$ErrorCodeToggled = F2(
+	function (a, b) {
+		return {$: 'ErrorCodeToggled', a: a, b: b};
+	});
 var $author$project$Main$colorAttribute = function (maybeColor) {
 	if (maybeColor.$ === 'Nothing') {
 		return A2($elm$html$Html$Attributes$style, '', '');
@@ -17934,42 +18001,121 @@ var $author$project$Main$colorAttribute = function (maybeColor) {
 		}
 	}
 };
-var $author$project$Main$viewText = function (txt) {
-	switch (txt.$) {
-		case 'Plain':
-			var str = txt.a;
-			return $mdgriffith$elm_ui$Element$text(str);
-		case 'Styled':
-			var styled = txt.a;
-			var str = txt.b;
-			return A2(
-				$mdgriffith$elm_ui$Element$el,
-				_List_fromArray(
-					[
-						$mdgriffith$elm_ui$Element$htmlAttribute(
-						$author$project$Main$colorAttribute(styled.color))
-					]),
-				$mdgriffith$elm_ui$Element$text(str));
-		case 'CodeSection':
-			var section = txt.a;
+var $author$project$Editor$regionToString = function (region) {
+	return $elm$core$String$fromInt(region.start.row) + (':' + $elm$core$String$fromInt(region.end.row));
+};
+var $author$project$Elm$fileKey = F3(
+	function (file, problem, index) {
+		return file.path + (':' + ($author$project$Editor$regionToString(problem.region) + $elm$core$String$fromInt(index)));
+	});
+var $author$project$Main$viewSection = F6(
+	function (file, problem, errorCodeExpanded, index, lineCount, section) {
+		if (lineCount < 7) {
 			return A2(
 				$mdgriffith$elm_ui$Element$paragraph,
 				_List_fromArray(
 					[
-						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-						$mdgriffith$elm_ui$Element$htmlAttribute(
-						A2($elm$html$Html$Attributes$style, 'overflow', 'auto')),
-						$mdgriffith$elm_ui$Element$htmlAttribute(
-						A2($elm$html$Html$Attributes$style, 'max-height', '150px')),
-						$mdgriffith$elm_ui$Element$htmlAttribute(
-						A2($elm$html$Html$Attributes$style, 'max-width', '600px'))
+						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
 					]),
-				A2($elm$core$List$map, $author$project$Main$viewText, section));
-		default:
-			var section = txt.a;
-			return $mdgriffith$elm_ui$Element$none;
-	}
-};
+				A2(
+					$elm$core$List$indexedMap,
+					A3($author$project$Main$viewText, file, problem, errorCodeExpanded),
+					section));
+		} else {
+			var currentKey = A3($author$project$Elm$fileKey, file, problem, index);
+			var expanded = A2($elm$core$Set$member, currentKey, errorCodeExpanded);
+			return A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
+					]),
+				_List_fromArray(
+					[
+						expanded ? A2(
+						$mdgriffith$elm_ui$Element$row,
+						_List_fromArray(
+							[
+								$mdgriffith$elm_ui$Element$pointer,
+								$mdgriffith$elm_ui$Element$Events$onClick(
+								A2($author$project$Model$ErrorCodeToggled, currentKey, !expanded))
+							]),
+						_List_fromArray(
+							[
+								A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$font.cyan]),
+								$mdgriffith$elm_ui$Element$text('▼')),
+								A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$font.dark.light]),
+								$mdgriffith$elm_ui$Element$text(
+									' hide code (' + ($elm$core$String$fromInt(lineCount) + ' lines)')))
+							])) : A2(
+						$mdgriffith$elm_ui$Element$row,
+						_List_fromArray(
+							[
+								$mdgriffith$elm_ui$Element$pointer,
+								$mdgriffith$elm_ui$Element$Events$onClick(
+								A2($author$project$Model$ErrorCodeToggled, currentKey, !expanded))
+							]),
+						_List_fromArray(
+							[
+								A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$font.cyan]),
+								$mdgriffith$elm_ui$Element$text('▶')),
+								A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$font.dark.light]),
+								$mdgriffith$elm_ui$Element$text(
+									' show code (' + ($elm$core$String$fromInt(lineCount) + ' lines)\n')))
+							])),
+						expanded ? A2(
+						$mdgriffith$elm_ui$Element$paragraph,
+						_List_fromArray(
+							[
+								$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+								$author$project$Ui$pad.lg
+							]),
+						A2(
+							$elm$core$List$indexedMap,
+							A3($author$project$Main$viewText, file, problem, errorCodeExpanded),
+							section)) : $mdgriffith$elm_ui$Element$none
+					]));
+		}
+	});
+var $author$project$Main$viewText = F5(
+	function (file, problem, errorCodeExpanded, index, txt) {
+		switch (txt.$) {
+			case 'Plain':
+				var str = txt.a;
+				return $mdgriffith$elm_ui$Element$text(str);
+			case 'Styled':
+				var styled = txt.a;
+				var str = txt.b;
+				return A2(
+					$mdgriffith$elm_ui$Element$el,
+					_List_fromArray(
+						[
+							$mdgriffith$elm_ui$Element$htmlAttribute(
+							$author$project$Main$colorAttribute(styled.color))
+						]),
+					$mdgriffith$elm_ui$Element$text(str));
+			case 'CodeSection':
+				var lineCount = txt.a;
+				var section = txt.b;
+				return A6($author$project$Main$viewSection, file, problem, errorCodeExpanded, index, lineCount, section);
+			default:
+				var lineCount = txt.a;
+				var section = txt.b;
+				return A6($author$project$Main$viewSection, file, problem, errorCodeExpanded, index, lineCount, section);
+		}
+	});
 var $mdgriffith$elm_ui$Internal$Model$BorderWidth = F5(
 	function (a, b, c, d, e) {
 		return {$: 'BorderWidth', a: a, b: b, c: c, d: d, e: e};
@@ -17986,8 +18132,8 @@ var $mdgriffith$elm_ui$Element$Border$width = function (v) {
 			v,
 			v));
 };
-var $author$project$Main$viewIssueDetails = F4(
-	function (expanded, cursorPresent, file, issue) {
+var $author$project$Main$viewIssueDetails = F5(
+	function (errorCodeExpanded, expanded, cursorPresent, file, issue) {
 		return A2(
 			$mdgriffith$elm_ui$Element$row,
 			_List_fromArray(
@@ -18006,9 +18152,11 @@ var $author$project$Main$viewIssueDetails = F4(
 					$mdgriffith$elm_ui$Element$column,
 					_List_fromArray(
 						[
-							$mdgriffith$elm_ui$Element$Events$onClick(
+							expanded ? $mdgriffith$elm_ui$Element$htmlAttribute(
+							$elm$html$Html$Attributes$class('')) : $mdgriffith$elm_ui$Element$Events$onClick(
 							A2($author$project$Model$EditorGoTo, file.path, issue.region)),
-							$mdgriffith$elm_ui$Element$pointer,
+							expanded ? $mdgriffith$elm_ui$Element$htmlAttribute(
+							$elm$html$Html$Attributes$class('')) : $mdgriffith$elm_ui$Element$pointer,
 							$author$project$Ui$space.lg,
 							$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
 						]),
@@ -18017,7 +18165,10 @@ var $author$project$Main$viewIssueDetails = F4(
 							A2(
 							$mdgriffith$elm_ui$Element$row,
 							_List_fromArray(
-								[$author$project$Ui$space.md]),
+								[
+									$author$project$Ui$space.md,
+									$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
+								]),
 							_List_fromArray(
 								[
 									A2(
@@ -18028,17 +18179,18 @@ var $author$project$Main$viewIssueDetails = F4(
 									_Utils_eq(issue.region.start.row, issue.region.end.row) ? A2(
 									$mdgriffith$elm_ui$Element$el,
 									_List_fromArray(
-										[$author$project$Ui$font.cyan]),
+										[$author$project$Ui$font.dark.light, $mdgriffith$elm_ui$Element$alignRight]),
 									$mdgriffith$elm_ui$Element$text(
-										$elm$core$String$fromInt(issue.region.start.row))) : A2(
+										'line ' + $elm$core$String$fromInt(issue.region.start.row))) : A2(
 									$mdgriffith$elm_ui$Element$row,
 									_List_fromArray(
-										[$author$project$Ui$font.cyan]),
+										[$author$project$Ui$font.dark.light, $mdgriffith$elm_ui$Element$alignRight]),
 									_List_fromArray(
 										[
+											$mdgriffith$elm_ui$Element$text('lines '),
 											$mdgriffith$elm_ui$Element$text(
 											$elm$core$String$fromInt(issue.region.start.row)),
-											$mdgriffith$elm_ui$Element$text(':'),
+											$mdgriffith$elm_ui$Element$text('–'),
 											$mdgriffith$elm_ui$Element$text(
 											$elm$core$String$fromInt(issue.region.end.row))
 										]))
@@ -18049,15 +18201,16 @@ var $author$project$Main$viewIssueDetails = F4(
 								[
 									$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
 									expanded ? $mdgriffith$elm_ui$Element$htmlAttribute(
-									A2($elm$html$Html$Attributes$style, 'transition', 'max-height 250ms')) : $mdgriffith$elm_ui$Element$htmlAttribute(
-									A2($elm$html$Html$Attributes$style, 'transition', 'max-height 100ms')),
-									$mdgriffith$elm_ui$Element$htmlAttribute(
-									A2($elm$html$Html$Attributes$style, 'overflow', 'auto')),
+									A2($elm$html$Html$Attributes$style, 'transition', 'max-height 280ms')) : $mdgriffith$elm_ui$Element$htmlAttribute(
+									A2($elm$html$Html$Attributes$style, 'transition', 'max-height 200ms')),
+									expanded ? $mdgriffith$elm_ui$Element$htmlAttribute(
+									A2($elm$html$Html$Attributes$style, 'overflow', 'visible')) : $mdgriffith$elm_ui$Element$htmlAttribute(
+									A2($elm$html$Html$Attributes$style, 'overflow', 'hidden')),
 									$mdgriffith$elm_ui$Element$htmlAttribute(
 									A2(
 										$elm$html$Html$Attributes$style,
 										'max-height',
-										expanded ? '700px' : '0px')),
+										expanded ? '30000px' : '0px')),
 									$mdgriffith$elm_ui$Element$htmlAttribute(
 									expanded ? $elm$html$Html$Attributes$class('') : A2($elm$html$Html$Attributes$style, 'margin', '0px'))
 								]),
@@ -18065,7 +18218,10 @@ var $author$project$Main$viewIssueDetails = F4(
 								$mdgriffith$elm_ui$Element$paragraph,
 								_List_fromArray(
 									[$author$project$Ui$pad.xy.zero.sm, $author$project$Ui$precise]),
-								A2($elm$core$List$map, $author$project$Main$viewText, issue.message)))
+								A2(
+									$elm$core$List$indexedMap,
+									A3($author$project$Main$viewText, file, issue, errorCodeExpanded),
+									issue.message)))
 						]))
 				]));
 	});
@@ -18081,8 +18237,9 @@ var $author$project$Main$viewFileErrorDetails = F2(
 			A2(
 				$elm$core$List$map,
 				function (issue) {
-					return A4(
+					return A5(
 						$author$project$Main$viewIssueDetails,
+						model.errorCodeExpanded,
 						A3($author$project$Main$isRegionVisible, model.visible, file.path, issue.region),
 						A3($author$project$Main$isCursorPresent, model.visible, file.path, issue.region),
 						file,
@@ -18090,6 +18247,59 @@ var $author$project$Main$viewFileErrorDetails = F2(
 				},
 				file.problem));
 	});
+var $author$project$Main$viewExpandedText = function (txt) {
+	switch (txt.$) {
+		case 'Plain':
+			var str = txt.a;
+			return $mdgriffith$elm_ui$Element$text(str);
+		case 'Styled':
+			var styled = txt.a;
+			var str = txt.b;
+			return A2(
+				$mdgriffith$elm_ui$Element$el,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$htmlAttribute(
+						$author$project$Main$colorAttribute(styled.color))
+					]),
+				$mdgriffith$elm_ui$Element$text(str));
+		case 'CodeSection':
+			var lineCount = txt.a;
+			var section = txt.b;
+			return A2(
+				$mdgriffith$elm_ui$Element$paragraph,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
+					]),
+				A2($elm$core$List$map, $author$project$Main$viewExpandedText, section));
+		default:
+			var lineCount = txt.a;
+			var section = txt.b;
+			return A2(
+				$mdgriffith$elm_ui$Element$paragraph,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
+					]),
+				A2($elm$core$List$map, $author$project$Main$viewExpandedText, section));
+	}
+};
+var $author$project$Main$viewGlobalError = function (global) {
+	return A2(
+		$mdgriffith$elm_ui$Element$column,
+		_List_fromArray(
+			[$author$project$Ui$space.md]),
+		_List_fromArray(
+			[
+				$author$project$Ui$header.three(global.problem.title),
+				A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[$author$project$Ui$space.md]),
+				A2($elm$core$List$map, $author$project$Main$viewExpandedText, global.problem.message))
+			]));
+};
 var $author$project$Main$viewMetric = F3(
 	function (name, viewer, vals) {
 		if (!vals.b) {
@@ -18205,21 +18415,6 @@ var $author$project$Main$viewOverview = function (model) {
 						signatures))
 				]));
 	};
-	var viewGlobalError = function (global) {
-		return A2(
-			$mdgriffith$elm_ui$Element$column,
-			_List_fromArray(
-				[$author$project$Ui$space.md]),
-			_List_fromArray(
-				[
-					$author$project$Ui$header.three(global.problem.title),
-					A2(
-					$mdgriffith$elm_ui$Element$column,
-					_List_fromArray(
-						[$author$project$Ui$space.md]),
-					A2($elm$core$List$map, $author$project$Main$viewText, global.problem.message))
-				]));
-	};
 	var missing = A2(
 		$elm$core$List$filterMap,
 		function (editor) {
@@ -18316,7 +18511,7 @@ var $author$project$Main$viewOverview = function (model) {
 							_List_fromArray(
 								[$author$project$Ui$anim.blink]),
 							$mdgriffith$elm_ui$Element$text('No errors 🎉'))))),
-				A3($author$project$Main$viewMetric, 'Global', viewGlobalError, found.globals),
+				A3($author$project$Main$viewMetric, 'Global', $author$project$Main$viewGlobalError, found.globals),
 				function () {
 				if (!visibleErrors.b) {
 					if (!notVisibleErrors.b) {
@@ -18398,4 +18593,4 @@ var $author$project$Main$main = $elm$browser$Browser$document(
 		view: $author$project$Main$view
 	});
 _Platform_export({'Main':{'init':$author$project$Main$main(
-	$elm$json$Json$Decode$succeed(_Utils_Tuple0))({"versions":{"elm":"0.19.1"},"types":{"message":"Model.Msg","aliases":{"Model.FilePath":{"args":[],"type":"String.String"},"Editor.Position":{"args":[],"type":"{ row : Basics.Int, col : Basics.Int }"},"Editor.Region":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Editor.Editor":{"args":[],"type":"{ fileName : String.String, unsavedChanges : Basics.Bool, ranges : List.List Editor.Range, selections : List.List Editor.Range }"},"Editor.Range":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Question.TypeSignature":{"args":[],"type":"{ name : String.String, region : Editor.Region, signature : String.String }"},"Json.Decode.Value":{"args":[],"type":"Json.Encode.Value"},"Elm.File":{"args":[],"type":"{ path : String.String, name : String.String, problem : List.List Elm.Problem }"},"Elm.GlobalErrorDetails":{"args":[],"type":"{ path : Maybe.Maybe String.String, problem : { title : String.String, message : List.List Elm.Text } }"},"Elm.Problem":{"args":[],"type":"{ title : String.String, message : List.List Elm.Text, region : Editor.Region }"},"Elm.StyledText":{"args":[],"type":"{ color : Maybe.Maybe Elm.Color, underline : Basics.Bool, bold : Basics.Bool }"}},"unions":{"Model.Msg":{"args":[],"tags":{"Incoming":["Result.Result Json.Decode.Error Ports.Incoming"],"View":["Model.Viewing"],"AnswerReceived":["Result.Result Http.Error Question.Answer"],"EditorGoTo":["Model.FilePath","Editor.Region"],"EditorFillTypeSignatures":["Model.FilePath"],"ErrorMenuUpdated":["Basics.Bool"]}},"Question.Answer":{"args":[],"tags":{"MissingTypeSignatures":["String.String","List.List Question.TypeSignature"]}},"Basics.Bool":{"args":[],"tags":{"True":[],"False":[]}},"Http.Error":{"args":[],"tags":{"BadUrl":["String.String"],"Timeout":[],"NetworkError":[],"BadStatus":["Basics.Int"],"BadBody":["String.String"]}},"Json.Decode.Error":{"args":[],"tags":{"Field":["String.String","Json.Decode.Error"],"Index":["Basics.Int","Json.Decode.Error"],"OneOf":["List.List Json.Decode.Error"],"Failure":["String.String","Json.Decode.Value"]}},"Ports.Incoming":{"args":[],"tags":{"VisibleEditorsUpdated":["{ active : Maybe.Maybe Editor.Editor, visible : List.List Editor.Editor }"],"ProjectsStatusUpdated":["List.List Elm.Status"]}},"Basics.Int":{"args":[],"tags":{"Int":[]}},"Result.Result":{"args":["error","value"],"tags":{"Ok":["value"],"Err":["error"]}},"String.String":{"args":[],"tags":{"String":[]}},"Model.Viewing":{"args":[],"tags":{"Overview":[]}},"List.List":{"args":["a"],"tags":{}},"Maybe.Maybe":{"args":["a"],"tags":{"Just":["a"],"Nothing":[]}},"Elm.Status":{"args":[],"tags":{"NoData":[],"Success":[],"GlobalError":["Elm.GlobalErrorDetails"],"CompilerError":["{ errors : List.List Elm.File }"]}},"Json.Encode.Value":{"args":[],"tags":{"Value":[]}},"Elm.Text":{"args":[],"tags":{"Plain":["String.String"],"Styled":["Elm.StyledText","String.String"],"CodeQuote":["List.List Elm.Text"],"CodeSection":["List.List Elm.Text"]}},"Elm.Color":{"args":[],"tags":{"Red":[],"Yellow":[],"Green":[],"Cyan":[]}}}}})}});}(this));
+	$elm$json$Json$Decode$succeed(_Utils_Tuple0))({"versions":{"elm":"0.19.1"},"types":{"message":"Model.Msg","aliases":{"Elm.CodeReferenceKey":{"args":[],"type":"String.String"},"Model.FilePath":{"args":[],"type":"String.String"},"Editor.Position":{"args":[],"type":"{ row : Basics.Int, col : Basics.Int }"},"Editor.Region":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Editor.Editor":{"args":[],"type":"{ fileName : String.String, unsavedChanges : Basics.Bool, ranges : List.List Editor.Range, selections : List.List Editor.Range }"},"Editor.Range":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Question.TypeSignature":{"args":[],"type":"{ name : String.String, region : Editor.Region, signature : String.String }"},"Json.Decode.Value":{"args":[],"type":"Json.Encode.Value"},"Elm.File":{"args":[],"type":"{ path : String.String, name : String.String, problem : List.List Elm.Problem }"},"Elm.GlobalErrorDetails":{"args":[],"type":"{ path : Maybe.Maybe String.String, problem : { title : String.String, message : List.List Elm.Text } }"},"Elm.Problem":{"args":[],"type":"{ title : String.String, message : List.List Elm.Text, region : Editor.Region }"},"Elm.StyledText":{"args":[],"type":"{ color : Maybe.Maybe Elm.Color, underline : Basics.Bool, bold : Basics.Bool }"}},"unions":{"Model.Msg":{"args":[],"tags":{"Incoming":["Result.Result Json.Decode.Error Ports.Incoming"],"View":["Model.Viewing"],"AnswerReceived":["Result.Result Http.Error Question.Answer"],"EditorGoTo":["Model.FilePath","Editor.Region"],"EditorFillTypeSignatures":["Model.FilePath"],"ErrorMenuUpdated":["Basics.Bool"],"ErrorCodeToggled":["Elm.CodeReferenceKey","Basics.Bool"]}},"Question.Answer":{"args":[],"tags":{"MissingTypeSignatures":["String.String","List.List Question.TypeSignature"]}},"Basics.Bool":{"args":[],"tags":{"True":[],"False":[]}},"Http.Error":{"args":[],"tags":{"BadUrl":["String.String"],"Timeout":[],"NetworkError":[],"BadStatus":["Basics.Int"],"BadBody":["String.String"]}},"Json.Decode.Error":{"args":[],"tags":{"Field":["String.String","Json.Decode.Error"],"Index":["Basics.Int","Json.Decode.Error"],"OneOf":["List.List Json.Decode.Error"],"Failure":["String.String","Json.Decode.Value"]}},"Ports.Incoming":{"args":[],"tags":{"VisibleEditorsUpdated":["{ active : Maybe.Maybe Editor.Editor, visible : List.List Editor.Editor }"],"ProjectsStatusUpdated":["List.List Elm.Status"]}},"Basics.Int":{"args":[],"tags":{"Int":[]}},"Result.Result":{"args":["error","value"],"tags":{"Ok":["value"],"Err":["error"]}},"String.String":{"args":[],"tags":{"String":[]}},"Model.Viewing":{"args":[],"tags":{"Overview":[]}},"List.List":{"args":["a"],"tags":{}},"Maybe.Maybe":{"args":["a"],"tags":{"Just":["a"],"Nothing":[]}},"Elm.Status":{"args":[],"tags":{"NoData":[],"Success":[],"GlobalError":["Elm.GlobalErrorDetails"],"CompilerError":["{ errors : List.List Elm.File }"]}},"Json.Encode.Value":{"args":[],"tags":{"Value":[]}},"Elm.Text":{"args":[],"tags":{"Plain":["String.String"],"Styled":["Elm.StyledText","String.String"],"CodeQuote":["Basics.Int","List.List Elm.Text"],"CodeSection":["Basics.Int","List.List Elm.Text"]}},"Elm.Color":{"args":[],"tags":{"Red":[],"Yellow":[],"Green":[],"Cyan":[]}}}}})}});}(this));

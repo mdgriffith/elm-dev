@@ -12,6 +12,7 @@ import Json.Decode as Decode
 import Json.Encode
 import Ports
 import Question
+import Set exposing (Set)
 
 
 type alias Model =
@@ -27,6 +28,7 @@ type alias Model =
     , missingTypesignatures :
         Dict FilePath (List Question.TypeSignature)
     , errorMenuVisible : Bool
+    , errorCodeExpanded : Set Elm.CodeReferenceKey
     }
 
 
@@ -47,3 +49,4 @@ type Msg
     | EditorFillTypeSignatures FilePath
       --
     | ErrorMenuUpdated Bool
+    | ErrorCodeToggled Elm.CodeReferenceKey Bool
