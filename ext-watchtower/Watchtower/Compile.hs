@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Compile (compileToJson, compileToBuilder, warnings) where
+module Watchtower.Compile (compileToJson, compileToBuilder, warnings, parse) where
 
 -- @TODO cleanup imports
 
@@ -43,6 +43,8 @@ import qualified Llamadera
 import qualified Parse.Module as Parse
 import qualified Canonicalize.Module as Canonicalize
 import qualified Reporting.Result
+import qualified Reporting.Error.Syntax
+
 -- Reporting
 import qualified Reporting
 import qualified Reporting.Exit as Exit
@@ -141,6 +143,14 @@ compileToDevNull root paths =
            
             return ()
 
+
+
+
+parse :: FilePath -> FilePath -> IO (Either Reporting.Error.Syntax.Error Src.Module)
+parse root path =
+  Dir.withCurrentDirectory root $ do
+    source <- File.readUtf8 path
+    return $ Parse.fromByteString Parse.Application source
 
 
 warnings :: FilePath -> FilePath -> IO (Either () (Src.Module, [ Warning.Warning ]))

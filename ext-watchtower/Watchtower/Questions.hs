@@ -44,6 +44,7 @@ data Question
   | Discover FilePath
   | Status
   | Warnings FilePath
+  | TimingParse FilePath
 
 serve :: Watchtower.Live.State -> Snap ()
 serve state =
@@ -77,6 +78,15 @@ actionHandler state =
               writeBS "Needs a file parameter"
             Just file -> do
               questionHandler state (Warnings (Data.ByteString.Char8.unpack file))
+      
+      Just "parse" ->
+        do
+          maybeFile <- getQueryParam "file"
+          case maybeFile of
+            Nothing ->
+              writeBS "Needs a file parameter"
+            Just file -> do
+              questionHandler state (TimingParse (Data.ByteString.Char8.unpack file))
       
       Just "discover" ->
         do
@@ -194,6 +204,23 @@ ask state question =
   case question of
     Status ->
       allProjectStatuses state
+
+
+    TimingParse path -> 
+      do 
+        Ext.Common.debug $ "Parsing: " ++ show path
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+        Ext.Sentry.track "parsing" 
+          (do 
+              result <- Watchtower.Compile.parse  root path
+              case result of
+                Right _ ->
+                    Ext.Common.debug $ "parsed succssfully"
+
+                Left _ ->
+                    Ext.Common.debug $ "parsing failed"
+          )
+        pure (Json.Encode.encodeUgly (Json.Encode.chars "The parser has been run, my liege"))
 
     Warnings path ->
       do
