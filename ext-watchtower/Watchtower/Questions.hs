@@ -211,7 +211,6 @@ ask state question =
               Left () ->
                   Json.Encode.encodeUgly (Json.Encode.chars "Parser error")
 
-        Ext.Common.debug $ "Warnings: " ++ show jsonResult
         pure jsonResult
 
     Discover dir ->
