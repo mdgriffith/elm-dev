@@ -199,7 +199,6 @@ recompile (Watchtower.Live.State mClients mProjects) allChangedFiles = do
     projects <- STM.readTVarIO mProjects
     trackedForkIO $
       track "recompile" $ do
-        
         Monad.foldM
           (recompileChangedFile mClients)
           changedElmFiles
@@ -255,14 +254,12 @@ recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchto
                     Left errJson ->
                       do 
                         Ext.Common.log "Changed file failed" "!"
-                        -- send the errors to any client that's listening
-                        broadcastToMany
-                          mClients
-                          ( \client ->
-                              let clientData = Watchtower.Websocket.clientData client
-                                in Set.member (Watchtower.Project._root proj) clientData
-                          )
+                        broadcastToSubscribedProject mClients proj
                           (ElmStatus [ ProjectStatus proj False errJson ])
+
+                        -- still recompile the entire project
+                        recompileProjectIfSubFile mClients changedFiles projCache
+                        pure ()
 
                   pure []
 
@@ -321,23 +318,14 @@ recompileProjectIfSubFile mClients remainingFiles (ProjectCache proj@(Watchtower
               Right statusJson ->
                 do
                   Ext.Common.log "Affected project success" "--"
-                  broadcastToMany
-                    mClients
-                    ( \client ->
-                        let clientData = Watchtower.Websocket.clientData client
-                          in Set.member (Watchtower.Project._root proj) clientData
-                    )
+                  broadcastToSubscribedProject mClients proj
                     (ElmStatus [ ProjectStatus proj True statusJson ])
+
               Left errJson ->
                 -- send the errors to any client that's listening
                 do
                   Ext.Common.log "Affected project failure" "--"
-                  broadcastToMany
-                    mClients
-                    ( \client ->
-                        let clientData = Watchtower.Websocket.clientData client
-                          in Set.member (Watchtower.Project._root proj) clientData
-                    )
+                  broadcastToSubscribedProject mClients proj
                     (ElmStatus [ ProjectStatus proj False errJson ])
 
 
@@ -539,6 +527,7 @@ data Outgoing
   | FwdJumpTo Watchtower.Details.Location
   | FwdInsertMissingTypeSignatures FilePath
   | ElmStatus [ ProjectStatus ]
+  
 
 
 data ProjectStatus = ProjectStatus 
@@ -546,6 +535,7 @@ data ProjectStatus = ProjectStatus
   , _success :: Bool
   , _json :: Json.Encode.Value
   }
+
 
 
 encodeOutgoing :: Outgoing -> Data.ByteString.Builder.Builder
@@ -587,6 +577,7 @@ encodeOutgoing out =
                 )
                 statuses
           ]
+
 
 encodeStatus (Watchtower.Project.Project root entrypoints, js) =
   Json.Encode.object
@@ -630,6 +621,17 @@ broadcastToMany allClients shouldBroadcast outgoing =
       ( builderToString $
           encodeOutgoing outgoing
       )
+
+
+broadcastToSubscribedProject :: STM.TVar [Client] -> Watchtower.Project.Project -> Outgoing -> IO ()
+broadcastToSubscribedProject mClients proj msg =
+ broadcastToMany
+      mClients
+      ( \client ->
+          let clientData = Watchtower.Websocket.clientData client
+            in Set.member (Watchtower.Project._root proj) clientData
+      )
+      msg
 
 
 outgoingToLog :: Outgoing -> String
