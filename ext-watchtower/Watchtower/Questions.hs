@@ -19,13 +19,19 @@ import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Reporting.Annotation
 import qualified System.FilePath as Path
+import qualified Reporting.Doc
+import qualified Reporting.Render.Type
+import qualified Reporting.Render.Type.Localizer
+
 import Snap.Core hiding (path)
 import qualified Snap.Util.CORS
 import qualified Watchtower.Annotate
 import qualified Watchtower.Details
 import qualified Watchtower.Find
 import qualified Watchtower.Live
+import qualified Watchtower.Compile
 import qualified Watchtower.Project
+import qualified Reporting.Warning as Warning
 
 
 -- One off questions and answers you might have/want.
@@ -37,6 +43,7 @@ data Question
   | FindAllInstancesPlease Watchtower.Details.PointLocation
   | Discover FilePath
   | Status
+  | Warnings FilePath
 
 serve :: Watchtower.Live.State -> Snap ()
 serve state =
@@ -62,6 +69,15 @@ actionHandler state =
       Just "status" ->
         questionHandler state Status
 
+      Just "warnings" ->
+        do
+          maybeFile <- getQueryParam "file"
+          case maybeFile of
+            Nothing ->
+              writeBS "Needs a file parameter"
+            Just file -> do
+              questionHandler state (Warnings (Data.ByteString.Char8.unpack file))
+      
       Just "discover" ->
         do
           maybeFile <- getQueryParam "dir"
@@ -179,16 +195,37 @@ ask state question =
     Status ->
       allProjectStatuses state
 
+    Warnings path ->
+      do
+        Ext.Common.debug $ "Warnings: " ++ show path
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+        eitherErrorOrWarnings <- Watchtower.Compile.warnings root path
+
+        let jsonResult = case eitherErrorOrWarnings of
+              Right (mod, warnings) ->
+                  Json.Encode.encodeUgly 
+                    (Json.Encode.list 
+                        (encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                        warnings
+                    )
+              Left () ->
+                  Json.Encode.encodeUgly (Json.Encode.chars "Parser error")
+
+        Ext.Common.debug $ "Warnings: " ++ show jsonResult
+        pure jsonResult
+
     Discover dir ->
       do
         Ext.Common.debug $ "Discover: " ++ show dir
         Watchtower.Project.discover dir
           & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Watchtower.Project.encodeProjectJson projects))
+
     CallgraphPlease path name ->
       do
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Watchtower.Annotate.callgraph root path name
           & fmap Json.Encode.encodeUgly
+
     ListMissingSignaturesPlease path ->
       do
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
@@ -205,6 +242,7 @@ ask state question =
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Watchtower.Annotate.annotation root path name
           & fmap Json.Encode.encodeUgly
+
     FindDefinitionPlease location ->
       let path =
             case location of
@@ -214,6 +252,7 @@ ask state question =
             root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
             Watchtower.Find.definitionAndPrint root location
               & fmap Json.Encode.encodeUgly
+
     FindAllInstancesPlease location ->
       pure (Data.ByteString.Builder.byteString ("NOTDONE"))
 
@@ -256,3 +295,46 @@ allProjectStatuses (Watchtower.Live.State clients mProjects) =
               projectStatuses
           )
         )
+
+
+encodeWarning localizer warning =
+  case warning of
+    Warning.UnusedImport region name ->
+      Json.Encode.object 
+          [ "warning" ==> (Json.Encode.chars "UnusedImport")
+          , "region" ==> 
+              (Watchtower.Details.encodeRegion region)
+          , "name" ==>
+              (Json.Encode.chars (Name.toChars name))
+          ]
+
+    Warning.UnusedVariable region defOrPattern name ->
+      Json.Encode.object 
+          [ "warning" ==> (Json.Encode.chars "UnusedVariable")
+          , "region" ==> 
+              (Watchtower.Details.encodeRegion region)
+          , "context" ==> 
+              (case defOrPattern of
+                  Warning.Def -> Json.Encode.chars "def"
+
+                  Warning.Pattern -> Json.Encode.chars "pattern"
+
+              )
+          , "name" ==>
+              (Json.Encode.chars (Name.toChars name))
+          ]
+
+    Warning.MissingTypeAnnotation region name type_ ->
+      Json.Encode.object 
+          [ "warning" ==> (Json.Encode.chars "MissingAnnotation")
+          , "region" ==> 
+              (Watchtower.Details.encodeRegion region)
+          , "name" ==>
+              (Json.Encode.chars (Name.toChars name))
+          , "signature" ==>
+              (Json.Encode.chars
+                (Reporting.Doc.toString
+                  (Reporting.Render.Type.canToDoc localizer Reporting.Render.Type.None type_)
+                )
+              )
+          ]
