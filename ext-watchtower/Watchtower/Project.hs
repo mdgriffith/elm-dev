@@ -2,7 +2,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 
-module Watchtower.Project (getRoot, contains, discover, decodeProject, Project (..), encodeProjectJson) where
+module Watchtower.Project (getRoot, contains, discover, decodeProject, Project (..), encodeProjectJson, equal) where
 
 import qualified Control.Monad as Monad
 import qualified Data.List as List
@@ -50,6 +50,10 @@ data Project = Project
   }
   deriving (Show)
 
+
+equal :: Project -> Project -> Bool
+equal (Project root1 _) (Project root2 _) =
+    root1 == root2
 
 getRoot :: Project -> FilePath
 getRoot (Project root _) =

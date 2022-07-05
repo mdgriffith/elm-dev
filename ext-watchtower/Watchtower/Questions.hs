@@ -4,6 +4,7 @@ module Watchtower.Questions where
 
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad.Trans (MonadIO (liftIO))
+import qualified Control.Concurrent.STM as STM
 import qualified Control.Monad as Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder
@@ -169,43 +170,14 @@ getPosition =
 
     pure (Maybe.fromMaybe Nothing position)
 
+
+
+
 ask :: Watchtower.Live.State -> Question -> IO Data.ByteString.Builder.Builder
 ask state question =
   case question of
     Status ->
-      case state of
-        Watchtower.Live.State clients projects ->
-          do
-            projectStatuses <- 
-                Monad.foldM 
-                  (\gathered (Watchtower.Live.ProjectCache proj sentry) ->
-                    do 
-                      result <- Ext.Sentry.getCompileResult sentry
-                      pure 
-                        (Json.Encode.object 
-                          [ "project" ==> Watchtower.Project.encodeProjectJson proj
-                          , "status" ==>
-                              (case result of
-                                  Right json ->
-                                    json
-                                  Left json ->
-                                    json
-                              )
-                          ] : gathered
-                        )
-                  )
-                  []
-                  projects
-
-
-
-            pure 
-              (Json.Encode.encode 
-                (Json.Encode.list 
-                    (\a -> a)
-                    projectStatuses
-                )
-              )
+      allProjectStatuses state
 
     Discover dir ->
       do
@@ -214,18 +186,23 @@ ask state question =
           & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Watchtower.Project.encodeProjectJson projects))
     CallgraphPlease path name ->
       do
-        let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Watchtower.Annotate.callgraph root path name
           & fmap Json.Encode.encodeUgly
     ListMissingSignaturesPlease path ->
       do
-        let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Ext.Common.log "✍️  list signatures" (show (Path.takeFileName path))
-        Watchtower.Annotate.listMissingAnnotations root path
-          & fmap Json.Encode.encodeUgly
+        compiling <- Watchtower.Live.projectIsCompiling path state
+        if compiling then
+            Watchtower.Annotate.listMissingAnnotations root path
+              & fmap Json.Encode.encodeUgly
+        else
+            allProjectStatuses state
+
     SignaturePlease path name ->
       do
-        let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Watchtower.Annotate.annotation root path name
           & fmap Json.Encode.encodeUgly
     FindDefinitionPlease location ->
@@ -234,8 +211,48 @@ ask state question =
               Watchtower.Details.PointLocation f _ ->
                 f
        in do
-            let root = Maybe.fromMaybe "." (Watchtower.Live.getRoot path state)
+            root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
             Watchtower.Find.definitionAndPrint root location
               & fmap Json.Encode.encodeUgly
     FindAllInstancesPlease location ->
       pure (Data.ByteString.Builder.byteString ("NOTDONE"))
+
+
+allProjectStatuses (Watchtower.Live.State clients mProjects) =
+    do
+      projects <- STM.readTVarIO mProjects
+      projectStatuses <- 
+          Monad.foldM 
+            (\gathered (Watchtower.Live.ProjectCache proj sentry) ->
+              do 
+                result <- Ext.Sentry.getCompileResult sentry
+                pure 
+                  (Json.Encode.object 
+                    [ "project" ==> Watchtower.Project.encodeProjectJson proj
+                    , "success" ==> 
+                        (case result of
+                            Right _ ->
+                              Json.Encode.bool True
+                            Left _ ->
+                              Json.Encode.bool False
+                        )
+                    , "status" ==>
+                        (case result of
+                            Right json ->
+                              json
+                            Left json ->
+                              json
+                        )
+                    ] : gathered
+                  )
+            )
+            []
+            projects
+
+      pure 
+        (Json.Encode.encode 
+          (Json.Encode.list 
+              (\a -> a)
+              projectStatuses
+          )
+        )

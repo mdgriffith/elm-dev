@@ -9,11 +9,11 @@ import { ElmProjectPane } from "./panel/panel";
 var WebSocketClient = require("websocket").client;
 
 type Msg =
-  | { msg: "Watch"; details: String[] }
+  | { msg: "Discover"; details: String }
   | { msg: "Changed"; details: { path: String } };
 
-const watch = (roots: String[]): Msg => {
-  return { msg: "Watch", details: roots };
+const discover = (roots: String): Msg => {
+  return { msg: "Discover", details: roots };
 };
 
 const changed = (filepath: String): Msg => {
@@ -77,30 +77,15 @@ export class Watchtower {
 
       if (vscode.workspace.workspaceFolders.length > 0) {
         const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
-        Question.ask(Question.questions.discover(root), (resp) => {
-          self.projects = resp;
-
-          // Tell watchtower which elm projects to provide updates for
-          let projectRoots = [];
-          for (const proj of self.projects) {
-            projectRoots.push(proj.root);
-          }
-          self.send(watch(projectRoots));
-
-          vscode.window.visibleTextEditors.forEach((editor) => {
-            // ask for missing type signatures
-            // for all visible text editors
-            self.refreshCodeLenses(editor.document);
-          });
-        });
+        self.send(discover(root));
       }
     });
 
     self.websocket.connect(Question.urls.websocket);
 
     vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
-      self.refreshCodeLenses(document);
       self.send(changed(document.uri.path));
+      self.refreshCodeLenses(document);
     });
 
     vscode.workspace.onDidChangeTextDocument(
@@ -131,7 +116,6 @@ export class Watchtower {
   private receive(msgString: string) {
     const self = this;
     const msg = JSONSafe.parse(msgString);
-
     if (msg == null) {
       return;
     }

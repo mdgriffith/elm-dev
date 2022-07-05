@@ -5,12 +5,13 @@ module Watchtower.Live where
 import AST.Canonical (Port (Outgoing))
 import AST.Source (Type_ (TVar))
 import Control.Applicative ((<$>), (<*>), (<|>))
-import Control.Concurrent.STM
+import qualified Control.Concurrent.STM as STM
 import Control.Monad as Monad (foldM, guard)
 import Control.Monad.Trans (liftIO)
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
 import qualified Data.List as List
+import qualified Data.Either as Either
 import qualified Data.Maybe as Maybe
 import qualified Data.NonEmptyList as NonEmpty
 import qualified Data.Set as Set
@@ -37,9 +38,10 @@ import qualified Watchtower.StaticAssets
 import qualified Watchtower.Websocket
 
 data State = State
-  { clients :: TVar [Client],
+  { clients :: STM.TVar [Client],
     projects ::
-      [ProjectCache]
+      STM.TVar
+        [ProjectCache]
   }
 
 data ProjectCache = ProjectCache
@@ -53,11 +55,25 @@ type Client = Watchtower.Websocket.Client (Set.Set ProjectRoot)
 
 type ProjectRoot = FilePath
 
+
+cacheRoot :: ProjectCache -> FilePath
+cacheRoot (ProjectCache proj _) =
+    Watchtower.Project.getRoot proj
+
+matchingCache ::  ProjectCache -> ProjectCache -> Bool
+matchingCache (ProjectCache one _) (ProjectCache two _) =
+  Watchtower.Project.equal one two
+
 init :: FilePath -> IO State
 init root =
-  State
-    <$> Watchtower.Websocket.clientsInit
-    <*> discoverProjects root
+  do 
+    projectList <- discoverProjects root
+    State
+      <$> Watchtower.Websocket.clientsInit
+      <*> STM.newTVarIO projectList
+
+cacheToString (ProjectCache project _) =
+  Watchtower.Project._root project
 
 getProjectShorthand :: FilePath -> Watchtower.Project.Project -> FilePath
 getProjectShorthand root proj =
@@ -81,9 +97,42 @@ initializeProject accum project =
     cache <- Ext.Sentry.init
     pure (ProjectCache project cache : accum)
 
-getRoot :: FilePath -> State -> Maybe FilePath
-getRoot path (State mClients projects) =
-  getRootHelp path projects Nothing
+
+projectIsCompiling :: FilePath -> State -> IO Bool
+projectIsCompiling target (State mClients mProjects) =
+  do 
+      projects <- STM.readTVarIO mProjects
+      maybeBool <- 
+        Monad.foldM 
+            (\found (Watchtower.Live.ProjectCache proj sentry) ->
+              case found of
+                Nothing ->
+                    if Watchtower.Project.contains target proj then
+                      do 
+                        result <- Ext.Sentry.getCompileResult sentry
+                        pure 
+                          (case result of
+                            Right _ ->
+                              Just True
+                            Left _ ->
+                              Just False
+                          )
+                    else 
+                      pure Nothing
+
+                _ ->
+                    pure found
+              
+            )
+            Nothing
+            projects
+      pure (Maybe.fromMaybe False maybeBool)
+
+getRoot :: FilePath -> State -> IO (Maybe FilePath)
+getRoot path (State mClients mProjects) =
+  do
+    projects <- STM.readTVarIO mProjects
+    pure (getRootHelp path projects Nothing)
 
 getRootHelp path projects found =
   case projects of
@@ -101,12 +150,12 @@ getRootHelp path projects found =
 
 
 recompileAllProjects :: Watchtower.Live.State -> IO ()
-recompileAllProjects (Watchtower.Live.State mClients projects) = do
+recompileAllProjects (Watchtower.Live.State mClients mProjects) = do
   
   Ext.Common.log "🛫" "Recompile everything"
   trackedForkIO $
     track "recompile" $ do
-      
+      projects <- STM.readTVarIO mProjects
       Monad.foldM
         (\files proj -> recompileProject mClients proj)
         []
@@ -116,12 +165,38 @@ recompileAllProjects (Watchtower.Live.State mClients projects) = do
   
 
 
+getAllStatuses :: Watchtower.Live.State -> IO [ProjectStatus]
+getAllStatuses state@(State mClients mProjects) =
+  do 
+    projects <- STM.readTVarIO mProjects
+    
+    Monad.foldM
+      (\statuses proj -> 
+        do
+          status <- getStatus proj
+          pure (status : statuses)
+      )
+      []
+      projects
+    
+
+getStatus :: ProjectCache -> IO ProjectStatus
+getStatus (ProjectCache proj cache) =
+    do 
+        compileResult <- Ext.Sentry.getCompileResult cache
+        let successful = Either.isRight compileResult
+        let json = (case compileResult of
+                      Left j -> j
+                      Right j -> j
+                    )
+        pure (ProjectStatus proj successful json)
 
 recompile :: Watchtower.Live.State -> [String] -> IO ()
-recompile (Watchtower.Live.State mClients projects) allChangedFiles = do
+recompile (Watchtower.Live.State mClients mProjects) allChangedFiles = do
   let changedElmFiles = List.filter (\filepath -> ".elm" `List.isSuffixOf` filepath ) allChangedFiles
   if (changedElmFiles /= []) then do
     debug $ "🛫  recompile starting: " ++ show changedElmFiles
+    projects <- STM.readTVarIO mProjects
     trackedForkIO $
       track "recompile" $ do
         
@@ -136,7 +211,7 @@ recompile (Watchtower.Live.State mClients projects) allChangedFiles = do
 
 
 
-recompileProject :: TVar [Client] -> ProjectCache -> IO [FilePath]
+recompileProject :: STM.TVar [Client] -> ProjectCache -> IO [FilePath]
 recompileProject mClients proj@(ProjectCache (Watchtower.Project.Project projectRoot entrypoints) cache) =
   case entrypoints of
     [] ->
@@ -148,7 +223,7 @@ recompileProject mClients proj@(ProjectCache (Watchtower.Project.Project project
         recompileChangedFile mClients entrypoints proj
 
 
-recompileChangedFile :: TVar [Client] -> [String] -> ProjectCache -> IO [FilePath]
+recompileChangedFile :: STM.TVar [Client] -> [String] -> ProjectCache -> IO [FilePath]
 recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchtower.Project.Project projectRoot entrypoints) cache) =
     do
       case changedFiles of
@@ -172,19 +247,22 @@ recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchto
                   case eitherStatusJson of
                     Right statusJson ->
                       do
+                        Ext.Common.log "Changed file successful, recompiling project" "!"
                         -- If this file compiled successfully, compile the entire project
                         recompileProjectIfSubFile mClients changedFiles projCache
                         pure ()
 
                     Left errJson ->
-                      -- send the errors to any client that's listening
-                      broadcastToMany
-                        mClients
-                        ( \client ->
-                            let clientData = Watchtower.Websocket.clientData client
-                              in Set.member (Watchtower.Project._root proj) clientData
-                        )
-                        (ElmStatus [ ProjectStatus proj False errJson ])
+                      do 
+                        Ext.Common.log "Changed file failed" "!"
+                        -- send the errors to any client that's listening
+                        broadcastToMany
+                          mClients
+                          ( \client ->
+                              let clientData = Watchtower.Websocket.clientData client
+                                in Set.member (Watchtower.Project._root proj) clientData
+                          )
+                          (ElmStatus [ ProjectStatus proj False errJson ])
 
                   pure []
 
@@ -200,7 +278,7 @@ This function will recompile a project using the projects entrypoint if the chan
 This does mean that if the detected entrypoint doesn't ultimately import the changed file, then you won't get errors
 
 -}
-recompileProjectIfSubFile :: TVar [Client] -> [String] -> ProjectCache -> IO [FilePath]
+recompileProjectIfSubFile :: STM.TVar [Client] -> [String] -> ProjectCache -> IO [FilePath]
 recompileProjectIfSubFile mClients remainingFiles (ProjectCache proj@(Watchtower.Project.Project projectRoot entrypoints) cache) =
     do
       let remaining =
@@ -241,22 +319,26 @@ recompileProjectIfSubFile mClients remainingFiles (ProjectCache proj@(Watchtower
 
             case eitherStatusJson of
               Right statusJson ->
-                broadcastToMany
-                  mClients
-                  ( \client ->
-                      let clientData = Watchtower.Websocket.clientData client
-                        in Set.member (Watchtower.Project._root proj) clientData
-                  )
-                  (ElmStatus [ ProjectStatus proj True statusJson ])
+                do
+                  Ext.Common.log "Affected project success" "--"
+                  broadcastToMany
+                    mClients
+                    ( \client ->
+                        let clientData = Watchtower.Websocket.clientData client
+                          in Set.member (Watchtower.Project._root proj) clientData
+                    )
+                    (ElmStatus [ ProjectStatus proj True statusJson ])
               Left errJson ->
                 -- send the errors to any client that's listening
-                broadcastToMany
-                  mClients
-                  ( \client ->
-                      let clientData = Watchtower.Websocket.clientData client
-                        in Set.member (Watchtower.Project._root proj) clientData
-                  )
-                  (ElmStatus [ ProjectStatus proj False errJson ])
+                do
+                  Ext.Common.log "Affected project failure" "--"
+                  broadcastToMany
+                    mClients
+                    ( \client ->
+                        let clientData = Watchtower.Websocket.clientData client
+                          in Set.member (Watchtower.Project._root proj) clientData
+                    )
+                    (ElmStatus [ ProjectStatus proj False errJson ])
 
 
             pure remaining
@@ -307,56 +389,69 @@ receive state clientId text = do
     Left err -> do
       debug $ (T.unpack "Error decoding!" <> T.unpack text)
       pure ()
+
     Right action -> do
       receiveAction state clientId action
 
+
 receiveAction :: State -> ClientId -> Incoming -> IO ()
-receiveAction state@(State mClients projects) clientId incoming =
+receiveAction state@(State mClients mProjects) clientId incoming =
   case incoming of
     Changed fileChanged ->
       do 
         Ext.Common.log "👀 file changed" fileChanged
         recompile state [fileChanged]
 
-    Watch roots ->
-      do
-        let newRootSet = Set.fromList roots
-        
-        Ext.Common.log "👀 watching" (List.concat roots)
-        statuses <-
-          Monad.foldM
-            ( \gathered (ProjectCache proj cache) ->
-                if Set.member (Watchtower.Project._root proj) newRootSet
-                  then do
-                    jsonStatus <- Ext.Sentry.getCompileResult cache
-                    pure $
-                      addProjectStatusIfErr proj jsonStatus gathered
-                  else pure gathered
-            )
-            []
-            projects
-        
-        atomically $
-          do
-            modifyTVar
-              mClients
-              ( fmap
-                  ( Watchtower.Websocket.updateClientData
-                      clientId
-                      ( Set.union newRootSet
-                      )
+    Discover root ->
+      do 
+        Ext.Common.log "👀 discover requested" root
+
+        discovered <- discoverProjects root
+
+
+        STM.atomically $
+            do 
+              STM.modifyTVar mProjects
+                  (\projects ->
+                      List.foldl 
+                        (\existing new ->
+                          if List.any (matchingCache new) existing then
+                              existing
+                          else
+                              new : existing
+
+                        )
+                        projects
+                        discovered
                   )
-              )
+
+              STM.modifyTVar
+                mClients
+                ( fmap
+                    ( Watchtower.Websocket.updateClientData
+                        clientId
+                        ( Set.union (Set.fromList (List.map cacheRoot discovered))
+                        )
+                    )
+                )
+
+        statuses <- getAllStatuses state
+
         broadcastTo mClients clientId (ElmStatus statuses)
+        
+           
     Visible visible -> do
       debug $ "forwarding visibility"
       broadcastAll mClients (FwdVisible visible)
+
     JumpTo location -> do
       debug $ "forwarding jump"
       broadcastAll mClients (FwdJumpTo location)
+
     InsertMissingTypeSignatures path -> do
       debug $ "forwarding insert-missing"
       broadcastAll mClients (FwdInsertMissingTypeSignatures path)
+
 
 addProjectStatusIfErr ::
       Watchtower.Project.Project 
@@ -388,8 +483,8 @@ decodeIncoming =
                   <$> (Json.Decode.field "details" 
                           (Json.Decode.field "path" (Json.String.toChars <$> Json.Decode.string))
                       )
-              "Watch" ->
-                Watch <$> Json.Decode.field "details" (Json.Decode.list decodeWatch)
+              "Discover" ->
+                Discover <$> Json.Decode.field "details" decodeWatch
               "Visible" ->
                 Visible <$> Json.Decode.field "details" Watchtower.Details.decodeVisible
               "Jump" ->
@@ -435,7 +530,7 @@ data Incoming
   | JumpTo Watchtower.Details.Location
   | InsertMissingTypeSignatures FilePath
   -- watch the provided filepath, which must match a project root
-  | Watch [FilePath]
+  | Discover FilePath
   | Changed FilePath
 
 data Outgoing
@@ -502,7 +597,7 @@ encodeStatus (Watchtower.Project.Project root entrypoints, js) =
 
 {- WEBSOCKET STUFF -}
 
-broadcastAll :: TVar [Client] -> Outgoing -> IO ()
+broadcastAll :: STM.TVar [Client] -> Outgoing -> IO ()
 broadcastAll allClients outgoing =
   Watchtower.Websocket.broadcastWith
     allClients
@@ -512,7 +607,7 @@ broadcastAll allClients outgoing =
     )
 
 
-broadcastTo :: TVar [Client] -> ClientId -> Outgoing -> IO ()
+broadcastTo :: STM.TVar [Client] -> ClientId -> Outgoing -> IO ()
 broadcastTo allClients id outgoing =
   do 
     Ext.Common.log "◀️" (outgoingToLog outgoing)
@@ -525,7 +620,7 @@ broadcastTo allClients id outgoing =
       )
 
 
-broadcastToMany :: TVar [Client] -> (Client -> Bool) -> Outgoing -> IO ()
+broadcastToMany :: STM.TVar [Client] -> (Client -> Bool) -> Outgoing -> IO ()
 broadcastToMany allClients shouldBroadcast outgoing =
   do 
     Ext.Common.log "◀️" (outgoingToLog outgoing)
