@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Ext.Common where
 
@@ -6,6 +7,7 @@ import Control.Concurrent
 import Control.Concurrent.MVar
 
 import qualified Data.List as List
+import Text.Read (readMaybe)
 import System.IO.Unsafe (unsafePerformIO)
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout, hClose, openTempFile)
 import System.Exit (exitFailure)
@@ -13,9 +15,10 @@ import qualified System.FilePath as FP
 import qualified System.Directory as Dir
 import qualified System.Environment as Env
 import Control.Monad (unless)
+import qualified Data.Text as T
 
 import Control.Exception ()
-import Formatting (fprint, (%))
+import Formatting (fprint, (%), sformat)
 import Formatting.Clock (timeSpecs)
 import System.Clock (Clock(..), getTime)
 
@@ -86,7 +89,7 @@ indent i str =
 
 logList :: String -> [String] -> IO ()
 logList label strs =
-  Ext.Common.log label 
+  Ext.Common.log label
     (formatList strs)
 
 formatList :: [String] -> String
@@ -117,7 +120,6 @@ withDebug io = do
   Env.unsetEnv "LDEBUG"
 
 
--- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
 {-# NOINLINE printLock #-}
 printLock :: MVar ()
 printLock = unsafePerformIO $ newMVar ()
@@ -145,10 +147,45 @@ track label io = do
   m_ <- getTime Monotonic
   p_ <- getTime ProcessCPUTime
   t_ <- getTime ThreadCPUTime
-  fprint ("⏱  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
-  -- fprint (timeSpecs % "\n") p p_
-  -- fprint (timeSpecs % "\n") t t_
+  atomicPutStrLn $ T.unpack $
+    sformat ("⏱  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
   pure res
+
+
+-- track_ label io = do
+--   m <- getTime Monotonic
+--   p <- getTime ProcessCPUTime
+--   t <- getTime ThreadCPUTime
+--   res <- io
+--   m_ <- getTime Monotonic
+--   p_ <- getTime ProcessCPUTime
+--   t_ <- getTime ThreadCPUTime
+--   let result :: T.Text = sformat ("⏱  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
+--   pure $
+--     ( result
+--     , res
+--     )
+
+track__ label io = do
+  m <- getTime Monotonic
+  p <- getTime ProcessCPUTime
+  t <- getTime ThreadCPUTime
+  res <- io
+  m_ <- getTime Monotonic
+  p_ <- getTime ProcessCPUTime
+  t_ <- getTime ThreadCPUTime
+  let result :: T.Text = sformat (timeSpecs) m m_
+      millisM :: Maybe Double = result & T.splitOn " " & Prelude.head & T.unpack & readMaybe
+
+  case millisM of
+    Just millis -> pure $ ( millis , res )
+    _ -> error $ "impossible? couldn't get millis from '" <> T.unpack result <> "'"
+
+
+race ios = do
+  results <- mapM (\(label, io) -> track__ label io ) ios
+  atomicPutStrLn $ "🏃 race results:\n" <> (fmap (T.pack . show . fst) results & T.intercalate "" & T.unpack)
+  pure results
 
 
 
@@ -201,7 +238,6 @@ killTrackedThreads = do
   threadDelay (10 * 1000) -- 10ms to settle as Dir.* stuff behaves oddly
 
 
--- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
 {-# NOINLINE ghciThreads #-}
 ghciThreads :: MVar [ThreadId]
 ghciThreads = unsafePerformIO $ newMVar []

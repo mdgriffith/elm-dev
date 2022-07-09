@@ -22,7 +22,7 @@ import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 
 
-import qualified Ext.FileProxy
+import qualified Ext.CompileMode
 
 -- ASSETS
 
@@ -38,7 +38,7 @@ readAsset path =
 
 buildReactorFrontEnd :: IO BS.ByteString
 buildReactorFrontEnd =
- Ext.FileProxy.withModeDisk $
+ Ext.CompileMode.withModeDisk $
   BW.withScope $ \scope ->
   Dir.withCurrentDirectory "reactor" $
   do  root <- Dir.getCurrentDirectory

@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 module BackgroundWriter
-  ( Scope
+  ( Scope(..)
   , withScope
   , writeBinary
   )

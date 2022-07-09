@@ -71,7 +71,7 @@ compileToJson root paths =
     result <- compileToDevNull root paths
 
     -- hindentPrintValue "Exit.Reactor" result
-    Ext.FileProxy.debugSummary
+    -- Ext.FileProxy.debugSummary
 
     pure $
       case result of

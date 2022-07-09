@@ -32,6 +32,7 @@ import qualified Data.NonEmptyList
 import qualified Data.OneOrMore
 import qualified Data.Utf8 as Utf8
 import qualified Elm.Constraint
+import qualified Elm.Details
 import qualified Elm.Float
 import qualified Elm.Interface
 import qualified Elm.Kernel
@@ -64,6 +65,7 @@ import qualified Reporting.Error.Type
 import qualified Deps.Registry
 import qualified Json.Encode
 import qualified Ext.FileProxy as File
+
 
 
 -- Show
@@ -290,8 +292,8 @@ instance Show Reporting.Error.Docs.Error where
 instance Show Nitpick.PatternMatches.Error where
   show _ = "\"<Nitpick.PatternMatches.Error>\""
 
-instance Show File.Time where
-  show _ = "\"<File.Time>\""
+-- instance Show File.Time where
+--   show _ = "\"<File.Time>\""
 
 
 deriving instance Show Elm.Version.Version
@@ -404,6 +406,9 @@ deriving instance Show Json.Encode.Value
 instance Show B.Builder where
   show = T.unpack . T.decodeUtf8 . BSL.toStrict . B.toLazyByteString
 
+
+
+deriving instance Show Elm.Details.Local
 
 
 -- IsString

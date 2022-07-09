@@ -13,12 +13,15 @@ module Ext.MemoryCached.Build
   , ReplArtifacts(..)
   , DocsGoal(..)
   , getRootNames
+  -- extended
+  , fromPathsMemoryCached
   )
   where
 
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
+import System.IO.Unsafe (unsafePerformIO)
 import Control.Monad (filterM, mapM_, sequence_)
 import qualified Data.ByteString as B
 import qualified Data.Char as Char
@@ -46,7 +49,7 @@ import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline as Outline
 import qualified Elm.Package as Pkg
-import qualified Ext.FileProxy as File
+import qualified Ext.FileCache as File
 import qualified Json.Encode as E
 import qualified Parse.Module as Parse
 import qualified Reporting
@@ -65,6 +68,75 @@ import Prelude hiding (log)
 import Build (Module(..), Artifacts(..), CachedInterface(..), Root(..))
 import Ext.Common (debug, log)
 import StandaloneInstances
+
+
+
+
+
+{-# NOINLINE artifactCache #-}
+artifactCache :: MVar (Maybe Artifacts)
+artifactCache = unsafePerformIO $ newMVar Nothing
+
+
+
+fromPathsMemoryCached :: Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
+fromPathsMemoryCached style root details paths = do
+  artifaceCacheM <- readMVar artifactCache
+  case artifaceCacheM of
+    Just artifacts -> do
+      debug $ "🎯 artifacts"
+      pure $ Right artifacts
+    Nothing -> do
+      debug $ "❌ artifacts cache miss"
+      artifactsR <- fromPathsMemoryCached_ style root details paths
+      case artifactsR of
+        Right artifacts -> do
+          modifyMVar_ artifactCache $ (\_ -> pure $ Just artifacts)
+          pure artifactsR
+        _ -> pure artifactsR
+
+
+fromPathsMemoryCached_ :: Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
+fromPathsMemoryCached_ style root details paths =
+
+  Reporting.trackBuild style $ \key ->
+  do  env <- makeEnv key root details
+
+      elroots <- findRoots env paths
+      case elroots of
+        Left problem ->
+          return (Left (Exit.BuildProjectProblem problem))
+
+        Right lroots ->
+          do  -- crawl
+              log "lroots" (show lroots)
+              dmvar <- Details.loadInterfaces root details
+              smvar <- newMVar Map.empty
+              srootMVars <- traverse (fork . crawlRoot env smvar) lroots
+              sroots <- traverse readMVar srootMVars
+              log "sroots" (show sroots)
+              statuses <- traverse readMVar =<< readMVar smvar
+
+              midpoint <- checkMidpointAndRoots dmvar statuses sroots
+              case midpoint of
+                Left problem ->
+                  return (Left (Exit.BuildProjectProblem problem))
+
+                Right foreigns ->
+                  do  -- compile
+                      rmvar <- newEmptyMVar
+                      debug $ "statuses: " <> show statuses
+                      resultsMVars <- forkWithKey (checkModule env foreigns rmvar) statuses
+
+                      putMVar rmvar resultsMVars
+                      rrootMVars <- traverse (fork . checkRoot env resultsMVars) sroots
+                      results <- traverse readMVar resultsMVars
+
+                      writeDetails root details results
+                      toArtifacts env foreigns results <$> traverse readMVar rrootMVars
+
+
+
 
 
 -- ENVIRONMENT
@@ -174,7 +246,6 @@ fromExposed style root details docsGoal exposed@(NE.List e es) =
 
 -- FROM PATHS
 
-
 -- data Artifacts =
 --   Artifacts
 --     { _name :: Pkg.Name
@@ -183,10 +254,14 @@ fromExposed style root details docsGoal exposed@(NE.List e es) =
 --     , _modules :: [Module]
 --     }
 
-
 -- data Module
 --   = Fresh ModuleName.Raw I.Interface Opt.LocalGraph
 --   | Cached ModuleName.Raw Bool (MVar CachedInterface)
+
+-- data CachedInterface
+--   = Unneeded
+--   | Loaded I.Interface
+--   | Corrupted
 
 
 type Dependencies =
@@ -227,39 +302,6 @@ fromPaths style root details paths =
                       toArtifacts env foreigns results <$> traverse readMVar rrootMVars
 
 
-fromPathsMemoryCached :: Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
-fromPathsMemoryCached style root details paths =
-  Reporting.trackBuild style $ \key ->
-  do  env <- makeEnv key root details
-
-      elroots <- findRoots env paths
-      case elroots of
-        Left problem ->
-          return (Left (Exit.BuildProjectProblem problem))
-
-        Right lroots ->
-          do  -- crawl
-              log "lroots" (show lroots)
-              dmvar <- Details.loadInterfaces root details
-              smvar <- newMVar Map.empty
-              srootMVars <- traverse (fork . crawlRoot env smvar) lroots
-              sroots <- traverse readMVar srootMVars
-              statuses <- traverse readMVar =<< readMVar smvar
-
-              midpoint <- checkMidpointAndRoots dmvar statuses sroots
-              case midpoint of
-                Left problem ->
-                  return (Left (Exit.BuildProjectProblem problem))
-
-                Right foreigns ->
-                  do  -- compile
-                      rmvar <- newEmptyMVar
-                      resultsMVars <- forkWithKey (checkModule env foreigns rmvar) statuses
-                      putMVar rmvar resultsMVars
-                      rrootMVars <- traverse (fork . checkRoot env resultsMVars) sroots
-                      results <- traverse readMVar resultsMVars
-                      writeDetails root details results
-                      toArtifacts env foreigns results <$> traverse readMVar rrootMVars
 
 
 
@@ -293,6 +335,7 @@ data Status
   | SBadSyntax FilePath File.Time B.ByteString Syntax.Error
   | SForeign Pkg.Name
   | SKernel
+  deriving (Show)
 
 
 crawlDeps :: Env -> MVar StatusDict -> [ModuleName.Raw] -> a -> IO a
@@ -311,7 +354,7 @@ crawlDeps env mvar deps blockedValue =
 crawlModule :: Env -> MVar StatusDict -> DocsNeed -> ModuleName.Raw -> IO Status
 crawlModule env@(Env _ root projectType srcDirs buildID locals foreigns) mvar docsNeed name =
   do  let fileName = ModuleName.toFilePath name <.> "elm"
-
+      debug $ "crawlModule:" <> fileName
       paths <- filterM File.exists (map (`addRelative` fileName) srcDirs)
 
       case paths of
@@ -326,7 +369,8 @@ crawlModule env@(Env _ root projectType srcDirs buildID locals foreigns) mvar do
                     Nothing ->
                       crawlFile env mvar docsNeed name path newTime buildID
 
-                    Just local@(Details.Local oldPath oldTime deps _ lastChange _) ->
+                    Just local@(Details.Local oldPath oldTime deps _ lastChange _) -> do
+                      debug $ "old vs new times on " <> path <> " : " <> show (oldTime, newTime)
                       if path /= oldPath || oldTime /= newTime || needsDocs docsNeed
                       then crawlFile env mvar docsNeed name path newTime lastChange
                       else crawlDeps env mvar deps (SCached local)
@@ -399,11 +443,17 @@ data Result
   | RForeign I.Interface
   | RKernel
 
+-- instance Show Result where
+--   show v = case v of
+--     RNew !Details.Local !I.Interface !Opt.LocalGraph !(Maybe Docs.Module) -> "RNew"
+--     RSame !Details.Local !I.Interface !Opt.LocalGraph !(Maybe Docs.Module) -> "RSame"
+--     RCached Bool Details.BuildID (MVar CachedInterface) -> "RCached"
+--     RNotFound Import.Problem -> "RNotFound"
+--     RProblem Error.Module -> "RProblem"
+--     RBlocked -> "RBlocked"
+--     RForeign I.Interface -> "RForeign"
+--     RKernel -> "RKernel"
 
--- data CachedInterface
---   = Unneeded
---   | Loaded I.Interface
---   | Corrupted
 
 
 checkModule :: Env -> Dependencies -> MVar ResultDict -> ModuleName.Raw -> Status -> IO Result
@@ -765,10 +815,11 @@ checkInside name p1 status =
 
 
 compile :: Env -> DocsNeed -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Result
-compile (Env key root projectType _ buildID _ _) docsNeed (Details.Local path time deps main lastChange _) source ifaces modul =
+compile (Env key root projectType _ buildID _ _) docsNeed (Details.Local path time deps main lastChange _) source ifaces modul = do
   let
     pkg = projectTypeToPkg projectType
-  in
+  -- in
+  debug $ "🏭 compiling " <> show modul
   case Compile.compile pkg ifaces modul of
     Right (Compile.Artifacts canonical annotations objects) ->
       case makeDocs docsNeed canonical of
@@ -885,6 +936,7 @@ data DocsGoal a where
 
 newtype DocsNeed =
   DocsNeed { needsDocs :: Bool }
+  deriving (Show)
 
 
 toDocsNeed :: DocsGoal a -> DocsNeed
@@ -1166,6 +1218,7 @@ data RootStatus
   = SInside ModuleName.Raw
   | SOutsideOk Details.Local B.ByteString Src.Module
   | SOutsideErr Error.Module
+  deriving (Show)
 
 
 crawlRoot :: Env -> MVar StatusDict -> RootLocation -> IO RootStatus

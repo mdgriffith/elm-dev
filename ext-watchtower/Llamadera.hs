@@ -136,7 +136,7 @@ runTaskUnsafe task = do
       return a
 
     Left exit ->
-      do  --Exit.toStderr (Exit.reactorToReport exit)
+      do  Exit.toStderr (Exit.reactorToReport exit)
           error
             "\n-------------------------------------------------\
             \\nError in task, please report this.\

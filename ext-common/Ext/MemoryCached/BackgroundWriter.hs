@@ -14,15 +14,16 @@ import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
 import qualified Data.Binary as Binary
 import Data.Foldable (traverse_)
 
-import qualified Ext.FileProxy as File
+import qualified Ext.FileCache as File
 
+import BackgroundWriter (Scope(..))
 
 
 -- BACKGROUND WRITER
 
 
-newtype Scope =
-  Scope (MVar [MVar ()])
+-- newtype Scope =
+--   Scope (MVar [MVar ()])
 
 
 withScope :: (Scope -> IO a) -> IO a

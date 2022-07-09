@@ -217,8 +217,10 @@ Executable watchtower
         Ext.Filewatch
 
         -- ext-performance-cache
+        Ext.FileProxy
         Ext.FileCache
-        Ext.MemoryCache
+        Ext.CompileProxy
+        Ext.CompileMode
         Ext.MemoryCached.BackgroundWriter
         Ext.MemoryCached.Build
         Ext.MemoryCached.Details

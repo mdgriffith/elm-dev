@@ -23,8 +23,8 @@ import qualified Data.NonEmptyList as NE
 import qualified Develop.Generate.Help as Help
 import qualified Develop.Generate.Index as Index
 import qualified Develop.StaticFiles as StaticFiles
-import qualified Elm.Details as Details
-import Ext.Common (getProjectRootFor, trackedForkIO)
+import qualified Ext.MemoryCached.Details
+import Ext.Common (getProjectRootFor, trackedForkIO, debug)
 import qualified Ext.Common
 import qualified Ext.Filewatch as Filewatch
 import qualified Ext.Sentry as Sentry
@@ -44,6 +44,9 @@ import qualified System.Directory as Dir
 import System.FilePath as FP
 import qualified Ext.FileProxy
 
+import qualified Build
+import qualified Elm.Details
+
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
 compileToJson root paths =
@@ -53,7 +56,7 @@ compileToJson root paths =
 
     -- hindentPrintValue "Exit.Reactor" result
 
-    Ext.FileProxy.debugSummary
+    -- Ext.FileProxy.debugSummary
 
     pure $
       case result of
@@ -79,14 +82,17 @@ compileToJson root paths =
 compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
 compile root paths =
   do
-    Ext.Common.debug $ " compiling " ++ show root ++ " -> " ++ show paths
+    Ext.Common.debug $ "🚀 compiling " ++ show root ++ " -> " ++ show paths
     Dir.withCurrentDirectory root $
-      BW.withScope $ \scope -> Stuff.withRootLock root $
-        Task.run $
-          do
-            details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-            artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPaths Reporting.silent root details paths
-            -- javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
-            -- let (NE.List name _) = Ext.MemoryCached.Build.getRootNames artifacts
-            -- return $ Html.sandwich name javascript
-            pure ()
+      -- @TODO root lock shouldn't be needed unless we're falling through to disk compile
+      BW.withScope $ \scope -> Stuff.withRootLock root $ do
+        Task.run $ do
+          -- Task.io $ debug $ "🌳🌳🌳🌳🌳🌳🌳🌳🌳🌳"
+          details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root
+          artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached Reporting.silent root details paths
+
+          -- Task.io $ debug $ "🟠🟠🟠🟠🟠🟠🟠"
+          -- javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
+          -- let (NE.List name _) = Ext.MemoryCached.Build.getRootNames artifacts
+          -- return $ Html.sandwich name javascript
+          pure ()

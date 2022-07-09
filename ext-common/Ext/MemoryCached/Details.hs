@@ -17,7 +17,7 @@ module Ext.MemoryCached.Details
 
 
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, modifyMVar_)
 import Control.Monad (liftM, liftM2, liftM3)
 import Data.Binary (Binary, get, put, getWord8, putWord8)
 import qualified Data.Either as Either
@@ -50,7 +50,7 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline as Outline
 import qualified Elm.Package as Pkg
 import qualified Elm.Version as V
-import qualified File
+import qualified Ext.FileCache as File
 import qualified Http
 import qualified Json.Decode as D
 import qualified Json.Encode as E
@@ -65,6 +65,9 @@ import qualified Stuff
 
 -- import Elm.Details (Details(..), Extras(..), ValidOutline(..))
 import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..), Local(..))
+
+import Ext.Common (debug)
+import System.IO.Unsafe (unsafePerformIO)
 
 -- DETAILS
 
@@ -161,8 +164,31 @@ verifyInstall scope root (Solver.Env cache manager connection registry) outline 
 -- LOAD -- used by Make, Repl, Reactor
 
 
+{-# NOINLINE detailsCache #-}
+detailsCache :: MVar (Maybe Details)
+detailsCache = unsafePerformIO $ newMVar Nothing
+
+
 load :: Reporting.Style -> BW.Scope -> FilePath -> IO (Either Exit.Details Details)
-load style scope root =
+load style scope root = do
+  detailsCacheM <- readMVar detailsCache
+  case detailsCacheM of
+    Just details -> do
+      debug $ "🎯 details"
+      pure $ Right details
+    Nothing -> do
+      debug $ "❌ details cache miss"
+      detailsR <- load_ style scope root
+      case detailsR of
+        Right details -> do
+          modifyMVar_ detailsCache $ (\_ -> pure $ Just details)
+          pure detailsR
+        _ -> pure detailsR
+
+
+
+load_ :: Reporting.Style -> BW.Scope -> FilePath -> IO (Either Exit.Details Details)
+load_ style scope root =
   do  newTime <- File.getTime (root </> "elm.json")
       maybeDetails <- File.readBinary (Stuff.details root)
       case maybeDetails of

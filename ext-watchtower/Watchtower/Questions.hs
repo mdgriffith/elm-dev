@@ -255,14 +255,16 @@ ask state question =
 
     ListMissingSignaturesPlease path ->
       do
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-        Ext.Common.log "✍️  list signatures" (show (Path.takeFileName path))
-        compiling <- Watchtower.Live.projectIsCompiling path state
-        if compiling then
-            Watchtower.Annotate.listMissingAnnotations root path
-              & fmap Json.Encode.encodeUgly
-        else
-            allProjectStatuses state
+        Ext.Common.debug "NEUTERED:ListMissingSignaturesPlease"
+        pure "NEUTERED"
+        -- root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+        -- Ext.Common.log "✍️  list signatures" (show (Path.takeFileName path))
+        -- compiling <- Watchtower.Live.projectIsCompiling path state
+        -- if compiling then
+        --     Watchtower.Annotate.listMissingAnnotations root path
+        --       & fmap Json.Encode.encodeUgly
+        -- else
+        --     allProjectStatuses state
 
     SignaturePlease path name ->
       do

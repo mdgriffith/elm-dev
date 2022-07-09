@@ -25,7 +25,7 @@ import qualified System.Mem
 
 type HashTable k v = H.CuckooHashTable k v
 
--- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
+
 {-# NOINLINE fileCache #-}
 fileCache :: HashTable FilePath (Time, BS.ByteString)
 fileCache = unsafePerformIO H.new
@@ -194,7 +194,7 @@ removeDir path = File.removeDir path
 -- Debugging
 
 debugSummary = do
-  track "🧹 majorGC" $ System.Mem.performMajorGC
+  -- track "🧹 majorGC" $ System.Mem.performMajorGC
 
   fileCacheList <- H.toList fileCache
   s <- RT.getRTSStats

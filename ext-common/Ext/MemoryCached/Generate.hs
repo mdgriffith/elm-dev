@@ -27,7 +27,7 @@ import qualified Ext.MemoryCached.Details as Details
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
-import qualified Ext.FileProxy as File
+import qualified Ext.FileCache as File
 import qualified Generate.JavaScript as JS
 import qualified Generate.Mode as Mode
 import qualified Nitpick.Debug as Nitpick

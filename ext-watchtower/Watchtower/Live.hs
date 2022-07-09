@@ -32,13 +32,14 @@ import Snap.Core hiding (path)
 import Snap.Http.Server
 import Snap.Util.FileServe
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
-import qualified Watchtower.Compile.Classic
-import qualified Watchtower.Compile.MemoryCached
+import qualified Ext.CompileProxy
 import qualified Watchtower.Details
 import qualified Watchtower.Project
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Websocket
 import qualified Ext.FileProxy
+import qualified Ext.CompileMode
+
 
 data State = State
   { clients :: STM.TVar [Client],
@@ -70,6 +71,7 @@ matchingCache (ProjectCache one _) (ProjectCache two _) =
 init :: FilePath -> IO State
 init root =
   do
+    Ext.CompileMode.setModeRace
     projectList <- discoverProjects root
     State
       <$> Watchtower.Websocket.clientsInit
@@ -152,14 +154,7 @@ getRootHelp path projects found =
 
 
 
-compileMode =
-  case Ext.FileProxy.getMode of
-    Ext.FileProxy.Disk ->
-      Watchtower.Compile.Classic.compileToJson
-
-    Ext.FileProxy.Memory ->
-      Watchtower.Compile.MemoryCached.compileToJson
-
+compileMode = Ext.CompileProxy.compileToJson
 
 
 recompileAllProjects :: Watchtower.Live.State -> IO ()
@@ -167,7 +162,7 @@ recompileAllProjects (Watchtower.Live.State mClients mProjects) = do
 
   Ext.Common.log "🛫" "Recompile everything"
   trackedForkIO $
-    track "recompile" $ do
+    track "recompile all projects" $ do
       projects <- STM.readTVarIO mProjects
       Monad.foldM
         (\files proj -> recompileProject mClients proj)
@@ -204,20 +199,22 @@ getStatus (ProjectCache proj cache) =
                     )
         pure (ProjectStatus proj successful json)
 
+
 recompile :: Watchtower.Live.State -> [String] -> IO ()
 recompile (Watchtower.Live.State mClients mProjects) allChangedFiles = do
   let changedElmFiles = List.filter (\filepath -> ".elm" `List.isSuffixOf` filepath ) allChangedFiles
-  if (changedElmFiles /= []) then do
-    debug $ "🛫  recompile starting: " ++ show changedElmFiles
-    projects <- STM.readTVarIO mProjects
-    trackedForkIO $
-      track "recompile" $ do
-        Monad.foldM
-          (recompileChangedFile mClients)
-          changedElmFiles
-          projects
+  if (changedElmFiles /= [])
+    then do
+      debug $ "🛫  recompile starting: " ++ show changedElmFiles
+      projects <- STM.readTVarIO mProjects
+      trackedForkIO $
+        track "recompile" $ do
+          Monad.foldM
+            (recompileChangedFile mClients)
+            changedElmFiles
+            projects
 
-        debug $ "🛬  recompile finished: " ++ show changedElmFiles
+          debug $ "🛬  recompile finished: " ++ show changedElmFiles
     else
         pure ()
 
@@ -261,7 +258,7 @@ recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchto
                       do
                         Ext.Common.log "Changed file successful, recompiling project" "!"
                         -- If this file compiled successfully, compile the entire project
-                        recompileProjectIfSubFile mClients changedFiles projCache
+                        -- recompileProjectIfSubFile mClients changedFiles projCache
                         pure ()
 
                     Left errJson ->
