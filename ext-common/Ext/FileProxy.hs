@@ -6,7 +6,7 @@ module Ext.FileProxy where
 
 -- Only ONE of the following two imports can be set
 import qualified File
-import qualified Ext.FileCached as FileCached
+import qualified Ext.FileCache as FileCache
 
 import Control.Concurrent.MVar
 import System.IO.Unsafe (unsafePerformIO)
@@ -53,73 +53,73 @@ type Time = File.Time
 
 debugSummary =
   case getMode of
-    Memory -> FileCached.debugSummary
-    Disk -> FileCached.debugSummary -- @TODO specialise for disk mode
+    Memory -> FileCache.debugSummary
+    Disk -> FileCache.debugSummary -- @TODO specialise for disk mode
 
 -- Interface proxies
 
 getTime :: FilePath -> IO Time
 getTime path =
   case getMode of
-    Memory -> FileCached.getTime path
+    Memory -> FileCache.getTime path
     Disk -> File.getTime path
 
 zeroTime :: Time
 zeroTime =
   case getMode of
-    Memory -> FileCached.zeroTime
+    Memory -> FileCache.zeroTime
     Disk -> File.zeroTime
 
 writeBinary :: (Binary.Binary a) => FilePath -> a -> IO ()
 writeBinary path =
   case getMode of
-    Memory -> FileCached.writeBinary path
+    Memory -> FileCache.writeBinary path
     Disk -> File.writeBinary path
 
 readBinary :: (Binary.Binary a) => FilePath -> IO (Maybe a)
 readBinary path =
   case getMode of
-    Memory -> FileCached.readBinary path
+    Memory -> FileCache.readBinary path
     Disk -> File.readBinary path
 
 writeUtf8 :: FilePath -> BS.ByteString -> IO ()
 writeUtf8 path content =
   case getMode of
-    Memory -> FileCached.writeUtf8 path content
+    Memory -> FileCache.writeUtf8 path content
     Disk -> File.writeUtf8 path content
 
 readUtf8 :: FilePath -> IO BS.ByteString
 readUtf8 path =
   case getMode of
-    Memory -> FileCached.readUtf8 path
+    Memory -> FileCache.readUtf8 path
     Disk -> File.readUtf8 path
 
 writeBuilder :: FilePath -> B.Builder -> IO ()
 writeBuilder path content =
   case getMode of
-    Memory -> FileCached.writeBuilder path content
+    Memory -> FileCache.writeBuilder path content
     Disk -> File.writeBuilder path content
 
 writePackage :: FilePath -> Zip.Archive -> IO ()
 writePackage path content =
   case getMode of
-    Memory -> FileCached.writePackage path content
+    Memory -> FileCache.writePackage path content
     Disk -> File.writePackage path content
 
 exists :: FilePath -> IO Bool
 exists path =
   case getMode of
-    Memory -> FileCached.exists path
+    Memory -> FileCache.exists path
     Disk -> File.exists path
 
 remove :: FilePath -> IO ()
 remove path =
   case getMode of
-    Memory -> FileCached.remove path
+    Memory -> FileCache.remove path
     Disk -> File.remove path
 
 removeDir :: FilePath -> IO ()
 removeDir path =
   case getMode of
-    Memory -> FileCached.removeDir path
+    Memory -> FileCache.removeDir path
     Disk -> File.removeDir path

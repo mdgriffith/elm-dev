@@ -1,8 +1,8 @@
--- Clone of builder/src/Elm/Details.hs modified to use Ext.FileCached.* instead of File.*
+-- Clone of builder/src/Elm/Details.hs modified to use MemoryCached.*
 
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE BangPatterns, OverloadedStrings #-}
-module Ext.FileCached.Details
+module Ext.MemoryCached.Details
   ( Details(..)
   , BuildID
   , ValidOutline(..)
@@ -37,7 +37,7 @@ import System.FilePath ((</>), (<.>))
 import qualified AST.Canonical as Can
 import qualified AST.Source as Src
 import qualified AST.Optimized as Opt
-import qualified Ext.FileCached.BackgroundWriter as BW
+import qualified Ext.MemoryCached.BackgroundWriter as BW
 import qualified Compile
 import qualified Deps.Registry as Registry
 import qualified Deps.Solver as Solver
@@ -50,7 +50,7 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline as Outline
 import qualified Elm.Package as Pkg
 import qualified Elm.Version as V
-import qualified Ext.FileCached as File
+import qualified File
 import qualified Http
 import qualified Json.Decode as D
 import qualified Json.Encode as E
@@ -64,7 +64,7 @@ import qualified Stuff
 
 
 -- import Elm.Details (Details(..), Extras(..), ValidOutline(..))
-import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..))
+import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..), Local(..))
 
 -- DETAILS
 
@@ -101,15 +101,15 @@ type BuildID = Word64
 -- imports, we need to recompile. This can happen when a project has multiple
 -- entrypoints and some modules are compiled less often than their imports.
 --
-data Local =
-  Local
-    { _path :: FilePath
-    , _time :: File.Time
-    , _deps :: [ModuleName.Raw]
-    , _main :: Bool
-    , _lastChange :: BuildID
-    , _lastCompile :: BuildID
-    }
+-- data Local =
+--   Local
+--     { _path :: FilePath
+--     , _time :: File.Time
+--     , _deps :: [ModuleName.Raw]
+--     , _main :: Bool
+--     , _lastChange :: BuildID
+--     , _lastCompile :: BuildID
+--     }
 
 
 -- data Foreign =
@@ -811,16 +811,16 @@ endpointDecoder =
 --           _ -> fail "binary encoding of ValidOutline was corrupted"
 
 
-instance Binary Local where
-  put (Local a b c d e f) = put a >> put b >> put c >> put d >> put e >> put f
-  get =
-    do  a <- get
-        b <- get
-        c <- get
-        d <- get
-        e <- get
-        f <- get
-        return (Local a b c d e f)
+-- instance Binary Local where
+--   put (Local a b c d e f) = put a >> put b >> put c >> put d >> put e >> put f
+--   get =
+--     do  a <- get
+--         b <- get
+--         c <- get
+--         d <- get
+--         e <- get
+--         f <- get
+--         return (Local a b c d e f)
 
 
 -- instance Binary Foreign where

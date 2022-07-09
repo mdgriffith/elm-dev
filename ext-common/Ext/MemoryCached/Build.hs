@@ -1,8 +1,8 @@
--- Clone of builder/src/Build.hs modified to use FileCached.* instead of File.*
+-- Clone of builder/src/Build.hs modified to use MemoryCached.*
 
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# LANGUAGE BangPatterns, GADTs, OverloadedStrings #-}
-module Ext.FileCached.Build
+module Ext.MemoryCached.Build
   ( fromExposed
   , fromPaths
   , fromRepl
@@ -40,13 +40,13 @@ import qualified AST.Canonical as Can
 import qualified AST.Source as Src
 import qualified AST.Optimized as Opt
 import qualified Compile
-import qualified Elm.Details as Details
+import qualified Ext.MemoryCached.Details as Details
 import qualified Elm.Docs as Docs
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline as Outline
 import qualified Elm.Package as Pkg
-import qualified Ext.FileCached as File
+import qualified Ext.FileProxy as File
 import qualified Json.Encode as E
 import qualified Parse.Module as Parse
 import qualified Reporting
@@ -61,9 +61,11 @@ import qualified Stuff
 
 
 import qualified Build
+import Prelude hiding (log)
 import Build (Module(..), Artifacts(..), CachedInterface(..), Root(..))
-import Ext.Common (debug)
+import Ext.Common (debug, log)
 import StandaloneInstances
+
 
 -- ENVIRONMENT
 
@@ -203,6 +205,41 @@ fromPaths style root details paths =
 
         Right lroots ->
           do  -- crawl
+              dmvar <- Details.loadInterfaces root details
+              smvar <- newMVar Map.empty
+              srootMVars <- traverse (fork . crawlRoot env smvar) lroots
+              sroots <- traverse readMVar srootMVars
+              statuses <- traverse readMVar =<< readMVar smvar
+
+              midpoint <- checkMidpointAndRoots dmvar statuses sroots
+              case midpoint of
+                Left problem ->
+                  return (Left (Exit.BuildProjectProblem problem))
+
+                Right foreigns ->
+                  do  -- compile
+                      rmvar <- newEmptyMVar
+                      resultsMVars <- forkWithKey (checkModule env foreigns rmvar) statuses
+                      putMVar rmvar resultsMVars
+                      rrootMVars <- traverse (fork . checkRoot env resultsMVars) sroots
+                      results <- traverse readMVar resultsMVars
+                      writeDetails root details results
+                      toArtifacts env foreigns results <$> traverse readMVar rrootMVars
+
+
+fromPathsMemoryCached :: Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
+fromPathsMemoryCached style root details paths =
+  Reporting.trackBuild style $ \key ->
+  do  env <- makeEnv key root details
+
+      elroots <- findRoots env paths
+      case elroots of
+        Left problem ->
+          return (Left (Exit.BuildProjectProblem problem))
+
+        Right lroots ->
+          do  -- crawl
+              log "lroots" (show lroots)
               dmvar <- Details.loadInterfaces root details
               smvar <- newMVar Map.empty
               srootMVars <- traverse (fork . crawlRoot env smvar) lroots
@@ -997,6 +1034,7 @@ finalizeReplArtifacts env@(Env _ root projectType _ _ _ _) source modul@(Src.Mod
 data RootLocation
   = LInside ModuleName.Raw
   | LOutside FilePath
+  deriving (Show)
 
 
 findRoots :: Env -> NE.List FilePath -> IO (Either Exit.BuildProjectProblem (NE.List RootLocation))

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Ext.FileCached where
+module Ext.FileCache where
 
 import Prelude hiding (lookup, log)
 import System.IO.Unsafe (unsafePerformIO)
@@ -109,6 +109,7 @@ writeUtf8 path content = do
   log $ "✍️ " ++ show path
   -- onlyWhen (not $ List.isInfixOf "/elm-stuff/" path) $
   insert path content
+  File.writeUtf8 path content
 
 
 -- @TODO potentially skip binary serialisation entirely
@@ -117,6 +118,7 @@ writeBinary path value = do
   log $ "✍️ B " ++ show path
   -- onlyWhen (not $ List.isInfixOf "/elm-stuff/" path) $
   insert path $ BSL.toStrict $ Binary.encode value
+  File.writeBinary path value
 
 
 -- @TODO potentially skip binary serialisation entirely
@@ -158,7 +160,7 @@ type Time = File.Time
 
 getTime :: FilePath -> IO Time
 getTime path = do
-  -- @TODO File modification times should become irrelevant in FileCached mode?
+  -- @TODO File modification times should become irrelevant in FileCache mode?
   res <- lookup path
   case res of
     Just (t, x) -> do

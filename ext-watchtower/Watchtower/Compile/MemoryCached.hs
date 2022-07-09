@@ -3,13 +3,13 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Compile.FileCache (compileToJson) where
+module Watchtower.Compile.MemoryCached (compileToJson) where
 
 -- @TODO cleanup imports
 
 import qualified BackgroundWriter as BW
 import qualified Build
-import qualified Ext.FileCached.Build
+import qualified Ext.MemoryCached.Build
 import Control.Applicative ((<|>))
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
 import Control.Monad (guard)
@@ -28,7 +28,7 @@ import Ext.Common (getProjectRootFor, trackedForkIO)
 import qualified Ext.Common
 import qualified Ext.Filewatch as Filewatch
 import qualified Ext.Sentry as Sentry
-import qualified Ext.FileCached.Generate as Generate
+import qualified Ext.MemoryCached.Generate as Generate
 import qualified Generate.Html as Html
 import Json.Encode ((==>))
 import qualified Json.Encode as Encode
@@ -42,7 +42,7 @@ import StandaloneInstances
 import qualified Stuff
 import qualified System.Directory as Dir
 import System.FilePath as FP
-import qualified Ext.FileCached
+import qualified Ext.FileProxy
 
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
@@ -53,7 +53,7 @@ compileToJson root paths =
 
     -- hindentPrintValue "Exit.Reactor" result
 
-    Ext.FileCached.debugSummary
+    Ext.FileProxy.debugSummary
 
     pure $
       case result of
@@ -85,8 +85,8 @@ compile root paths =
         Task.run $
           do
             details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-            artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.FileCached.Build.fromPaths Reporting.silent root details paths
+            artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPaths Reporting.silent root details paths
             -- javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
-            -- let (NE.List name _) = Ext.FileCached.Build.getRootNames artifacts
+            -- let (NE.List name _) = Ext.MemoryCached.Build.getRootNames artifacts
             -- return $ Html.sandwich name javascript
             pure ()

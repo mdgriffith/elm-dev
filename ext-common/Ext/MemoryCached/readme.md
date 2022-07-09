@@ -1,5 +1,5 @@
 
-The contents of Ext.FileCached are vendored from Elm core with minor modifications
+The contents of Ext.MemoryCached are vendored from Elm core with minor modifications
 
 Running `vendor.sh` should cause a no-op, unless Elm core changes significantly in a future version, and in that scenario hopefully our modifications are relatively easy to setup again.
 

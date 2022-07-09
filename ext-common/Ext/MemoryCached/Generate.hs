@@ -1,7 +1,7 @@
--- Clone of builder/src/Generate.hs modified to use Ext.FileCached.* instead of File.*
+-- Clone of builder/src/Generate.hs modified to use MemoryCached.*
 
 {-# LANGUAGE BangPatterns #-}
-module Ext.FileCached.Generate
+module Ext.MemoryCached.Generate
   ( debug
   , dev
   , prod
@@ -23,7 +23,7 @@ import qualified Data.NonEmptyList as NE
 import qualified AST.Optimized as Opt
 import qualified Build
 import qualified Elm.Compiler.Type.Extract as Extract
-import qualified Ext.FileCached.Details as Details
+import qualified Ext.MemoryCached.Details as Details
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg

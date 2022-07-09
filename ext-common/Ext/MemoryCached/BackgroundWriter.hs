@@ -1,7 +1,7 @@
--- Clone of builder/src/BackgroundWriter.hs modified to use FileCached.* instead of File.*
+-- Clone of builder/src/BackgroundWriter.hs modified to use MemoryCached.*
 
 {-# LANGUAGE BangPatterns #-}
-module Ext.FileCached.BackgroundWriter
+module Ext.MemoryCached.BackgroundWriter
   ( Scope
   , withScope
   , writeBinary
@@ -14,7 +14,7 @@ import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, takeMVar)
 import qualified Data.Binary as Binary
 import Data.Foldable (traverse_)
 
-import qualified Ext.FileCached as File
+import qualified Ext.FileProxy as File
 
 
 

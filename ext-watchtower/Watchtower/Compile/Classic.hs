@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Compile.Classic (ompileToJson, compileToBuilder, warnings, parse) where
+module Watchtower.Compile.Classic (compileToJson, compileToBuilder, warnings, parse) where
 
 -- @TODO cleanup imports
 

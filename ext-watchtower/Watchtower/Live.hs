@@ -33,11 +33,12 @@ import Snap.Http.Server
 import Snap.Util.FileServe
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
 import qualified Watchtower.Compile.Classic
-import qualified Watchtower.Compile.FileCache
+import qualified Watchtower.Compile.MemoryCached
 import qualified Watchtower.Details
 import qualified Watchtower.Project
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Websocket
+import qualified Ext.FileProxy
 
 data State = State
   { clients :: STM.TVar [Client],
@@ -149,9 +150,15 @@ getRootHelp path projects found =
               else getRootHelp path remain found
         else getRootHelp path remain found
 
-compileMode = Watchtower.Compile.Classic.compileToJson
--- compileMode = Watchtower.Compile.FileCache.compileToJson
 
+
+compileMode =
+  case Ext.FileProxy.getMode of
+    Ext.FileProxy.Disk ->
+      Watchtower.Compile.Classic.compileToJson
+
+    Ext.FileProxy.Memory ->
+      Watchtower.Compile.MemoryCached.compileToJson
 
 
 

@@ -11,6 +11,8 @@ module Build
   , ReplArtifacts(..)
   , DocsGoal(..)
   , getRootNames
+  -- exposed
+  , RootLocation(..)
   )
   where
 

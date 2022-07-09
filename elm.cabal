@@ -210,23 +210,26 @@ Executable watchtower
         -- elmx
         -- ext-common
         Ext.Common
-        Ext.FileCached
-        Ext.FileCached.BackgroundWriter
-        Ext.FileCached.Build
-        Ext.FileCached.Details
-        Ext.FileCached.Generate
         Ext.ElmFormat
 
         -- ext-sentry
         Ext.Sentry
         Ext.Filewatch
 
+        -- ext-performance-cache
+        Ext.FileCache
+        Ext.MemoryCache
+        Ext.MemoryCached.BackgroundWriter
+        Ext.MemoryCached.Build
+        Ext.MemoryCached.Details
+        Ext.MemoryCached.Generate
+
         -- watchtower
         Watchtower
         Watchtower.Project
         Watchtower.Annotate
         Watchtower.Compile.Classic
-        Watchtower.Compile.FileCache
+        Watchtower.Compile.MemoryCached
         Watchtower.Details
         Watchtower.Live
         Watchtower.Questions
