@@ -38,7 +38,7 @@ type AggregateStatistics = Map.Map CompileMode Double
 {-# NOINLINE aggregateStatistics #-}
 aggregateStatistics :: MVar AggregateStatistics
 aggregateStatistics = unsafePerformIO $
-  let blank :: AggregateStatistics = Map.fromList [ (Disk, 0) , (Memory, 0) , (Race, 0) ]
+  let blank :: AggregateStatistics = Map.fromList [ (Disk, 0) , (Memory, 0) ]
   in
   newMVar blank
 
@@ -82,8 +82,8 @@ compileToJson_ root paths = do
 
     Race -> do
       results <- Ext.Common.race
-        [ ("🧠 memcached", Watchtower.Compile.MemoryCached.compileToJson root paths)
-        , ("🎻 classic  ", Watchtower.Compile.Classic.compileToJson root paths)
+        [ ("🎻 classic  ", Watchtower.Compile.Classic.compileToJson root paths)
+        , ("🧠 memcached", Watchtower.Compile.MemoryCached.compileToJson root paths)
         ]
 
       results & zip [Memory, Disk] & mapM_ (\(m, (t, r)) -> addToAggregate m t)

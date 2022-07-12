@@ -179,13 +179,21 @@ track__ label io = do
 
   case millisM of
     Just millis -> pure $ ( millis , res )
-    _ -> error $ "impossible? couldn't get millis from '" <> T.unpack result <> "'"
+    _ -> error $ "impossible? couldn't get millis from '" <> T.unpack result <> "' on tracked label: " <> label
 
 
 race ios = do
-  results <- mapM (\(label, io) -> track__ label io ) ios
+  resultsMvar <- traverse (\(label, io) -> fork $ track__ label io ) ios
+  results <- traverse readMVar resultsMvar
   atomicPutStrLn $ "🏃 race results:\n" <> (fmap (T.pack . show . fst) results & T.intercalate "" & T.unpack)
   pure results
+
+
+fork :: IO a -> IO (MVar a)
+fork work =
+  do  mvar <- newEmptyMVar
+      _ <- forkIO $ putMVar mvar =<< work
+      return mvar
 
 
 

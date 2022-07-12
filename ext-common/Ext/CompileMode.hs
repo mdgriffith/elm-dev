@@ -14,7 +14,7 @@ import qualified Data.Binary as Binary
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 
-import Ext.Common (debug)
+import Ext.Common (debug, atomicPutStrLn)
 
 
 data CompileMode = Disk | Memory | Race deriving (Show, Ord, Eq)
@@ -43,7 +43,8 @@ withModeDisk io = do
 
 
 setModeRace :: IO ()
-setModeRace =
+setModeRace = do
+  atomicPutStrLn "🏎 race mode set"
   modifyMVar_ compileMode (\_ -> pure Race)
 
 

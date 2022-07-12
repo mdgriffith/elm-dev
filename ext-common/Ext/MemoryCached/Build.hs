@@ -132,7 +132,7 @@ fromPathsMemoryCached_ style root details paths =
                       rrootMVars <- traverse (fork . checkRoot env resultsMVars) sroots
                       results <- traverse readMVar resultsMVars
 
-                      writeDetails root details results
+                      -- writeDetails root details results
                       toArtifacts env foreigns results <$> traverse readMVar rrootMVars
 
 
@@ -819,7 +819,7 @@ compile (Env key root projectType _ buildID _ _) docsNeed (Details.Local path ti
   let
     pkg = projectTypeToPkg projectType
   -- in
-  debug $ "🏭 compiling " <> show modul
+  debug $ "🏭 compiling "-- <> show modul
   case Compile.compile pkg ifaces modul of
     Right (Compile.Artifacts canonical annotations objects) ->
       case makeDocs docsNeed canonical of

@@ -221,7 +221,7 @@ writeEntry destination root entry = do
 
 exists :: FilePath -> IO Bool
 exists path = do
-  debug_ $ "💥 missed exists" ++ show path
+  -- debug_ $ "💥 missed exists" ++ show path
   Dir.doesFileExist path
 
 
