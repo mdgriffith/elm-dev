@@ -82,8 +82,8 @@ compileToJson_ root paths = do
 
     Race -> do
       results <- Ext.Common.race
-        [ ("🎻 classic  ", Watchtower.Compile.Classic.compileToJson root paths)
-        , ("🧠 memcached", Watchtower.Compile.MemoryCached.compileToJson root paths)
+        [ ("🧠 memcached", Watchtower.Compile.MemoryCached.compileToJson root paths)
+        , ("🎻 classic  ", Watchtower.Compile.Classic.compileToJson root paths)
         ]
 
       results & zip [Memory, Disk] & mapM_ (\(m, (t, r)) -> addToAggregate m t)

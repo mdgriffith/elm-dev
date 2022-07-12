@@ -22,7 +22,7 @@ watch root action =
               Debounce.init = []
             }
           Debounce.def
-            { Debounce.delay = 500 * 1000, -- milliseconds
+            { Debounce.delay = 50 * 1000, -- milliseconds
               Debounce.alwaysResetTimer = True
             }
 

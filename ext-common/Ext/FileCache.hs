@@ -17,7 +17,7 @@ import qualified Data.Time.Clock.POSIX as Time
 
 import qualified File
 
-import Ext.Common ((&), debug, track, onlyWhen)
+import Ext.Common ((&), debug, track, onlyWhen, justs)
 import qualified GHC.Stats as RT
 -- import qualified GHC.DataSize
 import qualified System.Mem
@@ -31,10 +31,13 @@ fileCache :: HashTable FilePath (Time, BS.ByteString)
 fileCache = unsafePerformIO H.new
 
 
+lookup :: FilePath -> IO (Maybe (Time, BS.ByteString))
 lookup path = do
   -- log $ "👀 " ++ show path
   H.lookup fileCache path
 
+
+insert :: FilePath -> BS.ByteString -> IO ()
 insert path value = do
   -- log $ "✍️ " ++ show path
   t <- currentTime
@@ -51,6 +54,31 @@ currentTime :: IO Time
 currentTime =
   fmap (File.Time . Time.nominalDiffTimeToSeconds . Time.utcTimeToPOSIXSeconds) Time.getCurrentTime
 
+
+
+handleIfChanged :: [FilePath] -> ([FilePath] -> IO a) -> IO a
+handleIfChanged paths action = do
+  changes <- justs <$> paths & traverse upsertPath
+  action changes
+
+
+upsertPath :: FilePath -> IO (Maybe FilePath)
+upsertPath path = do
+  res <- lookup path
+  case res of
+    Just (oldTime, oldContents) -> do
+      newContents <- File.readUtf8 path
+      if oldContents /= newContents
+        then do
+          insert path newContents
+          pure $ Just path
+        else do
+          pure Nothing
+
+    Nothing -> do
+      newContents <- File.readUtf8 path
+      insert path newContents
+      pure $ Just path
 
 
 {- builder/src/File.* interface equivalents -}

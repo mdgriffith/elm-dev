@@ -23,6 +23,8 @@ import Data.Maybe as Maybe
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 
+import qualified Ext.FileCache as FileCache
+
 newtype Flags = Flags
   { _port :: Maybe Int
   }
@@ -40,8 +42,9 @@ serve maybeRoot (Flags maybePort) =
 
     -- compile project
     Watchtower.Live.recompileAllProjects liveState
-    
+
     -- Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
+    Ext.Filewatch.watch root (\paths -> FileCache.handleIfChanged paths (Watchtower.Live.recompile liveState))
 
     Snap.Http.Server.httpServe (config port) $
       serveAssets
