@@ -25,6 +25,8 @@ import qualified Data.Text.Encoding as T
 
 import qualified Ext.FileCache as FileCache
 
+import qualified Ext.CompileMode
+
 newtype Flags = Flags
   { _port :: Maybe Int
   }
@@ -35,7 +37,6 @@ serve maybeRoot (Flags maybePort) =
     let port = Ext.Common.withDefault 9000 maybePort
     Ext.Common.atomicPutStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
 
-
     cwd <- Dir.getCurrentDirectory
     let root = Maybe.fromMaybe cwd maybeRoot
     liveState <- Watchtower.Live.init root
@@ -43,8 +44,9 @@ serve maybeRoot (Flags maybePort) =
     -- compile project
     Watchtower.Live.recompileAllProjects liveState
 
-    -- Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
+    -- Start file watcher for the memory mode
     Ext.Filewatch.watch root (\paths -> FileCache.handleIfChanged paths (Watchtower.Live.recompile liveState))
+
 
     Snap.Http.Server.httpServe (config port) $
       serveAssets

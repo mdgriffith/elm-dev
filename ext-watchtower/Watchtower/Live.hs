@@ -71,7 +71,6 @@ matchingCache (ProjectCache one _) (ProjectCache two _) =
 init :: FilePath -> IO State
 init root =
   do
-    Ext.CompileMode.setModeRace
     projectList <- discoverProjects root
     State
       <$> Watchtower.Websocket.clientsInit

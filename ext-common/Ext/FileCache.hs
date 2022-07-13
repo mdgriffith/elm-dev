@@ -44,6 +44,12 @@ insert path value = do
   H.insert fileCache path (t, value)
 
 
+delete :: FilePath -> IO ()
+delete path = do
+  t <- currentTime
+  H.delete fileCache path
+
+
 log :: String -> IO ()
 log v =
   -- pure ()
@@ -146,7 +152,7 @@ writeBinary path value = do
   log $ "✍️ B " ++ show path
   -- onlyWhen (not $ List.isInfixOf "/elm-stuff/" path) $
   insert path $ BSL.toStrict $ Binary.encode value
-  File.writeBinary path value
+  -- File.writeBinary path value
 
 
 -- @TODO potentially skip binary serialisation entirely
@@ -211,10 +217,14 @@ writeBuilder :: FilePath -> B.Builder -> IO ()
 writeBuilder = File.writeBuilder
 
 remove :: FilePath -> IO ()
-remove path = File.remove path
+remove path = do
+  delete path
+  File.remove path
 
 removeDir :: FilePath -> IO ()
-removeDir path = File.removeDir path
+removeDir path = do
+  delete path
+  File.removeDir path
 
 
 

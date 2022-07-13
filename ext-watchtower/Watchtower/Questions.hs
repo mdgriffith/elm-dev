@@ -213,7 +213,7 @@ ask state question =
       do
         Ext.Common.debug $ "Parsing: " ++ show path
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-        Ext.Sentry.track "parsing"
+        Ext.Common.track "parsing"
           (do
               result <- Ext.CompileProxy.parse root path
               case result of
@@ -260,11 +260,12 @@ ask state question =
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Ext.Common.log "✍️  list signatures" (show (Path.takeFileName path))
         compiling <- Watchtower.Live.projectIsCompiling path state
-        if compiling then
+        if compiling
+          then
             Watchtower.Annotate.listMissingAnnotations root path
               & fmap Json.Encode.encodeUgly
-        else
-            allProjectStatuses state
+          else
+              allProjectStatuses state
 
     SignaturePlease path name ->
       do

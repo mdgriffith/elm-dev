@@ -372,8 +372,8 @@ crawlModule env@(Env _ root projectType srcDirs buildID locals foreigns) mvar do
                     Just local@(Details.Local oldPath oldTime deps _ lastChange _) -> do
                       -- debug $ "old vs new times on " <> path <> " : " <> show (oldTime, newTime)
                       if path /= oldPath || oldTime /= newTime || needsDocs docsNeed
-                      then crawlFile env mvar docsNeed name path newTime lastChange
-                      else crawlDeps env mvar deps (SCached local)
+                        then crawlFile env mvar docsNeed name path newTime lastChange
+                        else crawlDeps env mvar deps (SCached local)
 
         p1:p2:ps ->
           return $ SBadImport $ Import.AmbiguousLocal (FP.makeRelative root p1) (FP.makeRelative root p2) (map (FP.makeRelative root) ps)

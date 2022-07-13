@@ -73,14 +73,14 @@ instance Binary.Binary Time where
 writeBinary :: (Binary.Binary a) => FilePath -> a -> IO ()
 writeBinary path value =
   do  let dir = FP.dropFileName path
-      debug_ $ "💥 missed writeBinary" ++ show path
+      -- debug_ $ "💥 missed writeBinary" ++ show path
       Dir.createDirectoryIfMissing True dir
       Binary.encodeFile path value
 
 
 readBinary :: (Binary.Binary a) => FilePath -> IO (Maybe a)
 readBinary path =
-  do  debug_ $ "💥 missed readBinary" ++ show path
+  do  -- debug_ $ "💥 missed readBinary" ++ show path
       pathExists <- Dir.doesFileExist path
       if pathExists
         then
@@ -112,7 +112,7 @@ readBinary path =
 writeUtf8 :: FilePath -> BS.ByteString -> IO ()
 writeUtf8 path content =
   withUtf8 path IO.WriteMode $ \handle -> do
-    debug_ $ "💥 missed writeUtf8" ++ show path
+    -- debug_ $ "💥 missed writeUtf8" ++ show path
     BS.hPut handle content
 
 
@@ -120,7 +120,7 @@ withUtf8 :: FilePath -> IO.IOMode -> (IO.Handle -> IO a) -> IO a
 withUtf8 path mode callback =
   IO.withFile path mode $ \handle ->
     do  IO.hSetEncoding handle IO.utf8
-        debug_ $ "💥 missed withUtf8" ++ show path
+        -- debug_ $ "💥 missed withUtf8" ++ show path
         callback handle
 
 
@@ -134,7 +134,7 @@ readUtf8 path =
     modifyIOError (encodingError path) $
       do  fileSize <- catch (IO.hFileSize handle) useZeroIfNotRegularFile
           let readSize = max 0 (fromIntegral fileSize) + 1
-          debug_ $ "💥 missed readUtf8" ++ show path
+          -- debug_ $ "💥 missed readUtf8" ++ show path
           hGetContentsSizeHint handle readSize (max 255 readSize)
 
 
@@ -187,7 +187,7 @@ writeBuilder path builder =
 
 writePackage :: FilePath -> Zip.Archive -> IO ()
 writePackage destination archive = do
-  debug_ $ "💥 missed writePackage" ++ show destination
+  -- debug_ $ "💥 missed writePackage" ++ show destination
   case Zip.zEntries archive of
     [] ->
       return ()
@@ -199,7 +199,7 @@ writePackage destination archive = do
 
 writeEntry :: FilePath -> Int -> Zip.Entry -> IO ()
 writeEntry destination root entry = do
-  debug_ $ "💥 missed writeEntry" ++ show destination
+  -- debug_ $ "💥 missed writeEntry" ++ show destination
   let
     path = drop root (Zip.eRelativePath entry)
   -- in
@@ -221,7 +221,7 @@ writeEntry destination root entry = do
 
 exists :: FilePath -> IO Bool
 exists path = do
-  -- debug_ $ "💥 missed exists" ++ show path
+  -- -- debug_ $ "💥 missed exists" ++ show path
   Dir.doesFileExist path
 
 
@@ -232,7 +232,7 @@ exists path = do
 remove :: FilePath -> IO ()
 remove path =
   do  exists_ <- Dir.doesFileExist path
-      debug_ $ "💥 missed remove" ++ show path
+      -- debug_ $ "💥 missed remove" ++ show path
       if exists_
         then Dir.removeFile path
         else return ()
@@ -241,7 +241,7 @@ remove path =
 removeDir :: FilePath -> IO ()
 removeDir path =
   do  exists_ <- Dir.doesDirectoryExist path
-      debug_ $ "💥 missed removeDir" ++ show path
+      -- debug_ $ "💥 missed removeDir" ++ show path
       if exists_
         then Dir.removeDirectoryRecursive path
         else return ()

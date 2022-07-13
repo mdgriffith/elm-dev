@@ -27,12 +27,11 @@ import Ext.CompileMode (getMode, CompileMode(..))
 type Time = File.Time
 
 
-
 debugSummary =
   case getMode of
     Memory -> FileCache.debugSummary
-    Disk -> FileCache.debugSummary -- @TODO specialise for disk mode
-    Race -> FileCache.debugSummary -- @TODO specialise for disk mode
+    Disk -> FileCache.debugSummary
+    Race -> FileCache.debugSummary
 
 -- Interface proxies
 

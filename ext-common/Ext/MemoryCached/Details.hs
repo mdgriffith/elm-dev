@@ -17,7 +17,7 @@ module Ext.MemoryCached.Details
 
 
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, modifyMVar_)
+import Control.Concurrent.MVar
 import Control.Monad (liftM, liftM2, liftM3)
 import Data.Binary (Binary, get, put, getWord8, putWord8)
 import qualified Data.Either as Either

@@ -10,7 +10,6 @@ import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Elm.Outline
-import qualified Ext.FileProxy as File
 import qualified Json.Decode
 import Json.Encode ((==>))
 import qualified Json.Encode

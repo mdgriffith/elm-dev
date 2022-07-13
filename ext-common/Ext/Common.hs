@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Ext.Common where
 
@@ -143,7 +144,7 @@ track label io = do
   m <- getTime Monotonic
   p <- getTime ProcessCPUTime
   t <- getTime ThreadCPUTime
-  res <- io
+  !res <- io
   m_ <- getTime Monotonic
   p_ <- getTime ProcessCPUTime
   t_ <- getTime ThreadCPUTime
@@ -170,7 +171,7 @@ track__ label io = do
   m <- getTime Monotonic
   p <- getTime ProcessCPUTime
   t <- getTime ThreadCPUTime
-  res <- io
+  !res <- io
   m_ <- getTime Monotonic
   p_ <- getTime ProcessCPUTime
   t_ <- getTime ThreadCPUTime
@@ -187,11 +188,11 @@ track__ label io = do
     _ -> error $ "impossible? couldn't get millis from '" <> T.unpack result <> "' on tracked label: " <> label
 
 
-race ios = do
-  results <- mapM (\(label, io) -> track__ label io ) ios
+race label ios = do
+  !results <- mapM (\(label, io) -> track__ label io ) ios
   -- resultsMvar <- traverse (\(label, io) -> fork $ track__ label io ) ios
   -- results <- traverse readMVar resultsMvar
-  -- atomicPutStrLn $ "🏃 race results:\n" <> (fmap (T.pack . show . fst) results & T.intercalate "" & T.unpack)
+  atomicPutStrLn $ "🏃 race results: " <> label <> "\n" <> (fmap (T.pack . show . (\(x,_,_) -> x)) results & T.intercalate "" & T.unpack)
   pure results
 
 

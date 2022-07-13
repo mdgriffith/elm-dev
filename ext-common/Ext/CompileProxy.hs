@@ -7,7 +7,6 @@ module Ext.CompileProxy where
    (i.e. Disk vs MemoryCached)
  -}
 
-
 import Control.Concurrent.MVar
 import Ext.Common
 import Ext.CompileMode (getMode, CompileMode(..))
@@ -58,7 +57,7 @@ aggregateStatistics = unsafePerformIO $
 
 {-# NOINLINE addToAggregate #-}
 addToAggregate mode t label = do
-  Ext.Common.debug $ "📈 " <> label <> " compile +" <> show t
+  Ext.Common.debug $ "📈 " ++ label ++ " +" ++ show t
   modifyMVar_ aggregateStatistics (\agg -> pure $ Map.update (\existing -> Just $ existing + t) mode agg )
 
 
@@ -80,8 +79,8 @@ modeRunner identifier ioDisk ioMemory = do
       addToAggregate Memory t label
       pure result
     Race -> do
-      results <- Ext.Common.race [ ("🧠 memcached", ioMemory) , ("🎻 classic  ", ioDisk) ]
-      results & zip [Memory, Disk] & mapM_ (\(m, (t, l, r)) -> addToAggregate m t l)
+      results <- Ext.Common.race identifier [ ("🧠 memcached", ioMemory) , ("🎻 classic  ", ioDisk) ]
+      results & zip [Memory, Disk] & mapM_ (\(m, (t, l, r)) -> addToAggregate m t (l ++ " " ++ identifier))
       (results !! 1) & (\(_,_,x) -> x) & pure
 
 
@@ -93,35 +92,16 @@ compileToJson root paths = do
   res <- modeRunner "compileToJson"
     (Watchtower.Compile.Classic.compileToJson root paths)
     (Watchtower.Compile.MemoryCached.compileToJson root paths)
-    -- compileToJson_ root paths
   summary <- aggregateSummary
   Ext.Common.debug $ "📊 " <> summary
   pure res
 
 
--- compileToJson_ :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
--- compileToJson_ root paths = do
---   Ext.Common.debug $ "👁 compileProxy:compileToJson:" <> show getMode <> " " <> root <> " " <> show paths
---   case getMode of
---     Disk -> do
---       (t, label, result) <- Ext.Common.track__ "🎻 classic  " $ Watchtower.Compile.Classic.compileToJson root paths
---       addToAggregate Disk t label
---       pure result
-
---     Memory -> do
---       (t, label, result) <- Ext.Common.track__ "🧠 memcached" $ Watchtower.Compile.MemoryCached.compileToJson root paths
---       addToAggregate Memory t label
---       pure result
-
---     Race -> do
---       results <- Ext.Common.race
---         [ ("🧠 memcached", Watchtower.Compile.MemoryCached.compileToJson root paths)
---         , ("🎻 classic  ", Watchtower.Compile.Classic.compileToJson root paths)
---         ]
-
---       results & zip [Memory, Disk] & mapM_ (\(m, (t, l, r)) -> addToAggregate m t l)
-
---       (results !! 1) & (\(_,_,x) -> x) & pure
+allDepArtifacts :: IO CompileHelpers.Artifacts
+allDepArtifacts =
+  modeRunner "allDepArtifacts"
+    (Ext.CompileHelpers.Disk.allDepArtifacts)
+    (Ext.CompileHelpers.Memory.allDepArtifacts)
 
 
 allInterfaces :: [FilePath] -> IO (Map.Map ModuleName.Raw I.Interface)
@@ -129,17 +109,11 @@ allInterfaces paths = do
   artifactsDeps <- allDepArtifacts
   ifacesProject <-
     case paths of
-      [] -> error "Ext.CompileHelpers.Disk.allInterfaces must have at least one path specified!"
+      -- @TODO change to NE.List
+      [] -> error "Ext.CompileProxy.allInterfaces must have at least one path specified!"
       path:paths -> allProjectInterfaces (NE.List path paths)
 
   pure $ Map.union ifacesProject (CompileHelpers._ifaces artifactsDeps)
-
-
--- allInterfaces :: [FilePath] -> IO (Map.Map ModuleName.Raw I.Interface)
--- allInterfaces paths = do
---   modeRunner "allInterfaces" (error "TBC") (error "TBC")
---     -- (Watchtower.Compile.Classic.allInterfaces root paths)
---     -- (Watchtower.Compile.MemoryCached.allInterfaces root paths)
 
 
 loadSingleArtifacts :: FilePath -> FilePath -> IO (Either Reporting.Error.Error Compile.Artifacts)
@@ -155,14 +129,6 @@ loadSingleArtifacts root path =
         pure $ Left $ Reporting.Error.BadSyntax err
 
 
-allDepArtifacts :: IO CompileHelpers.Artifacts
-allDepArtifacts =
-  modeRunner "allDepArtifacts"
-    (Ext.CompileHelpers.Disk.allDepArtifacts)
-    (Ext.CompileHelpers.Memory.allDepArtifacts)
-
-
-
 allProjectInterfaces :: NE.List FilePath -> IO (Map.Map ModuleName.Raw I.Interface)
 allProjectInterfaces paths =
   BW.withScope $ \scope -> do
@@ -172,7 +138,6 @@ allProjectInterfaces paths =
           artifacts  <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
 
           Task.io $ extractInterfaces $ Build._modules artifacts
-
 
 
 loadFileSource :: FilePath -> FilePath -> IO (Either Reporting.Error.Syntax.Error (BS.ByteString, Src.Module))
@@ -186,7 +151,6 @@ loadFileSource root path = do
 
       Left err ->
         pure $ Left err
-
 
 
 {- Appropriated from worker/src/Artifacts.hs
@@ -209,18 +173,6 @@ loadProject =
           return details
 
 
--- loadSingleArtifacts = error "todo loadSingleArtifacts"
-
-
--- warnings :: FilePath -> FilePath -> IO (Either () (Src.Module, [ Warning.Warning ]))
--- warnings root path =
---   modeRunner "warnings" (error "TBC") (error "TBC")
---     -- (Watchtower.Compile.Classic.warnings root paths)
---     -- (Watchtower.Compile.MemoryCached.warnings root paths)
-
-
-
-
 parse :: FilePath -> FilePath -> IO (Either Reporting.Error.Syntax.Error Src.Module)
 parse root path =
   Dir.withCurrentDirectory root $ do
@@ -228,10 +180,7 @@ parse root path =
     return $ Parse.fromByteString Parse.Application source
 
 
-
-
-
-
+-- @TODO this is a disk mode function
 warnings :: FilePath -> FilePath -> IO (Either () (Src.Module, [ Warning.Warning ]))
 warnings root path =
   Dir.withCurrentDirectory root $ do
@@ -264,9 +213,6 @@ warnings root path =
 
   --   Left errors ->
   --     Left (E.BadMains (Localizer.fromModule modul) errors)
-
-
-
 
 
 

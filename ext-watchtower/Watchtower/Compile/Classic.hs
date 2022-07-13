@@ -32,9 +32,6 @@ compileToJson root paths =
     let toBS = BSL.toStrict . B.toLazyByteString
     result <- compileToDevNull root paths
 
-    -- hindentPrintValue "Exit.Reactor" result
-    -- Ext.FileProxy.debugSummary
-
     pure $
       case result of
         Right () ->
