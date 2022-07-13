@@ -175,7 +175,12 @@ track__ label io = do
   p_ <- getTime ProcessCPUTime
   t_ <- getTime ThreadCPUTime
   let result :: T.Text = sformat (timeSpecs) m m_
-      millisM :: Maybe Double = result & T.splitOn " " & Prelude.head & T.unpack & readMaybe
+      -- millisM :: Maybe Double = result & T.splitOn " " & Prelude.head & T.unpack & readMaybe
+      millisM :: Maybe Double =
+        case result & T.splitOn " " of
+          v:"ms":_ -> v & T.unpack & readMaybe
+          v:"us":_ -> v & T.unpack & readMaybe & fmap (/ 1000)
+          _      -> error $ "woah there! unhandled track__ result: " <> T.unpack result
 
   case millisM of
     Just millis -> pure $ ( millis , label, res )
