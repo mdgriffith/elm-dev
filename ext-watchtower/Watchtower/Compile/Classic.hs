@@ -1,68 +1,30 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Compile.Classic (compileToJson, compileToBuilder, warnings, parse) where
+module Watchtower.Compile.Classic (
+  compileToJson,
+  -- compileToBuilder,
+) where
 
--- @TODO cleanup imports
 
+import Json.Encode ((==>))
 import qualified BackgroundWriter as BW
 import qualified Build
-import Control.Applicative ((<|>))
-import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
-import Control.Monad (guard)
-import Control.Monad.Trans (MonadIO (liftIO))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Map as Map
-import qualified Data.Name as Name
-import Data.Monoid ((<>))
 import qualified Data.NonEmptyList as NE
-import qualified Develop.Generate.Help as Help
-import qualified Develop.Generate.Index as Index
-import qualified Develop.StaticFiles as StaticFiles
 import qualified Elm.Details as Details
-import qualified Elm.Package as Pkg
-import Ext.Common (getProjectRootFor, trackedForkIO)
 import qualified Ext.Common
-import qualified Ext.Filewatch as Filewatch
-import qualified Ext.FileProxy
-import qualified Ext.Sentry as Sentry
 import qualified Generate
 import qualified Generate.Html as Html
-import Json.Encode ((==>))
 import qualified Json.Encode as Encode
-
-import qualified System.IO.Unsafe
-
-
-import qualified AST.Source as Src
-import qualified AST.Canonical as Can
-import qualified AST.Optimized as Opt
-import qualified File
-import qualified Llamadera
-import qualified Parse.Module as Parse
-import qualified Canonicalize.Module as Canonicalize
-import qualified Reporting.Result
-import qualified Reporting.Error.Syntax
-
--- Reporting
 import qualified Reporting
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
-import qualified Reporting.Warning as Warning
-import qualified Type.Constrain.Module as Type
-import qualified Type.Solve as Type
-import qualified Optimize.Module as Optimize
-
--- server stuff
-import Snap.Core hiding (path)
-import Snap.Http.Server
-import Snap.Util.FileServe
-import StandaloneInstances
 import qualified Stuff
 import qualified System.Directory as Dir
-import System.FilePath as FP
+import StandaloneInstances
+
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
 compileToJson root paths =
@@ -91,6 +53,7 @@ compileToJson root paths =
           -- debugPass "serveElm error" (Exit.reactorToReport exit) (pure ())
           -- Help.makePageHtml "Errors" $ Just $
           Left $ Exit.toJson $ Exit.reactorToReport exit
+
 
 compileToBuilder :: FilePath -> NE.List FilePath -> IO (Either BS.ByteString BS.ByteString)
 compileToBuilder root paths =
@@ -144,58 +107,3 @@ compileToDevNull root paths =
             artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
 
             return ()
-
-
-
-
-parse :: FilePath -> FilePath -> IO (Either Reporting.Error.Syntax.Error Src.Module)
-parse root path =
-  Dir.withCurrentDirectory root $ do
-    source <- File.readUtf8 path
-    return $ Parse.fromByteString Parse.Application source
-
-
-warnings :: FilePath -> FilePath -> IO (Either () (Src.Module, [ Warning.Warning ]))
-warnings root path =
-  Dir.withCurrentDirectory root $ do
-    ifaces <- Llamadera.allInterfaces [path]
-    source <- File.readUtf8 path
-    case Parse.fromByteString Parse.Application source of
-      Right srcModule ->
-        do
-          let (canWarnings, eitherCanned) = Reporting.Result.run $ Canonicalize.canonicalize Pkg.dummyName ifaces srcModule
-          case eitherCanned of
-            Left errs ->
-              pure (Right (srcModule, canWarnings))
-
-            Right canModule ->
-                case typeCheck srcModule canModule of
-                  Left typeErrors ->
-                      pure (Right (srcModule, canWarnings))
-
-                  Right annotations ->
-                    do
-                      let (optWarnings, _) = Reporting.Result.run $ Optimize.optimize annotations canModule
-                      pure (Right (srcModule, canWarnings <> optWarnings))
-
-      Left err ->
-        pure (Left ())
-
-  --  case snd $ R.run $ Optimize.optimize annotations canonical of
-  --   Right localGraph ->
-  --     Right localGraph
-
-  --   Left errors ->
-  --     Left (E.BadMains (Localizer.fromModule modul) errors)
-
-
-
-
-typeCheck :: Src.Module -> Can.Module -> Either () (Map.Map Name.Name Can.Annotation)
-typeCheck modul canonical =
-  case System.IO.Unsafe.unsafePerformIO (Type.run =<< Type.constrain canonical) of
-    Right annotations ->
-      Right annotations
-
-    Left errors ->
-      Left ()

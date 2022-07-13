@@ -1,53 +1,30 @@
-
--- This compilation mode uses an in-memory file cache to avoid disk reads
-
 {-# LANGUAGE OverloadedStrings #-}
 
 module Watchtower.Compile.MemoryCached (compileToJson) where
 
--- @TODO cleanup imports
 
+import Ext.Common
+import Json.Encode ((==>))
 import qualified BackgroundWriter as BW
 import qualified Build
-import qualified Ext.MemoryCached.Build
-import Control.Applicative ((<|>))
-import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, writeTVar)
-import Control.Monad (guard)
-import Control.Monad.Trans (MonadIO (liftIO))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.HashMap.Strict as HashMap
-import Data.Monoid ((<>))
 import qualified Data.NonEmptyList as NE
-import qualified Develop.Generate.Help as Help
-import qualified Develop.Generate.Index as Index
-import qualified Develop.StaticFiles as StaticFiles
-import qualified Ext.MemoryCached.Details
-import Ext.Common
+import qualified Elm.Details as Details
 import qualified Ext.Common
-import qualified Ext.Filewatch as Filewatch
-import qualified Ext.Sentry as Sentry
-import qualified Ext.MemoryCached.Generate as Generate
+import qualified Ext.FileCache
+import qualified Ext.MemoryCached.Build
+import qualified Ext.MemoryCached.Details
+import qualified Generate
 import qualified Generate.Html as Html
-import Json.Encode ((==>))
 import qualified Json.Encode as Encode
 import qualified Reporting
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
-import Snap.Core hiding (path)
-import Snap.Http.Server
-import Snap.Util.FileServe
-import StandaloneInstances
 import qualified Stuff
 import qualified System.Directory as Dir
-import System.FilePath as FP
-import qualified Ext.FileProxy
-
-import qualified Build
-import qualified Elm.Details
-
-import qualified Ext.FileCache
+import StandaloneInstances
 
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)

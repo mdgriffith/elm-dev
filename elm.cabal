@@ -211,6 +211,9 @@ Executable watchtower
         -- ext-common
         Ext.Common
         Ext.ElmFormat
+        Ext.CompileHelpers.Generic
+        Ext.CompileHelpers.Disk
+        Ext.CompileHelpers.Memory
 
         -- ext-sentry
         Ext.Sentry

@@ -178,7 +178,7 @@ track__ label io = do
       millisM :: Maybe Double = result & T.splitOn " " & Prelude.head & T.unpack & readMaybe
 
   case millisM of
-    Just millis -> pure $ ( millis , res )
+    Just millis -> pure $ ( millis , label, res )
     _ -> error $ "impossible? couldn't get millis from '" <> T.unpack result <> "' on tracked label: " <> label
 
 

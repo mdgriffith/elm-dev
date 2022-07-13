@@ -16,7 +16,7 @@ import qualified Compile
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BSL
-import Data.Function ((&))
+
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
@@ -45,6 +45,9 @@ import Terminal (Parser (..))
 import qualified Text.Show.Unicode
 import qualified Watchtower.Details
 
+import qualified Ext.CompileProxy
+
+import Ext.Common
 
 -- getTopLevelNameAt :: A.Position -> Src.Module -> Maybe Name.Name
 -- getTopLevelNameAt position mod =
@@ -70,8 +73,8 @@ This will list those annotations as well as their coordinates
 -}
 listMissingAnnotations :: FilePath -> FilePath -> IO Json.Encode.Value
 listMissingAnnotations root file = do
-  mSource <- Llamadera.loadFileSource root file
-  eitherArtifacts <- Llamadera.loadSingleArtifacts root file
+  mSource <- Ext.CompileProxy.loadFileSource root file
+  eitherArtifacts <- Ext.CompileProxy.loadSingleArtifacts root file
   case mSource of
     Left err ->
       pure $ jsonError err
@@ -114,13 +117,13 @@ listMissingAnnotations root file = do
 -}
 annotation :: FilePath -> FilePath -> Name.Name -> IO Json.Encode.Value
 annotation root file expressionName = do
-  mSource <- Llamadera.loadFileSource root file
+  mSource <- Ext.CompileProxy.loadFileSource root file
   case mSource of
     Left err ->
       pure $ jsonError err
     Right (source, modul) -> do
       do
-        eitherArtifacts <- Llamadera.loadSingleArtifacts root file
+        eitherArtifacts <- Ext.CompileProxy.loadSingleArtifacts root file
         case eitherArtifacts of
           Right artifacts -> do
             case getAnnotation modul expressionName artifacts of
@@ -506,9 +509,9 @@ canonicalTypeToMultilineString self imports tipe =
 callgraph :: FilePath -> FilePath -> Name.Name -> IO Json.Encode.Value
 callgraph root file expressionName = do
   do
-    Llamadera.debug_ "Getting artifacts..."
+    debug "Getting artifacts..."
 
-    eitherArtifacts <- Llamadera.loadSingleArtifacts root file
+    eitherArtifacts <- Ext.CompileProxy.loadSingleArtifacts root file
     case eitherArtifacts of
       Right (Compile.Artifacts mod annotations (Opt.LocalGraph main graph fields)) -> do
         let moduleName =

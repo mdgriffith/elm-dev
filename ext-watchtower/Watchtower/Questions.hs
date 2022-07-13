@@ -33,6 +33,8 @@ import qualified Watchtower.Compile.Classic as Watchtower.Compile
 import qualified Watchtower.Project
 import qualified Reporting.Warning as Warning
 
+import qualified Ext.CompileProxy
+
 
 -- One off questions and answers you might have/want.
 data Question
@@ -213,7 +215,7 @@ ask state question =
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Ext.Sentry.track "parsing"
           (do
-              result <- Watchtower.Compile.parse  root path
+              result <- Ext.CompileProxy.parse root path
               case result of
                 Right _ ->
                     Ext.Common.debug $ "parsed succssfully"
@@ -227,7 +229,7 @@ ask state question =
       do
         Ext.Common.debug $ "Warnings: " ++ show path
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-        eitherErrorOrWarnings <- Watchtower.Compile.warnings root path
+        eitherErrorOrWarnings <- Ext.CompileProxy.warnings root path
 
         let jsonResult = case eitherErrorOrWarnings of
               Right (mod, warnings) ->
@@ -255,8 +257,6 @@ ask state question =
 
     ListMissingSignaturesPlease path ->
       do
-        -- Ext.Common.debug "NEUTERED:ListMissingSignaturesPlease"
-        -- pure "NEUTERED"
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Ext.Common.log "✍️  list signatures" (show (Path.takeFileName path))
         compiling <- Watchtower.Live.projectIsCompiling path state
