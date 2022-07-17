@@ -92,8 +92,8 @@ jobs:
           max_attempts: 3
           command: stack install
 
-      - name: Archive elm-watchtower artifact
+      - name: Archive watchtower artifact
         uses: actions/upload-artifact@v2
         with:
-          name: elm-watchtower.exe
-          path: ~/.local/bin/elm-watchtower
+          name: watchtower
+          path: ~/.local/bin/watchtower
