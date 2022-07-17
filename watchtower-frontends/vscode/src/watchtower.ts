@@ -26,10 +26,39 @@ type Project = {
   entrypoints: String[];
 };
 
+function socketConnect(options) {
+  const websocket = new WebSocketClient();
+
+  websocket.on("connectFailed", function (error) {
+    log.log("Connect Error: " + error.toString());
+    options.onConnectionFailed(error);
+  });
+
+  websocket.on("connect", function (connection) {
+    connection.on("error", function (error) {
+      log.log("Connection Error: " + error.toString());
+    });
+    connection.on("close", function () {
+      log.log("Connection Closed");
+    });
+    connection.on("message", function (message) {
+      if (message.type === "utf8") {
+        options.receive(message.utf8Data);
+      }
+    });
+
+    options.onJoin(connection);
+  });
+
+  websocket.connect(options.url);
+
+  return { websocket: websocket };
+}
+
 export class Watchtower {
-  private websocket;
   private connection;
   private projects: Project[];
+  private retry;
   public codelensProvider: SignatureCodeLensProvider;
   public diagnostics: vscode.DiagnosticCollection;
   public definitionsProvider: vscode.DefinitionProvider;
@@ -53,36 +82,12 @@ export class Watchtower {
     self.diagnostics =
       vscode.languages.createDiagnosticCollection("elmWatchtower");
 
-    // start websocket stuff
-    self.websocket = new WebSocketClient();
-
-    self.websocket.on("connectFailed", function (error) {
-      log.log("Connect Error: " + error.toString());
+    socketConnect({
+      url: Question.urls.websocket,
+      onJoin: self.onJoin,
+      onConnectionFailed: self.onConnectionFailed,
+      receive: self.receive,
     });
-
-    self.websocket.on("connect", function (connection) {
-      connection.on("error", function (error) {
-        log.log("Connection Error: " + error.toString());
-      });
-      connection.on("close", function () {
-        log.log("Connection Closed");
-      });
-      connection.on("message", function (message) {
-        if (message.type === "utf8") {
-          self.receive(message.utf8Data);
-        }
-      });
-      self.connection = connection;
-
-      // OnJoin
-
-      if (vscode.workspace.workspaceFolders.length > 0) {
-        const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
-        self.send(discover(root));
-      }
-    });
-
-    self.websocket.connect(Question.urls.websocket);
 
     vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
       self.send(changed(document.uri.path));
@@ -115,6 +120,36 @@ export class Watchtower {
       }
     });
   }
+
+  private onConnectionFailed(error) {
+    const self = this;
+    this.retry = setTimeout(function () {
+      log.log("Reattempting connection");
+      socketConnect({
+        url: Question.urls.websocket,
+        onJoin: self.onJoin,
+        onConnectionFailed: self.onConnectionFailed,
+        receive: self.receive,
+      });
+    }, 2000);
+  }
+
+  private cancelRetry() {
+    if (this.retry) {
+      clearTimeout(this.retry);
+      this.retry = null;
+    }
+  }
+
+  private onJoin(connection) {
+    this.cancelRetry();
+    this.connection = connection;
+    if (vscode.workspace.workspaceFolders.length > 0) {
+      const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
+      this.send(discover(root));
+    }
+  }
+
   private receive(msgString: string) {
     const self = this;
     const msg = JSONSafe.parse(msgString);
