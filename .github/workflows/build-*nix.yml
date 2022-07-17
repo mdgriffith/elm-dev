@@ -4,11 +4,14 @@ on:
       - main
   pull_request:
 
-name: Build Watchtower for MacOS
+name: Build Watchtower for MacOS/Linux
 jobs:
   build-packages:
-    name: Build MacOS Libraries
-    runs-on: macos-latest
+    name: Build Libraries
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
 
@@ -59,8 +62,11 @@ jobs:
   # unecessarily once (+~3m), but over all subsequent runs with a cache hit the
   # whole lib step will be skipped almost immediately so its worth it.
   install:
-    name: Build MacOS Executable
-    runs-on: macos-latest
+    name: Build Executable
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     needs: build-packages
     steps:
       - uses: actions/checkout@v2
