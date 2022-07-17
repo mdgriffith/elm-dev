@@ -111,7 +111,7 @@ export class ElmProjectPane {
     if (ElmProjectPane.currentPanel) {
       ElmProjectPane.currentPanel._panel.webview.postMessage(msg);
     } else {
-      log.log("No panel, dropping msg");
+      // no panel, dropping msg
     }
   }
 
