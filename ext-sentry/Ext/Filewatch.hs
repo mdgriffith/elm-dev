@@ -22,7 +22,7 @@ watch root action =
               Debounce.init = []
             }
           Debounce.def
-            { Debounce.delay = 10000, -- 10ms
+            { Debounce.delay = 50 * 1000, -- milliseconds
               Debounce.alwaysResetTimer = True
             }
 
@@ -32,7 +32,7 @@ watch root action =
         root -- directory to watch
         shouldTrigger -- predicate
         (\event -> do
-            Ext.Common.debug ("Changed: " <> toString event)
+            Ext.Common.debug ("Filewatch.event: " <> toString event)
             Debounce.send trigger (getEventFilePath event)
         )
 
@@ -60,7 +60,7 @@ getEventFilePath event =
 
 shouldTrigger :: System.FSNotify.Event -> Bool
 shouldTrigger event =
-    let 
+    let
         path = getEventFilePath event
     in
     not (List.isInfixOf ".git" path)

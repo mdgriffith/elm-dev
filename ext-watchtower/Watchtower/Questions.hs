@@ -29,9 +29,10 @@ import qualified Watchtower.Annotate
 import qualified Watchtower.Details
 import qualified Watchtower.Find
 import qualified Watchtower.Live
-import qualified Watchtower.Compile
 import qualified Watchtower.Project
 import qualified Reporting.Warning as Warning
+
+import qualified Ext.CompileProxy
 
 
 -- One off questions and answers you might have/want.
@@ -78,7 +79,7 @@ actionHandler state =
               writeBS "Needs a file parameter"
             Just file -> do
               questionHandler state (Warnings (Data.ByteString.Char8.unpack file))
-      
+
       Just "parse" ->
         do
           maybeFile <- getQueryParam "file"
@@ -87,7 +88,7 @@ actionHandler state =
               writeBS "Needs a file parameter"
             Just file -> do
               questionHandler state (TimingParse (Data.ByteString.Char8.unpack file))
-      
+
       Just "discover" ->
         do
           maybeFile <- getQueryParam "dir"
@@ -104,10 +105,11 @@ actionHandler state =
               writeBS "Needs location"
             Just file -> do
               let strPath = Data.ByteString.Char8.unpack file
-              if Path.takeExtension strPath == ".elm" then 
-                questionHandler state (ListMissingSignaturesPlease strPath)
-              else 
-                writeBS ("Requested missing signatures, but this isn't an elm file" <> file)
+              if Path.takeExtension strPath == ".elm"
+                then
+                  questionHandler state (ListMissingSignaturesPlease strPath)
+                else
+                  writeBS ("Requested missing signatures, but this isn't an elm file" <> file)
       Just "signature" ->
         do
           maybeFile <- getQueryParam "file"
@@ -206,13 +208,13 @@ ask state question =
       allProjectStatuses state
 
 
-    TimingParse path -> 
-      do 
+    TimingParse path ->
+      do
         Ext.Common.debug $ "Parsing: " ++ show path
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-        Ext.Sentry.track "parsing" 
-          (do 
-              result <- Watchtower.Compile.parse  root path
+        Ext.Common.track "parsing"
+          (do
+              result <- Ext.CompileProxy.parse root path
               case result of
                 Right _ ->
                     Ext.Common.debug $ "parsed succssfully"
@@ -226,12 +228,12 @@ ask state question =
       do
         Ext.Common.debug $ "Warnings: " ++ show path
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-        eitherErrorOrWarnings <- Watchtower.Compile.warnings root path
+        eitherErrorOrWarnings <- Ext.CompileProxy.warnings root path
 
         let jsonResult = case eitherErrorOrWarnings of
               Right (mod, warnings) ->
-                  Json.Encode.encodeUgly 
-                    (Json.Encode.list 
+                  Json.Encode.encodeUgly
+                    (Json.Encode.list
                         (encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
                         warnings
                     )
@@ -257,11 +259,12 @@ ask state question =
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Ext.Common.log "✍️  list signatures" (show (Path.takeFileName path))
         compiling <- Watchtower.Live.projectIsCompiling path state
-        if compiling then
+        if compiling
+          then
             Watchtower.Annotate.listMissingAnnotations root path
               & fmap Json.Encode.encodeUgly
-        else
-            allProjectStatuses state
+          else
+              allProjectStatuses state
 
     SignaturePlease path name ->
       do
@@ -286,15 +289,15 @@ ask state question =
 allProjectStatuses (Watchtower.Live.State clients mProjects) =
     do
       projects <- STM.readTVarIO mProjects
-      projectStatuses <- 
-          Monad.foldM 
+      projectStatuses <-
+          Monad.foldM
             (\gathered (Watchtower.Live.ProjectCache proj sentry) ->
-              do 
+              do
                 result <- Ext.Sentry.getCompileResult sentry
-                pure 
-                  (Json.Encode.object 
+                pure
+                  (Json.Encode.object
                     [ "project" ==> Watchtower.Project.encodeProjectJson proj
-                    , "success" ==> 
+                    , "success" ==>
                         (case result of
                             Right _ ->
                               Json.Encode.bool True
@@ -314,9 +317,9 @@ allProjectStatuses (Watchtower.Live.State clients mProjects) =
             []
             projects
 
-      pure 
-        (Json.Encode.encode 
-          (Json.Encode.list 
+      pure
+        (Json.Encode.encode
+          (Json.Encode.list
               (\a -> a)
               projectStatuses
           )
@@ -326,20 +329,20 @@ allProjectStatuses (Watchtower.Live.State clients mProjects) =
 encodeWarning localizer warning =
   case warning of
     Warning.UnusedImport region name ->
-      Json.Encode.object 
+      Json.Encode.object
           [ "warning" ==> (Json.Encode.chars "UnusedImport")
-          , "region" ==> 
+          , "region" ==>
               (Watchtower.Details.encodeRegion region)
           , "name" ==>
               (Json.Encode.chars (Name.toChars name))
           ]
 
     Warning.UnusedVariable region defOrPattern name ->
-      Json.Encode.object 
+      Json.Encode.object
           [ "warning" ==> (Json.Encode.chars "UnusedVariable")
-          , "region" ==> 
+          , "region" ==>
               (Watchtower.Details.encodeRegion region)
-          , "context" ==> 
+          , "context" ==>
               (case defOrPattern of
                   Warning.Def -> Json.Encode.chars "def"
 
@@ -351,9 +354,9 @@ encodeWarning localizer warning =
           ]
 
     Warning.MissingTypeAnnotation region name type_ ->
-      Json.Encode.object 
+      Json.Encode.object
           [ "warning" ==> (Json.Encode.chars "MissingAnnotation")
-          , "region" ==> 
+          , "region" ==>
               (Watchtower.Details.encodeRegion region)
           , "name" ==>
               (Json.Encode.chars (Name.toChars name))

@@ -34,6 +34,8 @@ import qualified Reporting.Task as Task
 import qualified Stuff
 
 
+import Ext.Common (atomicPutStrLn)
+
 -- RUN THE DEV SERVER
 
 
@@ -46,7 +48,7 @@ data Flags =
 run :: () -> Flags -> IO ()
 run () (Flags maybePort) =
   do  let port = maybe 8000 id maybePort
-      putStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
+      atomicPutStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
       httpServe (config port) $
         serveFiles
         <|> serveDirectoryWith directoryConfig "."

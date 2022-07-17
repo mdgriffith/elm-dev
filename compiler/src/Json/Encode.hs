@@ -32,7 +32,7 @@ import Data.Monoid ((<>))
 import qualified Data.Name as Name
 import qualified Data.Utf8 as Utf8
 
-import qualified File
+import qualified Ext.FileProxy as File
 import qualified Json.String as Json
 
 

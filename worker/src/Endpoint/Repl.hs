@@ -29,7 +29,7 @@ import qualified Compile
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
-import qualified File
+import qualified Ext.FileProxy as File
 import qualified Generate.JavaScript as JS
 import qualified Json.Encode as Encode
 import qualified Parse.Module as Parse

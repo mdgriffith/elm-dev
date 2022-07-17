@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Ext.Common where
 
@@ -6,15 +8,18 @@ import Control.Concurrent
 import Control.Concurrent.MVar
 
 import qualified Data.List as List
+import Text.Read (readMaybe)
 import System.IO.Unsafe (unsafePerformIO)
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout, hClose, openTempFile)
 import System.Exit (exitFailure)
 import qualified System.FilePath as FP
 import qualified System.Directory as Dir
 import qualified System.Environment as Env
+import Control.Monad (unless)
+import qualified Data.Text as T
 
 import Control.Exception ()
-import Formatting (fprint, (%))
+import Formatting (fprint, (%), sformat)
 import Formatting.Clock (timeSpecs)
 import System.Clock (Clock(..), getTime)
 
@@ -85,7 +90,7 @@ indent i str =
 
 logList :: String -> [String] -> IO ()
 logList label strs =
-  Ext.Common.log label 
+  Ext.Common.log label
     (formatList strs)
 
 formatList :: [String] -> String
@@ -105,7 +110,7 @@ debug :: String -> IO ()
 debug str = do
   debugM <- Env.lookupEnv "LDEBUG"
   case debugM of
-    Just _ -> atomicPutStrLn $ "DEBUG: " ++ str ++ "\n"
+    Just _ -> atomicPutStrLn $ "DEBUG: " ++ str
     Nothing -> pure ()
 
 
@@ -116,7 +121,6 @@ withDebug io = do
   Env.unsetEnv "LDEBUG"
 
 
--- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
 {-# NOINLINE printLock #-}
 printLock :: MVar ()
 printLock = unsafePerformIO $ newMVar ()
@@ -140,14 +144,41 @@ track label io = do
   m <- getTime Monotonic
   p <- getTime ProcessCPUTime
   t <- getTime ThreadCPUTime
-  res <- io
+  !res <- io
   m_ <- getTime Monotonic
   p_ <- getTime ProcessCPUTime
   t_ <- getTime ThreadCPUTime
-  fprint ("⏱  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
-  -- fprint (timeSpecs % "\n") p p_
-  -- fprint (timeSpecs % "\n") t t_
+  atomicPutStrLn $ T.unpack $
+    sformat ("⏱  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
   pure res
+
+
+track_ label io = do
+  m <- getTime Monotonic
+  p <- getTime ProcessCPUTime
+  t <- getTime ThreadCPUTime
+  !res <- io
+  m_ <- getTime Monotonic
+  p_ <- getTime ProcessCPUTime
+  t_ <- getTime ThreadCPUTime
+  let result :: T.Text = sformat (timeSpecs) m m_
+      -- millisM :: Maybe Double = result & T.splitOn " " & Prelude.head & T.unpack & readMaybe
+      millisM :: Maybe Double =
+        case result & T.splitOn " " of
+          v:"ms":_ -> v & T.unpack & readMaybe
+          v:"us":_ -> v & T.unpack & readMaybe & fmap (/ 1000)
+          v:"s":_  -> v & T.unpack & readMaybe & fmap (* 1000)
+          _      -> error $ "woah there! unhandled track_ result: " <> T.unpack result
+
+  case millisM of
+    Just millis -> pure $ ( millis , label, res )
+    _ -> error $ "impossible? couldn't get millis from '" <> T.unpack result <> "' on tracked label: " <> label
+
+
+race label ios = do
+  !results <- mapM (\(label, io) -> track_ label io ) ios
+  atomicPutStrLn $ "🏃 race results: " <> label -- <> "\n" <> (fmap (T.pack . show . (\(x,_,_) -> x)) results & T.intercalate "," & T.unpack)
+  pure results
 
 
 
@@ -200,7 +231,6 @@ killTrackedThreads = do
   threadDelay (10 * 1000) -- 10ms to settle as Dir.* stuff behaves oddly
 
 
--- https://stackoverflow.com/questions/16811376/simulate-global-variable trick
 {-# NOINLINE ghciThreads #-}
 ghciThreads :: MVar [ThreadId]
 ghciThreads = unsafePerformIO $ newMVar []
@@ -211,6 +241,11 @@ ghciRoot :: MVar FilePath
 ghciRoot = unsafePerformIO $ do
   dir <- Dir.getCurrentDirectory
   newMVar dir
+
+-- Inversion of `unless` that runs IO only when condition is True
+onlyWhen :: Monad f => Bool -> f () -> f ()
+onlyWhen condition io =
+  unless (not condition) io
 
 
 -- Re-exports

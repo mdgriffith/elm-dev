@@ -29,7 +29,7 @@ import qualified Elm.Constraint as C
 import qualified Elm.Package as Pkg
 import qualified Elm.Outline as Outline
 import qualified Elm.Version as V
-import qualified File
+import qualified Ext.FileProxy as File
 import qualified Http
 import qualified Json.Decode as D
 import qualified Reporting.Exit as Exit

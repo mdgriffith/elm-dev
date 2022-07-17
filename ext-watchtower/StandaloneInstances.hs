@@ -18,6 +18,7 @@ import qualified Data.Text.Encoding as T
 import Data.String (IsString, fromString)
 import qualified Data.Map as Map
 import qualified GHC.IORef
+import qualified Control.Concurrent.MVar as MVar
 
 -- Elm modules
 
@@ -32,6 +33,7 @@ import qualified Data.NonEmptyList
 import qualified Data.OneOrMore
 import qualified Data.Utf8 as Utf8
 import qualified Elm.Constraint
+import qualified Elm.Details
 import qualified Elm.Float
 import qualified Elm.Interface
 import qualified Elm.Kernel
@@ -63,7 +65,8 @@ import qualified Type.UnionFind
 import qualified Reporting.Error.Type
 import qualified Deps.Registry
 import qualified Json.Encode
-import qualified File
+import qualified Ext.FileProxy as File
+
 
 
 -- Show
@@ -224,6 +227,11 @@ deriving instance Show Reporting.Exit.RegistryProblem
 deriving instance Show Reporting.Exit.Solver
 deriving instance Show Reporting.Exit.Details
 
+deriving instance Show Reporting.Exit.Reactor
+deriving instance Show Reporting.Exit.BuildProblem
+deriving instance Show Reporting.Exit.BuildProjectProblem
+deriving instance Show Reporting.Exit.Generate
+
 -- MISSING CONSTRUCTOR
 -- deriving instance Show Reporting.Exit.Help.Report
 instance Show Reporting.Exit.Help.Report where
@@ -290,8 +298,8 @@ instance Show Reporting.Error.Docs.Error where
 instance Show Nitpick.PatternMatches.Error where
   show _ = "\"<Nitpick.PatternMatches.Error>\""
 
-instance Show File.Time where
-  show _ = "\"<File.Time>\""
+-- instance Show File.Time where
+--   show _ = "\"<File.Time>\""
 
 
 deriving instance Show Elm.Version.Version
@@ -312,8 +320,7 @@ deriving instance Show Elm.Interface.Interface
 instance Show Elm.Interface.Binop where
   show _ = "\"<Elm.Interface.Binop>\""
 
-instance Show Elm.Interface.DependencyInterface where
-  show _ = "\"<Elm.Interface.DependencyInterface>\""
+deriving instance Show Elm.Interface.DependencyInterface
 
 instance Show Elm.Kernel.Chunk where
   show _ = "\"<Elm.Kernel.CHunk>\""
@@ -395,6 +402,9 @@ instance Show Type.Type.Mark where
 instance Show (GHC.IORef.IORef a) where
   show _ = "\"<IORef>\""
 
+instance Show a => Show (MVar.MVar a) where
+  show a = "MVar (" ++ show a ++ ")"
+
 
 deriving instance Show Deps.Registry.KnownVersions
 
@@ -404,6 +414,9 @@ deriving instance Show Json.Encode.Value
 instance Show B.Builder where
   show = T.unpack . T.decodeUtf8 . BSL.toStrict . B.toLazyByteString
 
+
+
+deriving instance Show Elm.Details.Local
 
 
 -- IsString

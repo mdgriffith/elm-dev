@@ -22,8 +22,10 @@ data Cache =
     , compileResult :: MVar (Either Encode.Value Encode.Value)
     }
 
+
 instance Show Cache where
   show _ = "<Cache>"
+
 
 init :: IO Cache
 init = do
@@ -31,7 +33,6 @@ init = do
   -- @TODO watchtower specific? or invert so its not.
   mCompileresult <- newMVar $ Right $ Encode.object [ "compiled" ==> (Encode.bool True) ]
   pure $ Cache mJsOutput mCompileresult
-
 
 
 updateCompileResult :: Cache -> IO (Either Encode.Value Encode.Value) -> IO ()
@@ -52,15 +53,3 @@ getJsOutput cache =
 updateJsOutput :: Cache -> IO BS.ByteString -> IO ()
 updateJsOutput (Cache mJsOutput _) recompile = do
   modifyMVar_ mJsOutput (\_ -> recompile )
-
-
-track label io = do
-  m <- getTime Monotonic
-  p <- getTime ProcessCPUTime
-  t <- getTime ThreadCPUTime
-  res <- io
-  m_ <- getTime Monotonic
-  p_ <- getTime ProcessCPUTime
-  t_ <- getTime ThreadCPUTime
-  fprint ("⏱  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
-  pure res

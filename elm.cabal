@@ -211,16 +211,28 @@ Executable watchtower
         -- ext-common
         Ext.Common
         Ext.ElmFormat
+        Ext.CompileHelpers.Generic
+        Ext.CompileHelpers.Disk
+        Ext.CompileHelpers.Memory
 
         -- ext-sentry
         Ext.Sentry
         Ext.Filewatch
 
+        -- ext-performance-cache
+        Ext.FileProxy
+        Ext.FileCache
+        Ext.CompileProxy
+        Ext.CompileMode
+        Ext.MemoryCached.BackgroundWriter
+        Ext.MemoryCached.Build
+        Ext.MemoryCached.Details
+        Ext.MemoryCached.Generate
+
         -- watchtower
         Watchtower
         Watchtower.Project
         Watchtower.Annotate
-        Watchtower.Compile
         Watchtower.Details
         Watchtower.Live
         Watchtower.Questions
@@ -273,6 +285,7 @@ Executable watchtower
 
         -- ext-common
         text,
+        hashtables,
 
         -- ext-sentry
         clock,

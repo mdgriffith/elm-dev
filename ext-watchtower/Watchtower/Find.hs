@@ -47,6 +47,7 @@ import Terminal (Parser (..))
 import qualified Text.Show.Unicode
 import qualified Util
 import qualified Watchtower.Details
+import qualified Ext.CompileProxy
 
 {- Find Definition -}
 
@@ -67,7 +68,7 @@ import qualified Watchtower.Details
 --        -> Else, check interface for modules with exposed values
 definitionAndPrint :: FilePath -> Watchtower.Details.PointLocation -> IO Json.Encode.Value
 definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
-  mSource <- Llamadera.loadSingleArtifacts root path
+  mSource <- Ext.CompileProxy.loadSingleArtifacts root path
   case mSource of
     Left err ->
       do
@@ -100,7 +101,7 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
                   pure (encodeSearchResult found)
               Just (External canMod name) ->
                 do
-                  details <- Llamadera.loadProject
+                  details <- Ext.CompileProxy.loadProject
 
                   case lookupModulePath details canMod of
                     Nothing ->
@@ -110,7 +111,7 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
                         pure (encodeSearchResult found)
                     Just targetPath ->
                       do
-                        eitherSource <- Llamadera.loadFileSource root targetPath
+                        eitherSource <- Ext.CompileProxy.loadFileSource root targetPath
 
                         case eitherSource of
                           Right (stringSource, sourceMod) ->

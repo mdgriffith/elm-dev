@@ -1,6 +1,8 @@
+-- Clone of builder/src/Elm/Details.hs modified to use MemoryCached.*
+
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE BangPatterns, OverloadedStrings #-}
-module Elm.Details
+module Ext.MemoryCached.Details
   ( Details(..)
   , BuildID
   , ValidOutline(..)
@@ -10,14 +12,14 @@ module Elm.Details
   , loadObjects
   , loadInterfaces
   , verifyInstall
-  -- extensions
-  , Extras(..)
+  -- extended
+  , bustDetailsCache
   )
   where
 
 
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
+import Control.Concurrent.MVar
 import Control.Monad (liftM, liftM2, liftM3)
 import Data.Binary (Binary, get, put, getWord8, putWord8)
 import qualified Data.Either as Either
@@ -37,7 +39,7 @@ import System.FilePath ((</>), (<.>))
 import qualified AST.Canonical as Can
 import qualified AST.Source as Src
 import qualified AST.Optimized as Opt
-import qualified BackgroundWriter as BW
+import qualified Ext.MemoryCached.BackgroundWriter as BW
 import qualified Compile
 import qualified Deps.Registry as Registry
 import qualified Deps.Solver as Solver
@@ -50,7 +52,7 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline as Outline
 import qualified Elm.Package as Pkg
 import qualified Elm.Version as V
-import qualified Ext.FileProxy as File
+import qualified Ext.FileCache as File
 import qualified Http
 import qualified Json.Decode as D
 import qualified Json.Encode as E
@@ -63,26 +65,32 @@ import qualified Stuff
 
 
 
+-- import Elm.Details (Details(..), Extras(..), ValidOutline(..))
+import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..), Local(..))
+
+import Ext.Common (debug)
+import System.IO.Unsafe (unsafePerformIO)
+
 -- DETAILS
 
 
-data Details =
-  Details
-    { _outlineTime :: File.Time
-    , _outline :: ValidOutline
-    , _buildID :: BuildID
-    , _locals :: Map.Map ModuleName.Raw Local
-    , _foreigns :: Map.Map ModuleName.Raw Foreign
-    , _extras :: Extras
-    }
+-- data Details =
+--   Details
+--     { _outlineTime :: File.Time
+--     , _outline :: ValidOutline
+--     , _buildID :: BuildID
+--     , _locals :: Map.Map ModuleName.Raw Local
+--     , _foreigns :: Map.Map ModuleName.Raw Foreign
+--     , _extras :: Extras
+--     }
 
 
 type BuildID = Word64
 
 
-data ValidOutline
-  = ValidApp (NE.List Outline.SrcDir)
-  | ValidPkg Pkg.Name [ModuleName.Raw] (Map.Map Pkg.Name V.Version {- for docs in reactor -})
+-- data ValidOutline
+--   = ValidApp (NE.List Outline.SrcDir)
+--   | ValidPkg Pkg.Name [ModuleName.Raw] (Map.Map Pkg.Name V.Version {- for docs in reactor -})
 
 
 -- NOTE: we need two ways to detect if a file must be recompiled:
@@ -98,24 +106,24 @@ data ValidOutline
 -- imports, we need to recompile. This can happen when a project has multiple
 -- entrypoints and some modules are compiled less often than their imports.
 --
-data Local =
-  Local
-    { _path :: FilePath
-    , _time :: File.Time
-    , _deps :: [ModuleName.Raw]
-    , _main :: Bool
-    , _lastChange :: BuildID
-    , _lastCompile :: BuildID
-    }
+-- data Local =
+--   Local
+--     { _path :: FilePath
+--     , _time :: File.Time
+--     , _deps :: [ModuleName.Raw]
+--     , _main :: Bool
+--     , _lastChange :: BuildID
+--     , _lastCompile :: BuildID
+--     }
 
 
-data Foreign =
-  Foreign Pkg.Name [Pkg.Name]
+-- data Foreign =
+--   Foreign Pkg.Name [Pkg.Name]
 
 
-data Extras
-  = ArtifactsCached
-  | ArtifactsFresh Interfaces Opt.GlobalGraph
+-- data Extras
+--   = ArtifactsCached
+--   | ArtifactsFresh Interfaces Opt.GlobalGraph
 
 
 type Interfaces =
@@ -158,8 +166,34 @@ verifyInstall scope root (Solver.Env cache manager connection registry) outline 
 -- LOAD -- used by Make, Repl, Reactor
 
 
+{-# NOINLINE detailsCache #-}
+detailsCache :: MVar (Maybe Details)
+detailsCache = unsafePerformIO $ newMVar Nothing
+
+bustDetailsCache = modifyMVar_ detailsCache (\_ -> pure Nothing)
+
+
 load :: Reporting.Style -> BW.Scope -> FilePath -> IO (Either Exit.Details Details)
-load style scope root =
+load style scope root = do
+  detailsCacheM <- readMVar detailsCache
+  case detailsCacheM of
+    Just details -> do
+      debug $ "🎯 details cache hit"
+      pure $ Right details
+    Nothing -> do
+      debug $ "❌ details cache miss"
+      modifyMVar detailsCache (\_ -> do
+          detailsR <- load_ style scope root
+          case detailsR of
+            Right details -> do
+              pure (Just details, detailsR)
+            _ ->
+              pure (Nothing, detailsR)
+        )
+
+
+load_ :: Reporting.Style -> BW.Scope -> FilePath -> IO (Either Exit.Details Details)
+load_ style scope root =
   do  newTime <- File.getTime (root </> "elm.json")
       maybeDetails <- File.readBinary (Stuff.details root)
       case maybeDetails of
@@ -783,46 +817,46 @@ endpointDecoder =
 -- BINARY
 
 
-instance Binary Details where
-  put (Details a b c d e _) = put a >> put b >> put c >> put d >> put e
-  get =
-    do  a <- get
-        b <- get
-        c <- get
-        d <- get
-        e <- get
-        return (Details a b c d e ArtifactsCached)
+-- instance Binary Details where
+--   put (Details a b c d e _) = put a >> put b >> put c >> put d >> put e
+--   get =
+--     do  a <- get
+--         b <- get
+--         c <- get
+--         d <- get
+--         e <- get
+--         return (Details a b c d e ArtifactsCached)
 
 
-instance Binary ValidOutline where
-  put outline =
-    case outline of
-      ValidApp a     -> putWord8 0 >> put a
-      ValidPkg a b c -> putWord8 1 >> put a >> put b >> put c
+-- instance Binary ValidOutline where
+--   put outline =
+--     case outline of
+--       ValidApp a     -> putWord8 0 >> put a
+--       ValidPkg a b c -> putWord8 1 >> put a >> put b >> put c
 
-  get =
-    do  n <- getWord8
-        case n of
-          0 -> liftM  ValidApp get
-          1 -> liftM3 ValidPkg get get get
-          _ -> fail "binary encoding of ValidOutline was corrupted"
-
-
-instance Binary Local where
-  put (Local a b c d e f) = put a >> put b >> put c >> put d >> put e >> put f
-  get =
-    do  a <- get
-        b <- get
-        c <- get
-        d <- get
-        e <- get
-        f <- get
-        return (Local a b c d e f)
+--   get =
+--     do  n <- getWord8
+--         case n of
+--           0 -> liftM  ValidApp get
+--           1 -> liftM3 ValidPkg get get get
+--           _ -> fail "binary encoding of ValidOutline was corrupted"
 
 
-instance Binary Foreign where
-  get = liftM2 Foreign get get
-  put (Foreign a b) = put a >> put b
+-- instance Binary Local where
+--   put (Local a b c d e f) = put a >> put b >> put c >> put d >> put e >> put f
+--   get =
+--     do  a <- get
+--         b <- get
+--         c <- get
+--         d <- get
+--         e <- get
+--         f <- get
+--         return (Local a b c d e f)
+
+
+-- instance Binary Foreign where
+--   get = liftM2 Foreign get get
+--   put (Foreign a b) = put a >> put b
 
 
 instance Binary Artifacts where

@@ -33,7 +33,7 @@ import qualified Elm.Details as Details
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
-import qualified File
+import qualified Ext.FileProxy as File
 import qualified Generate
 import qualified Generate.Html as Html
 import qualified Generate.JavaScript as JS
