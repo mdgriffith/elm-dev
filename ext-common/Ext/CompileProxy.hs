@@ -78,18 +78,21 @@ modeRunner identifier ioDisk ioMemory = do
       addToAggregate Disk t label
       summary <- aggregateSummary
       Ext.Common.debug $ "📊 " <> summary
+      File.debugSummary
       pure result
     Memory -> do
       (t, label, result) <- Ext.Common.track_ ("🧠 memcached " ++ identifier) $ ioMemory
       addToAggregate Memory t label
       summary <- aggregateSummary
       Ext.Common.debug $ "📊 " <> summary
+      File.debugSummary
       pure result
     Race -> do
       results <- Ext.Common.race identifier [ ("🧠 memcached " ++ identifier, ioMemory) , ("🎻 classic   " ++ identifier, ioDisk) ]
       results & zip [Memory, Disk] & mapM_ (\(m, (t, l, r)) -> addToAggregate m t (l ++ " " ++ identifier))
       summary <- aggregateSummary
       Ext.Common.debug $ "📊 " <> summary
+      File.debugSummary
       (results !! 1) & (\(_,_,x) -> x) & pure
 
 
