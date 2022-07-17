@@ -40,8 +40,6 @@ import qualified Reporting.Task as Task
 import qualified Reporting.Warning as Warning
 import qualified Stuff
 import qualified System.Directory as Dir
-import qualified Watchtower.Compile.Classic
-import qualified Watchtower.Compile.MemoryCached
 import System.IO.Unsafe (unsafePerformIO)
 
 import StandaloneInstances
@@ -102,8 +100,8 @@ modeRunner identifier ioDisk ioMemory = do
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
 compileToJson root paths = do
   res <- modeRunner "compileToJson"
-    (Watchtower.Compile.Classic.compileToJson root paths)
-    (Watchtower.Compile.MemoryCached.compileToJson root paths)
+    (Ext.CompileHelpers.Disk.compileToJson root paths)
+    (Ext.CompileHelpers.Memory.compileToJson root paths)
   pure res
 
 

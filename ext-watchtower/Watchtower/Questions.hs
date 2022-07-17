@@ -29,7 +29,6 @@ import qualified Watchtower.Annotate
 import qualified Watchtower.Details
 import qualified Watchtower.Find
 import qualified Watchtower.Live
-import qualified Watchtower.Compile.Classic as Watchtower.Compile
 import qualified Watchtower.Project
 import qualified Reporting.Warning as Warning
 
