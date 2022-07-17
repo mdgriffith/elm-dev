@@ -11,12 +11,6 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: haskell/actions/setup@v1
-        with:
-          enable-stack: true
-          stack-version: 'latest'
-          stack-no-global: true
-          stack-setup-ghc: true
 
       # First, check if the specific cache exists, so we don't waste ~3m of build
       # time restoring the 1.5GB cache for no reason. See https://github.com/actions/cache/pull/420
@@ -45,6 +39,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-
 
+      # Setup Haskell tooling
+      - uses: haskell/actions/setup@v1
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          enable-stack: true
+          stack-version: 'latest'
+          stack-no-global: true
+          stack-setup-ghc: true
+
       # Install just our dependencies, this can take ~30m from scratch and is the
       # most part valuable to cache.
       - name: Install Dependencies
@@ -63,10 +66,16 @@ jobs:
     needs: build-packages
     steps:
       - uses: actions/checkout@v2
+
+      # Setup Haskell tooling
       - uses: haskell/actions/setup@v1
+        if: steps.cache.outputs.cache-hit != 'true'
         with:
           enable-stack: true
           stack-version: 'latest'
+          stack-no-global: true
+          stack-setup-ghc: true
+
       - uses: actions/cache@v2
         with:
           path: |
