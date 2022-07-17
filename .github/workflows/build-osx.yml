@@ -4,14 +4,11 @@ on:
       - main
   pull_request:
 
-name: Build Watchtower for MacOS/Linux
+name: Build Watchtower for MacOS
 jobs:
   build-packages:
-    name: Build Libraries
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    name: Build MacOS Libraries
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v2
 
@@ -47,7 +44,6 @@ jobs:
           enable-stack: true
           stack-version: 'latest'
           stack-no-global: true
-          stack-setup-ghc: true
 
       # Install just our dependencies, this can take ~30m from scratch and is the
       # most part valuable to cache.
@@ -62,11 +58,8 @@ jobs:
   # unecessarily once (+~3m), but over all subsequent runs with a cache hit the
   # whole lib step will be skipped almost immediately so its worth it.
   install:
-    name: Build Executable
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    name: Build MacOS Executable
+    runs-on: macos-latest
     needs: build-packages
     steps:
       - uses: actions/checkout@v2
@@ -78,7 +71,6 @@ jobs:
           enable-stack: true
           stack-version: 'latest'
           stack-no-global: true
-          stack-setup-ghc: true
 
       - uses: actions/cache@v2
         with:
