@@ -5,6 +5,7 @@ import * as log from "./utils/log";
 import * as JSONSafe from "./utils/json";
 import * as Question from "./watchtower/question";
 import { ElmProjectPane } from "./panel/panel";
+import { ETIME } from "constants";
 
 var WebSocketClient = require("websocket").client;
 
@@ -97,6 +98,7 @@ export class Watchtower {
             const newLineCount = (change.text.match(/\n/g) || "").length;
             const lineCountChange = newLineCount - oldLineCount;
             self.codelensProvider.lineAdjustment(
+              docChange.document,
               docChange.document.uri.fsPath,
               change.range,
               lineCountChange
@@ -165,7 +167,7 @@ export class Watchtower {
   }
 
   setup() {
-    log.log("Setting up! (which means doing nothing right now.");
+    // log.log("Setting up! (which means doing nothing right now.");
   }
 
   refreshCodeLenses(document: vscode.TextDocument) {
@@ -321,10 +323,25 @@ type SignatureAction = {
 };
 
 type SignatureFileCache = {
-  signatures: Question.MissingSignature[];
-  lenses: vscode.CodeLens[];
-  lensesAreCurrent: Boolean;
+  signatures: MissingSignature[];
 };
+
+type MissingSignature = {
+  missing: Question.MissingSignature;
+  lens: vscode.CodeLens;
+};
+
+function getDocumentMatching(uri: vscode.Uri): vscode.TextDocument | null {
+  const editor = vscode.window.activeTextEditor;
+
+  if (editor) {
+    if (editor.document.uri.toString() == uri.toString()) {
+      return editor.document;
+    }
+  }
+
+  return null;
+}
 
 function signatureToLens(
   document: vscode.TextDocument,
@@ -368,23 +385,37 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
       */
   }
   public setSignatures(filepath: string, sigs: Question.MissingSignature[]) {
+    const self = this;
+
+    // TODO! destroy existing codelenses
+    const signatures = [];
+    for (const sig of sigs) {
+      const document = getDocumentMatching(vscode.Uri.file(filepath));
+
+      if (document != null) {
+        const onClick = () => {
+          self.queueAction({
+            signature: sig,
+            filepath: document.uri.fsPath,
+          });
+        };
+        const lens = signatureToLens(document, sig, onClick);
+        signatures.push({ missing: sig, lens: lens });
+      }
+    }
+
     this.signatures[filepath] = {
-      signatures: sigs,
-      lensesAreCurrent: false,
-      lenses: [],
+      signatures: signatures,
     };
     this._onDidChangeCodeLenses.fire();
   }
 
   public queueAction(action: SignatureAction) {
     this.actions.push(action);
-    if (action.filepath in this.signatures) {
-      this.signatures[action.filepath].lensesAreCurrent = false;
-    }
     this._onDidChangeCodeLenses.fire();
   }
 
-  private getSignaturesFor(filepath: string) {
+  private getSignaturesFor(filepath: string): MissingSignature[] {
     if (filepath in this.signatures) {
       return this.signatures[filepath].signatures;
     } else {
@@ -393,6 +424,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
   }
 
   public lineAdjustment(
+    document: vscode.TextDocument,
     filepath: string,
     affectedRange: vscode.Range,
     lineCountChange: number
@@ -403,22 +435,25 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     if (filepath in self.signatures) {
-      let newSigs = [];
       // All signatures passed the affected range will be pushed or pulled.
-      for (const sig of self.getSignaturesFor(filepath)) {
-        const startingPoint = new vscode.Position(
-          sig.region.start.line - 1,
-          sig.region.start.column - 1
-        );
-        if (affectedRange.start.line < sig.region.start.line) {
-          sig.region.start.line += lineCountChange;
-          sig.region.end.line += lineCountChange;
-          newSigs.push(sig);
-        } else {
-          newSigs.push(sig);
+      if (filepath in self.signatures) {
+        for (const sig of this.signatures[filepath].signatures) {
+          if (affectedRange.start.line < sig.missing.region.start.line) {
+            // adjust signature
+            sig.missing.region.start.line += lineCountChange;
+            sig.missing.region.end.line += lineCountChange;
+
+            // adjust codelens
+            const onClick = () => {
+              self.queueAction({
+                signature: sig.missing,
+                filepath: document.uri.fsPath,
+              });
+            };
+            sig.lens = signatureToLens(document, sig.missing, onClick);
+          }
         }
       }
-      self.setSignatures(filepath, newSigs);
     }
   }
 
@@ -443,7 +478,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
       if (document.uri.fsPath in self.signatures) {
         const newSignatures = [];
         for (const sig of self.getSignaturesFor(document.uri.fsPath)) {
-          if (action.signature.name !== sig.name) {
+          if (action.signature.name !== sig.missing.name) {
             newSignatures.push(sig);
           }
         }
@@ -483,46 +518,15 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
 
     if (document.uri.fsPath in self.signatures) {
       const cache = self.signatures[document.uri.fsPath];
-
-      if (cache.lensesAreCurrent) {
-        // Lenses are current, don't do anything
-        return cache.lenses;
-      } else {
-        // Recreate them!
-        cache.lenses = [];
-
-        for (const sig of cache.signatures) {
-          var skip = false;
-          // if this signature matches an action, then don't do anything with it
-          // It will be deleted
-          for (const action of self.actions) {
-            if (action.signature.name === sig.name) {
-              log.log(`->  Skipping ${action.signature.name}`);
-              skip = true;
-              break;
-            }
-          }
-          if (skip) {
-            continue;
-          }
-
-          const onClick = () => {
-            self.queueAction({
-              signature: sig,
-              filepath: document.uri.fsPath,
-            });
-          };
-          cache.lenses.push(signatureToLens(document, sig, onClick));
-        }
-        cache.lensesAreCurrent = true;
-
-        // Run any queued actions.
-        // This is usually nothing as the action list is empty.
-        // We do this action queueing so that removing the codelens and inserting the typesignature
-        // have the highest chance of happening at the exact same time.
-        self.runActions(document);
-        return cache.lenses;
+      const lenses = [];
+      for (const sig of cache.signatures) {
+        lenses.push(sig.lens);
       }
+
+      if (self.actions.length > 0) {
+        self.runActions(document);
+      }
+      return lenses;
     }
 
     // we don't have any type signatures
@@ -535,7 +539,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
   ) {
     const self = this;
     // This function will be called for each visible code lens, usually when scrolling and after calls to compute-lenses.
-    // Who knows why it's here :/
+    // It's for when codelenses are expensive to create
     return codeLens;
   }
 }
