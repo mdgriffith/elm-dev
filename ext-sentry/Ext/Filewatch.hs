@@ -32,7 +32,7 @@ watch root action =
         root -- directory to watch
         shouldTrigger -- predicate
         (\event -> do
-            Ext.Common.debug ("Changed: " <> toString event)
+            Ext.Common.debug ("Filewatch.event: " <> toString event)
             Debounce.send trigger (getEventFilePath event)
         )
 

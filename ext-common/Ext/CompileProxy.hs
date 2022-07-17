@@ -44,6 +44,9 @@ import qualified Watchtower.Compile.Classic
 import qualified Watchtower.Compile.MemoryCached
 import System.IO.Unsafe (unsafePerformIO)
 
+import StandaloneInstances
+
+
 type AggregateStatistics = Map.Map CompileMode Double
 
 
@@ -68,19 +71,25 @@ aggregateSummary = do
 
 
 modeRunner identifier ioDisk ioMemory = do
-  Ext.Common.debug $ concat ["👁 compileProxy:", identifier ]
+  -- Ext.Common.debug $ concat ["👁 compileProxy:", identifier ]
   case getMode of
     Disk -> do
-      (t, label, result) <- Ext.Common.track__ "🎻 classic  " $ ioDisk
+      (t, label, result) <- Ext.Common.track_ ("🎻 classic   " ++ identifier) $ ioDisk
       addToAggregate Disk t label
+      summary <- aggregateSummary
+      Ext.Common.debug $ "📊 " <> summary
       pure result
     Memory -> do
-      (t, label, result) <- Ext.Common.track__ "🧠 memcached" $ ioMemory
+      (t, label, result) <- Ext.Common.track_ ("🧠 memcached " ++ identifier) $ ioMemory
       addToAggregate Memory t label
+      summary <- aggregateSummary
+      Ext.Common.debug $ "📊 " <> summary
       pure result
     Race -> do
-      results <- Ext.Common.race identifier [ ("🧠 memcached", ioMemory) , ("🎻 classic  ", ioDisk) ]
+      results <- Ext.Common.race identifier [ ("🧠 memcached " ++ identifier, ioMemory) , ("🎻 classic   " ++ identifier, ioDisk) ]
       results & zip [Memory, Disk] & mapM_ (\(m, (t, l, r)) -> addToAggregate m t (l ++ " " ++ identifier))
+      summary <- aggregateSummary
+      Ext.Common.debug $ "📊 " <> summary
       (results !! 1) & (\(_,_,x) -> x) & pure
 
 
@@ -92,8 +101,6 @@ compileToJson root paths = do
   res <- modeRunner "compileToJson"
     (Watchtower.Compile.Classic.compileToJson root paths)
     (Watchtower.Compile.MemoryCached.compileToJson root paths)
-  summary <- aggregateSummary
-  Ext.Common.debug $ "📊 " <> summary
   pure res
 
 

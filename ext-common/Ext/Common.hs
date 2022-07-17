@@ -153,21 +153,7 @@ track label io = do
   pure res
 
 
--- track_ label io = do
---   m <- getTime Monotonic
---   p <- getTime ProcessCPUTime
---   t <- getTime ThreadCPUTime
---   res <- io
---   m_ <- getTime Monotonic
---   p_ <- getTime ProcessCPUTime
---   t_ <- getTime ThreadCPUTime
---   let result :: T.Text = sformat ("⏱  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
---   pure $
---     ( result
---     , res
---     )
-
-track__ label io = do
+track_ label io = do
   m <- getTime Monotonic
   p <- getTime ProcessCPUTime
   t <- getTime ThreadCPUTime
@@ -181,7 +167,8 @@ track__ label io = do
         case result & T.splitOn " " of
           v:"ms":_ -> v & T.unpack & readMaybe
           v:"us":_ -> v & T.unpack & readMaybe & fmap (/ 1000)
-          _      -> error $ "woah there! unhandled track__ result: " <> T.unpack result
+          v:"s":_  -> v & T.unpack & readMaybe & fmap (* 1000)
+          _      -> error $ "woah there! unhandled track_ result: " <> T.unpack result
 
   case millisM of
     Just millis -> pure $ ( millis , label, res )
@@ -189,18 +176,9 @@ track__ label io = do
 
 
 race label ios = do
-  !results <- mapM (\(label, io) -> track__ label io ) ios
-  -- resultsMvar <- traverse (\(label, io) -> fork $ track__ label io ) ios
-  -- results <- traverse readMVar resultsMvar
-  atomicPutStrLn $ "🏃 race results: " <> label <> "\n" <> (fmap (T.pack . show . (\(x,_,_) -> x)) results & T.intercalate "" & T.unpack)
+  !results <- mapM (\(label, io) -> track_ label io ) ios
+  atomicPutStrLn $ "🏃 race results: " <> label -- <> "\n" <> (fmap (T.pack . show . (\(x,_,_) -> x)) results & T.intercalate "," & T.unpack)
   pure results
-
-
--- fork :: IO a -> IO (MVar a)
--- fork work =
---   do  mvar <- newEmptyMVar
---       _ <- forkIO $ putMVar mvar =<< work
---       return mvar
 
 
 

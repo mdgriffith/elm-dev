@@ -9,6 +9,8 @@ import qualified Json.Encode
 import Json.Encode ((==>))
 import Control.Applicative ((<|>), (<$>), (<*>))
 
+import StandaloneInstances
+
 data Status
     = Success
     | Failing [ Error ]
@@ -19,6 +21,7 @@ data Location =
         { _file :: FilePath
         , _region :: Ann.Region
         }
+    deriving (Show)
 
 data PointLocation =
     PointLocation
@@ -38,6 +41,7 @@ data Visible =
         { _active :: Maybe Editor
         , _visible :: [ Editor ]
         }
+    deriving (Show)
 
 
 data Editor =
@@ -47,6 +51,7 @@ data Editor =
         , _visibleRanges :: [ Ann.Region ]
         , _selection :: [ Ann.Region ]
         }
+    deriving (Show)
 
 
 -- ENCODERS

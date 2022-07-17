@@ -15,6 +15,7 @@ module Ext.MemoryCached.Build
   , getRootNames
   -- extended
   , fromPathsMemoryCached
+  , bustArtifactsCache
   )
   where
 
@@ -77,6 +78,7 @@ import StandaloneInstances
 artifactCache :: MVar (Maybe Artifacts)
 artifactCache = unsafePerformIO $ newMVar Nothing
 
+bustArtifactsCache = modifyMVar_ artifactCache (\_ -> pure Nothing)
 
 
 fromPathsMemoryCached :: Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
@@ -84,16 +86,18 @@ fromPathsMemoryCached style root details paths = do
   artifaceCacheM <- readMVar artifactCache
   case artifaceCacheM of
     Just artifacts -> do
-      debug $ "🎯 artifacts"
+      debug $ "🎯 artifacts cache hit"
       pure $ Right artifacts
     Nothing -> do
       debug $ "❌ artifacts cache miss"
-      artifactsR <- fromPathsMemoryCached_ style root details paths
-      case artifactsR of
-        Right artifacts -> do
-          modifyMVar_ artifactCache $ (\_ -> pure $ Just artifacts)
-          pure artifactsR
-        _ -> pure artifactsR
+      modifyMVar artifactCache (\_ -> do
+          artifactsR <- fromPathsMemoryCached_ style root details paths
+          case artifactsR of
+            Right artifacts -> do
+              pure (Just artifacts, artifactsR)
+            _ ->
+              pure (Nothing, artifactsR)
+        )
 
 
 fromPathsMemoryCached_ :: Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
@@ -109,12 +113,12 @@ fromPathsMemoryCached_ style root details paths =
 
         Right lroots ->
           do  -- crawl
-              log "lroots" (show lroots)
+              -- log "lroots" (show lroots)
               dmvar <- Details.loadInterfaces root details
               smvar <- newMVar Map.empty
               srootMVars <- traverse (fork . crawlRoot env smvar) lroots
               sroots <- traverse readMVar srootMVars
-              log "sroots" (show sroots)
+              -- log "sroots" (show sroots)
               statuses <- traverse readMVar =<< readMVar smvar
 
               midpoint <- checkMidpointAndRoots dmvar statuses sroots
@@ -132,8 +136,13 @@ fromPathsMemoryCached_ style root details paths =
                       rrootMVars <- traverse (fork . checkRoot env resultsMVars) sroots
                       results <- traverse readMVar resultsMVars
 
-                      -- writeDetails root details results
-                      toArtifacts env foreigns results <$> traverse readMVar rrootMVars
+                      writeDetails root details results
+                      x <- toArtifacts env foreigns results <$> traverse readMVar rrootMVars
+                      -- case x of
+                      --   Right v ->
+                      --     debug $ show v
+                      --   _ -> pure ()
+                      pure x
 
 
 

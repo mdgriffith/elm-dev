@@ -257,7 +257,7 @@ recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchto
                       do
                         Ext.Common.log "Changed file successful, recompiling project" "!"
                         -- If this file compiled successfully, compile the entire project
-                        -- recompileProjectIfSubFile mClients changedFiles projCache
+                        recompileProjectIfSubFile mClients changedFiles projCache
                         pure ()
 
                     Left errJson ->
@@ -536,6 +536,7 @@ data Outgoing
   | FwdJumpTo Watchtower.Details.Location
   | FwdInsertMissingTypeSignatures FilePath
   | ElmStatus [ ProjectStatus ]
+  deriving (Show)
 
 
 
@@ -544,6 +545,7 @@ data ProjectStatus = ProjectStatus
   , _success :: Bool
   , _json :: Json.Encode.Value
   }
+  deriving (Show)
 
 
 
@@ -633,7 +635,8 @@ broadcastToMany allClients shouldBroadcast outgoing =
 
 
 broadcastToSubscribedProject :: STM.TVar [Client] -> Watchtower.Project.Project -> Outgoing -> IO ()
-broadcastToSubscribedProject mClients proj msg =
+broadcastToSubscribedProject mClients proj msg = do
+ debug $ "📢  " ++ show msg
  broadcastToMany
       mClients
       ( \client ->

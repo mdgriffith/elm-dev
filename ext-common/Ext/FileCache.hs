@@ -64,8 +64,14 @@ currentTime =
 
 handleIfChanged :: [FilePath] -> ([FilePath] -> IO a) -> IO a
 handleIfChanged paths action = do
-  changes <- justs <$> paths & traverse upsertPath
-  action changes
+  changes <- justs <$> traverse upsertPath paths
+  if changes == []
+    then do
+      debug $ "🙈 handleIfChanged: no changes! ignoring: " <> show paths
+      action changes
+    else do
+      debug $ "👀 handleIfChanged: some changes: " <> show changes
+      action changes
 
 
 upsertPath :: FilePath -> IO (Maybe FilePath)

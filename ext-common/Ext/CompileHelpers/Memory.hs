@@ -21,7 +21,7 @@ allDepArtifacts = do
   artifactsCacheM <- tryReadMVar artifactsCache
   case artifactsCacheM of
     Just artifacts -> do
-      debug $ "🎯 allDepArtifacts"
+      debug $ "🎯 allDepArtifacts cache hit"
       pure artifacts
     Nothing -> do
       debug $ "❌ allDepArtifacts cache miss"
@@ -31,7 +31,6 @@ allDepArtifacts = do
         then pure ()
         else modifyMVar_ artifactsCache $ (\_ -> pure artifacts)
       pure artifacts
-
 
 
 

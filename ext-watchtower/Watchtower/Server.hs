@@ -45,7 +45,7 @@ serve maybeRoot (Flags maybePort) =
     Watchtower.Live.recompileAllProjects liveState
 
     -- Start file watcher for the memory mode
-    Ext.Filewatch.watch root (\paths -> FileCache.handleIfChanged paths (Watchtower.Live.recompile liveState))
+    Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
 
     Snap.Http.Server.httpServe (config port) $

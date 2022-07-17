@@ -27,55 +27,31 @@ import StandaloneInstances
 
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
-compileToJson root paths =
-  do
-    let toBS = BSL.toStrict . B.toLazyByteString
-    result <- compileToDevNull root paths
-
-    pure $
-      case result of
-        Right () ->
-          Right $
-            Encode.object
-              [ "compiled" ==> Encode.bool True
-              ]
-        Left exit -> do
-          -- @LAMDERA because we do AST injection, sometimes we might get
-          -- an error that actually cannot be displayed, i.e, the reactorToReport
-          -- function itself throws an exception, mainly due to use of unsafe
-          -- functions like Prelude.last and invariants that for some reason haven't
-          -- held with our generated code (usually related to subsequent type inference)
-          -- We print out a less-processed version here in debug mode to aid with
-          -- debugging in these scenarios, as the browser will just get zero bytes
-          -- debugPass "serveElm error" (Exit.reactorToReport exit) (pure ())
-          -- Help.makePageHtml "Errors" $ Just $
-          Left $ Exit.toJson $ Exit.reactorToReport exit
+compileToJson root paths = do
+  let toBS = BSL.toStrict . B.toLazyByteString
+  result <- compileWithoutJsGen root paths
+  pure $
+    case result of
+      Right () ->
+        Right $ Encode.object [ "compiled" ==> Encode.bool True ]
+      Left exit -> do
+        Left $ Exit.toJson $ Exit.reactorToReport exit
 
 
 compileToBuilder :: FilePath -> NE.List FilePath -> IO (Either BS.ByteString BS.ByteString)
-compileToBuilder root paths =
-  do
-    let toBS = BSL.toStrict . B.toLazyByteString
-    result <- compile root paths
+compileToBuilder root paths = do
+  let toBS = BSL.toStrict . B.toLazyByteString
+  result <- compile root paths
+  pure $
+    case result of
+      Right builder ->
+        Right $ toBS builder
+      Left exit -> do
+        Left $
+          toBS $
+            Encode.encode $
+              Exit.toJson $ Exit.reactorToReport exit
 
-    pure $
-      case result of
-        Right builder ->
-          Right $ toBS builder
-        Left exit -> do
-          -- @LAMDERA because we do AST injection, sometimes we might get
-          -- an error that actually cannot be displayed, i.e, the reactorToReport
-          -- function itself throws an exception, mainly due to use of unsafe
-          -- functions like Prelude.last and invariants that for some reason haven't
-          -- held with our generated code (usually related to subsequent type inference)
-          -- We print out a less-processed version here in debug mode to aid with
-          -- debugging in these scenarios, as the browser will just get zero bytes
-          -- debugPass "serveElm error" (Exit.reactorToReport exit) (pure ())
-          -- Help.makePageHtml "Errors" $ Just $
-          Left $
-            toBS $
-              Encode.encode $
-                Exit.toJson $ Exit.reactorToReport exit
 
 compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor B.Builder)
 compile root paths =
@@ -92,9 +68,8 @@ compile root paths =
             return $ Html.sandwich name javascript
 
 
-
-compileToDevNull :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
-compileToDevNull root paths =
+compileWithoutJsGen :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
+compileWithoutJsGen root paths =
   do
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope -> Stuff.withRootLock root $

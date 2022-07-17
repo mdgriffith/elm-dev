@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Watchtower.Compile.MemoryCached (compileToJson) where
 
-
+import Control.Concurrent.MVar
+import System.IO.Unsafe (unsafePerformIO)
 import Ext.Common
 import Json.Encode ((==>))
 import qualified BackgroundWriter as BW
@@ -28,42 +30,56 @@ import StandaloneInstances
 
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
-compileToJson root paths =
-  do
-    let toBS = BSL.toStrict . B.toLazyByteString
-    result <- compile root paths
-
-    pure $
-      case result of
-        Right builder ->
-          Right $
-            Encode.object
-              [ "compiled" ==> Encode.bool True
-              ]
-        Left exit -> do
-          -- @LAMDERA because we do AST injection, sometimes we might get
-          -- an error that actually cannot be displayed, i.e, the reactorToReport
-          -- function itself throws an exception, mainly due to use of unsafe
-          -- functions like Prelude.last and invariants that for some reason haven't
-          -- held with our generated code (usually related to subsequent type inference)
-          -- We print out a less-processed version here in debug mode to aid with
-          -- debugging in these scenarios, as the browser will just get zero bytes
-          -- debugPass "serveElm error" (Exit.reactorToReport exit) (pure ())
-          -- Help.makePageHtml "Errors" $ Just $
-          Left $ Exit.toJson $ Exit.reactorToReport exit
+compileToJson root paths = do
+  let toBS = BSL.toStrict . B.toLazyByteString
+  result <- compileWithoutJsGen root paths
+  pure $
+    case result of
+      Right builder ->
+        Right $ Encode.object [ "compiled" ==> Encode.bool True ]
+      Left exit -> do
+        Left $ Exit.toJson $ Exit.reactorToReport exit
 
 
--- compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor B.Builder)
-compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
-compile root paths =
-  Ext.FileCache.handleIfChanged (NE.toList paths) (compile_ root)
+compileWithoutJsGen :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
+compileWithoutJsGen root paths = do
+  Ext.FileCache.handleIfChanged (NE.toList paths) (compile root)
+
+
+{-# NOINLINE compileCache #-}
+compileCache :: MVar (Maybe (Either Exit.Reactor ()))
+compileCache = unsafePerformIO $ newMVar Nothing
+
+
+compile :: FilePath -> [FilePath] -> IO (Either Exit.Reactor ())
+compile root paths_ = do
+  case paths_ of
+    [] -> do
+      compileCacheM <- readMVar compileCache
+      case compileCacheM of
+        Just compile -> do
+          debug $ "🎯 compile cache hit"
+          pure compile
+        Nothing -> do
+          debug $ "❌ compile cache miss"
+          modifyMVar compileCache (\_ -> do
+              compileR <- compile_ root paths_
+              pure (Just compileR, compileR)
+            )
+
+    x:xs -> do
+      debug $ "❌ compile cache rebuild"
+      modifyMVar compileCache (\_ -> do
+          compileR <- compile_ root paths_
+          pure (Just compileR, compileR)
+        )
 
 
 compile_ :: FilePath -> [FilePath] -> IO (Either Exit.Reactor ())
 compile_ root paths_ = do
   case paths_ of
     [] -> do
-      atomicPutStrLn "🙈 compile avoided"
+      atomicPutStrLn "🙈 compile avoided - no paths given"
       pure $ Right ()
     x:xs -> do
       let paths = NE.List x xs
@@ -72,7 +88,11 @@ compile_ root paths_ = do
         -- @TODO root lock shouldn't be needed unless we're falling through to disk compile
         BW.withScope $ \scope -> Stuff.withRootLock root $ do
           Task.run $ do
-            -- Task.io $ debug $ "🌳🌳🌳🌳🌳🌳🌳🌳🌳🌳"
+            -- Task.io $ debug $ "🌳🌳🌳🌳🌳🌳🌳🌳🌳🌳" <> show paths_
+
+            !_ <- Task.io $ Ext.MemoryCached.Details.bustDetailsCache
+            !_ <- Task.io $ Ext.MemoryCached.Build.bustArtifactsCache
+
             details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root
             artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached Reporting.silent root details paths
 

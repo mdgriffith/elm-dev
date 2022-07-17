@@ -12,6 +12,8 @@ module Ext.MemoryCached.Details
   , loadObjects
   , loadInterfaces
   , verifyInstall
+  -- extended
+  , bustDetailsCache
   )
   where
 
@@ -168,23 +170,26 @@ verifyInstall scope root (Solver.Env cache manager connection registry) outline 
 detailsCache :: MVar (Maybe Details)
 detailsCache = unsafePerformIO $ newMVar Nothing
 
+bustDetailsCache = modifyMVar_ detailsCache (\_ -> pure Nothing)
+
 
 load :: Reporting.Style -> BW.Scope -> FilePath -> IO (Either Exit.Details Details)
 load style scope root = do
   detailsCacheM <- readMVar detailsCache
   case detailsCacheM of
     Just details -> do
-      debug $ "🎯 details"
+      debug $ "🎯 details cache hit"
       pure $ Right details
     Nothing -> do
       debug $ "❌ details cache miss"
-      detailsR <- load_ style scope root
-      case detailsR of
-        Right details -> do
-          modifyMVar_ detailsCache $ (\_ -> pure $ Just details)
-          pure detailsR
-        _ -> pure detailsR
-
+      modifyMVar detailsCache (\_ -> do
+          detailsR <- load_ style scope root
+          case detailsR of
+            Right details -> do
+              pure (Just details, detailsR)
+            _ ->
+              pure (Nothing, detailsR)
+        )
 
 
 load_ :: Reporting.Style -> BW.Scope -> FilePath -> IO (Either Exit.Details Details)
