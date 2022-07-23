@@ -3,11 +3,9 @@
 module Watchtower where
 
 import Terminal (Command(..), noArgs, Summary(..), flag, Parser(..), (|--), flags, optional)
-import Terminal.Helpers
 import Text.Read (readMaybe)
 import qualified Text.PrettyPrint.ANSI.Leijen as P
 import qualified Watchtower.Server
-
 
 
 data Flags =
@@ -71,7 +69,7 @@ dir =
 
 
 parseDir :: String -> Maybe FilePath
-parseDir chars =  
+parseDir chars =
   Just chars
 
 

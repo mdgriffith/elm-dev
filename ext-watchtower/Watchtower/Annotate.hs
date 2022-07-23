@@ -41,7 +41,6 @@ import StandaloneInstances
 import qualified Stuff as PerUserCache
 import qualified System.Directory as Dir
 import System.IO
-import Terminal (Parser (..))
 import qualified Text.Show.Unicode
 import qualified Watchtower.Details
 
@@ -158,31 +157,6 @@ getAnnotation modul expressionName (Compile.Artifacts mod annotations (Opt.Local
     Nothing ->
       Nothing
 
--- Args helpers
-
-data Args = Args FilePath Name.Name
-
-expressionName :: Parser Name.Name
-expressionName =
-  Parser
-    { _singular = "expression name",
-      _plural = "expression names",
-      _parser = parseExpressionName,
-      _suggest = suggestExpressionName,
-      _examples = return . exampleExpressionNames
-    }
-
-parseExpressionName :: String -> Maybe Name.Name
-parseExpressionName chars =
-  Just $ Name.fromChars chars
-
-suggestExpressionName :: String -> IO [String]
-suggestExpressionName _ =
-  return []
-
-exampleExpressionNames :: String -> [String]
-exampleExpressionNames chars =
-  ["add", "addOneMore", "map3"]
 
 {-
 
