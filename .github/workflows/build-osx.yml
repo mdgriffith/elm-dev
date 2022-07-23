@@ -1,8 +1,7 @@
 on:
   push:
     branches:
-      - main
-  pull_request:
+      - release
 
 name: Build Watchtower for MacOS
 jobs:
