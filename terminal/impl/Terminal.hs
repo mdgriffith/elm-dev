@@ -30,6 +30,7 @@ import qualified Terminal.Chomp as Chomp
 import qualified Terminal.Error as Error
 
 
+import qualified Watchtower.Version
 
 -- COMMAND
 
@@ -41,6 +42,10 @@ _command details example args_ flags_ callback =
       case argStrings of
         ["--version"] ->
           do  hPutStrLn stdout (V.toChars V.compiler)
+              Exit.exitSuccess
+
+        ["--version-full"] ->
+          do  hPutStrLn stdout (Watchtower.Version.full)
               Exit.exitSuccess
 
         chunks ->
@@ -73,6 +78,10 @@ app intro outro commands =
 
         ["--version"] ->
           do  hPutStrLn stdout (V.toChars V.compiler)
+              Exit.exitSuccess
+
+        ["--version-full"] ->
+          do  hPutStrLn stdout (Watchtower.Version.full)
               Exit.exitSuccess
 
         command : chunks ->

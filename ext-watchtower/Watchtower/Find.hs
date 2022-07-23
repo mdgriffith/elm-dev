@@ -43,7 +43,6 @@ import qualified Reporting.Exit as Exit
 import StandaloneInstances
 import qualified Stuff as PerUserCache
 import qualified System.Directory as Dir
-import Terminal (Parser (..))
 import qualified Text.Show.Unicode
 import qualified Util
 import qualified Watchtower.Details

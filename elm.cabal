@@ -231,15 +231,16 @@ Executable watchtower
 
         -- watchtower
         Watchtower
-        Watchtower.Project
         Watchtower.Annotate
         Watchtower.Details
         Watchtower.Live
+        Watchtower.Project
         Watchtower.Questions
         Watchtower.Server
         Watchtower.StaticAssets
-        Watchtower.Websocket
         Watchtower.Test
+        Watchtower.Version
+        Watchtower.Websocket
         Llamadera
         StandaloneInstances
         Test
@@ -286,6 +287,7 @@ Executable watchtower
         -- ext-common
         text,
         hashtables,
+        githash,
 
         -- ext-sentry
         clock,
