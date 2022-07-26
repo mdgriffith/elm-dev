@@ -1,0 +1,6 @@
+packages:
+    ./
+with-compiler: ghc-9.0.2
+
+constraints:
+

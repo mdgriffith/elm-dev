@@ -157,6 +157,7 @@ jobs:
           # Fix git complaint about 'dubious ownership' on Github CI
           git config --global --add safe.directory /home/runner/work/elm-watchtower/elm-watchtower
 
+          cabal v2-update
           cabal v2-build --ghc-option=-optl=-static --ghc-option=-split-sections -O2
           cp dist-newstyle/build/x86_64-linux/ghc-*/elm-*/x/watchtower/*opt/build/watchtower/watchtower ./
           strip -s ./watchtower
