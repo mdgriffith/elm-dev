@@ -80,6 +80,9 @@ jobs:
           ghcup install ghc 9.0.2
           ghcup set ghc 9.0.2
 
+          # Fix git complaint about 'dubious ownership' on Github CI
+          git config --global --add safe.directory /home/runner/work/elm-watchtower/elm-watchtower
+
           cabal v2-update
           cabal v2-build --ghc-option=-optl=-static --ghc-option=-split-sections -O2 --only-dependencies
 
@@ -150,6 +153,9 @@ jobs:
 
           ghcup install ghc 9.0.2
           ghcup set ghc 9.0.2
+
+          # Fix git complaint about 'dubious ownership' on Github CI
+          git config --global --add safe.directory /home/runner/work/elm-watchtower/elm-watchtower
 
           cabal v2-build --ghc-option=-optl=-static --ghc-option=-split-sections -O2
           cp dist-newstyle/build/x86_64-linux/ghc-*/elm-*/x/watchtower/*opt/build/watchtower/watchtower ./
