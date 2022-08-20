@@ -124,8 +124,19 @@ export class Watchtower {
   }
 
   private startServer() {
-    //
-    ChildProcess.spawn("elm-watchtower", ["start", `--port=${Question.port}`]);
+    Question.ask(
+      Question.questions.serverHealth,
+      (resp) => {
+        log.log("Watchtower is already running");
+      },
+      (err) => {
+        log.log("Watchtower is not running, starting watchtower");
+        ChildProcess.spawn("elm-watchtower", [
+          "start",
+          `--port=${Question.port}`,
+        ]);
+      }
+    );
   }
 
   private onConnectionFailed(error) {
@@ -225,11 +236,15 @@ export class Watchtower {
       return;
     }
     const filepath = document.uri.fsPath;
-    Question.ask(Question.questions.listMissingSignatures(filepath), (resp) => {
-      if (resp != null) {
-        self.codelensProvider.setSignatures(filepath, resp);
-      }
-    });
+    Question.ask(
+      Question.questions.listMissingSignatures(filepath),
+      (resp) => {
+        if (resp != null) {
+          self.codelensProvider.setSignatures(filepath, resp);
+        }
+      },
+      (err) => {}
+    );
   }
 }
 
@@ -351,7 +366,8 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
             );
             resolve(new vscode.Location(uri, new vscode.Range(start, end)));
           }
-        }
+        },
+        (err) => {}
       );
     });
   }

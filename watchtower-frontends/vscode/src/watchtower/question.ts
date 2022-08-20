@@ -21,10 +21,16 @@ type Position = {
 
 type Question =
   | { msg: "Discover"; directory: String }
+  | { msg: "ServerHealth" }
   | { msg: "ListMissingSignaturesPlease"; filepath: String }
   | { msg: "FindDefinition"; filepath: string; line: number; char: number };
 
+const serverHealth: Question = {
+  msg: "ServerHealth",
+};
+
 export const questions = {
+  serverHealth: serverHealth,
   discover: (dir: String): Question => {
     return {
       msg: "Discover",
@@ -57,17 +63,25 @@ export const urls = {
   },
 };
 
-export const ask = (question: Question, callback: any) => {
+export const ask = (question: Question, onSuccess: any, onError: any) => {
   switch (question.msg) {
+    case "ServerHealth": {
+      http
+        .get(urls.question("/health"), captureRequest(onSuccess))
+        .on("error", onError);
+
+      break;
+    }
     case "Discover": {
       http
         .get(
           urls.question("/discover?dir=" + question.directory),
-          captureRequest(callback)
+          captureRequest(onSuccess)
         )
         .on("error", (err) => {
           log.log("Error on discovery");
           log.log(err);
+          onError(err);
         });
 
       break;
@@ -76,11 +90,12 @@ export const ask = (question: Question, callback: any) => {
       http
         .get(
           urls.question(`/list-missing-signatures?file=${question.filepath}`),
-          captureRequest(callback)
+          captureRequest(onSuccess)
         )
         .on("error", (err) => {
           log.log("Error on listing signatures");
           log.log(err);
+          onError(err);
         });
       break;
     }
@@ -90,11 +105,12 @@ export const ask = (question: Question, callback: any) => {
           urls.question(
             `/definition?file=${question.filepath}&char=${question.char}&line=${question.line}`
           ),
-          captureRequest(callback)
+          captureRequest(onSuccess)
         )
         .on("error", (err) => {
           log.log("Error on finding definition");
           log.log(err);
+          onError(err);
         });
       break;
     }
