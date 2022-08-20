@@ -7,6 +7,7 @@ import Control.Monad.Trans (MonadIO (liftIO))
 import qualified Control.Concurrent.STM as STM
 import qualified Control.Monad as Monad
 import qualified Data.ByteString as BS
+import qualified Data.NonEmptyList as NE
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Char8
 import Data.Function ((&))
@@ -23,6 +24,9 @@ import qualified Reporting.Doc
 import qualified Reporting.Render.Type
 import qualified Reporting.Render.Type.Localizer
 
+
+import qualified Elm.Docs as Docs
+
 import Snap.Core hiding (path)
 import qualified Snap.Util.CORS
 import qualified Watchtower.Annotate
@@ -31,6 +35,8 @@ import qualified Watchtower.Find
 import qualified Watchtower.Live
 import qualified Watchtower.Project
 import qualified Reporting.Warning as Warning
+import qualified Build
+
 
 import qualified Ext.CompileProxy
 
@@ -42,11 +48,16 @@ data Question
   | SignaturePlease FilePath Name.Name
   | FindDefinitionPlease Watchtower.Details.PointLocation
   | FindAllInstancesPlease Watchtower.Details.PointLocation
+  | Docs DocsType
   | Discover FilePath
   | Status
   | Warnings FilePath
   | TimingParse FilePath
   | ServerHealth
+
+data DocsType 
+    = FromFiles [FilePath]
+    -- | ForPackage  
 
 serve :: Watchtower.Live.State -> Snap ()
 serve state =
@@ -64,6 +75,12 @@ questionHandler state question =
       writeBuilder answer
 
 
+unpackStringList string =
+    fmap 
+      (Data.ByteString.Char8.unpack) 
+      (Data.ByteString.Char8.split ',' string)
+
+
 actionHandler :: Watchtower.Live.State -> Snap ()
 actionHandler state =
   do
@@ -71,6 +88,17 @@ actionHandler state =
     case maybeAction of
       Just "status" ->
         questionHandler state Status
+
+      Just "docs" ->
+        do
+          maybeFiles <- getQueryParam "files"
+          case maybeFiles of
+            Nothing ->
+              writeBS "Needs a file parameter"
+            Just filesString -> do
+              let fileList = unpackStringList filesString
+              questionHandler state (Docs (FromFiles fileList))
+              -- writeBS "Needs a file parameter"
 
       Just "health" ->
         questionHandler state ServerHealth
@@ -162,7 +190,7 @@ actionHandler state =
       --                 questionHandler "." (FindAllInstancesPlease location)
 
       _ ->
-        writeBS "Wha?"
+        writeBS "Wha??"
 
 getPointLocation :: Snap (Maybe Watchtower.Details.PointLocation)
 getPointLocation =
@@ -213,6 +241,14 @@ ask state question =
 
     Status ->
       allProjectStatuses state
+
+    Docs (FromFiles files) ->
+      case files of
+        [] ->
+            pure (Json.Encode.encodeUgly (Json.Encode.chars "At least one file should be provided."))
+        
+        (top : remaining) ->
+            generateLocalDocs "/Users/matthewgriffith/projects/blissfully/development/ironzion/packages/frontend/" (NE.List (Name.fromChars top) (fmap (Name.fromChars) remaining)) state
 
     TimingParse path ->
       do
@@ -290,6 +326,16 @@ ask state question =
 
     FindAllInstancesPlease location ->
       pure (Data.ByteString.Builder.byteString ("NOTDONE"))
+
+
+
+generateLocalDocs path exposedFiles state =
+  do
+    root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+    
+    docs <- Ext.CompileProxy.docs root exposedFiles
+    
+    pure (Json.Encode.encodeUgly (Docs.encode docs)) 
 
 
 allProjectStatuses (Watchtower.Live.State clients mProjects) =
