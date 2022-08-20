@@ -72,6 +72,9 @@ actionHandler state =
       Just "status" ->
         questionHandler state Status
 
+      Just "health" ->
+        questionHandler state ServerHealth
+
       Just "warnings" ->
         do
           maybeFile <- getQueryParam "file"
