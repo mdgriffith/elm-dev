@@ -106,15 +106,16 @@ function clearStatus(statusBarItem: StatusBarItem) {
 
 function statusBarMessage(statusBarItem: StatusBarItem) {
   return function (err) {
-    const message = (<string>err.message).includes("SYNTAX PROBLEM")
-      ? "Running elm-format failed. Check the file for syntax errors."
-      : "Running elm-format failed. Install from " +
+    if (!(<string>err.message).includes("SYNTAX PROBLEM")) {
+      // if this is NOT a syntax error, elm-format may not be installed
+      const message =
+        "elm-format not found! Install from " +
         "https://github.com/avh4/elm-format and make sure it's on your path";
-    let editor = vscode.window.activeTextEditor;
-    if (editor) {
-      statusBarItem.text = message;
-      statusBarItem.show();
+      let editor = vscode.window.activeTextEditor;
+      if (editor) {
+        statusBarItem.text = message;
+        statusBarItem.show();
+      }
     }
-    return;
   };
 }
