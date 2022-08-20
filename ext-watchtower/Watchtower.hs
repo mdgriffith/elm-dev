@@ -2,7 +2,7 @@
 
 module Watchtower where
 
-import qualified Terminal (Command(..), noArgs, Summary(..), flag, Parser(..), (|--), flags, optional)
+import Terminal
 import Text.Read (readMaybe)
 import qualified Text.PrettyPrint.ANSI.Leijen as P
 import qualified Watchtower.Server
@@ -16,9 +16,8 @@ data Flags =
   
 main :: IO ()
 main =
-  Terminal.app Watchtower.intro Watchtower.outro
-    Watchtower.commands
-    [  Watchtower.start
+  Terminal.app intro outro
+    [  start
     ]
 
 
@@ -81,8 +80,8 @@ reflow string =
   P.fillSep $ map P.text $ words string
 
 
-run :: Maybe FilePath -> Flags -> IO ()
-run maybeRoot (Flags maybePort) =
+run :: Maybe FilePath -> Watchtower.Flags -> IO ()
+run maybeRoot (Watchtower.Flags maybePort) =
   Watchtower.Server.serve maybeRoot (Watchtower.Server.Flags maybePort)
 
 
