@@ -48,6 +48,18 @@ setModeRace = do
   modifyMVar_ compileMode (\_ -> pure Race)
 
 
+setModeMemory :: IO ()
+setModeMemory = do
+  atomicPutStrLn "🧠 memory mode set"
+  modifyMVar_ compileMode (\_ -> pure Memory)
+
+
+setModeDisk :: IO ()
+setModeDisk = do
+  atomicPutStrLn "💾 disk mode set"
+  modifyMVar_ compileMode (\_ -> pure Disk)
+
+
 {-# NOINLINE getMode #-}
 getMode :: CompileMode
 getMode = unsafePerformIO $ readMVar compileMode
