@@ -46,6 +46,7 @@ data Question
   | Status
   | Warnings FilePath
   | TimingParse FilePath
+  | ServerHealth
 
 serve :: Watchtower.Live.State -> Snap ()
 serve state =
@@ -204,9 +205,11 @@ getPosition =
 ask :: Watchtower.Live.State -> Question -> IO Data.ByteString.Builder.Builder
 ask state question =
   case question of
+    ServerHealth -> 
+      pure (Json.Encode.encodeUgly (Json.Encode.chars "Roger dodger, ready to roll, in the pipe, five-by-five."))
+
     Status ->
       allProjectStatuses state
-
 
     TimingParse path ->
       do

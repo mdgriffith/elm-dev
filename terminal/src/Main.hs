@@ -32,17 +32,7 @@ import qualified Watchtower
 
 main :: IO ()
 main =
-  Terminal.app intro outro
-    [ repl
-    , init
-    , reactor
-    , make
-    , install
-    , bump
-    , diff
-    , publish
-    , Watchtower.start
-    ]
+  Watchtower.main
 
 
 intro :: P.Doc

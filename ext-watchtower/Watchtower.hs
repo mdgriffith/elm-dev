@@ -2,7 +2,7 @@
 
 module Watchtower where
 
-import Terminal (Command(..), noArgs, Summary(..), flag, Parser(..), (|--), flags, optional)
+import qualified Terminal (Command(..), noArgs, Summary(..), flag, Parser(..), (|--), flags, optional)
 import Text.Read (readMaybe)
 import qualified Text.PrettyPrint.ANSI.Leijen as P
 import qualified Watchtower.Server
@@ -12,6 +12,15 @@ data Flags =
   Flags
     { _port :: Maybe Int
     }
+
+  
+main :: IO ()
+main =
+  Terminal.app Watchtower.intro Watchtower.outro
+    Watchtower.commands
+    [  Watchtower.start
+    ]
+
 
 
 start :: Terminal.Command
@@ -33,6 +42,27 @@ start =
         |-- flag "port" port_ "The port of the watchtower server (default: 9000)"
   in
   Terminal.Command "start" (Common summary) details example (optional dir) serverFlags run
+
+
+intro :: P.Doc
+intro =
+  P.vcat
+    [ P.fillSep
+        ["Hi,","thank","you","for","trying","out"
+        ,P.green "Elm Watchtower."
+        ," I hope you like it!"
+        ]
+    , ""
+   
+    ]
+
+
+outro :: P.Doc
+outro =
+  P.fillSep $ map P.text $ words $
+    "Be sure to ask on the Elm slack if you run into trouble! Folks are friendly and\
+    \ happy to help out. They hang out there because it is fun, so be kind to get the\
+    \ best results!"
 
 
 port_ :: Parser Int
