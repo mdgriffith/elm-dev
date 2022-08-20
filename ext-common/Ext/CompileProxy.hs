@@ -19,13 +19,14 @@ import qualified Compile
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
 import qualified Data.NonEmptyList as NE
+import qualified Elm.Docs as Docs
 import qualified Elm.Details as Details
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
 import qualified Ext.CompileHelpers.Disk
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
-import qualified Ext.CompileHelpers.Generic as CompileHelpers
+import qualified Elm.ModuleName as ModuleName
 import qualified Ext.CompileHelpers.Memory
 import qualified Ext.FileProxy as File
 import qualified Json.Encode as Encode
@@ -189,6 +190,17 @@ parse root path =
 
 
 -- @TODO this is a disk mode function
+docs :: FilePath -> NE.List ModuleName.Raw -> IO Docs.Documentation
+docs root exposed =
+    BW.withScope $ \scope -> 
+        runTaskUnsafeMake $
+          do
+            details  <- Task.eio Exit.MakeBadDetails $ Details.load Reporting.silent scope root
+            Task.eio Exit.MakeCannotBuild $ Build.fromExposed Reporting.silent root details Build.KeepDocs exposed
+
+
+
+-- @TODO this is a disk mode function
 warnings :: FilePath -> FilePath -> IO (Either () (Src.Module, [ Warning.Warning ]))
 warnings root path =
   Dir.withCurrentDirectory root $ do
@@ -238,6 +250,21 @@ runTaskUnsafe task = do
 
     Left exit ->
       do  Exit.toStderr (Exit.reactorToReport exit)
+          error
+            "\n-------------------------------------------------\
+            \\nError in task, please report this.\
+            \\n-------------------------------------------------\
+            \\n"
+
+runTaskUnsafeMake :: Task.Task Exit.Make a -> IO a
+runTaskUnsafeMake task = do
+  result <- Task.run task
+  case result of
+    Right a ->
+      return a
+
+    Left exit ->
+      do  Exit.toStderr (Exit.makeToReport exit)
           error
             "\n-------------------------------------------------\
             \\nError in task, please report this.\
