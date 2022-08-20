@@ -47,7 +47,8 @@ export const questions = {
   },
 };
 
-const domain = "localhost:9000";
+export const port = "4747";
+const domain = `localhost:${port}`;
 
 export const urls = {
   websocket: "ws://" + domain + "/ws",

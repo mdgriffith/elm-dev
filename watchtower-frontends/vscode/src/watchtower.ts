@@ -5,7 +5,7 @@ import * as log from "./utils/log";
 import * as JSONSafe from "./utils/json";
 import * as Question from "./watchtower/question";
 import { ElmProjectPane } from "./panel/panel";
-import { ETIME } from "constants";
+import * as ChildProcess from "child_process";
 
 var WebSocketClient = require("websocket").client;
 
@@ -82,6 +82,8 @@ export class Watchtower {
     self.diagnostics =
       vscode.languages.createDiagnosticCollection("elmWatchtower");
 
+    self.startServer();
+
     socketConnect({
       url: Question.urls.websocket,
       onJoin: self.onJoin,
@@ -119,6 +121,11 @@ export class Watchtower {
         self.refreshCodeLenses(editor.document);
       }
     });
+  }
+
+  private startServer() {
+    //
+    ChildProcess.spawn("elm-watchtower", ["start", `--port=${Question.port}`]);
   }
 
   private onConnectionFailed(error) {
