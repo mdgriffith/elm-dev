@@ -14,8 +14,8 @@ export type Warning =
   | {
       warning: "MissingAnnotation";
       region: Region;
-      name: string;
-      signature: string;
+      name: String;
+      signature: String;
     };
 
 type Region = {
