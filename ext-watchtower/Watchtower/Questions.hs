@@ -24,6 +24,7 @@ import qualified System.FilePath as Path
 import qualified Reporting.Doc
 import qualified Reporting.Render.Type
 import qualified Reporting.Render.Type.Localizer
+import qualified Reporting.Warning as Warning
 
 import qualified Elm.Docs as Docs
 
@@ -34,7 +35,7 @@ import qualified Watchtower.Details
 import qualified Watchtower.Find
 import qualified Watchtower.Live
 import qualified Watchtower.Project
-import qualified Reporting.Warning as Warning
+
 import qualified Build
 import qualified Watchtower.Docs
 
@@ -44,8 +45,6 @@ import qualified Ext.CompileProxy
 -- One off questions and answers you might have/want.
 data Question
   = CallgraphPlease FilePath Name.Name
-  
-  | SignaturePlease FilePath Name.Name
   | FindDefinitionPlease Watchtower.Details.PointLocation
   | FindAllInstancesPlease Watchtower.Details.PointLocation
   | Docs DocsType
@@ -129,20 +128,6 @@ actionHandler state =
             Just file -> do
               questionHandler state (Discover (Data.ByteString.Char8.unpack file))
 
-      Just "signature" ->
-        do
-          maybeFile <- getQueryParam "file"
-          maybeName <- getQueryParam "name"
-          case (maybeFile, maybeName) of
-            (Just file, Just name) ->
-              questionHandler
-                state
-                ( SignaturePlease
-                    (Data.ByteString.Char8.unpack file)
-                    (Name.fromChars (Data.ByteString.Char8.unpack name))
-                )
-            _ ->
-              writeBS "Needs location"
       Just "callgraph" ->
         do
           maybeFile <- getQueryParam "file"
@@ -157,6 +142,7 @@ actionHandler state =
                 )
             _ ->
               writeBS "Needs location"
+
       Just "definition" ->
         do
           maybeLocation <- getPointLocation
@@ -280,7 +266,7 @@ ask state question =
               Right (mod, warnings) ->
                   Json.Encode.encodeUgly
                     (Json.Encode.list
-                        (encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                        (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
                         warnings
                     )
               Left () ->
@@ -298,12 +284,6 @@ ask state question =
       do
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Watchtower.Annotate.callgraph root path name
-          & fmap Json.Encode.encodeUgly
-
-    SignaturePlease path name ->
-      do
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-        Watchtower.Annotate.annotation root path name
           & fmap Json.Encode.encodeUgly
 
     FindDefinitionPlease location ->
@@ -360,45 +340,3 @@ allProjectStatuses (Watchtower.Live.State clients mProjects) =
           )
         )
 
-
-encodeWarning localizer warning =
-  case warning of
-    Warning.UnusedImport region name ->
-      Json.Encode.object
-          [ "warning" ==> (Json.Encode.chars "UnusedImport")
-          , "region" ==>
-              (Watchtower.Details.encodeRegion region)
-          , "name" ==>
-              (Json.Encode.chars (Name.toChars name))
-          ]
-
-    Warning.UnusedVariable region defOrPattern name ->
-      Json.Encode.object
-          [ "warning" ==> (Json.Encode.chars "UnusedVariable")
-          , "region" ==>
-              (Watchtower.Details.encodeRegion region)
-          , "context" ==>
-              (case defOrPattern of
-                  Warning.Def -> Json.Encode.chars "def"
-
-                  Warning.Pattern -> Json.Encode.chars "pattern"
-
-              )
-          , "name" ==>
-              (Json.Encode.chars (Name.toChars name))
-          ]
-
-    Warning.MissingTypeAnnotation region name type_ ->
-      Json.Encode.object
-          [ "warning" ==> (Json.Encode.chars "MissingAnnotation")
-          , "region" ==>
-              (Watchtower.Details.encodeRegion region)
-          , "name" ==>
-              (Json.Encode.chars (Name.toChars name))
-          , "signature" ==>
-              (Json.Encode.chars
-                (Reporting.Doc.toString
-                  (Reporting.Render.Type.canToDoc localizer Reporting.Render.Type.None type_)
-                )
-              )
-          ]

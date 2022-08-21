@@ -8,6 +8,8 @@ import Control.Applicative ((<$>), (<*>), (<|>))
 import qualified Control.Concurrent.STM as STM
 import Control.Monad as Monad (foldM, guard)
 import Control.Monad.Trans (liftIO)
+
+import qualified Data.Name as Name
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
 import qualified Data.List as List
@@ -40,6 +42,10 @@ import qualified Watchtower.Websocket
 import qualified Ext.FileProxy
 import qualified Ext.CompileMode
 
+import qualified Reporting.Doc
+import qualified Reporting.Render.Type
+import qualified Reporting.Warning as Warning
+import qualified Reporting.Render.Type.Localizer
 
 data State = State
   { clients :: STM.TVar [Client],
@@ -536,8 +542,27 @@ data Outgoing
   | FwdJumpTo Watchtower.Details.Location
   | FwdInsertMissingTypeSignatures FilePath
   | ElmStatus [ ProjectStatus ]
-  deriving (Show)
+  | Warnings Reporting.Render.Type.Localizer.Localizer [Warning.Warning]
+  -- deriving (Show)
 
+
+toString :: Outgoing -> String
+toString outgoing =
+    case outgoing of
+      FwdVisible vis ->
+          "Forward Visibility"
+        
+      FwdJumpTo jump ->
+          "Forward Jumpt to"
+      
+      FwdInsertMissingTypeSignatures _ ->
+          "Forward MissingTypeSignatures"
+      
+      ElmStatus _ ->
+          "GET STATUS"
+        
+      Warnings _ _ ->
+          "Warnings"
 
 
 data ProjectStatus = ProjectStatus
@@ -558,11 +583,13 @@ encodeOutgoing out =
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "Visible"),
             "details" ==> Watchtower.Details.encodeVisible visible
           ]
+
       FwdJumpTo loc ->
         Json.Encode.object
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "Jump"),
             "details" ==> Watchtower.Details.encodeLocation loc
           ]
+
       FwdInsertMissingTypeSignatures path ->
         Json.Encode.object
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "InsertMissingTypeSignatures"),
@@ -571,6 +598,7 @@ encodeOutgoing out =
                 [ "path" ==> Json.Encode.string (Json.String.fromChars path)
                 ]
           ]
+
       ElmStatus statuses ->
         Json.Encode.object
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "Status"),
@@ -589,6 +617,16 @@ encodeOutgoing out =
                 statuses
           ]
 
+      Warnings localizer warnings ->
+        Json.Encode.object
+          [ "msg" ==> Json.Encode.string (Json.String.fromChars "Warnings"),
+            "details"
+              ==> Json.Encode.list
+                      -- (encodeWarning (Reporting.Render.Type.Localizer.fromModule srcMod))
+                      (encodeWarning localizer)
+                      warnings
+                    
+          ]
 
 encodeStatus (Watchtower.Project.Project root entrypoints, js) =
   Json.Encode.object
@@ -596,6 +634,52 @@ encodeStatus (Watchtower.Project.Project root entrypoints, js) =
       "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) entrypoints,
       "status" ==> js
     ]
+
+
+
+
+encodeWarning localizer warning =
+  case warning of
+    Warning.UnusedImport region name ->
+      Json.Encode.object
+          [ "warning" ==> (Json.Encode.chars "UnusedImport")
+          , "region" ==>
+              (Watchtower.Details.encodeRegion region)
+          , "name" ==>
+              (Json.Encode.chars (Name.toChars name))
+          ]
+
+    Warning.UnusedVariable region defOrPattern name ->
+      Json.Encode.object
+          [ "warning" ==> (Json.Encode.chars "UnusedVariable")
+          , "region" ==>
+              (Watchtower.Details.encodeRegion region)
+          , "context" ==>
+              (case defOrPattern of
+                  Warning.Def -> Json.Encode.chars "def"
+
+                  Warning.Pattern -> Json.Encode.chars "pattern"
+
+              )
+          , "name" ==>
+              (Json.Encode.chars (Name.toChars name))
+          ]
+
+    Warning.MissingTypeAnnotation region name type_ ->
+      Json.Encode.object
+          [ "warning" ==> (Json.Encode.chars "MissingAnnotation")
+          , "region" ==>
+              (Watchtower.Details.encodeRegion region)
+          , "name" ==>
+              (Json.Encode.chars (Name.toChars name))
+          , "signature" ==>
+              (Json.Encode.chars
+                (Reporting.Doc.toString
+                  (Reporting.Render.Type.canToDoc localizer Reporting.Render.Type.None type_)
+                )
+              )
+          ]
+
 
 {- WEBSOCKET STUFF -}
 
@@ -636,7 +720,7 @@ broadcastToMany allClients shouldBroadcast outgoing =
 
 broadcastToSubscribedProject :: STM.TVar [Client] -> Watchtower.Project.Project -> Outgoing -> IO ()
 broadcastToSubscribedProject mClients proj msg = do
- debug $ "📢  " ++ show msg
+ debug $ "📢  " ++ toString msg
  broadcastToMany
       mClients
       ( \client ->
