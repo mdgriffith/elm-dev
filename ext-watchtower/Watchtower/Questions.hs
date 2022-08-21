@@ -44,7 +44,7 @@ import qualified Ext.CompileProxy
 -- One off questions and answers you might have/want.
 data Question
   = CallgraphPlease FilePath Name.Name
-  | ListMissingSignaturesPlease FilePath
+  
   | SignaturePlease FilePath Name.Name
   | FindDefinitionPlease Watchtower.Details.PointLocation
   | FindAllInstancesPlease Watchtower.Details.PointLocation
@@ -128,19 +128,7 @@ actionHandler state =
               writeBS "Needs a directory parameter"
             Just file -> do
               questionHandler state (Discover (Data.ByteString.Char8.unpack file))
-      Just "list-missing-signatures" ->
-        do
-          maybeFile <- getQueryParam "file"
-          case maybeFile of
-            Nothing ->
-              writeBS "Needs location"
-            Just file -> do
-              let strPath = Data.ByteString.Char8.unpack file
-              if Path.takeExtension strPath == ".elm"
-                then
-                  questionHandler state (ListMissingSignaturesPlease strPath)
-                else
-                  writeBS ("Requested missing signatures, but this isn't an elm file" <> file)
+
       Just "signature" ->
         do
           maybeFile <- getQueryParam "file"
@@ -311,18 +299,6 @@ ask state question =
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Watchtower.Annotate.callgraph root path name
           & fmap Json.Encode.encodeUgly
-
-    ListMissingSignaturesPlease path ->
-      do
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-        Ext.Common.log "✍️  list signatures" (show (Path.takeFileName path))
-        compiling <- Watchtower.Live.projectIsCompiling path state
-        if compiling
-          then
-            Watchtower.Annotate.listMissingAnnotations root path
-              & fmap Json.Encode.encodeUgly
-          else
-              allProjectStatuses state
 
     SignaturePlease path name ->
       do

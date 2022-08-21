@@ -31,7 +31,6 @@ type Position = {
 type Question =
   | { msg: "Discover"; directory: String }
   | { msg: "ServerHealth" }
-  | { msg: "ListMissingSignaturesPlease"; filepath: String }
   | { msg: "Warnings"; filepath: String }
   | { msg: "FindDefinition"; filepath: string; line: number; char: number };
 
@@ -45,12 +44,6 @@ export const questions = {
     return {
       msg: "Discover",
       directory: dir,
-    };
-  },
-  listMissingSignatures: (filepath: String): Question => {
-    return {
-      msg: "ListMissingSignaturesPlease",
-      filepath: filepath,
     };
   },
   warnings: (filepath: String): Question => {
@@ -100,19 +93,6 @@ export const ask = (question: Question, onSuccess: any, onError: any) => {
           onError(err);
         });
 
-      break;
-    }
-    case "ListMissingSignaturesPlease": {
-      http
-        .get(
-          urls.question(`/list-missing-signatures?file=${question.filepath}`),
-          captureRequest(onSuccess)
-        )
-        .on("error", (err) => {
-          log.log("Error on listing signatures");
-          log.log(err);
-          onError(err);
-        });
       break;
     }
     case "Warnings": {
