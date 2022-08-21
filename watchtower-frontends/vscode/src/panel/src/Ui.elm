@@ -24,7 +24,7 @@ import Element as Ui exposing (Attribute, Element)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Font as Font
-import Html
+import Html exposing (Html)
 import Html.Attributes as Attr
 
 
@@ -233,6 +233,7 @@ header =
     }
 
 
+precise : Attribute msg
 precise =
     Ui.htmlAttribute (Attr.class "precise")
 
