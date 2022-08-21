@@ -9,6 +9,15 @@ export type MissingSignature = {
   signature: String;
 };
 
+export type Warning =
+  | { warning: "UnusedVariable"; region: Region; context: string; name: string }
+  | {
+      warning: "MissingAnnotation";
+      region: Region;
+      name: string;
+      signature: string;
+    };
+
 type Region = {
   start: Position;
   end: Position;
@@ -23,6 +32,7 @@ type Question =
   | { msg: "Discover"; directory: String }
   | { msg: "ServerHealth" }
   | { msg: "ListMissingSignaturesPlease"; filepath: String }
+  | { msg: "Warnings"; filepath: String }
   | { msg: "FindDefinition"; filepath: string; line: number; char: number };
 
 const serverHealth: Question = {
@@ -40,6 +50,12 @@ export const questions = {
   listMissingSignatures: (filepath: String): Question => {
     return {
       msg: "ListMissingSignaturesPlease",
+      filepath: filepath,
+    };
+  },
+  warnings: (filepath: String): Question => {
+    return {
+      msg: "Warnings",
       filepath: filepath,
     };
   },
@@ -94,6 +110,19 @@ export const ask = (question: Question, onSuccess: any, onError: any) => {
         )
         .on("error", (err) => {
           log.log("Error on listing signatures");
+          log.log(err);
+          onError(err);
+        });
+      break;
+    }
+    case "Warnings": {
+      http
+        .get(
+          urls.question(`/warnings?file=${question.filepath}`),
+          captureRequest(onSuccess)
+        )
+        .on("error", (err) => {
+          log.log("Error on requesting warnings");
           log.log(err);
           onError(err);
         });
