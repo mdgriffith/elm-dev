@@ -1,4 +1,5 @@
 import * as Code from "vscode";
+import * as Question from "../watchtower/question";
 
 //
 export type ToProjectPanel =
@@ -6,7 +7,11 @@ export type ToProjectPanel =
       msg: "EditorVisibilityChanged";
       details: { active: EditorVisibility | null; visible: EditorVisibility[] };
     }
-  | { msg: "Status"; details: ProjectStatus[] };
+  | { msg: "Status"; details: ProjectStatus[] }
+  | {
+      msg: "Warnings";
+      details: { warnings: Question.Warning[]; filepath: string };
+    };
 
 export type EditorVisibility = {
   fileName: string;

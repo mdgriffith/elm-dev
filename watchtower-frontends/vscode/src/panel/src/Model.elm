@@ -25,6 +25,7 @@ type alias Model =
     , viewing : Viewing
 
     -- per-file information
+    , warnings : Dict FilePath (List Ports.Warning)
     , missingTypesignatures :
         Dict FilePath (List Question.TypeSignature)
     , errorMenuVisible : Bool

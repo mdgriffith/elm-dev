@@ -35,12 +35,14 @@ main =
         }
 
 
+init : ( Model, Cmd Msg )
 init =
     ( { active = Nothing
       , visible = []
       , projects = []
       , projectsVersion = 0
       , viewing = Overview
+      , warnings = Dict.empty
       , missingTypesignatures = Dict.empty
       , errorMenuVisible = False
       , errorCodeExpanded = Set.empty
@@ -119,6 +121,11 @@ update msg model =
 
                       else
                         Cmd.none
+                    )
+
+                Ports.WarningsUpdated { filepath, warnings } ->
+                    ( { model | warnings = Dict.insert filepath warnings model.warnings }
+                    , Cmd.none
                     )
 
         ErrorMenuUpdated new ->

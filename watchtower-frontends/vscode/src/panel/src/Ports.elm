@@ -1,8 +1,8 @@
-port module Ports exposing (Incoming(..), Outgoing(..), incoming, outgoing)
+port module Ports exposing (Incoming(..), Outgoing(..), incoming, outgoing, Warning(..))
 
 {-|
 
-@docs Incoming, Outgoing, incoming, outgoing
+@docs Incoming, Outgoing, incoming, outgoing, Warning
 
 -}
 
@@ -34,6 +34,23 @@ type Incoming
         , visible : List Editor.Editor
         }
     | ProjectsStatusUpdated (List Elm.Status)
+    | WarningsUpdated
+        { filepath : String
+        , warnings : List Warning
+        }
+
+
+type Warning
+    = UnusedVaraible
+        { region : Editor.Region
+        , context : String
+        , name : String
+        }
+    | MissingAnnotation
+        { region : Editor.Region
+        , name : String
+        , signature : String
+        }
 
 
 type Outgoing
@@ -93,10 +110,76 @@ incomingDecoder =
                                 )
                             )
 
+                    "Warnings" ->
+                        Decode.field "details"
+                            (Decode.map2
+                                (\filepath warnings ->
+                                    WarningsUpdated
+                                        { filepath = filepath
+                                        , warnings = warnings
+                                        }
+                                )
+                                (Decode.field "filepath"
+                                    Decode.string
+                                )
+                                (Decode.field "warnings"
+                                    (Decode.list decodeWarning)
+                                )
+                            )
+
                     _ ->
                         let
                             _ =
                                 Debug.log "UNRECOGNIZED INCOMING MSG" msg
                         in
                         Decode.fail "UNRECOGNIZED INCOMING MSG"
+            )
+
+
+decodeWarning : Decode.Decoder Warning
+decodeWarning =
+    Decode.field "warning" Decode.string
+        |> Decode.andThen
+            (\warning ->
+                case warning of
+                    "UnusedVariable" ->
+                        Decode.map3
+                            (\region context name ->
+                                UnusedVaraible
+                                    { region = region
+                                    , context = context
+                                    , name = name
+                                    }
+                            )
+                            (Decode.field "region"
+                                Editor.decodeRegion
+                            )
+                            (Decode.field "context"
+                                Decode.string
+                            )
+                            (Decode.field "name"
+                                Decode.string
+                            )
+
+                    "MissingAnnotation" ->
+                        Decode.map3
+                            (\region signature name ->
+                                MissingAnnotation
+                                    { region = region
+                                    , signature = signature
+                                    , name = name
+                                    }
+                            )
+                            (Decode.field "region"
+                                Editor.decodeRegion
+                            )
+                            (Decode.field "signature"
+                                Decode.string
+                            )
+                            (Decode.field "name"
+                                Decode.string
+                            )
+
+                    _ ->
+                        Decode.fail "Unknown warning"
             )
