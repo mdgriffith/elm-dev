@@ -10693,6 +10693,9 @@ var $author$project$Ports$ProjectsStatusUpdated = function (a) {
 var $author$project$Ports$VisibleEditorsUpdated = function (a) {
 	return {$: 'VisibleEditorsUpdated', a: a};
 };
+var $author$project$Ports$WarningsUpdated = function (a) {
+	return {$: 'WarningsUpdated', a: a};
+};
 var $elm$json$Json$Decode$andThen = _Json_andThen;
 var $author$project$Editor$Editor = F4(
 	function (fileName, unsavedChanges, ranges, selections) {
@@ -11423,6 +11426,43 @@ var $author$project$Elm$decodeProject = A4(
 	A2($elm$json$Json$Decode$field, 'root', $elm$json$Json$Decode$string),
 	$elm$json$Json$Decode$succeed(_List_Nil),
 	A2($elm$json$Json$Decode$field, 'status', $author$project$Elm$decodeStatus));
+var $author$project$Ports$MissingAnnotation = function (a) {
+	return {$: 'MissingAnnotation', a: a};
+};
+var $author$project$Ports$UnusedVaraible = function (a) {
+	return {$: 'UnusedVaraible', a: a};
+};
+var $author$project$Ports$decodeWarning = A2(
+	$elm$json$Json$Decode$andThen,
+	function (warning) {
+		switch (warning) {
+			case 'UnusedVariable':
+				return A4(
+					$elm$json$Json$Decode$map3,
+					F3(
+						function (region, context, name) {
+							return $author$project$Ports$UnusedVaraible(
+								{context: context, name: name, region: region});
+						}),
+					A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion),
+					A2($elm$json$Json$Decode$field, 'context', $elm$json$Json$Decode$string),
+					A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string));
+			case 'MissingAnnotation':
+				return A4(
+					$elm$json$Json$Decode$map3,
+					F3(
+						function (region, signature, name) {
+							return $author$project$Ports$MissingAnnotation(
+								{name: name, region: region, signature: signature});
+						}),
+					A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion),
+					A2($elm$json$Json$Decode$field, 'signature', $elm$json$Json$Decode$string),
+					A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string));
+			default:
+				return $elm$json$Json$Decode$fail('Unknown warning');
+		}
+	},
+	A2($elm$json$Json$Decode$field, 'warning', $elm$json$Json$Decode$string));
 var $elm$core$Debug$log = _Debug_log;
 var $author$project$Ports$incomingDecoder = A2(
 	$elm$json$Json$Decode$andThen,
@@ -11462,6 +11502,22 @@ var $author$project$Ports$incomingDecoder = A2(
 							$elm$json$Json$Decode$field,
 							'visible',
 							$elm$json$Json$Decode$list($author$project$Editor$decodeEditor))));
+			case 'Warnings':
+				return A2(
+					$elm$json$Json$Decode$field,
+					'details',
+					A3(
+						$elm$json$Json$Decode$map2,
+						F2(
+							function (filepath, warnings) {
+								return $author$project$Ports$WarningsUpdated(
+									{filepath: filepath, warnings: warnings});
+							}),
+						A2($elm$json$Json$Decode$field, 'filepath', $elm$json$Json$Decode$string),
+						A2(
+							$elm$json$Json$Decode$field,
+							'warnings',
+							$elm$json$Json$Decode$list($author$project$Ports$decodeWarning))));
 			default:
 				var _v1 = A2($elm$core$Debug$log, 'UNRECOGNIZED INCOMING MSG', msg);
 				return $elm$json$Json$Decode$fail('UNRECOGNIZED INCOMING MSG');
@@ -11482,7 +11538,7 @@ var $elm$core$Set$Set_elm_builtin = function (a) {
 };
 var $elm$core$Set$empty = $elm$core$Set$Set_elm_builtin($elm$core$Dict$empty);
 var $author$project$Main$init = _Utils_Tuple2(
-	{active: $elm$core$Maybe$Nothing, errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, missingTypesignatures: $elm$core$Dict$empty, projects: _List_Nil, projectsVersion: 0, viewing: $author$project$Model$Overview, visible: _List_Nil},
+	{active: $elm$core$Maybe$Nothing, errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, missingTypesignatures: $elm$core$Dict$empty, projects: _List_Nil, projectsVersion: 0, viewing: $author$project$Model$Overview, visible: _List_Nil, warnings: $elm$core$Dict$empty},
 	$elm$core$Platform$Cmd$none);
 var $author$project$Model$AnswerReceived = function (a) {
 	return {$: 'AnswerReceived', a: a};
@@ -11966,47 +12022,58 @@ var $author$project$Main$update = F2(
 					return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 				} else {
 					var editorMsg = _v0.a.a;
-					if (editorMsg.$ === 'VisibleEditorsUpdated') {
-						var visible = editorMsg.a;
-						return _Utils_Tuple2(
-							_Utils_update(
-								model,
-								{active: visible.active, visible: visible.visible}),
-							$author$project$Elm$successful(model.projects) ? $elm$core$Platform$Cmd$batch(
-								A2(
-									$elm$core$List$filterMap,
-									function (editor) {
-										return (editor.unsavedChanges || A2($elm$core$Dict$member, editor.fileName, model.missingTypesignatures)) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
-											A2(
-												$elm$core$Platform$Cmd$map,
-												$author$project$Model$AnswerReceived,
-												$author$project$Question$ask.missingTypesignatures(editor.fileName)));
-									},
-									visible.visible)) : $elm$core$Platform$Cmd$none);
-					} else {
-						var statuses = editorMsg.a;
-						var success = $author$project$Elm$successful(statuses);
-						return _Utils_Tuple2(
-							_Utils_update(
-								model,
-								{
-									errorCodeExpanded: $elm$core$Set$empty,
-									errorMenuVisible: false,
-									missingTypesignatures: success ? model.missingTypesignatures : $elm$core$Dict$empty,
-									projects: statuses,
-									projectsVersion: model.projectsVersion + 1
-								}),
-							success ? $elm$core$Platform$Cmd$batch(
-								A2(
-									$elm$core$List$filterMap,
-									function (editor) {
-										return (editor.unsavedChanges || A2($elm$core$Dict$member, editor.fileName, model.missingTypesignatures)) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
-											A2(
-												$elm$core$Platform$Cmd$map,
-												$author$project$Model$AnswerReceived,
-												$author$project$Question$ask.missingTypesignatures(editor.fileName)));
-									},
-									model.visible)) : $elm$core$Platform$Cmd$none);
+					switch (editorMsg.$) {
+						case 'VisibleEditorsUpdated':
+							var visible = editorMsg.a;
+							return _Utils_Tuple2(
+								_Utils_update(
+									model,
+									{active: visible.active, visible: visible.visible}),
+								$author$project$Elm$successful(model.projects) ? $elm$core$Platform$Cmd$batch(
+									A2(
+										$elm$core$List$filterMap,
+										function (editor) {
+											return (editor.unsavedChanges || A2($elm$core$Dict$member, editor.fileName, model.missingTypesignatures)) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
+												A2(
+													$elm$core$Platform$Cmd$map,
+													$author$project$Model$AnswerReceived,
+													$author$project$Question$ask.missingTypesignatures(editor.fileName)));
+										},
+										visible.visible)) : $elm$core$Platform$Cmd$none);
+						case 'ProjectsStatusUpdated':
+							var statuses = editorMsg.a;
+							var success = $author$project$Elm$successful(statuses);
+							return _Utils_Tuple2(
+								_Utils_update(
+									model,
+									{
+										errorCodeExpanded: $elm$core$Set$empty,
+										errorMenuVisible: false,
+										missingTypesignatures: success ? model.missingTypesignatures : $elm$core$Dict$empty,
+										projects: statuses,
+										projectsVersion: model.projectsVersion + 1
+									}),
+								success ? $elm$core$Platform$Cmd$batch(
+									A2(
+										$elm$core$List$filterMap,
+										function (editor) {
+											return (editor.unsavedChanges || A2($elm$core$Dict$member, editor.fileName, model.missingTypesignatures)) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
+												A2(
+													$elm$core$Platform$Cmd$map,
+													$author$project$Model$AnswerReceived,
+													$author$project$Question$ask.missingTypesignatures(editor.fileName)));
+										},
+										model.visible)) : $elm$core$Platform$Cmd$none);
+						default:
+							var filepath = editorMsg.a.filepath;
+							var warnings = editorMsg.a.warnings;
+							return _Utils_Tuple2(
+								_Utils_update(
+									model,
+									{
+										warnings: A3($elm$core$Dict$insert, filepath, warnings, model.warnings)
+									}),
+								$elm$core$Platform$Cmd$none);
 					}
 				}
 			case 'ErrorMenuUpdated':
@@ -18593,4 +18660,4 @@ var $author$project$Main$main = $elm$browser$Browser$document(
 		view: $author$project$Main$view
 	});
 _Platform_export({'Main':{'init':$author$project$Main$main(
-	$elm$json$Json$Decode$succeed(_Utils_Tuple0))({"versions":{"elm":"0.19.1"},"types":{"message":"Model.Msg","aliases":{"Elm.CodeReferenceKey":{"args":[],"type":"String.String"},"Model.FilePath":{"args":[],"type":"String.String"},"Editor.Position":{"args":[],"type":"{ row : Basics.Int, col : Basics.Int }"},"Editor.Region":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Editor.Editor":{"args":[],"type":"{ fileName : String.String, unsavedChanges : Basics.Bool, ranges : List.List Editor.Range, selections : List.List Editor.Range }"},"Editor.Range":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Question.TypeSignature":{"args":[],"type":"{ name : String.String, region : Editor.Region, signature : String.String }"},"Json.Decode.Value":{"args":[],"type":"Json.Encode.Value"},"Elm.File":{"args":[],"type":"{ path : String.String, name : String.String, problem : List.List Elm.Problem }"},"Elm.GlobalErrorDetails":{"args":[],"type":"{ path : Maybe.Maybe String.String, problem : { title : String.String, message : List.List Elm.Text } }"},"Elm.Problem":{"args":[],"type":"{ title : String.String, message : List.List Elm.Text, region : Editor.Region }"},"Elm.StyledText":{"args":[],"type":"{ color : Maybe.Maybe Elm.Color, underline : Basics.Bool, bold : Basics.Bool }"}},"unions":{"Model.Msg":{"args":[],"tags":{"Incoming":["Result.Result Json.Decode.Error Ports.Incoming"],"View":["Model.Viewing"],"AnswerReceived":["Result.Result Http.Error Question.Answer"],"EditorGoTo":["Model.FilePath","Editor.Region"],"EditorFillTypeSignatures":["Model.FilePath"],"ErrorMenuUpdated":["Basics.Bool"],"ErrorCodeToggled":["Elm.CodeReferenceKey","Basics.Bool"]}},"Question.Answer":{"args":[],"tags":{"MissingTypeSignatures":["String.String","List.List Question.TypeSignature"]}},"Basics.Bool":{"args":[],"tags":{"True":[],"False":[]}},"Http.Error":{"args":[],"tags":{"BadUrl":["String.String"],"Timeout":[],"NetworkError":[],"BadStatus":["Basics.Int"],"BadBody":["String.String"]}},"Json.Decode.Error":{"args":[],"tags":{"Field":["String.String","Json.Decode.Error"],"Index":["Basics.Int","Json.Decode.Error"],"OneOf":["List.List Json.Decode.Error"],"Failure":["String.String","Json.Decode.Value"]}},"Ports.Incoming":{"args":[],"tags":{"VisibleEditorsUpdated":["{ active : Maybe.Maybe Editor.Editor, visible : List.List Editor.Editor }"],"ProjectsStatusUpdated":["List.List Elm.Status"]}},"Basics.Int":{"args":[],"tags":{"Int":[]}},"Result.Result":{"args":["error","value"],"tags":{"Ok":["value"],"Err":["error"]}},"String.String":{"args":[],"tags":{"String":[]}},"Model.Viewing":{"args":[],"tags":{"Overview":[]}},"List.List":{"args":["a"],"tags":{}},"Maybe.Maybe":{"args":["a"],"tags":{"Just":["a"],"Nothing":[]}},"Elm.Status":{"args":[],"tags":{"NoData":[],"Success":[],"GlobalError":["Elm.GlobalErrorDetails"],"CompilerError":["{ errors : List.List Elm.File }"]}},"Json.Encode.Value":{"args":[],"tags":{"Value":[]}},"Elm.Text":{"args":[],"tags":{"Plain":["String.String"],"Styled":["Elm.StyledText","String.String"],"CodeQuote":["Basics.Int","List.List Elm.Text"],"CodeSection":["Basics.Int","List.List Elm.Text"]}},"Elm.Color":{"args":[],"tags":{"Red":[],"Yellow":[],"Green":[],"Cyan":[]}}}}})}});}(this));
+	$elm$json$Json$Decode$succeed(_Utils_Tuple0))({"versions":{"elm":"0.19.1"},"types":{"message":"Model.Msg","aliases":{"Elm.CodeReferenceKey":{"args":[],"type":"String.String"},"Model.FilePath":{"args":[],"type":"String.String"},"Editor.Position":{"args":[],"type":"{ row : Basics.Int, col : Basics.Int }"},"Editor.Region":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Editor.Editor":{"args":[],"type":"{ fileName : String.String, unsavedChanges : Basics.Bool, ranges : List.List Editor.Range, selections : List.List Editor.Range }"},"Editor.Range":{"args":[],"type":"{ start : Editor.Position, end : Editor.Position }"},"Question.TypeSignature":{"args":[],"type":"{ name : String.String, region : Editor.Region, signature : String.String }"},"Json.Decode.Value":{"args":[],"type":"Json.Encode.Value"},"Elm.File":{"args":[],"type":"{ path : String.String, name : String.String, problem : List.List Elm.Problem }"},"Elm.GlobalErrorDetails":{"args":[],"type":"{ path : Maybe.Maybe String.String, problem : { title : String.String, message : List.List Elm.Text } }"},"Elm.Problem":{"args":[],"type":"{ title : String.String, message : List.List Elm.Text, region : Editor.Region }"},"Elm.StyledText":{"args":[],"type":"{ color : Maybe.Maybe Elm.Color, underline : Basics.Bool, bold : Basics.Bool }"}},"unions":{"Model.Msg":{"args":[],"tags":{"Incoming":["Result.Result Json.Decode.Error Ports.Incoming"],"View":["Model.Viewing"],"AnswerReceived":["Result.Result Http.Error Question.Answer"],"EditorGoTo":["Model.FilePath","Editor.Region"],"EditorFillTypeSignatures":["Model.FilePath"],"ErrorMenuUpdated":["Basics.Bool"],"ErrorCodeToggled":["Elm.CodeReferenceKey","Basics.Bool"]}},"Question.Answer":{"args":[],"tags":{"MissingTypeSignatures":["String.String","List.List Question.TypeSignature"]}},"Basics.Bool":{"args":[],"tags":{"True":[],"False":[]}},"Http.Error":{"args":[],"tags":{"BadUrl":["String.String"],"Timeout":[],"NetworkError":[],"BadStatus":["Basics.Int"],"BadBody":["String.String"]}},"Json.Decode.Error":{"args":[],"tags":{"Field":["String.String","Json.Decode.Error"],"Index":["Basics.Int","Json.Decode.Error"],"OneOf":["List.List Json.Decode.Error"],"Failure":["String.String","Json.Decode.Value"]}},"Ports.Incoming":{"args":[],"tags":{"VisibleEditorsUpdated":["{ active : Maybe.Maybe Editor.Editor, visible : List.List Editor.Editor }"],"ProjectsStatusUpdated":["List.List Elm.Status"],"WarningsUpdated":["{ filepath : String.String, warnings : List.List Ports.Warning }"]}},"Basics.Int":{"args":[],"tags":{"Int":[]}},"Result.Result":{"args":["error","value"],"tags":{"Ok":["value"],"Err":["error"]}},"String.String":{"args":[],"tags":{"String":[]}},"Model.Viewing":{"args":[],"tags":{"Overview":[]}},"List.List":{"args":["a"],"tags":{}},"Maybe.Maybe":{"args":["a"],"tags":{"Just":["a"],"Nothing":[]}},"Elm.Status":{"args":[],"tags":{"NoData":[],"Success":[],"GlobalError":["Elm.GlobalErrorDetails"],"CompilerError":["{ errors : List.List Elm.File }"]}},"Json.Encode.Value":{"args":[],"tags":{"Value":[]}},"Ports.Warning":{"args":[],"tags":{"UnusedVaraible":["{ region : Editor.Region, context : String.String, name : String.String }"],"MissingAnnotation":["{ region : Editor.Region, name : String.String, signature : String.String }"]}},"Elm.Text":{"args":[],"tags":{"Plain":["String.String"],"Styled":["Elm.StyledText","String.String"],"CodeQuote":["Basics.Int","List.List Elm.Text"],"CodeSection":["Basics.Int","List.List Elm.Text"]}},"Elm.Color":{"args":[],"tags":{"Red":[],"Yellow":[],"Green":[],"Cyan":[]}}}}})}});}(this));
