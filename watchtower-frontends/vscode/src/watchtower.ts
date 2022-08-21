@@ -237,10 +237,10 @@ export class Watchtower {
     }
     const filepath = document.uri.fsPath;
     Question.ask(
-      Question.questions.listMissingSignatures(filepath),
+      Question.questions.warnings(filepath),
       (resp) => {
         if (resp != null) {
-          self.codelensProvider.setSignatures(filepath, resp);
+          self.codelensProvider.setSignaturesFromWarnings(filepath, resp);
         }
       },
       (err) => {}
@@ -401,17 +401,33 @@ function getDocumentMatching(uri: vscode.Uri): vscode.TextDocument | null {
   return null;
 }
 
+function getEditorMatching(uri: vscode.Uri): vscode.TextEditor | null {
+  const editor = vscode.window.activeTextEditor;
+
+  if (editor) {
+    if (editor.document.uri.toString() == uri.toString()) {
+      return editor;
+    }
+  }
+
+  return null;
+}
+
+function regionToRange(region): vscode.Range {
+  return new vscode.Range(
+    region.start.line - 1,
+    region.start.column - 1,
+    region.end.line - 1,
+    region.end.column - 1
+  );
+}
+
 function signatureToLens(
   document: vscode.TextDocument,
   signature: Question.MissingSignature,
   onClick: any
 ): vscode.CodeLens {
-  const range = new vscode.Range(
-    signature.region.start.line - 1,
-    signature.region.start.column - 1,
-    signature.region.end.line - 1,
-    signature.region.end.column - 1
-  );
+  const range = regionToRange(signature.region);
 
   let newLens = new vscode.CodeLens(range);
 
@@ -423,6 +439,12 @@ function signatureToLens(
   };
   return newLens;
 }
+
+/**   DECORATIONS   **/
+
+const unusedValueDecorationType = vscode.window.createTextEditorDecorationType({
+  opacity: "0.5",
+});
 
 /**
  * CodelensProvider
@@ -460,6 +482,68 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
         const lens = signatureToLens(document, sig, onClick);
         signatures.push({ missing: sig, lens: lens });
       }
+    }
+
+    this.signatures[filepath] = {
+      signatures: signatures,
+    };
+    this._onDidChangeCodeLenses.fire();
+  }
+
+  public setSignaturesFromWarnings(
+    filepath: string,
+    warnings: Question.Warning[]
+  ) {
+    const self = this;
+
+    const decorations = [];
+
+    // TODO! destroy existing codelenses
+    const signatures = [];
+    for (const warn of warnings) {
+      if (warn.warning == "MissingAnnotation") {
+        const document = getDocumentMatching(vscode.Uri.file(filepath));
+
+        if (document != null) {
+          const sig: Question.MissingSignature = {
+            filepath: filepath,
+            name: warn.name,
+            region: warn.region,
+            signature: warn.signature,
+          };
+          const onClick = () => {
+            self.queueAction({
+              signature: sig,
+              filepath: document.uri.fsPath,
+            });
+          };
+          const lens = signatureToLens(document, sig, onClick);
+          signatures.push({ missing: sig, lens: lens });
+        }
+      } else if (warn.warning == "UnusedVariable") {
+        log.log(`UNUSED3 ${warn.name}`);
+        const dec = {
+          range: regionToRange(warn.region),
+          hoverMessage: "This is unused.",
+        };
+        decorations.push(dec);
+      }
+    }
+
+    // for (const fileKey in decorations) {
+    //   log.log(`Decorate ${fileKey}`);
+    //   const editor = getEditorMatching(vscode.Uri.file(fileKey));
+    //   log.log(editor);
+    //   if (editor != null) {
+    //     editor.setDecorations(unusedValueDecorationType, decorations[fileKey]);
+    //   }
+    // }
+    log.log(`Decorate ${filepath}`);
+    log.log(decorations);
+    const editor = getEditorMatching(vscode.Uri.file(filepath));
+    log.log(editor);
+    if (editor != null) {
+      editor.setDecorations(unusedValueDecorationType, decorations);
     }
 
     this.signatures[filepath] = {
