@@ -10,6 +10,7 @@ import qualified Data.ByteString as BS
 import qualified Data.NonEmptyList as NE
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Char8
+
 import Data.Function ((&))
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
@@ -24,7 +25,6 @@ import qualified Reporting.Doc
 import qualified Reporting.Render.Type
 import qualified Reporting.Render.Type.Localizer
 
-
 import qualified Elm.Docs as Docs
 
 import Snap.Core hiding (path)
@@ -36,7 +36,7 @@ import qualified Watchtower.Live
 import qualified Watchtower.Project
 import qualified Reporting.Warning as Warning
 import qualified Build
-
+import qualified Watchtower.Docs
 
 import qualified Ext.CompileProxy
 
@@ -98,7 +98,6 @@ actionHandler state =
             Just filesString -> do
               let fileList = unpackStringList filesString
               questionHandler state (Docs (FromFiles fileList))
-              -- writeBS "Needs a file parameter"
 
       Just "health" ->
         questionHandler state ServerHealth
@@ -233,6 +232,8 @@ getPosition =
 
 
 
+
+
 ask :: Watchtower.Live.State -> Question -> IO Data.ByteString.Builder.Builder
 ask state question =
   case question of
@@ -248,8 +249,23 @@ ask state question =
             pure (Json.Encode.encodeUgly (Json.Encode.chars "At least one file should be provided."))
         
         (top : remaining) ->
-            generateLocalDocs "/Users/matthewgriffith/projects/blissfully/development/ironzion/packages/frontend/" (NE.List (Name.fromChars top) (fmap (Name.fromChars) remaining)) state
+            do 
+                eitherArtifacts <- Ext.CompileProxy.loadSingleArtifacts "/Users/matthewgriffith/projects/blissfully/development/ironzion/packages/frontend/" top
+                case eitherArtifacts of
+                    Left err ->
+                        pure (Json.Encode.encodeUgly (Json.Encode.chars "Failed to get artifacts"))
 
+                    Right artifacts ->
+                        case  Watchtower.Docs.fromArtifacts artifacts of
+                          Left err ->
+                              -- do 
+                              --     Reporting.Error.Docs.toReports
+                              pure (Json.Encode.encodeUgly (Json.Encode.chars "Doc Artifacts are dumb"))
+                          
+                          Right docs ->
+                              pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [ docs ])))
+
+                        
     TimingParse path ->
       do
         Ext.Common.debug $ "Parsing: " ++ show path
@@ -327,15 +343,6 @@ ask state question =
     FindAllInstancesPlease location ->
       pure (Data.ByteString.Builder.byteString ("NOTDONE"))
 
-
-
-generateLocalDocs path exposedFiles state =
-  do
-    root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-    
-    docs <- Ext.CompileProxy.docs root exposedFiles
-    
-    pure (Json.Encode.encodeUgly (Docs.encode docs)) 
 
 
 allProjectStatuses (Watchtower.Live.State clients mProjects) =

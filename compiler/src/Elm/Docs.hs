@@ -13,6 +13,12 @@ module Elm.Docs
   , Error(..)
   , decoder
   , encode
+  -- export
+  , getType
+  , gatherTypes
+  , dector
+  , toDict
+  , Comment
   )
   where
 
