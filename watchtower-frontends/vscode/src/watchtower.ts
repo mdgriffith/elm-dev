@@ -521,7 +521,6 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
           signatures.push({ missing: sig, lens: lens });
         }
       } else if (warn.warning == "UnusedVariable") {
-        log.log(`UNUSED3 ${warn.name}`);
         const dec = {
           range: regionToRange(warn.region),
           hoverMessage: "This is unused.",
@@ -530,18 +529,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
       }
     }
 
-    // for (const fileKey in decorations) {
-    //   log.log(`Decorate ${fileKey}`);
-    //   const editor = getEditorMatching(vscode.Uri.file(fileKey));
-    //   log.log(editor);
-    //   if (editor != null) {
-    //     editor.setDecorations(unusedValueDecorationType, decorations[fileKey]);
-    //   }
-    // }
-    log.log(`Decorate ${filepath}`);
-    log.log(decorations);
     const editor = getEditorMatching(vscode.Uri.file(filepath));
-    log.log(editor);
     if (editor != null) {
       editor.setDecorations(unusedValueDecorationType, decorations);
     }
