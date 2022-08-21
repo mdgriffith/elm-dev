@@ -227,14 +227,6 @@ warnings root path =
       Left err ->
         pure (Left ())
 
-  --  case snd $ R.run $ Optimize.optimize annotations canonical of
-  --   Right localGraph ->
-  --     Right localGraph
-
-  --   Left errors ->
-  --     Left (E.BadMains (Localizer.fromModule modul) errors)
-
-
 
 
 -- Helpers
