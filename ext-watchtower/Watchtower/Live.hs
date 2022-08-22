@@ -248,8 +248,11 @@ recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchto
             if List.any (\f -> Watchtower.Project.contains f proj) changedFiles then
               do
 
+
+
                   let entry = (NonEmpty.List top remain)
-                  -- Can compileToJson take multiple entrypoints like elm make?
+                  
+                  -- Compile all files
                   eitherStatusJson <-
                     compileMode
                       projectRoot
@@ -258,6 +261,7 @@ recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchto
                   Ext.Sentry.updateCompileResult cache $
                     pure eitherStatusJson
 
+                  -- Send compilation status
                   case eitherStatusJson of
                     Right statusJson ->
                       do
@@ -275,6 +279,25 @@ recompileChangedFile mClients changedFiles projCache@(ProjectCache proj@(Watchto
                         -- still recompile the entire project
                         recompileProjectIfSubFile mClients changedFiles projCache
                         pure ()
+
+                  
+                  -- ask for warnings for the top file specifically.
+                  eitherWarnings <- Ext.CompileProxy.warnings projectRoot top
+
+                  case eitherWarnings of
+                    Right (src, warnings) ->
+                        do
+                          Ext.Common.log "Sending down warnings" "!"
+                          broadcastToSubscribedProject mClients proj
+                            (Warnings (Reporting.Render.Type.Localizer.fromModule src) warnings)
+                        
+                          pure ()
+
+                    Left () ->
+                        -- There was some issue compiling
+                        pure ()
+
+
 
                   pure []
 
@@ -622,7 +645,6 @@ encodeOutgoing out =
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "Warnings"),
             "details"
               ==> Json.Encode.list
-                      -- (encodeWarning (Reporting.Render.Type.Localizer.fromModule srcMod))
                       (encodeWarning localizer)
                       warnings
                     
@@ -634,8 +656,6 @@ encodeStatus (Watchtower.Project.Project root entrypoints, js) =
       "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) entrypoints,
       "status" ==> js
     ]
-
-
 
 
 encodeWarning localizer warning =
