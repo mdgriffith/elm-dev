@@ -6,7 +6,6 @@ module Watchtower.Project (getRoot, contains, discover, decodeProject, Project (
 
 import qualified Control.Monad as Monad
 import qualified Data.List as List
-import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Elm.Outline

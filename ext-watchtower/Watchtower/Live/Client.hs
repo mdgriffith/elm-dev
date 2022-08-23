@@ -3,9 +3,26 @@ module Watchtower.Live.Client
     , getAllStatuses, getRoot, getProjectRoot
     , Outgoing(..), encodeOutgoing, outgoingToLog
     , Incoming(..), decodeIncoming, toString, encodeWarning
-    , broadcastAll, broadcastTo, broadcastToMany, broadcastToSubscribedProject
+    , broadcast, broadcastTo
     , matchingProject
+    , isWatchingFileForWarnings, isWatchingFileForDocs
+    , emptyWatch
+    , watchProjects
+    , watchTheseFilesOnly
     ) where
+
+
+{-| This could probably be renamed Live.State or something.  Client is a little weird but :shrug:
+
+
+-}
+
+import qualified Data.ByteString.Lazy
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Data.ByteString.Builder
+import qualified Data.List as List
+import qualified Data.Map as Map
 
 
 import qualified Control.Concurrent.STM as STM
@@ -34,12 +51,6 @@ import qualified Reporting.Doc
 import qualified Reporting.Render.Type
 import qualified Reporting.Render.Type.Localizer
 import qualified Ext.Common
-import qualified Data.ByteString.Lazy
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.ByteString.Builder
-import qualified Data.List as List
-
 
 data State = State
   { clients :: STM.TVar [Client],
@@ -49,16 +60,61 @@ data State = State
   }
 
 data ProjectCache = ProjectCache
-  { project :: Watchtower.Project.Project,
-    sentry :: Ext.Sentry.Cache
+  { project :: Watchtower.Project.Project
+  , sentry :: Ext.Sentry.Cache
   }
 
 type ClientId = T.Text
 
-type Client = Watchtower.Websocket.Client (Set.Set ProjectRoot)
+type Client = Watchtower.Websocket.Client Watching
+
+emptyWatch :: Watching
+emptyWatch =
+    Watching Set.empty Map.empty
+
+data Watching = Watching 
+    { watchingProjects :: (Set.Set ProjectRoot)
+    , watchingFiles :: (Map.Map FilePath FileWatchType)
+    }
+
+data FileWatchType
+    = FileWatchType 
+        { watchForWarnings :: Bool -- missing type signatures/unused stuff 
+        , watchForDocs :: Bool
+        }
 
 type ProjectRoot = FilePath
 
+
+watchProjects :: [ProjectRoot] -> Watching -> Watching
+watchProjects newRoots (Watching watchingProjects watchingFiles) =
+    Watching (Set.union watchingProjects (Set.fromList newRoots)) watchingFiles
+
+
+watchTheseFilesOnly :: [(FilePath, FileWatchType)] -> Watching -> Watching
+watchTheseFilesOnly newFileWatching (Watching watchingProjects watchingFiles) =
+    Watching watchingProjects (Map.fromList newFileWatching)
+
+
+isWatchingProject :: Watchtower.Project.Project -> Watching -> Bool
+isWatchingProject proj (Watching watchingProjects watchingFiles) =
+    Set.member (Watchtower.Project._root proj) watchingProjects
+
+
+isWatchingFileForWarnings :: FilePath -> Watching -> Bool
+isWatchingFileForWarnings file (Watching watchingProjects watchingFiles) =
+    case Map.lookup file watchingFiles of
+        Nothing -> False
+        Just (FileWatchType _ watchForWarnings) ->
+            watchForWarnings
+
+
+isWatchingFileForDocs :: FilePath -> Watching -> Bool
+isWatchingFileForDocs file (Watching watchingProjects watchingFiles) =
+    case Map.lookup file watchingFiles of
+        Nothing -> False
+        Just (FileWatchType watchForDocs _) ->
+            watchForDocs
 
 
 getRoot :: FilePath -> State -> IO (Maybe FilePath)
@@ -144,7 +200,6 @@ data Outgoing
   = -- forwarding information
     ElmStatus [ ProjectStatus ]
   | Warnings FilePath Reporting.Render.Type.Localizer.Localizer [Warning.Warning]
-  -- deriving (Show)
 
 
 toString :: Outgoing -> String
@@ -341,13 +396,44 @@ broadcastToMany allClients shouldBroadcast outgoing =
       )
 
 
-broadcastToSubscribedProject :: STM.TVar [Client] -> Watchtower.Project.Project -> Outgoing -> IO ()
-broadcastToSubscribedProject mClients proj msg = do
- Ext.Common.debug $ "📢  " ++ toString msg
- broadcastToMany
-      mClients
-      ( \client ->
-          let clientData = Watchtower.Websocket.clientData client
-            in Set.member (Watchtower.Project._root proj) clientData
-      )
-      msg
+
+broadcast :: STM.TVar [Client] -> Outgoing -> IO ()
+broadcast mClients msg =
+  case msg of
+    ElmStatus projectStatusList ->
+        do
+            Ext.Common.debug $ "📢  Project status changed" 
+            broadcastToMany
+                mClients
+                ( \client ->
+                        let
+                            clientData = Watchtower.Websocket.clientData client
+
+                            affectedProjectsThatWereListeningTo =
+                                List.filter 
+                                    (\(ProjectStatus proj _ _) -> 
+                                        isWatchingProject proj clientData
+                                    )
+                                    projectStatusList
+                        in 
+                        -- This isn't entirely correct as it'll give all project statuses to this client
+                        -- but :shrug: for now.
+                        case affectedProjectsThatWereListeningTo of
+                            [] -> False
+                            _ -> 
+                                True
+                )
+                msg
+
+    Warnings file localizer warnings ->
+        do
+            Ext.Common.debug $ "📢  Warnings reported"
+            broadcastToMany
+                mClients
+                ( \client ->
+                        let
+                            clientData = Watchtower.Websocket.clientData client
+                        in 
+                        isWatchingFileForWarnings file clientData
+                )
+                msg

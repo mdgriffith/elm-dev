@@ -94,8 +94,6 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
             if List.any (\f -> Watchtower.Project.contains f proj) changedFiles then
               do
 
-
-
                   let entry = (NonEmpty.List top remain)
                   
                   -- Compile all files
@@ -119,7 +117,7 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                     Left errJson ->
                       do
                         Ext.Common.log "Changed file failed" "!"
-                        broadcastToSubscribedProject mClients proj
+                        Client.broadcast mClients
                           (Client.ElmStatus [ Client.ProjectStatus proj False errJson ])
 
                         -- still recompile the entire project
@@ -134,7 +132,7 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                     Right (src, warnings) ->
                         do
                           Ext.Common.log "Sending down warnings" "!"
-                          broadcastToSubscribedProject mClients proj
+                          Client.broadcast mClients
                             (Client.Warnings top (Reporting.Render.Type.Localizer.fromModule src) warnings)
                         
                           pure ()
@@ -200,44 +198,15 @@ recompileProjectIfSubFile mClients remainingFiles (Client.ProjectCache proj@(Wat
               Right statusJson ->
                 do
                   Ext.Common.log "Affected project success" "--"
-                  broadcastToSubscribedProject mClients proj
+                  Client.broadcast mClients
                     (Client.ElmStatus [ Client.ProjectStatus proj True statusJson ])
 
               Left errJson ->
                 -- send the errors to any client that's listening
                 do
                   Ext.Common.log "Affected project failure" "--"
-                  broadcastToSubscribedProject mClients proj
+                  Client.broadcast mClients
                     (Client.ElmStatus [ Client.ProjectStatus proj False errJson ])
 
 
             pure remaining
-
-
-
-builderToString =
-  T.decodeUtf8 . Data.ByteString.Lazy.toStrict . Data.ByteString.Builder.toLazyByteString
-
-
-broadcastToMany :: STM.TVar [Client.Client] -> (Client.Client -> Bool) -> Client.Outgoing -> IO ()
-broadcastToMany allClients shouldBroadcast outgoing =
-  do
-    Ext.Common.log "◀️" (Client.outgoingToLog outgoing)
-    Watchtower.Websocket.broadcastWith
-      allClients
-      shouldBroadcast
-      ( builderToString $
-          Client.encodeOutgoing outgoing
-      )
-
-
-broadcastToSubscribedProject :: STM.TVar [Client.Client] -> Watchtower.Project.Project -> Client.Outgoing -> IO ()
-broadcastToSubscribedProject mClients proj msg = do
- debug $ "📢  " ++ Client.toString msg
- broadcastToMany
-      mClients
-      ( \client ->
-          let clientData = Watchtower.Websocket.clientData client
-            in Set.member (Watchtower.Project._root proj) clientData
-      )
-      msg

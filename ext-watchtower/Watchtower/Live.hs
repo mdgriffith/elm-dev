@@ -121,7 +121,7 @@ websocket_ state@(Client.State mClients projects) = do
           onJoined
           (receive state)
           (T.decodeUtf8 key)
-          Set.empty
+          Client.emptyWatch
     Nothing ->
       error404
 
@@ -159,7 +159,6 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
 
         discovered <- discoverProjects root
 
-
         STM.atomically $
             do
               STM.modifyTVar mProjects
@@ -181,8 +180,8 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
                 ( fmap
                     ( Watchtower.Websocket.updateClientData
                         clientId
-                        ( Set.union (Set.fromList (List.map Client.getProjectRoot discovered))
-                        )
+                        ( Client.watchProjects (List.map Client.getProjectRoot discovered))
+                        
                     )
                 )
 
