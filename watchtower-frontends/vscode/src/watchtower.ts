@@ -93,7 +93,6 @@ export class Watchtower {
 
     vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
       self.send(changed(document.uri.path));
-      self.refreshCodeLenses(document);
     });
 
     vscode.workspace.onDidChangeTextDocument(
@@ -180,7 +179,6 @@ export class Watchtower {
     switch (msg["msg"]) {
       case "Status": {
         self.diagnostics.clear();
-
         for (const project of msg["details"]) {
           log.obj("PROJECT", project);
           log.obj("PROJECT.STATUS", project.status);
@@ -210,6 +208,13 @@ export class Watchtower {
             );
           }
         }
+        break;
+      }
+      case "Warnings": {
+        self.codelensProvider.setSignaturesFromWarnings(
+          msg.details.filepath,
+          msg.details.warnings
+        );
         break;
       }
       default: {
