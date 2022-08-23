@@ -35,6 +35,7 @@ import qualified Watchtower.Details
 import qualified Watchtower.Find
 import qualified Watchtower.Live
 import qualified Watchtower.Project
+import qualified Watchtower.Live.Client as Client
 
 import qualified Build
 import qualified Watchtower.Docs
@@ -301,12 +302,12 @@ ask state question =
 
 
 
-allProjectStatuses (Watchtower.Live.State clients mProjects) =
+allProjectStatuses (Client.State clients mProjects) =
     do
       projects <- STM.readTVarIO mProjects
       projectStatuses <-
           Monad.foldM
-            (\gathered (Watchtower.Live.ProjectCache proj sentry) ->
+            (\gathered (Client.ProjectCache proj sentry) ->
               do
                 result <- Ext.Sentry.getCompileResult sentry
                 pure

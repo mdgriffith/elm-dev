@@ -15,6 +15,7 @@ import Snap.Util.FileServe
 import qualified System.Directory as Dir
 import qualified Watchtower.Details
 import qualified Watchtower.Live
+import qualified Watchtower.Live.Compile
 import qualified Watchtower.Project
 import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
@@ -43,10 +44,12 @@ serve maybeRoot (Flags maybePort) =
     liveState <- Watchtower.Live.init root
 
     -- compile project
-    Watchtower.Live.recompileAllProjects liveState
+    Watchtower.Live.Compile.compileAll liveState
 
+
+    -- VSCode is telling us when files change
     -- Start file watcher for the memory mode
-    Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
+    -- Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
 
     Snap.Http.Server.httpServe (config port) $
