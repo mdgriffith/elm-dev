@@ -11,7 +11,11 @@ var WebSocketClient = require("websocket").client;
 
 type Msg =
   | { msg: "Discover"; details: String }
-  | { msg: "Changed"; details: { path: String } };
+  | { msg: "Changed"; details: { path: String } }
+  | {
+      msg: "Watched";
+      details: { path: String; warnings: Boolean; docs: Boolean }[];
+    };
 
 const discover = (roots: String): Msg => {
   return { msg: "Discover", details: roots };
@@ -19,6 +23,19 @@ const discover = (roots: String): Msg => {
 
 const changed = (filepath: String): Msg => {
   return { msg: "Changed", details: { path: filepath } };
+};
+
+const watch = (editors: readonly vscode.TextEditor[]): Msg => {
+  const items = [];
+  for (const index in editors) {
+    items.push({
+      path: editors[index].document.uri.toString(),
+      warnings: true,
+      docs: false,
+    });
+  }
+
+  return { msg: "Watched", details: [] };
 };
 
 type Project = {
@@ -114,11 +131,8 @@ export class Watchtower {
       }
     );
 
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
-      if (editor) {
-        // Ask for new type signatures
-        self.refreshCodeLenses(editor.document);
-      }
+    vscode.window.onDidChangeVisibleTextEditors((editors) => {
+      self.send(watch(editors));
     });
   }
 
@@ -217,6 +231,11 @@ export class Watchtower {
         );
         break;
       }
+      case "Docs": {
+        log.log("New docs received!");
+        log.log(msg.details.filepath);
+        break;
+      }
       default: {
         log.log("Unknown msg received");
         log.log(msgString);
@@ -226,30 +245,6 @@ export class Watchtower {
 
   setup() {
     // log.log("Setting up! (which means doing nothing right now.");
-  }
-
-  refreshCodeLenses(document: vscode.TextDocument) {
-    if (document.languageId != "elm") {
-      // We only care about Elm files
-      return;
-    }
-
-    const self = this;
-    if (document.isDirty) {
-      // Only ask for type signatures if the file is as it is on disk
-      // so the elm-compiler can read it without fuss
-      return;
-    }
-    const filepath = document.uri.fsPath;
-    Question.ask(
-      Question.questions.warnings(filepath),
-      (resp) => {
-        if (resp != null) {
-          self.codelensProvider.setSignaturesFromWarnings(filepath, resp);
-        }
-      },
-      (err) => {}
-    );
   }
 }
 
