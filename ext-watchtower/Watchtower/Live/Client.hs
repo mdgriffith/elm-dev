@@ -73,8 +73,8 @@ emptyWatch =
     Watching Set.empty Map.empty
 
 data Watching = Watching 
-    { watchingProjects :: (Set.Set ProjectRoot)
-    , watchingFiles :: (Map.Map FilePath FileWatchType)
+    { watchingProjects :: Set.Set ProjectRoot
+    , watchingFiles :: Map.Map FilePath FileWatchType
     }
 
 data FileWatchType
@@ -91,9 +91,9 @@ watchProjects newRoots (Watching watchingProjects watchingFiles) =
     Watching (Set.union watchingProjects (Set.fromList newRoots)) watchingFiles
 
 
-watchTheseFilesOnly :: [(FilePath, FileWatchType)] -> Watching -> Watching
+watchTheseFilesOnly :: Map.Map FilePath FileWatchType -> Watching -> Watching
 watchTheseFilesOnly newFileWatching (Watching watchingProjects watchingFiles) =
-    Watching watchingProjects (Map.fromList newFileWatching)
+    Watching watchingProjects newFileWatching
 
 
 isWatchingProject :: Watchtower.Project.Project -> Watching -> Bool
@@ -175,26 +175,13 @@ getStatus (ProjectCache proj cache) =
 
 
 
-{- Messages!
-
-So, we have two different kinds of messages.
-
-If there's a better way to square this, I'd love to hear it.
-
-1. Messages being forwarded from one client to another.
-    I.e. the editor saying a file is visible or focused.
-
-2. An idea of a status subscription which you can ask for.
-
-There are also one-off questions that can be asked via normal GET requests handeld directly by `Watchtower`.
-
+{- 
 -}
 data Incoming
-  = 
-  -- watch the provided filepath, which must match a project root
-    Discover FilePath
+  = Discover FilePath
   | Changed FilePath
-  
+  | Watched (Map.Map FilePath FileWatchType)
+
 
 data Outgoing
   = -- forwarding information
@@ -212,13 +199,18 @@ toString outgoing =
       Warnings _ _ _ ->
           "Warnings"
 
+
 outgoingToLog :: Outgoing -> String
 outgoingToLog outgoing =
   case outgoing of
     ElmStatus projectStatusList ->
       "Status: " ++ Ext.Common.formatList (fmap projectStatusToString projectStatusList)
+    
     Warnings _ _ _ ->
       "Warnings"
+    
+    Docs _ _ ->
+      "Docs"
 
 
 projectStatusToString :: ProjectStatus -> String
@@ -302,13 +294,31 @@ decodeIncoming =
                         )
 
               "Discover" ->
-                    Discover <$> Json.Decode.field "details" decodeWatch
+                    Discover <$> Json.Decode.field "details" (Json.String.toChars <$> Json.Decode.string)
+
+              "Watched" ->
+                    Watched <$> Json.Decode.field "details" decodeWatched
+
               _ ->
                 Json.Decode.failure "Unknown msg"
         )
 
-decodeWatch =
-    fmap Json.String.toChars Json.Decode.string
+decodeWatched :: Json.Decode.Decoder T.Text (Map.Map FilePath FileWatchType)
+decodeWatched =
+  fmap 
+    Map.fromList
+    (Json.Decode.list 
+      (Json.Decode.pair
+        (Json.String.toChars <$> Json.Decode.string)
+        decodeFileWatchType
+      )
+    )
+      
+decodeFileWatchType :: Json.Decode.Decoder T.Text FileWatchType
+decodeFileWatchType =
+    FileWatchType
+      <$> Json.Decode.field "watchForWarnings" Json.Decode.bool
+      <*> Json.Decode.field "watchForDocs" Json.Decode.bool
 
 
 {- Encoding -}

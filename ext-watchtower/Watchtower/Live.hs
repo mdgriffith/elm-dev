@@ -153,6 +153,19 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
         Ext.Common.log "👀 file changed" fileChanged
         Watchtower.Live.Compile.recompile state [fileChanged]
 
+    Client.Watched watching ->
+      do
+        Ext.Common.log "👀 watch changed" ""
+        STM.atomically $ do
+          STM.modifyTVar
+            mClients
+            ( fmap
+                ( Watchtower.Websocket.updateClientData
+                    clientId
+                    (Client.watchTheseFilesOnly watching)
+                )
+            )
+
     Client.Discover root ->
       do
         Ext.Common.log "👀 discover requested" root
