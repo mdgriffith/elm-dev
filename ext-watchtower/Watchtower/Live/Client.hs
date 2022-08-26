@@ -38,7 +38,7 @@ import qualified Watchtower.Project
 import qualified Watchtower.Websocket
 import qualified Watchtower.Details
 import qualified Reporting.Warning as Warning
-
+import qualified Elm.Docs as Docs
 
 
 import qualified Data.Name as Name
@@ -200,6 +200,7 @@ data Outgoing
   = -- forwarding information
     ElmStatus [ ProjectStatus ]
   | Warnings FilePath Reporting.Render.Type.Localizer.Localizer [Warning.Warning]
+  | Docs FilePath [Docs.Module]
 
 
 toString :: Outgoing -> String
@@ -273,6 +274,18 @@ encodeOutgoing out =
                           warnings
                     ]
           ]
+      
+      Docs path docs ->
+        Json.Encode.object
+          [ "msg" ==> Json.Encode.string (Json.String.fromChars "Docs"),
+            "details"
+              ==> Json.Encode.object 
+                    [ "filepath" ==> Json.Encode.string (Json.String.fromChars path)
+                    , "docs" ==>
+                        Docs.encode (Docs.toDict docs)
+                    ]
+          ]
+
 
 {- Decoding -}
 
@@ -435,5 +448,18 @@ broadcast mClients msg =
                             clientData = Watchtower.Websocket.clientData client
                         in 
                         isWatchingFileForWarnings file clientData
+                )
+                msg
+
+    Docs file docs ->
+        do
+            Ext.Common.debug $ "📢  Docs reported"
+            broadcastToMany
+                mClients
+                ( \client ->
+                        let
+                            clientData = Watchtower.Websocket.clientData client
+                        in 
+                        isWatchingFileForDocs file clientData
                 )
                 msg

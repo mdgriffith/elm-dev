@@ -2,22 +2,27 @@ module Watchtower.Live.Compile (compileAll, recompile) where
 
 {-|-}
 
-import qualified Control.Concurrent.STM as STM
-import qualified Ext.Sentry
-import Ext.Common
 import qualified Data.NonEmptyList as NonEmpty
-import qualified Ext.CompileProxy
-import qualified Reporting.Render.Type.Localizer
-import Control.Monad as Monad (foldM, guard)
-import qualified Watchtower.Project
 import qualified Data.List as List
-import qualified Watchtower.Live.Client as Client
-import qualified Watchtower.Websocket
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.ByteString.Builder
+
+import qualified Control.Concurrent.STM as STM
+
+import qualified Reporting.Render.Type.Localizer
+import Control.Monad as Monad (foldM, guard)
+
+import qualified Ext.Sentry
+import Ext.Common
+import qualified Ext.CompileProxy
+
+import qualified Watchtower.Live.Client as Client
+import qualified Watchtower.Websocket
+import qualified Watchtower.Project
+import qualified Watchtower.Docs
 
 compileMode = Ext.CompileProxy.compileToJson
 
@@ -94,7 +99,7 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
             if List.any (\f -> Watchtower.Project.contains f proj) changedFiles then
               do
 
-                  let entry = (NonEmpty.List top remain)
+                  let entry = NonEmpty.List top remain
                   
                   -- Compile all files
                   eitherStatusJson <-
@@ -125,7 +130,29 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                         pure ()
 
                   
-                  -- ask for warnings for the top file specifically.
+
+                  -- ask for docs for the top file
+                  eitherArtifacts <- Ext.CompileProxy.loadSingleArtifacts projectRoot top
+                  case eitherArtifacts of
+                    Left err ->
+                        pure ()
+
+                    Right artifacts ->
+                        case  Watchtower.Docs.fromArtifacts artifacts of
+                          Left err ->
+                            pure ()
+
+                          
+                          Right docs ->
+                            do
+                              Ext.Common.log "Sending down docs" "!"
+                              Client.broadcast mClients
+                                (Client.Docs top [ docs ])
+                              pure ()
+
+
+
+                  -- ask for warnings for the top file
                   eitherWarnings <- Ext.CompileProxy.warnings projectRoot top
 
                   case eitherWarnings of
