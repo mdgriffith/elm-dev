@@ -168,7 +168,6 @@ export class ElmProjectPane {
 
                       // Handle messages sent from the extension to the webview
                       window.addEventListener('message', event => {
-                          console.log(event)
                           app.ports.toElm.send(event.data);
                       });
                       
@@ -200,7 +199,7 @@ export class ElmProjectSerializer implements vscode.WebviewPanelSerializer {
   }
   async deserializeWebviewPanel(webviewPanel: vscode.WebviewPanel, state: any) {
     // `state` is the state persisted using `setState` inside the webview
-    console.log(`Got state: ${state}`);
+    console.log(`Deserializing panel state: ${state}`);
 
     // Restore the content of our webview.
     //
