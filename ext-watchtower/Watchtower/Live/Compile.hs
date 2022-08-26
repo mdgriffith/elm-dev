@@ -142,7 +142,6 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                           Left err ->
                             pure ()
 
-                          
                           Right docs ->
                             do
                               Ext.Common.log "Sending down docs" "!"
@@ -156,19 +155,19 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                   eitherWarnings <- Ext.CompileProxy.warnings projectRoot top
 
                   case eitherWarnings of
+                    Right (src, []) ->
+                      pure ()
+
                     Right (src, warnings) ->
                         do
                           Ext.Common.log "Sending down warnings" "!"
                           Client.broadcast mClients
                             (Client.Warnings top (Reporting.Render.Type.Localizer.fromModule src) warnings)
-                        
                           pure ()
 
                     Left () ->
                         -- There was some issue compiling
                         pure ()
-
-
 
                   pure []
 

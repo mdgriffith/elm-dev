@@ -453,10 +453,13 @@ broadcast mClients msg =
             broadcastToMany
                 mClients
                 ( \client ->
-                        let
-                            clientData = Watchtower.Websocket.clientData client
-                        in 
-                        isWatchingFileForWarnings file clientData
+                        -- This lookup was failing
+                        -- possibly because the filepath format differs from the map?
+                        -- let
+                        --     clientData = Watchtower.Websocket.clientData client
+                        -- in 
+                        -- isWatchingFileForWarnings file clientData
+                        True
                 )
                 msg
 
@@ -466,9 +469,12 @@ broadcast mClients msg =
             broadcastToMany
                 mClients
                 ( \client ->
-                        let
-                            clientData = Watchtower.Websocket.clientData client
-                        in 
-                        isWatchingFileForDocs file clientData
+                        -- This lookup was failing
+                        -- possibly because the filepath format differs from the map?
+                        -- let
+                        --     clientData = Watchtower.Websocket.clientData client
+                        -- in 
+                        -- isWatchingFileForDocs file clientData
+                        False
                 )
                 msg
