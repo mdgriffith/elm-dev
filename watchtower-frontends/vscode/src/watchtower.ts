@@ -25,7 +25,8 @@ const changed = (filepath: String): Msg => {
   return { msg: "Changed", details: { path: filepath } };
 };
 
-const watch = (editors: readonly vscode.TextEditor[]): Msg => {
+const refreshWatch = (): Msg => {
+  const editors = vscode.window.visibleTextEditors;
   const items = [];
   for (const index in editors) {
     items.push({
@@ -35,7 +36,7 @@ const watch = (editors: readonly vscode.TextEditor[]): Msg => {
     });
   }
 
-  return { msg: "Watched", details: [] };
+  return { msg: "Watched", details: items };
 };
 
 type Project = {
@@ -138,7 +139,7 @@ export class Watchtower {
     );
 
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
-      self.send(watch(editors));
+      self.send(refreshWatch());
     });
   }
 
@@ -185,15 +186,13 @@ export class Watchtower {
   }
 
   private onJoin(connection) {
-    console.log("WHAT??");
-    console.log(this);
-    console.log(connection);
     this.cancelRetry();
     this.connection = connection;
     log.log("Connected!");
     if (vscode.workspace.workspaceFolders.length > 0) {
       const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
       this.send(discover(root));
+      this.send(refreshWatch());
     }
   }
 
