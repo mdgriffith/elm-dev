@@ -308,17 +308,16 @@ decodeWatched =
   fmap 
     Map.fromList
     (Json.Decode.list 
-      (Json.Decode.pair
-        (Json.String.toChars <$> Json.Decode.string)
-        decodeFileWatchType
+      ((\path warns docs -> 
+          ( path
+          , FileWatchType warns docs
+          )
+        )
+        <$> Json.Decode.field "path" (Json.String.toChars <$> Json.Decode.string)
+        <*> Json.Decode.field "warnings" Json.Decode.bool
+        <*> Json.Decode.field "docs" Json.Decode.bool
       )
     )
-      
-decodeFileWatchType :: Json.Decode.Decoder T.Text FileWatchType
-decodeFileWatchType =
-    FileWatchType
-      <$> Json.Decode.field "watchForWarnings" Json.Decode.bool
-      <*> Json.Decode.field "watchForDocs" Json.Decode.bool
 
 
 {- Encoding -}
