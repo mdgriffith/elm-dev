@@ -88,7 +88,7 @@ incomingDecoder =
     Decode.field "msg" Decode.string
         |> Decode.andThen
             (\msg ->
-                case Debug.log "found msg" msg of
+                case msg of
                     "Status" ->
                         Decode.map ProjectsStatusUpdated
                             (Decode.field "details" (Decode.list (Decode.map .status Elm.decodeProject)))

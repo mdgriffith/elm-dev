@@ -10,7 +10,7 @@ import Url.Builder
 
 
 watchtower =
-    Url.Builder.crossOrigin "http://localhost:9000"
+    Url.Builder.crossOrigin "http://localhost:4747"
 
 
 ask =

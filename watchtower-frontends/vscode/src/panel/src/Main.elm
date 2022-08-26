@@ -51,9 +51,13 @@ init =
     )
 
 
+panelLog =
+    Debug.log "Panel"
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case Debug.log "Message" msg of
+    case msg of
         Incoming (Err err) ->
             ( model
             , Cmd.none
@@ -62,34 +66,24 @@ update msg model =
         Incoming (Ok editorMsg) ->
             case editorMsg of
                 Ports.VisibleEditorsUpdated visible ->
+                    let
+                        _ =
+                            panelLog "VisibleEditorsUpdated"
+                    in
                     ( { model
                         | visible = visible.visible
                         , active = visible.active
                       }
-                    , if Elm.successful model.projects then
-                        Cmd.batch
-                            (visible.visible
-                                |> List.filterMap
-                                    (\editor ->
-                                        if editor.unsavedChanges || Dict.member editor.fileName model.missingTypesignatures then
-                                            Nothing
-
-                                        else
-                                            editor.fileName
-                                                |> Question.ask.missingTypesignatures
-                                                |> Cmd.map AnswerReceived
-                                                |> Just
-                                    )
-                            )
-
-                      else
-                        Cmd.none
+                    , Cmd.none
                     )
 
                 Ports.ProjectsStatusUpdated statuses ->
                     let
                         success =
                             Elm.successful statuses
+
+                        _ =
+                            panelLog "ProjectsStatusUpdated"
                     in
                     ( { model
                         | projects = statuses
@@ -103,27 +97,14 @@ update msg model =
                             else
                                 Dict.empty
                       }
-                    , if success then
-                        Cmd.batch
-                            (model.visible
-                                |> List.filterMap
-                                    (\editor ->
-                                        if editor.unsavedChanges || Dict.member editor.fileName model.missingTypesignatures then
-                                            Nothing
-
-                                        else
-                                            editor.fileName
-                                                |> Question.ask.missingTypesignatures
-                                                |> Cmd.map AnswerReceived
-                                                |> Just
-                                    )
-                            )
-
-                      else
-                        Cmd.none
+                    , Cmd.none
                     )
 
                 Ports.WarningsUpdated { filepath, warnings } ->
+                    let
+                        _ =
+                            panelLog "WarningsUpdated"
+                    in
                     ( { model | warnings = Dict.insert filepath warnings model.warnings }
                     , Cmd.none
                     )
@@ -169,7 +150,7 @@ update msg model =
         AnswerReceived (Err err) ->
             let
                 _ =
-                    Debug.log "HTTP, Answer error" err
+                    Debug.log "PANEL: HTTP, Answer error" err
             in
             ( model
             , Cmd.none

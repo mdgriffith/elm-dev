@@ -4893,199 +4893,7 @@ function _Browser_load(url)
 		}
 	}));
 }
-
-
-
-// SEND REQUEST
-
-var _Http_toTask = F3(function(router, toTask, request)
-{
-	return _Scheduler_binding(function(callback)
-	{
-		function done(response) {
-			callback(toTask(request.expect.a(response)));
-		}
-
-		var xhr = new XMLHttpRequest();
-		xhr.addEventListener('error', function() { done($elm$http$Http$NetworkError_); });
-		xhr.addEventListener('timeout', function() { done($elm$http$Http$Timeout_); });
-		xhr.addEventListener('load', function() { done(_Http_toResponse(request.expect.b, xhr)); });
-		$elm$core$Maybe$isJust(request.tracker) && _Http_track(router, xhr, request.tracker.a);
-
-		try {
-			xhr.open(request.method, request.url, true);
-		} catch (e) {
-			return done($elm$http$Http$BadUrl_(request.url));
-		}
-
-		_Http_configureRequest(xhr, request);
-
-		request.body.a && xhr.setRequestHeader('Content-Type', request.body.a);
-		xhr.send(request.body.b);
-
-		return function() { xhr.c = true; xhr.abort(); };
-	});
-});
-
-
-// CONFIGURE
-
-function _Http_configureRequest(xhr, request)
-{
-	for (var headers = request.headers; headers.b; headers = headers.b) // WHILE_CONS
-	{
-		xhr.setRequestHeader(headers.a.a, headers.a.b);
-	}
-	xhr.timeout = request.timeout.a || 0;
-	xhr.responseType = request.expect.d;
-	xhr.withCredentials = request.allowCookiesFromOtherDomains;
-}
-
-
-// RESPONSES
-
-function _Http_toResponse(toBody, xhr)
-{
-	return A2(
-		200 <= xhr.status && xhr.status < 300 ? $elm$http$Http$GoodStatus_ : $elm$http$Http$BadStatus_,
-		_Http_toMetadata(xhr),
-		toBody(xhr.response)
-	);
-}
-
-
-// METADATA
-
-function _Http_toMetadata(xhr)
-{
-	return {
-		url: xhr.responseURL,
-		statusCode: xhr.status,
-		statusText: xhr.statusText,
-		headers: _Http_parseHeaders(xhr.getAllResponseHeaders())
-	};
-}
-
-
-// HEADERS
-
-function _Http_parseHeaders(rawHeaders)
-{
-	if (!rawHeaders)
-	{
-		return $elm$core$Dict$empty;
-	}
-
-	var headers = $elm$core$Dict$empty;
-	var headerPairs = rawHeaders.split('\r\n');
-	for (var i = headerPairs.length; i--; )
-	{
-		var headerPair = headerPairs[i];
-		var index = headerPair.indexOf(': ');
-		if (index > 0)
-		{
-			var key = headerPair.substring(0, index);
-			var value = headerPair.substring(index + 2);
-
-			headers = A3($elm$core$Dict$update, key, function(oldValue) {
-				return $elm$core$Maybe$Just($elm$core$Maybe$isJust(oldValue)
-					? value + ', ' + oldValue.a
-					: value
-				);
-			}, headers);
-		}
-	}
-	return headers;
-}
-
-
-// EXPECT
-
-var _Http_expect = F3(function(type, toBody, toValue)
-{
-	return {
-		$: 0,
-		d: type,
-		b: toBody,
-		a: toValue
-	};
-});
-
-var _Http_mapExpect = F2(function(func, expect)
-{
-	return {
-		$: 0,
-		d: expect.d,
-		b: expect.b,
-		a: function(x) { return func(expect.a(x)); }
-	};
-});
-
-function _Http_toDataView(arrayBuffer)
-{
-	return new DataView(arrayBuffer);
-}
-
-
-// BODY and PARTS
-
-var _Http_emptyBody = { $: 0 };
-var _Http_pair = F2(function(a, b) { return { $: 0, a: a, b: b }; });
-
-function _Http_toFormData(parts)
-{
-	for (var formData = new FormData(); parts.b; parts = parts.b) // WHILE_CONS
-	{
-		var part = parts.a;
-		formData.append(part.a, part.b);
-	}
-	return formData;
-}
-
-var _Http_bytesToBlob = F2(function(mime, bytes)
-{
-	return new Blob([bytes], { type: mime });
-});
-
-
-// PROGRESS
-
-function _Http_track(router, xhr, tracker)
-{
-	// TODO check out lengthComputable on loadstart event
-
-	xhr.upload.addEventListener('progress', function(event) {
-		if (xhr.c) { return; }
-		_Scheduler_rawSpawn(A2($elm$core$Platform$sendToSelf, router, _Utils_Tuple2(tracker, $elm$http$Http$Sending({
-			sent: event.loaded,
-			size: event.total
-		}))));
-	});
-	xhr.addEventListener('progress', function(event) {
-		if (xhr.c) { return; }
-		_Scheduler_rawSpawn(A2($elm$core$Platform$sendToSelf, router, _Utils_Tuple2(tracker, $elm$http$Http$Receiving({
-			received: event.loaded,
-			size: event.lengthComputable ? $elm$core$Maybe$Just(event.total) : $elm$core$Maybe$Nothing
-		}))));
-	});
-}
-
-function _Url_percentEncode(string)
-{
-	return encodeURIComponent(string);
-}
-
-function _Url_percentDecode(string)
-{
-	try
-	{
-		return $elm$core$Maybe$Just(decodeURIComponent(string));
-	}
-	catch (e)
-	{
-		return $elm$core$Maybe$Nothing;
-	}
-}var $elm$core$List$cons = _List_cons;
+var $elm$core$List$cons = _List_cons;
 var $elm$core$Elm$JsArray$foldr = _JsArray_foldr;
 var $elm$core$Array$foldr = F3(
 	function (func, baseCase, _v0) {
@@ -11467,8 +11275,7 @@ var $elm$core$Debug$log = _Debug_log;
 var $author$project$Ports$incomingDecoder = A2(
 	$elm$json$Json$Decode$andThen,
 	function (msg) {
-		var _v0 = A2($elm$core$Debug$log, 'found msg', msg);
-		switch (_v0) {
+		switch (msg) {
 			case 'Status':
 				return A2(
 					$elm$json$Json$Decode$map,
@@ -11540,354 +11347,17 @@ var $elm$core$Set$empty = $elm$core$Set$Set_elm_builtin($elm$core$Dict$empty);
 var $author$project$Main$init = _Utils_Tuple2(
 	{active: $elm$core$Maybe$Nothing, errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, missingTypesignatures: $elm$core$Dict$empty, projects: _List_Nil, projectsVersion: 0, viewing: $author$project$Model$Overview, visible: _List_Nil, warnings: $elm$core$Dict$empty},
 	$elm$core$Platform$Cmd$none);
-var $author$project$Model$AnswerReceived = function (a) {
-	return {$: 'AnswerReceived', a: a};
-};
 var $author$project$Ports$FillTypeSignatures = function (a) {
 	return {$: 'FillTypeSignatures', a: a};
 };
 var $author$project$Ports$Goto = function (a) {
 	return {$: 'Goto', a: a};
 };
-var $author$project$Question$MissingTypeSignatures = F2(
-	function (a, b) {
-		return {$: 'MissingTypeSignatures', a: a, b: b};
-	});
-var $author$project$Question$TypeSignature = F3(
-	function (name, region, signature) {
-		return {name: name, region: region, signature: signature};
-	});
-var $author$project$Question$decodeMissingTypesignature = A4(
-	$elm$json$Json$Decode$map3,
-	$author$project$Question$TypeSignature,
-	A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
-	A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion),
-	A2($elm$json$Json$Decode$field, 'signature', $elm$json$Json$Decode$string));
-var $elm$http$Http$BadStatus_ = F2(
-	function (a, b) {
-		return {$: 'BadStatus_', a: a, b: b};
-	});
-var $elm$http$Http$BadUrl_ = function (a) {
-	return {$: 'BadUrl_', a: a};
-};
-var $elm$http$Http$GoodStatus_ = F2(
-	function (a, b) {
-		return {$: 'GoodStatus_', a: a, b: b};
-	});
-var $elm$http$Http$NetworkError_ = {$: 'NetworkError_'};
-var $elm$http$Http$Receiving = function (a) {
-	return {$: 'Receiving', a: a};
-};
-var $elm$http$Http$Sending = function (a) {
-	return {$: 'Sending', a: a};
-};
-var $elm$http$Http$Timeout_ = {$: 'Timeout_'};
-var $elm$core$Maybe$isJust = function (maybe) {
-	if (maybe.$ === 'Just') {
-		return true;
-	} else {
-		return false;
-	}
-};
-var $elm$core$Platform$sendToSelf = _Platform_sendToSelf;
-var $elm$http$Http$expectStringResponse = F2(
-	function (toMsg, toResult) {
-		return A3(
-			_Http_expect,
-			'',
-			$elm$core$Basics$identity,
-			A2($elm$core$Basics$composeR, toResult, toMsg));
-	});
-var $elm$core$Result$mapError = F2(
-	function (f, result) {
-		if (result.$ === 'Ok') {
-			var v = result.a;
-			return $elm$core$Result$Ok(v);
-		} else {
-			var e = result.a;
-			return $elm$core$Result$Err(
-				f(e));
-		}
-	});
-var $elm$http$Http$BadBody = function (a) {
-	return {$: 'BadBody', a: a};
-};
-var $elm$http$Http$BadStatus = function (a) {
-	return {$: 'BadStatus', a: a};
-};
-var $elm$http$Http$BadUrl = function (a) {
-	return {$: 'BadUrl', a: a};
-};
-var $elm$http$Http$NetworkError = {$: 'NetworkError'};
-var $elm$http$Http$Timeout = {$: 'Timeout'};
-var $elm$http$Http$resolve = F2(
-	function (toResult, response) {
-		switch (response.$) {
-			case 'BadUrl_':
-				var url = response.a;
-				return $elm$core$Result$Err(
-					$elm$http$Http$BadUrl(url));
-			case 'Timeout_':
-				return $elm$core$Result$Err($elm$http$Http$Timeout);
-			case 'NetworkError_':
-				return $elm$core$Result$Err($elm$http$Http$NetworkError);
-			case 'BadStatus_':
-				var metadata = response.a;
-				return $elm$core$Result$Err(
-					$elm$http$Http$BadStatus(metadata.statusCode));
-			default:
-				var body = response.b;
-				return A2(
-					$elm$core$Result$mapError,
-					$elm$http$Http$BadBody,
-					toResult(body));
-		}
-	});
-var $elm$http$Http$expectJson = F2(
-	function (toMsg, decoder) {
-		return A2(
-			$elm$http$Http$expectStringResponse,
-			toMsg,
-			$elm$http$Http$resolve(
-				function (string) {
-					return A2(
-						$elm$core$Result$mapError,
-						$elm$json$Json$Decode$errorToString,
-						A2($elm$json$Json$Decode$decodeString, decoder, string));
-				}));
-	});
-var $elm$http$Http$emptyBody = _Http_emptyBody;
-var $elm$http$Http$Request = function (a) {
-	return {$: 'Request', a: a};
-};
-var $elm$http$Http$State = F2(
-	function (reqs, subs) {
-		return {reqs: reqs, subs: subs};
-	});
-var $elm$http$Http$init = $elm$core$Task$succeed(
-	A2($elm$http$Http$State, $elm$core$Dict$empty, _List_Nil));
-var $elm$core$Process$kill = _Scheduler_kill;
-var $elm$core$Process$spawn = _Scheduler_spawn;
-var $elm$http$Http$updateReqs = F3(
-	function (router, cmds, reqs) {
-		updateReqs:
-		while (true) {
-			if (!cmds.b) {
-				return $elm$core$Task$succeed(reqs);
-			} else {
-				var cmd = cmds.a;
-				var otherCmds = cmds.b;
-				if (cmd.$ === 'Cancel') {
-					var tracker = cmd.a;
-					var _v2 = A2($elm$core$Dict$get, tracker, reqs);
-					if (_v2.$ === 'Nothing') {
-						var $temp$router = router,
-							$temp$cmds = otherCmds,
-							$temp$reqs = reqs;
-						router = $temp$router;
-						cmds = $temp$cmds;
-						reqs = $temp$reqs;
-						continue updateReqs;
-					} else {
-						var pid = _v2.a;
-						return A2(
-							$elm$core$Task$andThen,
-							function (_v3) {
-								return A3(
-									$elm$http$Http$updateReqs,
-									router,
-									otherCmds,
-									A2($elm$core$Dict$remove, tracker, reqs));
-							},
-							$elm$core$Process$kill(pid));
-					}
-				} else {
-					var req = cmd.a;
-					return A2(
-						$elm$core$Task$andThen,
-						function (pid) {
-							var _v4 = req.tracker;
-							if (_v4.$ === 'Nothing') {
-								return A3($elm$http$Http$updateReqs, router, otherCmds, reqs);
-							} else {
-								var tracker = _v4.a;
-								return A3(
-									$elm$http$Http$updateReqs,
-									router,
-									otherCmds,
-									A3($elm$core$Dict$insert, tracker, pid, reqs));
-							}
-						},
-						$elm$core$Process$spawn(
-							A3(
-								_Http_toTask,
-								router,
-								$elm$core$Platform$sendToApp(router),
-								req)));
-				}
-			}
-		}
-	});
-var $elm$http$Http$onEffects = F4(
-	function (router, cmds, subs, state) {
-		return A2(
-			$elm$core$Task$andThen,
-			function (reqs) {
-				return $elm$core$Task$succeed(
-					A2($elm$http$Http$State, reqs, subs));
-			},
-			A3($elm$http$Http$updateReqs, router, cmds, state.reqs));
-	});
-var $elm$http$Http$maybeSend = F4(
-	function (router, desiredTracker, progress, _v0) {
-		var actualTracker = _v0.a;
-		var toMsg = _v0.b;
-		return _Utils_eq(desiredTracker, actualTracker) ? $elm$core$Maybe$Just(
-			A2(
-				$elm$core$Platform$sendToApp,
-				router,
-				toMsg(progress))) : $elm$core$Maybe$Nothing;
-	});
-var $elm$http$Http$onSelfMsg = F3(
-	function (router, _v0, state) {
-		var tracker = _v0.a;
-		var progress = _v0.b;
-		return A2(
-			$elm$core$Task$andThen,
-			function (_v1) {
-				return $elm$core$Task$succeed(state);
-			},
-			$elm$core$Task$sequence(
-				A2(
-					$elm$core$List$filterMap,
-					A3($elm$http$Http$maybeSend, router, tracker, progress),
-					state.subs)));
-	});
-var $elm$http$Http$Cancel = function (a) {
-	return {$: 'Cancel', a: a};
-};
-var $elm$http$Http$cmdMap = F2(
-	function (func, cmd) {
-		if (cmd.$ === 'Cancel') {
-			var tracker = cmd.a;
-			return $elm$http$Http$Cancel(tracker);
-		} else {
-			var r = cmd.a;
-			return $elm$http$Http$Request(
-				{
-					allowCookiesFromOtherDomains: r.allowCookiesFromOtherDomains,
-					body: r.body,
-					expect: A2(_Http_mapExpect, func, r.expect),
-					headers: r.headers,
-					method: r.method,
-					timeout: r.timeout,
-					tracker: r.tracker,
-					url: r.url
-				});
-		}
-	});
-var $elm$http$Http$MySub = F2(
-	function (a, b) {
-		return {$: 'MySub', a: a, b: b};
-	});
-var $elm$http$Http$subMap = F2(
-	function (func, _v0) {
-		var tracker = _v0.a;
-		var toMsg = _v0.b;
-		return A2(
-			$elm$http$Http$MySub,
-			tracker,
-			A2($elm$core$Basics$composeR, toMsg, func));
-	});
-_Platform_effectManagers['Http'] = _Platform_createManager($elm$http$Http$init, $elm$http$Http$onEffects, $elm$http$Http$onSelfMsg, $elm$http$Http$cmdMap, $elm$http$Http$subMap);
-var $elm$http$Http$command = _Platform_leaf('Http');
-var $elm$http$Http$subscription = _Platform_leaf('Http');
-var $elm$http$Http$request = function (r) {
-	return $elm$http$Http$command(
-		$elm$http$Http$Request(
-			{allowCookiesFromOtherDomains: false, body: r.body, expect: r.expect, headers: r.headers, method: r.method, timeout: r.timeout, tracker: r.tracker, url: r.url}));
-};
-var $elm$http$Http$get = function (r) {
-	return $elm$http$Http$request(
-		{body: $elm$http$Http$emptyBody, expect: r.expect, headers: _List_Nil, method: 'GET', timeout: $elm$core$Maybe$Nothing, tracker: $elm$core$Maybe$Nothing, url: r.url});
-};
-var $elm$core$Result$map = F2(
-	function (func, ra) {
-		if (ra.$ === 'Ok') {
-			var a = ra.a;
-			return $elm$core$Result$Ok(
-				func(a));
-		} else {
-			var e = ra.a;
-			return $elm$core$Result$Err(e);
-		}
-	});
-var $elm$url$Url$Builder$QueryParameter = F2(
-	function (a, b) {
-		return {$: 'QueryParameter', a: a, b: b};
-	});
-var $elm$url$Url$percentEncode = _Url_percentEncode;
-var $elm$url$Url$Builder$string = F2(
-	function (key, value) {
-		return A2(
-			$elm$url$Url$Builder$QueryParameter,
-			$elm$url$Url$percentEncode(key),
-			$elm$url$Url$percentEncode(value));
-	});
-var $elm$url$Url$Builder$toQueryPair = function (_v0) {
-	var key = _v0.a;
-	var value = _v0.b;
-	return key + ('=' + value);
-};
-var $elm$url$Url$Builder$toQuery = function (parameters) {
-	if (!parameters.b) {
-		return '';
-	} else {
-		return '?' + A2(
-			$elm$core$String$join,
-			'&',
-			A2($elm$core$List$map, $elm$url$Url$Builder$toQueryPair, parameters));
-	}
-};
-var $elm$url$Url$Builder$crossOrigin = F3(
-	function (prePath, pathSegments, parameters) {
-		return prePath + ('/' + (A2($elm$core$String$join, '/', pathSegments) + $elm$url$Url$Builder$toQuery(parameters)));
-	});
-var $author$project$Question$watchtower = $elm$url$Url$Builder$crossOrigin('http://localhost:9000');
-var $author$project$Question$ask = {
-	missingTypesignatures: function (path) {
-		return $elm$http$Http$get(
-			{
-				expect: A2(
-					$elm$http$Http$expectJson,
-					$elm$core$Result$map(
-						$author$project$Question$MissingTypeSignatures(path)),
-					$elm$json$Json$Decode$list($author$project$Question$decodeMissingTypesignature)),
-				url: A2(
-					$author$project$Question$watchtower,
-					_List_fromArray(
-						['list-missing-signatures']),
-					_List_fromArray(
-						[
-							A2($elm$url$Url$Builder$string, 'file', path)
-						]))
-			});
-	}
-};
 var $elm$core$Set$insert = F2(
 	function (key, _v0) {
 		var dict = _v0.a;
 		return $elm$core$Set$Set_elm_builtin(
 			A3($elm$core$Dict$insert, key, _Utils_Tuple0, dict));
-	});
-var $elm$core$Dict$member = F2(
-	function (key, dict) {
-		var _v0 = A2($elm$core$Dict$get, key, dict);
-		if (_v0.$ === 'Just') {
-			return true;
-		} else {
-			return false;
-		}
 	});
 var $elm$json$Json$Encode$int = _Json_wrap;
 var $author$project$Editor$encodePosition = function (pos) {
@@ -11961,6 +11431,7 @@ var $author$project$Ports$outgoing = function (out) {
 	return $author$project$Ports$toWorld(
 		$author$project$Ports$encodeOutgoing(out));
 };
+var $author$project$Main$panelLog = $elm$core$Debug$log('Panel');
 var $elm$core$Set$remove = F2(
 	function (key, _v0) {
 		var dict = _v0.a;
@@ -12014,35 +11485,26 @@ var $author$project$Elm$successful = function (statuses) {
 };
 var $author$project$Main$update = F2(
 	function (msg, model) {
-		var _v0 = A2($elm$core$Debug$log, 'Message', msg);
-		switch (_v0.$) {
+		switch (msg.$) {
 			case 'Incoming':
-				if (_v0.a.$ === 'Err') {
-					var err = _v0.a.a;
+				if (msg.a.$ === 'Err') {
+					var err = msg.a.a;
 					return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 				} else {
-					var editorMsg = _v0.a.a;
+					var editorMsg = msg.a.a;
 					switch (editorMsg.$) {
 						case 'VisibleEditorsUpdated':
 							var visible = editorMsg.a;
+							var _v2 = $author$project$Main$panelLog('VisibleEditorsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
 									model,
 									{active: visible.active, visible: visible.visible}),
-								$author$project$Elm$successful(model.projects) ? $elm$core$Platform$Cmd$batch(
-									A2(
-										$elm$core$List$filterMap,
-										function (editor) {
-											return (editor.unsavedChanges || A2($elm$core$Dict$member, editor.fileName, model.missingTypesignatures)) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
-												A2(
-													$elm$core$Platform$Cmd$map,
-													$author$project$Model$AnswerReceived,
-													$author$project$Question$ask.missingTypesignatures(editor.fileName)));
-										},
-										visible.visible)) : $elm$core$Platform$Cmd$none);
+								$elm$core$Platform$Cmd$none);
 						case 'ProjectsStatusUpdated':
 							var statuses = editorMsg.a;
 							var success = $author$project$Elm$successful(statuses);
+							var _v3 = $author$project$Main$panelLog('ProjectsStatusUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
 									model,
@@ -12053,20 +11515,11 @@ var $author$project$Main$update = F2(
 										projects: statuses,
 										projectsVersion: model.projectsVersion + 1
 									}),
-								success ? $elm$core$Platform$Cmd$batch(
-									A2(
-										$elm$core$List$filterMap,
-										function (editor) {
-											return (editor.unsavedChanges || A2($elm$core$Dict$member, editor.fileName, model.missingTypesignatures)) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
-												A2(
-													$elm$core$Platform$Cmd$map,
-													$author$project$Model$AnswerReceived,
-													$author$project$Question$ask.missingTypesignatures(editor.fileName)));
-										},
-										model.visible)) : $elm$core$Platform$Cmd$none);
+								$elm$core$Platform$Cmd$none);
 						default:
 							var filepath = editorMsg.a.filepath;
 							var warnings = editorMsg.a.warnings;
+							var _v4 = $author$project$Main$panelLog('WarningsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
 									model,
@@ -12077,15 +11530,15 @@ var $author$project$Main$update = F2(
 					}
 				}
 			case 'ErrorMenuUpdated':
-				var _new = _v0.a;
+				var _new = msg.a;
 				return _Utils_Tuple2(
 					_Utils_update(
 						model,
 						{errorMenuVisible: _new}),
 					$elm$core$Platform$Cmd$none);
 			case 'ErrorCodeToggled':
-				var ref = _v0.a;
-				var bool = _v0.b;
+				var ref = msg.a;
+				var bool = msg.b;
 				return _Utils_Tuple2(
 					_Utils_update(
 						model,
@@ -12094,33 +11547,33 @@ var $author$project$Main$update = F2(
 						}),
 					$elm$core$Platform$Cmd$none);
 			case 'EditorGoTo':
-				var path = _v0.a;
-				var region = _v0.b;
+				var path = msg.a;
+				var region = msg.b;
 				return _Utils_Tuple2(
 					model,
 					$author$project$Ports$outgoing(
 						$author$project$Ports$Goto(
 							{file: path, region: region})));
 			case 'EditorFillTypeSignatures':
-				var path = _v0.a;
+				var path = msg.a;
 				return _Utils_Tuple2(
 					model,
 					$author$project$Ports$outgoing(
 						$author$project$Ports$FillTypeSignatures(path)));
 			case 'View':
-				var viewing = _v0.a;
+				var viewing = msg.a;
 				return _Utils_Tuple2(
 					_Utils_update(
 						model,
 						{viewing: viewing}),
 					$elm$core$Platform$Cmd$none);
 			default:
-				if (_v0.a.$ === 'Err') {
-					var err = _v0.a.a;
-					var _v2 = A2($elm$core$Debug$log, 'HTTP, Answer error', err);
+				if (msg.a.$ === 'Err') {
+					var err = msg.a.a;
+					var _v5 = A2($elm$core$Debug$log, 'PANEL: HTTP, Answer error', err);
 					return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 				} else {
-					var answer = _v0.a.a;
+					var answer = msg.a.a;
 					var path = answer.a;
 					var missing = answer.b;
 					return _Utils_Tuple2(
@@ -12431,6 +11884,15 @@ var $mdgriffith$elm_ui$Internal$Model$getStyleName = function (style) {
 				$mdgriffith$elm_ui$Internal$Model$transformClass(x));
 	}
 };
+var $elm$core$Dict$member = F2(
+	function (key, dict) {
+		var _v0 = A2($elm$core$Dict$get, key, dict);
+		if (_v0.$ === 'Just') {
+			return true;
+		} else {
+			return false;
+		}
+	});
 var $elm$core$Set$member = F2(
 	function (key, _v0) {
 		var dict = _v0.a;
