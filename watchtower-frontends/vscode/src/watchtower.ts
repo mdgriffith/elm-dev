@@ -103,9 +103,15 @@ export class Watchtower {
 
     socketConnect({
       url: Question.urls.websocket,
-      onJoin: self.onJoin,
-      onConnectionFailed: self.onConnectionFailed,
-      receive: self.receive,
+      onJoin: (connection) => {
+        self.onJoin(connection);
+      },
+      onConnectionFailed: (err) => {
+        self.onConnectionFailed(err);
+      },
+      receive: (msg) => {
+        self.receive(msg);
+      },
     });
 
     vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
@@ -140,7 +146,7 @@ export class Watchtower {
     Question.ask(
       Question.questions.serverHealth,
       (resp) => {
-        log.log("Watchtower is already running");
+        log.log("Watchtower is already running!");
       },
       (err) => {
         log.log("Watchtower is not running, starting watchtower");
@@ -158,9 +164,15 @@ export class Watchtower {
       log.log("Reattempting connection");
       socketConnect({
         url: Question.urls.websocket,
-        onJoin: self.onJoin,
-        onConnectionFailed: self.onConnectionFailed,
-        receive: self.receive,
+        onJoin: (connection) => {
+          self.onJoin(connection);
+        },
+        onConnectionFailed: (err) => {
+          self.onConnectionFailed(err);
+        },
+        receive: (msg) => {
+          self.receive(msg);
+        },
       });
     }, 2000);
   }
@@ -173,8 +185,12 @@ export class Watchtower {
   }
 
   private onJoin(connection) {
+    console.log("WHAT??");
+    console.log(this);
+    console.log(connection);
     this.cancelRetry();
     this.connection = connection;
+    log.log("Connected!");
     if (vscode.workspace.workspaceFolders.length > 0) {
       const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
       this.send(discover(root));
