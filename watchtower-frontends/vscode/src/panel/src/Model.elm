@@ -13,6 +13,7 @@ import Json.Encode
 import Ports
 import Question
 import Set exposing (Set)
+import Time
 
 
 type alias Model =
@@ -23,6 +24,8 @@ type alias Model =
 
     -- local UI state
     , viewing : Viewing
+    , now : Maybe Time.Posix
+    , lastUpdated : Maybe Time.Posix
 
     -- per-file information
     , warnings : Dict FilePath (List Ports.Warning)
@@ -51,3 +54,4 @@ type Msg
       --
     | ErrorMenuUpdated Bool
     | ErrorCodeToggled Elm.CodeReferenceKey Bool
+    | CurrentTime Time.Posix

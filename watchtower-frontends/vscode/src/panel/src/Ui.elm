@@ -4,7 +4,7 @@ module Ui exposing
     , background, border, font
     , when, whenJust, precise, rounded
     , overrides
-    , header
+    , header, transition
     )
 
 {-|
@@ -116,6 +116,7 @@ colors :
         }
     , primary : Ui.Color
     , white : Ui.Color
+    , black : Ui.Color
     }
 colors =
     { primary = Ui.rgb 0 0.5 0.25
@@ -128,8 +129,9 @@ colors =
     , dark =
         { light = Ui.rgb 0.45 0.45 0.45
         , medium = Ui.rgb 0.2 0.2 0.2
-        , dark = Ui.rgb 0.15 0.15 0.15
+        , dark = Ui.rgb 0.05 0.05 0.05
         }
+    , black = Ui.rgb 0.02 0.02 0.02
     }
 
 
@@ -200,8 +202,13 @@ border =
 
 background =
     { white = Background.color colors.white
-    , dark = Background.color colors.dark.medium
+    , dark = Background.color colors.dark.dark
+    , black = Background.color colors.black
     }
+
+
+transition =
+    Ui.htmlAttribute (Attr.style "transition" "transform 100ms, opacity 100ms")
 
 
 font =

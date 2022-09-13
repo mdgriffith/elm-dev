@@ -18,6 +18,8 @@ import Model exposing (..)
 import Ports
 import Question
 import Set exposing (Set)
+import Time
+import Time.Distance
 import Ui
 
 
@@ -31,6 +33,7 @@ main =
             \_ ->
                 Sub.batch
                     [ Ports.incoming Incoming
+                    , Time.every 500 CurrentTime
                     ]
         }
 
@@ -41,6 +44,8 @@ init =
       , visible = []
       , projects = []
       , projectsVersion = 0
+      , now = Nothing
+      , lastUpdated = Nothing
       , viewing = Overview
       , warnings = Dict.empty
       , missingTypesignatures = Dict.empty
@@ -90,6 +95,7 @@ update msg model =
                         , projectsVersion = model.projectsVersion + 1
                         , errorMenuVisible = False
                         , errorCodeExpanded = Set.empty
+                        , lastUpdated = model.now
                         , missingTypesignatures =
                             if success then
                                 model.missingTypesignatures
@@ -105,7 +111,10 @@ update msg model =
                         _ =
                             panelLog "WarningsUpdated"
                     in
-                    ( { model | warnings = Dict.insert filepath warnings model.warnings }
+                    ( { model
+                        | warnings = Dict.insert filepath warnings model.warnings
+                        , lastUpdated = model.now
+                      }
                     , Cmd.none
                     )
 
@@ -144,6 +153,11 @@ update msg model =
 
         View viewing ->
             ( { model | viewing = viewing }
+            , Cmd.none
+            )
+
+        CurrentTime newTime ->
+            ( { model | now = Just newTime }
             , Cmd.none
             )
 
@@ -207,10 +221,10 @@ view model =
             , Ui.width Ui.fill
             , Ui.height Ui.fill
             ]
-          <|
-            case model.viewing of
+            (case model.viewing of
                 Overview ->
                     viewOverview model
+            )
         ]
     }
 
@@ -347,6 +361,13 @@ viewOverview model =
         , Ui.pad.xl
 
         -- , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
+        , Ui.inFront
+            (Ui.el
+                [ Ui.alignBottom
+                , Ui.alignRight
+                ]
+                (viewLastUpdated model)
+            )
         ]
         [ Ui.row [ Ui.width Ui.fill ]
             [ Ui.el [ Ui.font.cyan ]
@@ -393,7 +414,9 @@ viewOverview model =
                 Ui.column
                     [ Ui.space.md
                     , Ui.width (Ui.px 700)
-                    , Ui.htmlAttribute (Html.Attributes.style "height" "calc(100% - 50px)")
+
+                    -- , Ui.htmlAttribute (Html.Attributes.style "height" "calc(100% - 50px)")
+                    , Ui.height Ui.fill
                     , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
                     ]
                     (List.map (viewFileErrorDetails model) visibleErrors)
@@ -407,6 +430,37 @@ viewGlobalError global =
         , Ui.column [ Ui.space.md ]
             (List.map viewExpandedText global.problem.message)
         ]
+
+
+plural : Int -> String -> String -> String
+plural int singular pluralForm =
+    if int /= 1 then
+        pluralForm
+
+    else
+        singular
+
+
+viewLastUpdated : Model -> Ui.Element msg
+viewLastUpdated model =
+    case ( model.now, model.lastUpdated ) of
+        ( Just now, Just lastUpdate ) ->
+            Ui.el
+                [ Ui.pad.xy.lg.sm
+                , Ui.font.dark.light
+                , Ui.background.black
+                , Ui.rounded.md
+                ]
+                (Ui.text
+                    ("Last updated "
+                        ++ Time.Distance.inWords
+                            lastUpdate
+                            now
+                    )
+                )
+
+        _ ->
+            Ui.none
 
 
 foundErrorsMenu model found =
@@ -424,34 +478,56 @@ foundErrorsMenu model found =
                     |> List.sum
 
             summaryText =
-                if fileCount == 1 then
-                    String.fromInt problemCount ++ " errors in " ++ String.fromInt fileCount ++ " file"
-
-                else
-                    String.fromInt problemCount ++ " errors in " ++ String.fromInt fileCount ++ " files"
+                String.fromInt problemCount
+                    ++ " "
+                    ++ plural problemCount "error" "errors"
+                    ++ " in "
+                    ++ String.fromInt fileCount
+                    ++ " "
+                    ++ plural fileCount "file" "files"
         in
         Ui.row
             [ Ui.alignRight
             , Ui.pad.xy.lg.sm
             , Ui.rounded.md
             , Ui.pointer
+            , Ui.space.md
             , Events.onClick (ErrorMenuUpdated (not model.errorMenuVisible))
             , Ui.below
                 (viewErrorMenuContent model found)
             ]
-            [ Ui.text summaryText
+            [ Ui.text "▶"
+                |> Ui.el
+                    [ Ui.font.cyan
+                    , Ui.transition
+                    , Ui.rotate
+                        (if model.errorMenuVisible then
+                            (2 * pi) * 0.25
+
+                         else
+                            0
+                        )
+                    ]
+            , Ui.text summaryText
             ]
 
 
 viewErrorMenuContent model found =
     Ui.column
         [ Ui.pad.lg
-        , Ui.background.dark
+        , Ui.background.black
+        , Ui.border.grey.light
         , Ui.rounded.md
         , Ui.alignRight
         , Ui.space.lg
-        , Ui.htmlAttribute (Html.Attributes.style "transition" "opacity 100ms")
-        , Ui.alpha 1
+        , Ui.transition
+        , Ui.alpha
+            (if model.errorMenuVisible then
+                1
+
+             else
+                0
+            )
         ]
         (List.map
             (viewFileSummary model)
@@ -562,7 +638,7 @@ viewIssueDetails errorCodeExpanded expanded cursorPresent file issue =
         , Ui.rounded.md
         , Ui.background.dark
         , if cursorPresent then
-            Ui.border.light
+            Ui.border.dark.light
 
           else
             Ui.border.dark.medium
@@ -579,7 +655,6 @@ viewIssueDetails errorCodeExpanded expanded cursorPresent file issue =
 
               else
                 Ui.pointer
-            , Ui.space.lg
             , Ui.width Ui.fill
             ]
             [ Ui.row [ Ui.space.md, Ui.width Ui.fill ]
@@ -606,39 +681,36 @@ viewIssueDetails errorCodeExpanded expanded cursorPresent file issue =
             , Ui.el
                 [ Ui.width Ui.fill
                 , if expanded then
-                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 280ms")
+                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 280ms, opacity 150ms")
 
                   else
-                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 200ms")
+                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 200ms, opacity 150ms")
                 , if expanded then
                     Ui.htmlAttribute (Html.Attributes.style "overflow" "visible")
 
                   else
                     Ui.htmlAttribute (Html.Attributes.style "overflow" "hidden")
+                , if expanded then
+                    Ui.alpha 1
+
+                  else
+                    Ui.alpha 0
                 , Ui.htmlAttribute
                     (Html.Attributes.style "max-height"
                         (if expanded then
-                            "30000px"
+                            "1500px"
 
                          else
                             "0px"
                         )
                     )
-                , Ui.htmlAttribute
-                    (if expanded then
-                        Html.Attributes.class ""
-
-                     else
-                        Html.Attributes.style "margin"
-                            "0px"
-                    )
                 ]
-              <|
-                Ui.paragraph
-                    [ Ui.pad.xy.zero.sm
+                (Ui.paragraph
+                    [ Ui.pad.xy.zero.lg
                     , Ui.precise
                     ]
                     (List.indexedMap (viewText file issue errorCodeExpanded) issue.message)
+                )
             ]
         ]
 
