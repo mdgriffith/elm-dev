@@ -48,7 +48,6 @@ init =
       , lastUpdated = Nothing
       , viewing = Overview
       , warnings = Dict.empty
-      , missingTypesignatures = Dict.empty
       , errorMenuVisible = False
       , errorCodeExpanded = Set.empty
       }
@@ -96,12 +95,6 @@ update msg model =
                         , errorMenuVisible = False
                         , errorCodeExpanded = Set.empty
                         , lastUpdated = model.now
-                        , missingTypesignatures =
-                            if success then
-                                model.missingTypesignatures
-
-                            else
-                                Dict.empty
                       }
                     , Cmd.none
                     )
@@ -173,17 +166,7 @@ update msg model =
         AnswerReceived (Ok answer) ->
             case answer of
                 Question.MissingTypeSignatures path missing ->
-                    ( { model
-                        | missingTypesignatures =
-                            model.missingTypesignatures
-                                |> Dict.insert path
-                                    (missing
-                                        |> List.sortBy
-                                            (\signature ->
-                                                signature.region.start.row
-                                            )
-                                    )
-                      }
+                    ( model
                     , Cmd.none
                     )
 
@@ -255,21 +238,6 @@ viewOverview model =
                 , errs = []
                 }
                 model.projects
-
-        missing =
-            List.filterMap
-                (\editor ->
-                    case Dict.get editor.fileName model.missingTypesignatures of
-                        Nothing ->
-                            Nothing
-
-                        Just signatures ->
-                            Just
-                                ( editor
-                                , signatures
-                                )
-                )
-                model.visible
 
         viewSignatureGroup ( editor, signatures ) =
             Ui.column
@@ -374,32 +342,24 @@ viewOverview model =
                 (Ui.text visibleFileNames)
             , foundErrorsMenu model found
             ]
-        , Keyed.el []
-            ( String.fromInt model.projectsVersion
-            , Ui.el
-                [ Ui.anim.blink
-                ]
-                (Ui.text "No errors 🎉")
-            )
-            |> Ui.when
-                (List.isEmpty found.globals
-                    && List.isEmpty found.errs
-                    && List.isEmpty missing
-                )
 
         -- , viewMetric "Missing typesignatures"
         --     viewSignatureGroup
         --     missing
         -- ,
-        , viewMetric
-            "Global"
-            viewGlobalError
-            found.globals
         , case visibleErrors of
             [] ->
                 case notVisibleErrors of
                     [] ->
-                        Ui.none
+                        case found.globals of
+                            [] ->
+                                viewWarningsOrStatus model
+
+                            _ ->
+                                viewMetric
+                                    "Global"
+                                    viewGlobalError
+                                    found.globals
 
                     _ ->
                         Ui.column
@@ -421,6 +381,70 @@ viewOverview model =
                     ]
                     (List.map (viewFileErrorDetails model) visibleErrors)
         ]
+
+
+viewWarningsOrStatus model =
+    let
+        activeWarnings =
+            model.active
+                |> Maybe.map
+                    (visibleWarnings model.warnings)
+                |> Maybe.withDefault []
+    in
+    case activeWarnings of
+        [] ->
+            case List.concat (Dict.values model.warnings) of
+                [] ->
+                    Keyed.el []
+                        ( String.fromInt model.projectsVersion
+                        , Ui.el
+                            [ Ui.anim.blink
+                            ]
+                            (Ui.text "Lookin good! 🎉")
+                        )
+
+                allWarnings ->
+                    viewWarningList allWarnings
+
+        _ ->
+            viewWarningList activeWarnings
+
+
+viewWarningList warnings =
+    Ui.column
+        [ Ui.space.md
+        , Ui.width (Ui.px 700)
+
+        -- , Ui.htmlAttribute (Html.Attributes.style "height" "calc(100% - 50px)")
+        , Ui.height Ui.fill
+        , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
+        ]
+        (List.map viewWarning warnings)
+
+
+viewWarning : Ports.Warning -> Ui.Element Msg
+viewWarning warning =
+    case warning of
+        Ports.UnusedVaraible unused ->
+            Ui.row [ Ui.space.md ]
+                [ Ui.text "Unused"
+                , Ui.text unused.name
+                ]
+
+        Ports.MissingAnnotation missing ->
+            Ui.column
+                [ Ui.space.sm
+                , Ui.width Ui.fill
+                ]
+                [ Ui.text "Missing signature"
+                , Ui.text (missing.name ++ ": " ++ missing.signature)
+                ]
+
+
+visibleWarnings warnings activeEditor =
+    warnings
+        |> Dict.get activeEditor.fileName
+        |> Maybe.withDefault []
 
 
 viewGlobalError global =
