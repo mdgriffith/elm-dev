@@ -15,6 +15,7 @@ import qualified Data.ByteString.Lazy
 import qualified Data.List as List
 import qualified Data.Either as Either
 import qualified Data.Maybe as Maybe
+import qualified Data.Map as Map
 import qualified Data.NonEmptyList as NonEmpty
 import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -165,6 +166,7 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
                     (Client.watchTheseFilesOnly watching)
                 )
             )
+        Watchtower.Live.Compile.recompile state (Map.keys watching)
 
     Client.Discover root ->
       do
