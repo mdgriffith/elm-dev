@@ -475,6 +475,6 @@ broadcast mClients msg =
                         --     clientData = Watchtower.Websocket.clientData client
                         -- in 
                         -- isWatchingFileForDocs file clientData
-                        False
+                        True
                 )
                 msg
