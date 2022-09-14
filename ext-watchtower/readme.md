@@ -39,3 +39,7 @@ When the server starts, then `Watchtower.Project.discover` will run in the curre
 This recursively searches for `elm.json` files and notes them.
 
 At the moment, it also looks for `src/Main.elm` as the entrypoint, though there are still questions about what to do about files that aren't imported by the entrypoint.
+
+## Install Watchtower locally
+
+Run `stack install` and it will compile and copy the `elm-watchtower` binaries to your PATH.
