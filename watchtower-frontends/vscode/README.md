@@ -33,3 +33,5 @@ Then reload VSCode in the window you want to develop in via `Cmd + R`
 * [Elmi to JSON](https://github.com/stoeffel/elmi-to-json) - convert `.elmi` files to JSON. `.elmi` files capture the interface for every module including function names and type signatures, type aliases and unions.
 * [elm-xref](https://github.com/zwilias/elm-xref) - Find unused function declarations. Looks to be a fairly simple implementation, which could be modified to extract other information.
 * [elmjutsu](https://atom.io/packages/elmjutsu) -
+
+* [Unmounting an Elm App](https://gist.github.com/supermario/4c2615806c6c561a16edf5dd7208a759#js-modification-solution)
