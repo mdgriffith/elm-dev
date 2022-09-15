@@ -30,9 +30,9 @@ const refreshWatch = (): Msg => {
   const items = [];
   for (const index in editors) {
     items.push({
-      path: editors[index].document.uri.toString(),
+      path: editors[index].document.uri.fsPath,
       warnings: true,
-      docs: false,
+      docs: true,
     });
   }
 
@@ -116,7 +116,7 @@ export class Watchtower {
     });
 
     vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
-      self.send(changed(document.uri.path));
+      self.send(changed(document.uri.fsPath));
     });
 
     vscode.workspace.onDidChangeTextDocument(
@@ -204,7 +204,7 @@ export class Watchtower {
     }
     ElmProjectPane.send(msg);
 
-    log.obj("Received", msg);
+    log.log("Received: " + msg["msg"]);
     switch (msg["msg"]) {
       case "Status": {
         self.diagnostics.clear();
@@ -362,7 +362,7 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
     return new Promise((resolve, reject) => {
       Question.ask(
         Question.questions.findDefinition(
-          document.uri.path,
+          document.uri.fsPath,
           position.line,
           position.character
         ),
