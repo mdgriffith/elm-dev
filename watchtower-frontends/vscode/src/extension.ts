@@ -4,6 +4,7 @@ import { ElmFormatProvider, ElmRangeFormatProvider } from "./elmFormat";
 import * as log from "./utils/log";
 import * as Watchtower from "./watchtower";
 import { ElmProjectPane, ElmProjectSerializer } from "./panel/panel";
+import * as Interactive from "./interactive";
 
 import * as PanelMsg from "./panel/messages";
 
@@ -17,6 +18,8 @@ export function activate(context: vscode.ExtensionContext) {
   elmFormatStatusBar.backgroundColor = new vscode.ThemeColor(
     "statusBarItem.errorBackground"
   );
+
+  Interactive.generate();
 
   // Elm Format
   context.subscriptions.push(
