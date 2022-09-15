@@ -156,9 +156,9 @@ export class ElmProjectPane {
                   -->
                   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; 
                     connect-src ws:;
-                     img-src vscode-resource: https:;
-                     script-src 'nonce-${nonce}' 'unsafe-eval';
-                     style-src 'unsafe-inline';" 
+                    img-src vscode-resource: https:;
+                    script-src 'nonce-${nonce}' 'unsafe-eval';
+                    style-src 'unsafe-inline';" 
                   />
   
                   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -166,19 +166,51 @@ export class ElmProjectPane {
                   <title>Elm Live Project</title>
               </head>
               <body>
-                  <div id="main" style="width: 100vw;height:100vw;"></div>
+                  <div style="position:fixed; left:0; top:0; width: 100vw;height:100vw;">
+                    <div id="main" style="width: 100vw;height:100vw;"></div>
+                  </div>
                   <!-- The second div is our interactive App, which can be reloaded arbitrarily -->
-                  <div id="interactive" style="position:fixed; left:0; top:0; width: 100vw;height:100vw;"></div>
-                  <script nonce="${nonce}">                    
+                  <div style="position:fixed; left:0; top:0; width: 100vw;height:100vw;">
+                    <div id="interactive"></div>
+                  </div>
+                  <script nonce="${nonce}">
+
+                      var mounted = false;
+                      function scoped_eval(scope, script) {
+                        return Function('"use strict";' + script).bind(scope)();
+                      }
+
+                      function load_interactive(node, js_string) {
+                        let scope = {}
+                        const evaled = scoped_eval(scope, js_string)
+                        
+                        // Kill existing Elm App
+                        
+                        // mount the new app
+                        scope.Elm.Live.init({node: node, flags: {}})
+                      }            
+
+                      
                       const vscode = acquireVsCodeApi();
                       
-                      var app = Elm.Main.init({node: document.getElementById('main'),});
-                      
+                      var app = Elm.Main.init({node: document.getElementById('main')});
                       
 
                       // Handle messages sent from the extension to the webview
                       window.addEventListener('message', event => {
-                          app.ports.toElm.send(event.data);
+                          if (event.data.msg == "InteractiveCodeRefreshed") {
+                            if (!mounted) {
+                              mounted = true
+                              console.log("First time, mounting app")
+                              console.log("INIT", document.getElementById('interactive'))
+                              load_interactive(document.getElementById('interactive'), event.data.details.js)  
+                            } else {
+                              console.log("Skipping!  Already mounted")
+                            }
+                            
+                          } else {
+                            app.ports.toElm.send(event.data);
+                          }
                       });
                       
                       app.ports.toWorld.subscribe(function(message) {

@@ -11,6 +11,10 @@ export type ToProjectPanel =
   | {
       msg: "Warnings";
       details: { warnings: Question.Warning[]; filepath: string };
+    }
+  | {
+      msg: "InteractiveCodeRefreshed";
+      details: { js: string };
     };
 
 export type EditorVisibility = {
@@ -51,6 +55,14 @@ export type FromProjectPanel = {
 };
 
 /* Message constructors */
+
+export const interactiveCodeRefreshed = (js: string): ToProjectPanel => {
+  return {
+    msg: "InteractiveCodeRefreshed",
+    details: { js: js },
+  };
+};
+
 export const sendEditorVisibility = (): ToProjectPanel => {
   let active = null;
   if (Code.window.activeTextEditor) {

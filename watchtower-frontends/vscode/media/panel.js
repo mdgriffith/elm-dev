@@ -13977,7 +13977,7 @@ var $author$project$Main$view = function (model) {
 		_List_fromArray(
 			[
 				A2($elm$html$Html$Attributes$style, 'width', '100vw'),
-				A2($elm$html$Html$Attributes$style, 'height', '100vw')
+				A2($elm$html$Html$Attributes$style, 'height', '100vh')
 			]),
 		_List_fromArray(
 			[

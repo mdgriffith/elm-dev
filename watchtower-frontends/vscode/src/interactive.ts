@@ -16,12 +16,12 @@ export function generate() {
   );
 
   // We know that our generator generates one Elm file called "Live.elm"
-  Elm.compileToString(["./src/Live.elm"], {
+  const compiled_interactive_js = Elm.compileToStringSync(["./src/Live.elm"], {
     cwd: path.join(__dirname, "interactive"),
     pathToElm: path.join(__dirname, "elm"),
-  }).then(function (data) {
-    console.log("Compiled Live string is", data.toString().length);
   });
+
+  return compiled_interactive_js;
 }
 
 // function compile() {
@@ -45,6 +45,11 @@ type Warning = {
   warning: string;
 };
 
+// eval in a specifically defined scope
+function scoped_eval(scope, script) {
+  return Function('"use strict";' + script).bind(scope)();
+}
+
 // Run the js generated from a compiler
 async function run_generator(
   output_dir: string,
@@ -52,24 +57,25 @@ async function run_generator(
   compiled_elm_js: string,
   flags: any
 ) {
-  eval(compiled_elm_js);
+  let scope: any = {};
+  scoped_eval(scope, compiled_elm_js);
 
   const promise = new Promise<
     { path: string; contents: string; warnings: Warning[] }[]
   >((resolve, reject) => {
     // @ts-ignore
-    if (!(moduleName in this.Elm)) {
+    if (!(moduleName in scope.Elm)) {
       console.log(
         // @ts-ignore
         `Module ${moduleName} not found in compile Elm code. Available modules are: ${JSON.stringify(
-          this.Elm
+          scope.Elm
         )}`
       );
       return 1;
     }
 
     // @ts-ignore
-    const app = this.Elm[moduleName].init({ flags: flags });
+    const app = scope.Elm[moduleName].init({ flags: flags });
     if (app.ports.onSuccessSend) {
       app.ports.onSuccessSend.subscribe(resolve);
     }

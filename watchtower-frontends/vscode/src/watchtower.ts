@@ -6,6 +6,8 @@ import * as JSONSafe from "./utils/json";
 import * as Question from "./watchtower/question";
 import { ElmProjectPane } from "./panel/panel";
 import * as ChildProcess from "child_process";
+import * as Interactive from "./interactive";
+import * as PanelMsg from "./panel/messages";
 
 var WebSocketClient = require("websocket").client;
 
@@ -253,6 +255,10 @@ export class Watchtower {
       case "Docs": {
         log.log("New docs received!");
         log.log(msg.details.filepath);
+        const interactiveJs = Interactive.generate();
+        log.log("Interactive compiled!");
+
+        ElmProjectPane.send(PanelMsg.interactiveCodeRefreshed(interactiveJs));
         break;
       }
       default: {
