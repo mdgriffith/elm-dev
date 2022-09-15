@@ -189,7 +189,11 @@ export class Watchtower {
     this.cancelRetry();
     this.connection = connection;
     log.log("Connected!");
-    if (vscode.workspace.workspaceFolders.length > 0) {
+
+    if (
+      vscode.workspace.workspaceFolders &&
+      vscode.workspace.workspaceFolders.length > 0
+    ) {
       const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
       this.send(discover(root));
       this.send(refreshWatch());
@@ -215,7 +219,7 @@ export class Watchtower {
             for (const error of project.status["errors"]) {
               log.obj("ERROR", error);
               const uri = vscode.Uri.file(error["path"]);
-              const problems = [];
+              let problems: any[] = [];
               for (const prob of error["problems"]) {
                 problems.push({
                   code: "elm-compiler",
@@ -308,7 +312,10 @@ const formatSource = (items: any): string => {
       for (const line of lines) {
         if (line.match(/^\d/)) {
           // starts with a number, then it's a code snippet
-          source += line.match(extractSource)[1];
+          const matched = line.match(extractSource);
+          if (matched) {
+            source += matched[1];
+          }
           source += "\n";
         }
       }
@@ -334,7 +341,7 @@ function preparePosition(pos: any) {
 function prepareRanges(ranges) {
   const rangeLength = ranges.length;
 
-  var prepared = [];
+  var prepared: any[] = [];
   for (var i = 0; i < rangeLength; i++) {
     const start = {
       character: ranges[i].start.character,
@@ -483,7 +490,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
     const self = this;
 
     // TODO! destroy existing codelenses
-    const signatures = [];
+    const signatures: any[] = [];
     for (const sig of sigs) {
       const document = getDocumentMatching(vscode.Uri.file(filepath));
 
@@ -511,10 +518,10 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
   ) {
     const self = this;
 
-    const decorations = [];
+    const decorations: any[] = [];
 
     // TODO! destroy existing codelenses
-    const signatures = [];
+    const signatures: any[] = [];
     for (const warn of warnings) {
       if (warn.warning == "MissingAnnotation") {
         const document = getDocumentMatching(vscode.Uri.file(filepath));
@@ -621,7 +628,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
 
       // remove the signature from the list
       if (document.uri.fsPath in self.signatures) {
-        const newSignatures = [];
+        const newSignatures: any[] = [];
         for (const sig of self.getSignaturesFor(document.uri.fsPath)) {
           if (action.signature.name !== sig.missing.name) {
             newSignatures.push(sig);
@@ -663,7 +670,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
 
     if (document.uri.fsPath in self.signatures) {
       const cache = self.signatures[document.uri.fsPath];
-      const lenses = [];
+      const lenses: any[] = [];
       for (const sig of cache.signatures) {
         lenses.push(sig.lens);
       }
