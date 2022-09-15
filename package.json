@@ -7,9 +7,6 @@
   "author": "Matthew Griffith <mdg.griffith@gmail.com>",
   "license": "BSD 3",
   "private": true,
-  "workspaces": [
-    "watchtower-frontends/*"
-  ],
   "scripts": {
     "vscode": "yarn --cwd watchtower-frontends/vscode",
     "watchtower": "stack ghci"

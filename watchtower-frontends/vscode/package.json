@@ -65,22 +65,27 @@
     "vscode:prepublish": "yarn run build",
     "build-package": "vsce package --out ./dist/elm-watchtower-vscode.vsix",
     "link-to-vscode": "ln -s $PWD ~/.vscode/extensions/mgriff.elm-watchtower-0.0.1",
-    "build": "tsc -p ./ & cp ../../node_modules/elm-format/unpacked_bin/elm-format ./out/elm-format & yarn run build:elm",
-    "build:elm": "cd src/panel ; elm make src/Main.elm --debug --output=../../media/panel.js ",
+    "build": "yarn run esbuild & cp -r ./src/embedded ./out/embedded & cp ./node_modules/elm-format/unpacked_bin/elm-format ./out/elm-format && cp ./node_modules/elm/bin/elm ./out/elm & yarn run build:elm",
+    "build:elm": "cd src/panel ; elm make src/Main.elm --output=../../media/panel.js ",
     "watch": "tsc -watch -p ./",
-    "test": "yarn run build && node ./node_modules/vscode/bin/test"
+    "test": "yarn run build && node ./node_modules/vscode/bin/test",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+    "esbuild": "yarn run esbuild-base --sourcemap",
+    "esbuild-watch": "yarn run esbuild-base --sourcemap --watch"
   },
   "devDependencies": {
     "@types/node": "^11.12.21",
     "@types/vscode": "^1.8.0",
-    "vsce": "^2.9.1",
+    "esbuild": "^0.15.7",
     "eslint": "^7.21.0",
-    "typescript": "^4.4.3"
+    "typescript": "^4.4.3",
+    "vsce": "^2.9.1"
   },
   "dependencies": {
     "cross-spawn": "^6.0.5",
+    "elm": "^0.19.1-5",
     "elm-format": "0.8.5",
-    
+    "node-elm-compiler": "^5.0.6",
     "websocket": "^1.0.31",
     "which": "^1.3.1"
   }
