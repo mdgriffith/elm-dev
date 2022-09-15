@@ -65,8 +65,9 @@
     "vscode:prepublish": "yarn run build",
     "build-package": "vsce package --out ./dist/elm-watchtower-vscode.vsix",
     "link-to-vscode": "ln -s $PWD ~/.vscode/extensions/mgriff.elm-watchtower-0.0.1",
-    "build": "yarn run esbuild & cp -r ./src/embedded ./out/embedded & cp ./node_modules/elm-format/unpacked_bin/elm-format ./out/elm-format && cp ./node_modules/elm/bin/elm ./out/elm & yarn run build:elm",
+    "build": "yarn run esbuild & bash scripts/copy_deps.sh & yarn run build:elm & yarn run build:elm-interactive-generator",
     "build:elm": "cd src/panel ; elm make src/Main.elm --output=../../media/panel.js ",
+    "build:elm-interactive-generator": "cd codegen ; elm make Generate.elm --output=../out/generate.js ",
     "watch": "tsc -watch -p ./",
     "test": "yarn run build && node ./node_modules/vscode/bin/test",
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
@@ -84,6 +85,7 @@
   "dependencies": {
     "cross-spawn": "^6.0.5",
     "elm": "^0.19.1-5",
+    "elm-codegen": "^0.2.0",
     "elm-format": "0.8.5",
     "node-elm-compiler": "^5.0.6",
     "websocket": "^1.0.31",
