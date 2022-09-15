@@ -154,17 +154,27 @@ export class ElmProjectPane {
                   Use a content security policy to only allow loading images from https or from our extension directory,
                   and only allow scripts that have a specific nonce.
                   -->
-                  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src ws:; img-src vscode-resource: https:; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
+                  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; 
+                    connect-src ws:;
+                     img-src vscode-resource: https:;
+                     script-src 'nonce-${nonce}' 'unsafe-eval';
+                     style-src 'unsafe-inline';" 
+                  />
   
                   <meta name="viewport" content="width=device-width, initial-scale=1.0">
                   <script nonce="${nonce}" src="${scriptUri}"></script>
                   <title>Elm Live Project</title>
               </head>
               <body>
+                  <div id="main" style="width: 100vw;height:100vw;"></div>
+                  <!-- The second div is our interactive App, which can be reloaded arbitrarily -->
+                  <div id="interactive" style="position:fixed; left:0; top:0; width: 100vw;height:100vw;"></div>
                   <script nonce="${nonce}">                    
                       const vscode = acquireVsCodeApi();
                       
-                      var app = Elm.Main.init();
+                      var app = Elm.Main.init({node: document.getElementById('main'),});
+                      
+                      
 
                       // Handle messages sent from the extension to the webview
                       window.addEventListener('message', event => {

@@ -25,7 +25,7 @@ import Ui
 
 main : Program () Model Msg
 main =
-    Browser.document
+    Browser.element
         { init = \_ -> init
         , update = update
         , view = view
@@ -196,8 +196,10 @@ mergeProjects new existing =
 
 
 view model =
-    { title = "Watchtower"
-    , body =
+    Html.div
+        [ Html.Attributes.style "width" "100vw"
+        , Html.Attributes.style "height" "100vh"
+        ]
         [ Ui.overrides
         , Ui.layout
             [ Ui.htmlAttribute (Html.Attributes.class "base")
@@ -209,7 +211,6 @@ view model =
                     viewOverview model
             )
         ]
-    }
 
 
 viewOverview model =

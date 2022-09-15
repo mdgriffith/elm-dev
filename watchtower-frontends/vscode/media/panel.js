@@ -5188,7 +5188,7 @@ var $elm$core$Task$perform = F2(
 			$elm$core$Task$Perform(
 				A2($elm$core$Task$map, toMessage, task)));
 	});
-var $elm$browser$Browser$document = _Browser_document;
+var $elm$browser$Browser$element = _Browser_element;
 var $elm$time$Time$Every = F2(
 	function (a, b) {
 		return {$: 'Every', a: a, b: b};
@@ -7092,6 +7092,7 @@ var $elm$html$Html$Attributes$stringProperty = F2(
 			$elm$json$Json$Encode$string(string));
 	});
 var $elm$html$Html$Attributes$class = $elm$html$Html$Attributes$stringProperty('className');
+var $elm$html$Html$div = _VirtualDom_node('div');
 var $mdgriffith$elm_ui$Internal$Model$Fill = function (a) {
 	return {$: 'Fill', a: a};
 };
@@ -7237,7 +7238,6 @@ var $mdgriffith$elm_ui$Internal$Flag$alignBottom = $mdgriffith$elm_ui$Internal$F
 var $mdgriffith$elm_ui$Internal$Flag$alignRight = $mdgriffith$elm_ui$Internal$Flag$flag(40);
 var $mdgriffith$elm_ui$Internal$Flag$centerX = $mdgriffith$elm_ui$Internal$Flag$flag(42);
 var $mdgriffith$elm_ui$Internal$Flag$centerY = $mdgriffith$elm_ui$Internal$Flag$flag(43);
-var $elm$html$Html$div = _VirtualDom_node('div');
 var $mdgriffith$elm_ui$Internal$Model$lengthClassName = function (x) {
 	switch (x.$) {
 		case 'Px':
@@ -12533,6 +12533,8 @@ var $author$project$Ui$overrides = A3(
 		[
 			$elm$html$Html$text($author$project$Ui$stylesheet)
 		]));
+var $elm$virtual_dom$VirtualDom$style = _VirtualDom_style;
+var $elm$html$Html$Attributes$style = $elm$virtual_dom$VirtualDom$style;
 var $author$project$Model$EditorFillTypeSignatures = function (a) {
 	return {$: 'EditorFillTypeSignatures', a: a};
 };
@@ -12674,8 +12676,6 @@ var $mdgriffith$elm_ui$Element$Font$size = function (i) {
 		$mdgriffith$elm_ui$Internal$Flag$fontSize,
 		$mdgriffith$elm_ui$Internal$Model$FontSize(i));
 };
-var $elm$virtual_dom$VirtualDom$style = _VirtualDom_style;
-var $elm$html$Html$Attributes$style = $elm$virtual_dom$VirtualDom$style;
 var $author$project$Ui$font = {
 	body: $mdgriffith$elm_ui$Element$Font$size(14),
 	cyan: $mdgriffith$elm_ui$Element$htmlAttribute(
@@ -13972,8 +13972,14 @@ var $author$project$Main$viewOverview = function (model) {
 			]));
 };
 var $author$project$Main$view = function (model) {
-	return {
-		body: _List_fromArray(
+	return A2(
+		$elm$html$Html$div,
+		_List_fromArray(
+			[
+				A2($elm$html$Html$Attributes$style, 'width', '100vw'),
+				A2($elm$html$Html$Attributes$style, 'height', '100vw')
+			]),
+		_List_fromArray(
 			[
 				$author$project$Ui$overrides,
 				A2(
@@ -13989,11 +13995,9 @@ var $author$project$Main$view = function (model) {
 					var _v0 = model.viewing;
 					return $author$project$Main$viewOverview(model);
 				}())
-			]),
-		title: 'Watchtower'
-	};
+			]));
 };
-var $author$project$Main$main = $elm$browser$Browser$document(
+var $author$project$Main$main = $elm$browser$Browser$element(
 	{
 		init: function (_v0) {
 			return $author$project$Main$init;
