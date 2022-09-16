@@ -213,6 +213,7 @@ view model =
         ]
 
 
+viewOverview : Model -> Ui.Element Msg
 viewOverview model =
     let
         found =
@@ -354,7 +355,8 @@ viewOverview model =
                     [] ->
                         case found.globals of
                             [] ->
-                                viewWarningsOrStatus model
+                                -- viewWarningsOrStatus model
+                                Ui.html Ui.showLive
 
                             _ ->
                                 viewMetric

@@ -4,7 +4,7 @@ module Ui exposing
     , background, border, font
     , when, whenJust, precise, rounded
     , overrides
-    , header, transition
+    , header, showLive, transition
     )
 
 {-|
@@ -26,6 +26,19 @@ import Element.Border as Border
 import Element.Font as Font
 import Html exposing (Html)
 import Html.Attributes as Attr
+
+
+showLive =
+    Html.node "style" [] [ Html.text live ]
+
+
+live =
+    """
+#live {
+    display:block !important;
+}
+
+"""
 
 
 overrides =

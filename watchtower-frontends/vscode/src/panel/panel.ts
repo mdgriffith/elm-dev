@@ -170,7 +170,7 @@ export class ElmProjectPane {
                     <div id="main" style="width: 100vw;height:100vw;"></div>
                   </div>
                   <!-- The second div is our interactive App, which can be reloaded arbitrarily -->
-                  <div style="position:fixed; left:0; top:0; width: 100vw;height:100vw;">
+                  <div id="live" style="display:none; position:fixed; left:0; top:0; width: 100vw;height:100vw;">
                     <div id="interactive"></div>
                   </div>
                   <script nonce="${nonce}">

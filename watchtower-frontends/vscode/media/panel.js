@@ -13052,6 +13052,12 @@ var $author$project$Ui$header = {
 			$mdgriffith$elm_ui$Element$text(str));
 	}
 };
+var $elm$core$Basics$always = F2(
+	function (a, _v0) {
+		return a;
+	});
+var $mdgriffith$elm_ui$Internal$Model$unstyled = A2($elm$core$Basics$composeL, $mdgriffith$elm_ui$Internal$Model$Unstyled, $elm$core$Basics$always);
+var $mdgriffith$elm_ui$Element$html = $mdgriffith$elm_ui$Internal$Model$unstyled;
 var $mdgriffith$elm_ui$Internal$Model$InFront = {$: 'InFront'};
 var $mdgriffith$elm_ui$Element$inFront = function (element) {
 	return A2($mdgriffith$elm_ui$Internal$Model$Nearby, $mdgriffith$elm_ui$Internal$Model$InFront, element);
@@ -13080,6 +13086,15 @@ var $mdgriffith$elm_ui$Internal$Model$Px = function (a) {
 	return {$: 'Px', a: a};
 };
 var $mdgriffith$elm_ui$Element$px = $mdgriffith$elm_ui$Internal$Model$Px;
+var $author$project$Ui$live = '\n#live {\n    display:block !important;\n}\n\n';
+var $author$project$Ui$showLive = A3(
+	$elm$html$Html$node,
+	'style',
+	_List_Nil,
+	_List_fromArray(
+		[
+			$elm$html$Html$text($author$project$Ui$live)
+		]));
 var $author$project$Editor$overlap = F2(
 	function (one, two) {
 		return ((_Utils_cmp(one.start.row, two.start.row) > -1) && (_Utils_cmp(one.start.row, two.end.row) < 1)) ? true : (((_Utils_cmp(one.end.row, two.start.row) > -1) && (_Utils_cmp(one.end.row, two.end.row) < 1)) ? true : false);
@@ -13639,116 +13654,6 @@ var $author$project$Main$viewMetric = F3(
 				A2($elm$core$List$map, viewer, vals));
 		}
 	});
-var $author$project$Ui$anim = {
-	blink: $mdgriffith$elm_ui$Element$htmlAttribute(
-		$elm$html$Html$Attributes$class('blink'))
-};
-var $mdgriffith$elm_ui$Element$Keyed$el = F2(
-	function (attrs, child) {
-		return A4(
-			$mdgriffith$elm_ui$Internal$Model$element,
-			$mdgriffith$elm_ui$Internal$Model$asEl,
-			$mdgriffith$elm_ui$Internal$Model$div,
-			A2(
-				$elm$core$List$cons,
-				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$shrink),
-				A2(
-					$elm$core$List$cons,
-					$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$shrink),
-					attrs)),
-			$mdgriffith$elm_ui$Internal$Model$Keyed(
-				_List_fromArray(
-					[child])));
-	});
-var $elm$core$Dict$values = function (dict) {
-	return A3(
-		$elm$core$Dict$foldr,
-		F3(
-			function (key, value, valueList) {
-				return A2($elm$core$List$cons, value, valueList);
-			}),
-		_List_Nil,
-		dict);
-};
-var $author$project$Main$viewWarning = function (warning) {
-	if (warning.$ === 'UnusedVaraible') {
-		var unused = warning.a;
-		return A2(
-			$mdgriffith$elm_ui$Element$row,
-			_List_fromArray(
-				[$author$project$Ui$space.md]),
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$text('Unused'),
-					$mdgriffith$elm_ui$Element$text(unused.name)
-				]));
-	} else {
-		var missing = warning.a;
-		return A2(
-			$mdgriffith$elm_ui$Element$column,
-			_List_fromArray(
-				[
-					$author$project$Ui$space.sm,
-					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
-				]),
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$text('Missing signature'),
-					$mdgriffith$elm_ui$Element$text(missing.name + (': ' + missing.signature))
-				]));
-	}
-};
-var $author$project$Main$viewWarningList = function (warnings) {
-	return A2(
-		$mdgriffith$elm_ui$Element$column,
-		_List_fromArray(
-			[
-				$author$project$Ui$space.md,
-				$mdgriffith$elm_ui$Element$width(
-				$mdgriffith$elm_ui$Element$px(700)),
-				$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-				$mdgriffith$elm_ui$Element$htmlAttribute(
-				A2($elm$html$Html$Attributes$style, 'overflow', 'auto'))
-			]),
-		A2($elm$core$List$map, $author$project$Main$viewWarning, warnings));
-};
-var $author$project$Main$visibleWarnings = F2(
-	function (warnings, activeEditor) {
-		return A2(
-			$elm$core$Maybe$withDefault,
-			_List_Nil,
-			A2($elm$core$Dict$get, activeEditor.fileName, warnings));
-	});
-var $author$project$Main$viewWarningsOrStatus = function (model) {
-	var activeWarnings = A2(
-		$elm$core$Maybe$withDefault,
-		_List_Nil,
-		A2(
-			$elm$core$Maybe$map,
-			$author$project$Main$visibleWarnings(model.warnings),
-			model.active));
-	if (!activeWarnings.b) {
-		var _v1 = $elm$core$List$concat(
-			$elm$core$Dict$values(model.warnings));
-		if (!_v1.b) {
-			return A2(
-				$mdgriffith$elm_ui$Element$Keyed$el,
-				_List_Nil,
-				_Utils_Tuple2(
-					$elm$core$String$fromInt(model.projectsVersion),
-					A2(
-						$mdgriffith$elm_ui$Element$el,
-						_List_fromArray(
-							[$author$project$Ui$anim.blink]),
-						$mdgriffith$elm_ui$Element$text('Lookin good! 🎉'))));
-		} else {
-			var allWarnings = _v1;
-			return $author$project$Main$viewWarningList(allWarnings);
-		}
-	} else {
-		return $author$project$Main$viewWarningList(activeWarnings);
-	}
-};
 var $author$project$Main$viewOverview = function (model) {
 	var viewTypeSignature = F2(
 		function (file, signature) {
@@ -13929,7 +13834,7 @@ var $author$project$Main$viewOverview = function (model) {
 					if (!notVisibleErrors.b) {
 						var _v3 = found.globals;
 						if (!_v3.b) {
-							return $author$project$Main$viewWarningsOrStatus(model);
+							return $mdgriffith$elm_ui$Element$html($author$project$Ui$showLive);
 						} else {
 							return A3($author$project$Main$viewMetric, 'Global', $author$project$Main$viewGlobalError, found.globals);
 						}
