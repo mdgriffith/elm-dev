@@ -1,6 +1,18 @@
-module Example.Type exposing (getBuilderOf, getResultType, isBuilderOf, isCreatorOf, matches, matchesName)
+module Example.Type exposing
+    ( matches, matchesName
+    , isStartingPoint, isBuilder, isBuilderOf, isCreatorOf
+    , getArgs, getResultType, getBuilderOf
+    )
 
-{-| -}
+{-|
+
+@docs matches, matchesName
+
+@docs isStartingPoint, isBuilder, isBuilderOf, isCreatorOf
+
+@docs getArgs, getResultType, getBuilderOf
+
+-}
 
 import Elm
 import Elm.Docs
@@ -41,6 +53,59 @@ isBuilderOfName name tipe =
             False
 
 
+getArgs : Elm.Type.Type -> List Elm.Type.Type
+getArgs tipe =
+    getArgsHelper tipe []
+
+
+getArgsHelper : Elm.Type.Type -> List Elm.Type.Type -> List Elm.Type.Type
+getArgsHelper tipe found =
+    case tipe of
+        Elm.Type.Lambda arg result ->
+            getArgsHelper result (arg :: found)
+
+        _ ->
+            List.reverse found
+
+
+isStartingPoint : Elm.Type.Type -> Bool
+isStartingPoint tipe =
+    if isBuilder tipe then
+        False
+
+    else
+        isStartingPointHelper tipe
+
+
+isStartingPointHelper : Elm.Type.Type -> Bool
+isStartingPointHelper tipe =
+    case tipe of
+        Elm.Type.Lambda arg result ->
+            if isPrimitive arg then
+                isStartingPointHelper result
+
+            else
+                False
+
+        _ ->
+            True
+
+
+{-| -}
+isBuilder : Elm.Type.Type -> Bool
+isBuilder possibleBuilder =
+    case possibleBuilder of
+        Elm.Type.Lambda arg result ->
+            if arg |> matches result then
+                True
+
+            else
+                isBuilder result
+
+        _ ->
+            False
+
+
 {-| -}
 isBuilderOf : Elm.Type.Type -> Elm.Type.Type -> Bool
 isBuilderOf desiredResult possibleBuilder =
@@ -54,10 +119,6 @@ isBuilderOf desiredResult possibleBuilder =
 
         _ ->
             False
-
-
-
--- (getResultType possibleBuilder)
 
 
 isCreatorOf : String -> Elm.Type.Type -> Bool
@@ -151,3 +212,52 @@ matchesName name tipe =
 
         _ ->
             False
+
+
+isPrimitive : Elm.Type.Type -> Bool
+isPrimitive tipe =
+    case tipe of
+        Elm.Type.Var "msg" ->
+            -- bit of a hack for the moment
+            True
+
+        Elm.Type.Var _ ->
+            False
+
+        Elm.Type.Lambda arg result ->
+            False
+
+        Elm.Type.Tuple tups ->
+            List.all isPrimitive tups
+
+        Elm.Type.Type name [] ->
+            List.member name primitiveNames
+
+        Elm.Type.Type name [ inner ] ->
+            if List.member name primitiveSingleContainers then
+                isPrimitive inner
+
+            else
+                False
+
+        Elm.Type.Type _ _ ->
+            False
+
+        Elm.Type.Record fields maybeName ->
+            List.all (Tuple.second >> isPrimitive) fields
+
+
+primitiveNames : List String
+primitiveNames =
+    [ "String.String"
+    , "Basics.Bool"
+    , "Basics.Int"
+    , "Basics.Float"
+    ]
+
+
+primitiveSingleContainers : List String
+primitiveSingleContainers =
+    [ "List.List"
+    , "Maybe.Maybe"
+    ]

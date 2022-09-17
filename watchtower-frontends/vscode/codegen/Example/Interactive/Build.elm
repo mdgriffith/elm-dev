@@ -2,6 +2,7 @@ module Example.Interactive.Build exposing (Created, build)
 
 import Elm
 import Elm.Annotation
+import Elm.Case
 import Elm.Docs
 import Elm.Op
 import Elm.Type
@@ -106,6 +107,29 @@ getVal nameBase options context =
     }
 
 
+getValProtected :
+    String
+    ->
+        { input : Interactive.Input
+        , init : Elm.Expression
+        }
+    -> Context
+    -> Created
+getValProtected nameBase options context =
+    let
+        arg =
+            nameBase ++ String.fromInt context.fieldIndex
+    in
+    { drivenByModel = Elm.get arg context.model
+    , context =
+        { context
+            | fieldIndex = context.fieldIndex + 1
+            , state =
+                Interactive.field arg options :: context.state
+        }
+    }
+
+
 build :
     Elm.Docs.Module
     -> Example.CallStack.CallStack
@@ -130,7 +154,7 @@ buildHelper :
     -> Result String Created
 buildHelper options context (Example.CallStack.CallStack callstack) =
     let
-        exampleCallResult =
+        starterCall =
             if options.piped then
                 buildBuilder { allowOptionalIntermediates = options.allowOptionalIntermediates }
                     context
@@ -147,15 +171,15 @@ buildHelper options context (Example.CallStack.CallStack callstack) =
                     callstack.start.tipe
                     []
     in
-    case exampleCallResult of
+    case starterCall of
         Ok call ->
             List.foldl
                 (\step builtResult ->
                     case builtResult of
                         Ok built ->
-                            case buildHelper { options | piped = True } built.context step.step of
-                                Ok builtStep ->
-                                    if step.required then
+                            if step.required then
+                                case buildHelper { options | piped = True } built.context step.step of
+                                    Ok builtStep ->
                                         Ok
                                             { context = builtStep.context
                                             , drivenByModel =
@@ -164,27 +188,79 @@ buildHelper options context (Example.CallStack.CallStack callstack) =
                                                         builtStep.drivenByModel
                                             }
 
-                                    else
+                                    Err err ->
+                                        Err err
+
+                            else
+                                case Example.Type.getArgs <| .tipe <| Example.CallStack.start step.step of
+                                    [ _ ] ->
                                         let
-                                            ( optionalContext, fullyBuiltStep ) =
-                                                buildIf builtStep.context
-                                                    (case step.step of
-                                                        Example.CallStack.CallStack stepStack ->
-                                                            formatInclusionName stepStack.start.name
-                                                    )
-                                                    -- "with" option
-                                                    builtStep.drivenByModel
-                                                    -- base model
-                                                    built.drivenByModel
+                                            boolVal =
+                                                getVal (Example.CallStack.name step.step)
+                                                    { input = Interactive.bool
+                                                    , init = Elm.bool False
+                                                    }
+                                                    built.context
                                         in
                                         Ok
-                                            { context = optionalContext
+                                            { context = boolVal.context
                                             , drivenByModel =
-                                                fullyBuiltStep
+                                                built.drivenByModel
+                                                    |> Elm.Op.pipe
+                                                        (Elm.ifThen boolVal.drivenByModel
+                                                            (Elm.value
+                                                                { importFrom = String.split "." context.modul.name
+                                                                , name = Example.CallStack.name step.step
+                                                                , annotation = Nothing
+                                                                }
+                                                            )
+                                                            genIdentity
+                                                        )
                                             }
 
-                                Err err ->
-                                    Err err
+                                    [ argType, _ ] ->
+                                        case Interactive.fromType argType of
+                                            Nothing ->
+                                                -- skip, we don't have an input for this yet
+                                                builtResult
+
+                                            Just input ->
+                                                let
+                                                    maybeVal =
+                                                        getVal (Example.CallStack.name step.step)
+                                                            { input = Interactive.maybe input.input
+                                                            , init = Elm.nothing
+                                                            }
+                                                            built.context
+                                                in
+                                                Ok
+                                                    { context = maybeVal.context
+                                                    , drivenByModel =
+                                                        built.drivenByModel
+                                                            |> Elm.Op.pipe
+                                                                (Elm.Case.maybe maybeVal.drivenByModel
+                                                                    { just =
+                                                                        ( Example.CallStack.name step.step ++ "_option"
+                                                                        , \val ->
+                                                                            Elm.apply
+                                                                                (Elm.value
+                                                                                    { importFrom = String.split "." context.modul.name
+                                                                                    , name = Example.CallStack.name step.step
+                                                                                    , annotation = Nothing
+                                                                                    }
+                                                                                )
+                                                                                [ val
+                                                                                ]
+                                                                        )
+                                                                    , nothing =
+                                                                        genIdentity
+                                                                    }
+                                                                )
+                                                    }
+
+                                    _ ->
+                                        -- skip this builder, we ain't ready yet
+                                        builtResult
 
                         Err err ->
                             Err err
@@ -194,21 +270,6 @@ buildHelper options context (Example.CallStack.CallStack callstack) =
 
         Err err ->
             Err err
-
-
-buildIf context namespace withOption base =
-    let
-        val =
-            getVal namespace
-                { input = Interactive.bool
-                , init = Elm.bool False
-                }
-                context
-    in
-    ( val.context
-    , base
-        |> Elm.Op.pipe (Elm.ifThen val.drivenByModel withOption genIdentity)
-    )
 
 
 genIdentity =
@@ -472,7 +533,7 @@ buildArg options context namespace target =
                                                                     Ok builtBuilder ->
                                                                         let
                                                                             builderSwitch =
-                                                                                getVal "includeBuilder"
+                                                                                getValProtected "includeBuilder"
                                                                                     { input = Interactive.bool
                                                                                     , init = Elm.bool False
                                                                                     }

@@ -1,7 +1,7 @@
 module Gen.Helper exposing (add5, call_, moduleName_, values_)
 
 {-| 
-@docs values_, call_, add5, moduleName_
+@docs moduleName_, add5, call_, values_
 -}
 
 

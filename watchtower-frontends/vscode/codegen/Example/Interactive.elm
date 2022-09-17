@@ -95,13 +95,15 @@ build modul targeting =
                                 Gen.Element.column
                                     [ Gen.Element.width Gen.Element.fill
                                     , Gen.Element.height Gen.Element.fill
-                                    , Gen.Element.padding 50
+                                    , Gen.Element.padding 20
                                     , Gen.Element.spacing 70
                                     ]
                                     [ Gen.Element.el
                                         [ Gen.Element.Font.size 36
                                         ]
-                                        (Gen.Element.text targeting.start.name)
+                                        (Gen.Element.text
+                                            (modul.name ++ "." ++ targeting.start.name)
+                                        )
                                     , Gen.Element.column
                                         [ Gen.Element.width Gen.Element.fill
                                         , Gen.Element.spacing 70
@@ -110,25 +112,16 @@ build modul targeting =
                                         [ Gen.Element.column
                                             [ Gen.Element.width Gen.Element.fill
                                             , Gen.Element.spacing 70
-                                            , Gen.Element.paddingXY 50 0
-                                            , Gen.Element.onLeft
-                                                (Gen.Element.el
-                                                    [ Gen.Element.Border.width 1
-                                                    , Gen.Element.Border.color (Gen.Element.rgb 1 1 1)
-                                                    , Gen.Element.width Gen.Element.fill
-                                                    , Gen.Element.height Gen.Element.fill
-                                                    ]
-                                                    Gen.Element.none
-                                                )
                                             ]
-                                            [ Gen.Element.el
+                                            [ example.rendered.drivenByModel
+                                                |> runner.view opts
+                                                |> Gen.Element.el [ Gen.Element.paddingXY 50 0 ]
+                                            , Gen.Element.el
                                                 [ Gen.Element.width Gen.Element.fill
                                                 ]
                                                 (viewInput opts fields)
-                                            , example.rendered.drivenByModel
-                                                |> runner.view opts
                                             ]
-                                        , Gen.Ui.call_.code (Elm.string "Example code")
+                                        , Gen.Ui.call_.code (Elm.string "")
                                             example.example.drivenByModel
                                         ]
                                     ]
@@ -203,6 +196,21 @@ viewFieldInput opts field =
                 (Elm.get details.key opts.model)
 
         Interactive.InputFloat ->
+            Gen.Element.text "Float"
+
+        Interactive.InputMaybe Interactive.InputString ->
+            Elm.get details.key opts.model
+                |> Gen.Ui.Input.call_.maybeString
+                    (Elm.string details.label)
+                    updateValue
+
+        Interactive.InputMaybe Interactive.InputBool ->
+            Elm.get details.key opts.model
+                |> Gen.Ui.Input.call_.maybeBool
+                    (Elm.string details.label)
+                    updateValue
+
+        Interactive.InputMaybe _ ->
             Gen.Element.text "Float"
 
 

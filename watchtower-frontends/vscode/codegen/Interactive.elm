@@ -3,7 +3,8 @@ module Interactive exposing
     , Field, field
     , log
     , Input(..), bool, string, int, float
-    , details
+    , fromType
+    , details, maybe
     )
 
 {-|
@@ -15,6 +16,8 @@ module Interactive exposing
 @docs log
 
 @docs Input, bool, string, int, float
+
+@docs fromType
 
 -}
 
@@ -78,6 +81,7 @@ type Input
     | InputBool
     | InputInt
     | InputFloat
+    | InputMaybe Input
 
 
 bool : Input
@@ -100,6 +104,48 @@ float =
     InputFloat
 
 
+maybe : Input -> Input
+maybe =
+    InputMaybe
+
+
+fromType :
+    Elm.Type.Type
+    ->
+        Maybe
+            { input : Input
+            , init : Elm.Expression
+            }
+fromType tipe =
+    case tipe of
+        Elm.Type.Type "String.String" [] ->
+            Just
+                { input = InputString
+                , init = Elm.string ""
+                }
+
+        Elm.Type.Type "Basics.Bool" [] ->
+            Just
+                { input = InputBool
+                , init = Elm.bool False
+                }
+
+        Elm.Type.Type "Basics.Int" [] ->
+            Just
+                { input = InputInt
+                , init = Elm.int 0
+                }
+
+        Elm.Type.Type "Basics.Float" [] ->
+            Just
+                { input = InputFloat
+                , init = Elm.float 0
+                }
+
+        _ ->
+            Nothing
+
+
 details :
     Field
     ->
@@ -109,7 +155,12 @@ details :
         , onChange : Input
         }
 details (Field name opts) =
-    { label = name
+    { label =
+        if String.startsWith "with" name then
+            name |> String.replace "with" ""
+
+        else
+            name
     , key = name
     , input = opts.input
     , onChange = opts.input
@@ -130,6 +181,9 @@ inputToAnnotation input =
 
         InputFloat ->
             Elm.Annotation.float
+
+        InputMaybe inner ->
+            Elm.Annotation.maybe (inputToAnnotation inner)
 
 
 appTypes =
@@ -342,40 +396,47 @@ view modelAlias modules tab =
     Elm.declaration "view"
         (Elm.fn ( "model", Just modelAlias )
             (\model ->
-                Gen.Element.layout
-                    [ Gen.Element.htmlAttribute (Gen.Html.Attributes.style "background" "#242424")
-                    , Gen.Element.htmlAttribute (Gen.Html.Attributes.style "color" "rgba(255, 255, 255, .87)")
-                    , Gen.Element.Font.family
-                        [ Gen.Element.Font.typeface "Fira Code"
-                        , Gen.Element.Font.sansSerif
-                        ]
-                    ]
-                    (Gen.Element.column
-                        [ Gen.Element.spacing 24
-                        , Gen.Element.width Gen.Element.fill
-                        , Gen.Element.height Gen.Element.fill
-                        ]
-                        (List.concatMap
-                            (\mod ->
-                                -- view model applet
-                                List.map
-                                    (\interact ->
-                                        Elm.apply
-                                            (Elm.value
-                                                { importFrom = []
-                                                , annotation = Nothing
-                                                , name = "view" ++ capitalize interact.name
-                                                }
-                                            )
-                                            [ Elm.get interact.name model
-                                            ]
+                Elm.record
+                    [ ( "title", Elm.string "Example" )
+                    , ( "body"
+                      , Elm.list
+                            [ Gen.Element.layout
+                                [ Gen.Element.htmlAttribute (Gen.Html.Attributes.style "background" "#242424")
+                                , Gen.Element.htmlAttribute (Gen.Html.Attributes.style "color" "rgba(255, 255, 255, .87)")
+                                , Gen.Element.Font.family
+                                    [ Gen.Element.Font.typeface "Fira Code"
+                                    , Gen.Element.Font.sansSerif
+                                    ]
+                                ]
+                                (Gen.Element.column
+                                    [ Gen.Element.spacing 24
+                                    , Gen.Element.width Gen.Element.fill
+                                    , Gen.Element.height Gen.Element.fill
+                                    ]
+                                    (List.concatMap
+                                        (\mod ->
+                                            -- view model applet
+                                            List.map
+                                                (\interact ->
+                                                    Elm.apply
+                                                        (Elm.value
+                                                            { importFrom = []
+                                                            , annotation = Nothing
+                                                            , name = "view" ++ capitalize interact.name
+                                                            }
+                                                        )
+                                                        [ Elm.get interact.name model
+                                                        ]
+                                                )
+                                                mod.examples
+                                        )
+                                        modules
                                     )
-                                    mod.examples
-                            )
-                            modules
-                        )
-                    )
-                    |> Elm.withType (Elm.Annotation.namedWith [ "Html" ] "Html" [ Elm.Annotation.named [] "Msg" ])
+                                )
+                                |> Elm.withType (Elm.Annotation.namedWith [ "Html" ] "Html" [ Elm.Annotation.named [] "Msg" ])
+                            ]
+                      )
+                    ]
             )
         )
 
@@ -484,7 +545,7 @@ toMsgUpdateInteractive model interact =
 
 callMain : Elm.Expression
 callMain =
-    Gen.Browser.call_.element
+    Gen.Browser.call_.document
         (Elm.record
             [ ( "init"
               , Elm.value

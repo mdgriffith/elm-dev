@@ -22,6 +22,7 @@ import Elm.Op
 import Elm.Type
 import Example.Build
 import Example.Interactive
+import Example.Type
 import Gen.Element
 import Gen.Parser
 import Gen.Ui
@@ -85,27 +86,31 @@ interactiveAll mod =
         examples =
             List.foldl
                 (\val exes ->
-                    case Example.Build.getValueNamed val.name mod.values of
-                        Nothing ->
-                            exes
+                    if Example.Type.isStartingPoint val.tipe then
+                        case Example.Build.getValueNamed val.name mod.values of
+                            Nothing ->
+                                exes
 
-                        Just value ->
-                            let
-                                builtResult =
-                                    Example.Interactive.build mod
-                                        { start = value
-                                        , runners =
-                                            [ element
-                                            , parser
-                                            ]
-                                        }
-                            in
-                            case builtResult of
-                                Err err ->
-                                    exes
+                            Just value ->
+                                let
+                                    builtResult =
+                                        Example.Interactive.build mod
+                                            { start = value
+                                            , runners =
+                                                [ element
+                                                , parser
+                                                ]
+                                            }
+                                in
+                                case builtResult of
+                                    Err err ->
+                                        exes
 
-                                Ok examp ->
-                                    examp :: exes
+                                    Ok examp ->
+                                        examp :: exes
+
+                    else
+                        exes
                 )
                 []
                 mod.values

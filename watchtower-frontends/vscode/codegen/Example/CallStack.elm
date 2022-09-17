@@ -2,13 +2,17 @@ module Example.CallStack exposing
     ( CallStack(..)
     , find
     , getResultType
+    , name
+    , start
     )
 
 {-| -}
 
+import Elm
 import Elm.Docs
 import Elm.Type
 import Example.Type
+import Interactive
 
 
 getResultType : CallStack -> Elm.Type.Type
@@ -22,6 +26,16 @@ type CallStack
         , steps : List { required : Bool, step : CallStack }
         , result : Elm.Type.Type
         }
+
+
+name : CallStack -> String
+name (CallStack call) =
+    call.start.name
+
+
+start : CallStack -> Elm.Docs.Value
+start (CallStack call) =
+    call.start
 
 
 singleCall : Elm.Docs.Value -> CallStack
@@ -140,10 +154,12 @@ find inScope built targeting =
             inScope
 
 
+matchesResultType : Elm.Docs.Value -> Elm.Docs.Value -> Bool
 matchesResultType one two =
     Example.Type.matches (Example.Type.getResultType one.tipe) (Example.Type.getResultType two.tipe)
 
 
+mergeCallStacks : Maybe (List a) -> Maybe (List a) -> Maybe (List a)
 mergeCallStacks maybeOne maybeTwo =
     case ( maybeOne, maybeTwo ) of
         ( Just one, Just two ) ->
