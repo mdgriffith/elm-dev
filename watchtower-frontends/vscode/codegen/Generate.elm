@@ -4,63 +4,58 @@ module Generate exposing (main)
 
 import Elm
 import Elm.Annotation as Type
+import Elm.Docs
+import Exemplar
 import Gen.CodeGen.Generate as Generate
-import Gen.Platform.Cmd
-import Gen.Platform.Sub
+import Interactive
+import Json.Decode as Decode
+import Viewer
 
 
-main : Program {} () ()
+main : Program Decode.Value () ()
 main =
-    Generate.run
-        [ file
-        ]
+    Generate.fromJson (Decode.list Elm.Docs.decoder) <|
+        List.filterMap renderExampleModule
 
 
-file : Elm.File
-file =
-    Elm.file [ "Live" ]
-        [ Elm.declaration "main"
-            (Elm.apply
-                (Elm.value
-                    { importFrom = [ "Browser" ]
-                    , name = "element"
-                    , annotation =
-                        Nothing
-                    }
-                )
-                [ Elm.record
-                    [ ( "init"
-                      , Elm.fn ( "flags", Nothing ) (\flags -> Elm.tuple Elm.unit Gen.Platform.Cmd.none)
-                      )
-                    , ( "update"
-                      , Elm.fn2 ( "msg", Nothing )
-                            ( "model", Nothing )
-                            (\msg model ->
-                                Elm.tuple model Gen.Platform.Cmd.none
-                            )
-                      )
-                    , ( "view"
-                      , Elm.fn ( "model", Nothing )
-                            (\model ->
-                                Elm.apply
-                                    (Elm.value
-                                        { importFrom = [ "Html" ]
-                                        , name = "text"
-                                        , annotation = Nothing
-                                        }
-                                    )
-                                    [ Elm.string "World!"
-                                    ]
-                            )
-                      )
-                    , ( "subscriptions"
-                      , Elm.fn ( "model", Nothing )
-                            (\model ->
-                                Gen.Platform.Sub.none
-                            )
-                      )
-                    ]
+renderExampleModule mod =
+    -- if mod.name == "Ui.Button" then
+    --     case Exemplar.interactive "primary" mod of
+    --         Err err ->
+    --             Just <|
+    --                 Elm.file [ "Main" ]
+    --                     [ Elm.declaration "error"
+    --                         (Elm.string err)
+    --                     ]
+    --         Ok interactive ->
+    --             let
+    --                 exampleFile =
+    --                     case Exemplar.example "primary" mod of
+    --                         Err err ->
+    --                             Elm.file
+    --                                 [ "Example" ]
+    --                                 [ Elm.declaration "error"
+    --                                     (Elm.string err)
+    --                                 ]
+    --                         Ok expression ->
+    --                             Elm.file
+    --                                 [ "Example" ]
+    --                                 [ Elm.declaration "example"
+    --                                     expression
+    --                                 ]
+    --             in
+    --             Interactive.generate ("Interactive" :: (mod.name |> String.split "."))
+    --                 [ interactive
+    --                 ]
+    -- else
+    case Exemplar.interactiveAll mod of
+        Err err ->
+            Elm.file [ "Live" ]
+                [ Elm.declaration "error"
+                    (Elm.string err)
                 ]
-                |> Elm.withType (Type.namedWith [] "Program" [ Type.record [], Type.unit, Type.unit ])
-            )
-        ]
+                |> Just
+
+        Ok interactives ->
+            Interactive.generate [ "Live" ]
+                [ interactives ]
