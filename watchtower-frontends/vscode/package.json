@@ -4,7 +4,7 @@
   "description": "An Elm extension for handling large Elm codebases",
   "version": "0.0.1",
   "publisher": "mgriffith",
-  "license": "BSD 3",
+  "license": "BSD-3-Clause",
   "repository": "https://github.com/mdgriffith/elm-watchtower-compiler.git",
   "engines": {
     "vscode": "^1.8.0"
@@ -65,7 +65,7 @@
     "vscode:prepublish": "yarn run build",
     "build-package": "vsce package --out ./dist/elm-watchtower-vscode.vsix",
     "link-to-vscode": "ln -s $PWD ~/.vscode/extensions/mgriff.elm-watchtower-0.0.1",
-    "build": "yarn run esbuild & bash scripts/copy_deps.sh & yarn run build:elm & yarn run build:elm-interactive-generator",
+    "build": "yarn run esbuild & bash scripts/copy_deps.sh & yarn run build:elm ; yarn run build:elm-interactive-generator",
     "build:elm": "cd src/panel ; elm make src/Main.elm --output=../../media/panel.js ",
     "build:elm-interactive-generator": "cd codegen ; elm make Generate.elm --output=../out/generate.js ",
     "watch": "tsc -watch -p ./",
