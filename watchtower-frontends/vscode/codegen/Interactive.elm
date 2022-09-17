@@ -27,7 +27,7 @@ import Elm.Case
 import Elm.Declare
 import Elm.Docs
 import Elm.Type
-import Gen.Browser
+import Gen.App
 import Gen.Element
 import Gen.Element.Events
 import Gen.Element.Font
@@ -396,47 +396,40 @@ view modelAlias modules tab =
     Elm.declaration "view"
         (Elm.fn ( "model", Just modelAlias )
             (\model ->
-                Elm.record
-                    [ ( "title", Elm.string "Example" )
-                    , ( "body"
-                      , Elm.list
-                            [ Gen.Element.layout
-                                [ Gen.Element.htmlAttribute (Gen.Html.Attributes.style "background" "#242424")
-                                , Gen.Element.htmlAttribute (Gen.Html.Attributes.style "color" "rgba(255, 255, 255, .87)")
-                                , Gen.Element.Font.family
-                                    [ Gen.Element.Font.typeface "Fira Code"
-                                    , Gen.Element.Font.sansSerif
-                                    ]
-                                ]
-                                (Gen.Element.column
-                                    [ Gen.Element.spacing 24
-                                    , Gen.Element.width Gen.Element.fill
-                                    , Gen.Element.height Gen.Element.fill
-                                    ]
-                                    (List.concatMap
-                                        (\mod ->
-                                            -- view model applet
-                                            List.map
-                                                (\interact ->
-                                                    Elm.apply
-                                                        (Elm.value
-                                                            { importFrom = []
-                                                            , annotation = Nothing
-                                                            , name = "view" ++ capitalize interact.name
-                                                            }
-                                                        )
-                                                        [ Elm.get interact.name model
-                                                        ]
-                                                )
-                                                mod.examples
-                                        )
-                                        modules
-                                    )
-                                )
-                                |> Elm.withType (Elm.Annotation.namedWith [ "Html" ] "Html" [ Elm.Annotation.named [] "Msg" ])
-                            ]
-                      )
+                Gen.Element.layout
+                    [ Gen.Element.htmlAttribute (Gen.Html.Attributes.style "background" "#242424")
+                    , Gen.Element.htmlAttribute (Gen.Html.Attributes.style "color" "rgba(255, 255, 255, .87)")
+                    , Gen.Element.Font.family
+                        [ Gen.Element.Font.typeface "Fira Code"
+                        , Gen.Element.Font.sansSerif
+                        ]
                     ]
+                    (Gen.Element.column
+                        [ Gen.Element.spacing 24
+                        , Gen.Element.width Gen.Element.fill
+                        , Gen.Element.height Gen.Element.fill
+                        ]
+                        (List.concatMap
+                            (\mod ->
+                                -- view model applet
+                                List.map
+                                    (\interact ->
+                                        Elm.apply
+                                            (Elm.value
+                                                { importFrom = []
+                                                , annotation = Nothing
+                                                , name = "view" ++ capitalize interact.name
+                                                }
+                                            )
+                                            [ Elm.get interact.name model
+                                            ]
+                                    )
+                                    mod.examples
+                            )
+                            modules
+                        )
+                    )
+                    |> Elm.withType (Elm.Annotation.namedWith [ "Html" ] "Html" [ Elm.Annotation.named [] "Msg" ])
             )
         )
 
@@ -545,7 +538,7 @@ toMsgUpdateInteractive model interact =
 
 callMain : Elm.Expression
 callMain =
-    Gen.Browser.call_.document
+    Gen.App.call_.element
         (Elm.record
             [ ( "init"
               , Elm.value
@@ -597,6 +590,12 @@ callMain =
               )
             ]
         )
+        |> Elm.withType
+            (Gen.App.annotation_.prog
+                Elm.Annotation.unit
+                (Elm.Annotation.named [] "Model")
+                (Elm.Annotation.named [] "Msg")
+            )
 
 
 capitalize : String -> String

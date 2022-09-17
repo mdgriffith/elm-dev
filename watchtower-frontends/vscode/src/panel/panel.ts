@@ -175,19 +175,23 @@ export class ElmProjectPane {
                   </div>
                   <script nonce="${nonce}">
 
-                      var mounted = false;
+                      var interactive_app = {}
+                      
                       function scoped_eval(scope, script) {
                         return Function('"use strict";' + script).bind(scope)();
                       }
 
                       function load_interactive(node, js_string) {
-                        let scope = {}
-                        const evaled = scoped_eval(scope, js_string)
-                        
                         // Kill existing Elm App
-                        
-                        // mount the new app
-                        scope.Elm.Live.init({node: node, flags: {}})
+                        if ("Elm" in interactive_app) {
+                          interactive_app.app.ports.unmount.send(null)
+                          interactive_app = {}
+                        }
+                       
+                        // eval and mount the new app
+                        const evaled = scoped_eval(interactive_app, js_string)
+                        var instance = interactive_app.Elm.Live.init({node: node, flags: {}})
+                        interactive_app.app = instance
                       }            
 
                       
@@ -199,15 +203,7 @@ export class ElmProjectPane {
                       // Handle messages sent from the extension to the webview
                       window.addEventListener('message', event => {
                           if (event.data.msg == "InteractiveCodeRefreshed") {
-                            if (!mounted) {
-                              mounted = true
-                              console.log("First time, mounting app")
-                              console.log("INIT", document.getElementById('interactive'))
-                              load_interactive(document.getElementById('interactive'), event.data.details.js)  
-                            } else {
-                              console.log("Skipping!  Already mounted")
-                            }
-                            
+                            load_interactive(document.getElementById('live').firstChild, event.data.details.js)  
                           } else {
                             app.ports.toElm.send(event.data);
                           }
