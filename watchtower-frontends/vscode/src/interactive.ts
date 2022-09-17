@@ -2,7 +2,7 @@ import * as Elm from "node-elm-compiler";
 import * as path from "path";
 import * as fs from "fs";
 
-export function generate() {
+export function generate(docs) {
   const compiled_elm_js = fs
     .readFileSync(path.join(__dirname, "generate.js"))
     .toString();
@@ -12,7 +12,7 @@ export function generate() {
     path.join(__dirname, "interactive", "src"),
     "Generate",
     compiled_elm_js,
-    {}
+    docs
   );
 
   // We know that our generator generates one Elm file called "Live.elm"
