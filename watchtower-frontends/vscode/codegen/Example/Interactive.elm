@@ -44,6 +44,7 @@ import Example.Interactive.Build
 import Example.Interactive.Rendered
 import Example.Type
 import Gen.Element
+import Gen.Element.Background
 import Gen.Element.Border
 import Gen.Element.Font
 import Gen.Html.Attributes
@@ -57,9 +58,7 @@ type alias Runner =
     { canRun :
         Elm.Type.Type -> Bool
     , view :
-        { model : Elm.Expression
-        , onChange : Elm.Expression
-        }
+        Interactive.ViewReferences
         -> Elm.Expression
         -> Elm.Expression
     , fields : List Interactive.Field
@@ -95,36 +94,44 @@ build modul targeting =
                                 Gen.Element.column
                                     [ Gen.Element.width Gen.Element.fill
                                     , Gen.Element.height Gen.Element.fill
-                                    , Gen.Element.padding 20
-                                    , Gen.Element.spacing 70
                                     ]
-                                    [ Gen.Element.el
-                                        [ Gen.Element.Font.size 36
-                                        ]
-                                        (Gen.Element.text
-                                            (modul.name ++ "." ++ targeting.start.name)
-                                        )
-                                    , Gen.Element.column
-                                        [ Gen.Element.width Gen.Element.fill
-                                        , Gen.Element.spacing 70
-                                        , Gen.Element.paddingXY 50 0
-                                        ]
-                                        [ Gen.Element.column
-                                            [ Gen.Element.width Gen.Element.fill
-                                            , Gen.Element.spacing 70
-                                            ]
-                                            [ example.rendered.drivenByModel
-                                                |> runner.view opts
-
-                                            -- |> Gen.Element.el [ Gen.Element.paddingXY 50 0 ]
-                                            , Gen.Element.el
+                                    [ --     Gen.Element.el
+                                      --     [ Gen.Element.Font.size 24
+                                      --     , Gen.Element.paddingXY 32 10
+                                      --     , Gen.Element.Font.family
+                                      --         [ Gen.Element.Font.typeface "Fira Code"
+                                      --         , Gen.Element.Font.sansSerif
+                                      --         ]
+                                      --     ]
+                                      --     (Gen.Element.text
+                                      --         (modul.name ++ "." ++ targeting.start.name)
+                                      --     )
+                                      -- ,
+                                      Elm.ifThen opts.codeOrOutput
+                                        (example.rendered.drivenByModel
+                                            |> runner.view opts
+                                            |> Gen.Element.el
                                                 [ Gen.Element.width Gen.Element.fill
+                                                , Gen.Element.Font.color (Gen.Element.rgb 0 0 0)
+                                                , Gen.Element.Background.color (Gen.Element.rgb 1 1 1)
                                                 ]
-                                                (viewInput opts fields)
-                                            ]
-                                        , Gen.Ui.call_.code (Elm.string "")
+                                        )
+                                        (Gen.Ui.call_.code (Elm.string "")
                                             example.example.drivenByModel
+                                            |> Gen.Element.el [ Gen.Element.centerY ]
+                                            |> Gen.Element.el
+                                                [ Gen.Element.padding 32
+                                                , Gen.Element.height
+                                                    (Gen.Element.shrink
+                                                        |> Gen.Element.minimum 200
+                                                    )
+                                                ]
+                                        )
+                                    , Gen.Element.el
+                                        [ Gen.Element.width Gen.Element.fill
+                                        , Gen.Element.padding 32
                                         ]
+                                        (viewInput opts fields)
                                     ]
                         }
 
@@ -133,15 +140,13 @@ build modul targeting =
 
 
 viewInput :
-    { model : Elm.Expression
-    , onChange : Elm.Expression
-    }
+    Interactive.ViewReferences
     -> List Interactive.Field
     -> Elm.Expression
 viewInput viewOptions fields =
     Gen.Element.column
         [ Gen.Element.width Gen.Element.fill
-        , Gen.Element.spacing 24
+        , Gen.Element.spacing 16
         ]
         (List.map (viewFieldInput viewOptions)
             (List.reverse fields)
@@ -154,7 +159,7 @@ viewInput viewOptions fields =
 
 -}
 viewFieldInput :
-    { a | model : Elm.Expression, onChange : Elm.Expression }
+    Interactive.ViewReferences
     -> Interactive.Field
     -> Elm.Expression
 viewFieldInput opts field =

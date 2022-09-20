@@ -41,7 +41,7 @@ buttonTypes =
 
 
 buttonValues =
-    [ value "primary"
+    [ value "init"
         (Elm.Type.Lambda
             (types.record
                 [ ( "text", types.string )

@@ -24,6 +24,7 @@ import Example.Build
 import Example.Interactive
 import Example.Type
 import Gen.Element
+import Gen.Html.Attributes
 import Gen.Parser
 import Gen.Ui
 import Interactive
@@ -134,7 +135,16 @@ element =
                     False
     , view =
         \{ model, onChange } val ->
-            val
+            Gen.Element.el
+                [ Gen.Element.padding 32
+                , Gen.Element.height
+                    (Gen.Element.shrink
+                        |> Gen.Element.minimum 200
+                    )
+                ]
+                (val
+                    |> Gen.Element.el [ Gen.Element.centerY, Gen.Element.centerX ]
+                )
     , fields = []
     }
 
@@ -151,7 +161,7 @@ parser =
                     False
     , view =
         \{ model, onChange } foundParser ->
-            Elm.Case.result (Gen.Parser.call_.run foundParser (model |> Elm.get "input"))
+            Elm.Case.result (Gen.Parser.call_.run foundParser (model |> Elm.get "source"))
                 { ok =
                     Tuple.pair "ok" <|
                         \ok ->
@@ -163,7 +173,12 @@ parser =
                                     }
                                 )
                                 [ ok ]
-                                |> Gen.Ui.call_.code (Elm.string "Output")
+                                |> Gen.Ui.call_.lightCode
+                                |> Gen.Element.el
+                                    [ Gen.Element.paddingXY 32 0
+                                    , Gen.Element.width Gen.Element.fill
+                                    , Gen.Element.htmlAttribute (Gen.Html.Attributes.style "background" "rgb(36,36,36)")
+                                    ]
                 , err =
                     Tuple.pair "err" <|
                         \err ->
@@ -175,10 +190,15 @@ parser =
                                     }
                                 )
                                 [ err ]
-                                |> Gen.Ui.call_.code (Elm.string "Output - Error!")
+                                |> Gen.Ui.call_.lightCode
+                                |> Gen.Element.el
+                                    [ Gen.Element.paddingXY 32 0
+                                    , Gen.Element.width Gen.Element.fill
+                                    , Gen.Element.htmlAttribute (Gen.Html.Attributes.style "background" "rgb(36,36,36)")
+                                    ]
                 }
     , fields =
-        [ Interactive.field "Input"
+        [ Interactive.field "Source"
             { input = Interactive.string
             , init = Elm.string "# Hello"
             }

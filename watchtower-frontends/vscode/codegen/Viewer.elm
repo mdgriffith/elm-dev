@@ -327,10 +327,7 @@ view :
     -> Elm.Docs.Value
     -> List Elm.Type.Type
     -> Elm.Type.Type
-    ->
-        { model : Elm.Expression
-        , onChange : Elm.Expression
-        }
+    -> Interactive.ViewReferences
     -> Elm.Expression
 view mod val args result options =
     -- viewInput mod val args result model
@@ -345,10 +342,7 @@ viewInput :
     -> Elm.Docs.Value
     -> List Elm.Type.Type
     -> Elm.Type.Type
-    ->
-        { model : Elm.Expression
-        , onChange : Elm.Expression
-        }
+    -> Interactive.ViewReferences
     -> Elm.Expression
 viewInput mod val args result options =
     case args of

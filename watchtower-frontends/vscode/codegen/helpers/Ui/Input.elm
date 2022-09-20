@@ -62,14 +62,16 @@ cancelMaybe onCancel =
 {-| -}
 string : String -> (String -> msg) -> String -> Element.Element msg
 string label onChange text =
-    Element.Input.multiline [ Font.color (Element.rgb 0 0 0) ]
+    Element.Input.multiline
+        [ Font.color (Element.rgb 0 0 0)
+        ]
         { onChange = onChange
         , text = text
         , placeholder = Nothing
         , spellcheck = False
         , label =
-            Element.Input.labelAbove []
-                (Element.text label)
+            Element.Input.labelHidden
+                label
         }
 
 

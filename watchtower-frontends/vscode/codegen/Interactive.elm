@@ -1,5 +1,5 @@
 module Interactive exposing
-    ( Module, Interactive, generate
+    ( Module, Interactive, ViewReferences, generate
     , Field, field
     , log
     , Input(..), bool, string, int, float
@@ -9,7 +9,7 @@ module Interactive exposing
 
 {-|
 
-@docs Module, Interactive, generate
+@docs Module, Interactive, ViewReferences, generate
 
 @docs Field, field
 
@@ -26,9 +26,12 @@ import Elm.Annotation
 import Elm.Case
 import Elm.Declare
 import Elm.Docs
+import Elm.Op
 import Elm.Type
 import Gen.App
 import Gen.Element
+import Gen.Element.Background
+import Gen.Element.Border
 import Gen.Element.Events
 import Gen.Element.Font
 import Gen.Html
@@ -36,6 +39,7 @@ import Gen.Html.Attributes
 import Gen.Platform.Cmd
 import Gen.Platform.Sub
 import Gen.String
+import Gen.Ui
 
 
 type alias Module =
@@ -50,10 +54,15 @@ type alias Interactive =
     { name : String
     , fields : List Field
     , view :
-        { model : Elm.Expression
-        , onChange : Elm.Expression
-        }
+        ViewReferences
         -> Elm.Expression
+    }
+
+
+type alias ViewReferences =
+    { model : Elm.Expression
+    , codeOrOutput : Elm.Expression
+    , onChange : Elm.Expression
     }
 
 
@@ -192,15 +201,48 @@ appTypes =
     }
 
 
+{-| -}
 selected top modules =
     let
-        name =
+        recordName =
+            "selectedModule_"
+
+        msgName =
+            "TabUpdated"
+
+        typeName =
             "Selected"
 
         type_ =
-            Elm.Annotation.named [] name
+            Elm.Annotation.named [] typeName
     in
     { type_ = type_
+    , model = ( recordName, type_ )
+    , init =
+        ( recordName
+        , Elm.value
+            { importFrom = []
+            , name = moduleToTabName top
+            , annotation = Just type_
+            }
+        )
+    , msg =
+        Elm.variantWith msgName
+            [ Elm.Annotation.named [] typeName
+            ]
+    , updateBranch =
+        \model ->
+            Elm.Case.branch1 msgName
+                ( "newTab", Elm.Annotation.named [] typeName )
+                (\tab ->
+                    Elm.tuple
+                        (model
+                            |> Elm.updateRecord
+                                [ ( recordName, tab )
+                                ]
+                        )
+                        Gen.Platform.Cmd.none
+                )
     , view =
         Elm.Declare.fn "viewTab"
             ( "tab", Just type_ )
@@ -218,7 +260,7 @@ selected top modules =
                                     (Elm.apply
                                         (Elm.value
                                             { importFrom = []
-                                            , name = "TabUpdated"
+                                            , name = msgName
                                             , annotation = Just (Elm.Annotation.function [ type_ ] appTypes.msg)
                                             }
                                         )
@@ -250,15 +292,273 @@ selected top modules =
                     )
             )
     , declaration =
-        Elm.customType name
+        Elm.customType typeName
             (List.map (Elm.variant << moduleToTabName) modules)
-    , init =
-        Elm.value
-            { importFrom = []
-            , name = moduleToTabName top
-            , annotation = Just type_
-            }
     }
+
+
+{-| The index of which example should be visible
+-}
+selectedExample =
+    let
+        recordName =
+            "selectedExample_"
+
+        msgName =
+            "SelectedExampleUpdated"
+
+        typeName =
+            "SelectedExample"
+
+        type_ =
+            Elm.Annotation.int
+    in
+    { type_ = type_
+    , model =
+        [ ( recordName, type_ )
+        , ( recordName ++ "_menu", Elm.Annotation.bool )
+        ]
+    , init =
+        [ ( recordName
+          , Elm.int 0
+          )
+        , ( recordName ++ "_menu"
+          , Elm.bool False
+          )
+        ]
+    , onClick =
+        \index ->
+            Elm.apply
+                (Elm.value
+                    { importFrom = []
+                    , name = msgName
+                    , annotation = Just (Elm.Annotation.function [ Elm.Annotation.int ] appTypes.msg)
+                    }
+                )
+                [ Elm.int index
+                ]
+    , toggleMenu =
+        \current ->
+            Elm.apply
+                (Elm.value
+                    { importFrom = []
+                    , name = msgName ++ "_MenuUpdated"
+                    , annotation = Just (Elm.Annotation.function [ Elm.Annotation.bool ] appTypes.msg)
+                    }
+                )
+                [ Elm.apply
+                    (Elm.val "not")
+                    [ current ]
+                ]
+    , get =
+        Elm.get recordName
+    , getMenuOpen =
+        Elm.get (recordName ++ "_menu")
+    , msgs =
+        [ Elm.variantWith msgName
+            [ type_
+            ]
+        , Elm.variantWith (msgName ++ "_MenuUpdated")
+            [ Elm.Annotation.bool
+            ]
+        ]
+    , updateMenuBranch =
+        \model ->
+            Elm.Case.branch1 (msgName ++ "_MenuUpdated")
+                ( "isOpen", type_ )
+                (\isOpen ->
+                    Elm.tuple
+                        (model
+                            |> Elm.updateRecord
+                                [ ( recordName ++ "_menu", isOpen )
+                                ]
+                        )
+                        Gen.Platform.Cmd.none
+                )
+    , updateBranch =
+        \model ->
+            Elm.Case.branch1 msgName
+                ( "newTab", type_ )
+                (\tab ->
+                    Elm.tuple
+                        (model
+                            |> Elm.updateRecord
+                                [ ( recordName, tab )
+                                ]
+                        )
+                        Gen.Platform.Cmd.none
+                )
+
+    -- , view =
+    --     Elm.Declare.fn "viewSelectedExample"
+    --         ( "tab", Just type_ )
+    --         (\tab ->
+    --             Gen.Element.row
+    --                 [ Gen.Element.spacing 24
+    --                 , Gen.Element.width Gen.Element.fill
+    --                 , Gen.Element.padding 24
+    --                 ]
+    --                 (List.map
+    --                     (\mod ->
+    --                         Gen.Element.el
+    --                             [ Gen.Element.padding 12
+    --                             , Gen.Element.Events.onClick
+    --                                 (Elm.apply
+    --                                     (Elm.value
+    --                                         { importFrom = []
+    --                                         , name = msgName
+    --                                         , annotation = Just (Elm.Annotation.function [ type_ ] appTypes.msg)
+    --                                         }
+    --                                     )
+    --                                     [ Elm.value
+    --                                         { importFrom = []
+    --                                         , name = moduleToTabName mod
+    --                                         , annotation = Just type_
+    --                                         }
+    --                                     ]
+    --                                 )
+    --                             ]
+    --                             (Gen.Element.text mod.name)
+    --                     )
+    --                     modules
+    --                 )
+    --         )
+    }
+
+
+{-| -}
+codeOrOutput top modules =
+    let
+        recordName =
+            "focus_"
+
+        msgName =
+            "FocusUpdated"
+
+        typeName =
+            "Focus"
+
+        type_ =
+            Elm.Annotation.named [] typeName
+
+        valueNamed name =
+            Elm.value
+                { importFrom = []
+                , name = name
+                , annotation = Just type_
+                }
+
+        variants =
+            { output = "ShowOutput"
+            , code = "ShowCode"
+            }
+    in
+    { type_ = type_
+    , model = ( recordName, type_ )
+    , variants =
+        variants
+    , init =
+        ( recordName
+        , valueNamed "ShowOutput"
+        )
+    , msg =
+        Elm.variantWith msgName
+            [ Elm.Annotation.named [] typeName
+            ]
+    , updateBranch =
+        \model ->
+            Elm.Case.branch1 msgName
+                ( "newTab", Elm.Annotation.named [] typeName )
+                (\tab ->
+                    Elm.tuple
+                        (model
+                            |> Elm.updateRecord
+                                [ ( recordName, tab )
+                                ]
+                        )
+                        Gen.Platform.Cmd.none
+                )
+    , get =
+        Elm.get recordName
+    , viewCall =
+        \model ->
+            Elm.apply
+                (Elm.value
+                    { importFrom = []
+                    , annotation = Nothing
+                    , name = "viewCodeOrResult"
+                    }
+                )
+                [ model |> Elm.get recordName
+                ]
+    , view =
+        Elm.Declare.fn "viewCodeOrResult"
+            ( "tab", Just type_ )
+            (\tab ->
+                Gen.Element.row
+                    [ Gen.Element.spacing 8
+                    , Gen.Element.paddingXY 32 8
+                    , Gen.Element.alignRight
+                    ]
+                    (List.map
+                        (\( label, varName ) ->
+                            Gen.Element.el
+                                [ Gen.Element.paddingXY 8 4
+                                , Gen.Element.Border.width 1
+                                , Gen.Element.Border.rounded 4
+                                , Gen.Ui.pointer
+                                , Gen.Element.Border.color
+                                    (Elm.ifThen (Elm.Op.equal tab (valueNamed varName))
+                                        (Gen.Element.rgb 1 1 1)
+                                        (Gen.Element.rgb 0 0 0)
+                                    )
+                                , Gen.Element.Events.onClick
+                                    (Elm.apply
+                                        (Elm.value
+                                            { importFrom = []
+                                            , name = msgName
+                                            , annotation = Just (Elm.Annotation.function [ type_ ] appTypes.msg)
+                                            }
+                                        )
+                                        [ Elm.value
+                                            { importFrom = []
+                                            , name = varName
+                                            , annotation = Just type_
+                                            }
+                                        ]
+                                    )
+                                ]
+                                (Gen.Element.text label)
+                        )
+                        [ ( "Output", "ShowOutput" )
+                        , ( "Example", "ShowCode" )
+                        ]
+                    )
+            )
+    , toString =
+        Elm.Declare.fn "tabToString"
+            ( "tab", Just type_ )
+            (\tab ->
+                Elm.Case.custom tab
+                    type_
+                    (List.map
+                        (\mod ->
+                            Elm.Case.branch0 (moduleToTabName mod)
+                                (Elm.string mod.name)
+                        )
+                        modules
+                    )
+            )
+    , declaration =
+        Elm.customType typeName
+            [ Elm.variant "ShowCode"
+            , Elm.variant "ShowOutput"
+            ]
+    }
+
+
+
+{- END ADDITIONAL STUFF -}
 
 
 generate : List String -> List Module -> Maybe Elm.File
@@ -272,10 +572,24 @@ generate name modules =
                 tab =
                     selected top modules
 
+                example =
+                    selectedExample
+
+                focus =
+                    codeOrOutput top modules
+
+                additional =
+                    { tab = tab
+                    , focus = focus
+                    , example = example
+                    }
+
                 modelType =
                     Elm.Annotation.record
-                        (( "selectedModule_", tab.type_ )
-                            :: List.concatMap toModuleFields modules
+                        (tab.model
+                            :: focus.model
+                            :: example.model
+                            ++ List.concatMap toModuleFields modules
                         )
 
                 modelAlias =
@@ -291,15 +605,22 @@ generate name modules =
                                 |> Elm.expose
                           , tab.declaration
                           , tab.toString.declaration
+                          , focus.declaration
                           , Elm.alias "Model" modelType
-                          , init top modules tab
+                          , init top modules additional
                           , Elm.customType "Msg"
-                                (logMsg :: tabUpdateMsg :: List.concatMap toMsgVariant modules)
-                          , update modelAlias modules
+                                (logMsg
+                                    :: focus.msg
+                                    :: tab.msg
+                                    :: example.msgs
+                                    ++ List.concatMap toMsgVariant modules
+                                )
+                          , update modelAlias modules additional
                           , tab.view.declaration
-                          , view modelAlias modules tab
+                          , focus.view.declaration
+                          , view modelAlias modules additional
                           ]
-                        , List.concatMap renderViewer modules
+                        , List.concatMap (renderViewer focus) modules
                         ]
                     )
 
@@ -318,14 +639,7 @@ logMsg =
     Elm.variant "Log"
 
 
-tabUpdateMsg : Elm.Variant
-tabUpdateMsg =
-    Elm.variantWith "TabUpdated"
-        [ Elm.Annotation.named [] "Selected"
-        ]
-
-
-update modelAlias modules =
+update modelAlias modules additional =
     Elm.declaration "update"
         (Elm.fn2
             ( "msg", Just (Elm.Annotation.named [] "Msg") )
@@ -334,7 +648,10 @@ update modelAlias modules =
                 Elm.Case.custom msg
                     (Elm.Annotation.named [] "Msg")
                     (logUpdate model
-                        :: tabUpdated model modules
+                        :: additional.tab.updateBranch model
+                        :: additional.focus.updateBranch model
+                        :: additional.example.updateBranch model
+                        :: additional.example.updateMenuBranch model
                         :: List.concatMap
                             (toMsgUpdate
                                 model
@@ -354,36 +671,22 @@ logUpdate model =
         )
 
 
-tabUpdated model modules =
-    Elm.Case.branch1 "TabUpdated"
-        ( "newTab", Elm.Annotation.named [] "Selected" )
-        (\tab ->
-            Elm.tuple
-                (model
-                    |> Elm.updateRecord
-                        [ ( "selectedModule_", tab )
-                        ]
-                )
-                Gen.Platform.Cmd.none
-        )
-
-
 moduleToTabName : Module -> String
 moduleToTabName mod =
     mod.name |> String.replace "." ""
 
 
-init top modules tab =
+init top modules additional =
     Elm.declaration "init"
         (Elm.fn
             ( "flags", Just Elm.Annotation.unit )
             (\model ->
                 Elm.tuple
                     (Elm.record
-                        (( "selectedModule_"
-                         , tab.init
-                         )
-                            :: List.concatMap toInitFields modules
+                        (additional.tab.init
+                            :: additional.focus.init
+                            :: additional.example.init
+                            ++ List.concatMap toInitFields modules
                         )
                         |> Elm.withType appTypes.model
                     )
@@ -392,41 +695,93 @@ init top modules tab =
         )
 
 
-view modelAlias modules tab =
+view modelAlias modules additional =
     Elm.declaration "view"
         (Elm.fn ( "model", Just modelAlias )
             (\model ->
                 Gen.Element.layout
-                    [ Gen.Element.htmlAttribute (Gen.Html.Attributes.style "background" "#242424")
-                    , Gen.Element.htmlAttribute (Gen.Html.Attributes.style "color" "rgba(255, 255, 255, .87)")
+                    [ --     Gen.Element.htmlAttribute
+                      --     (Gen.Html.Attributes.style "background" "white")
+                      -- , Gen.Element.htmlAttribute
+                      --     (Gen.Html.Attributes.style "color" "rgba(0, 0, 0, .87)")
+                      Gen.Element.htmlAttribute (Gen.Html.Attributes.style "background" "rgb(36,36,36)")
+                    , Gen.Element.Font.color (Gen.Element.rgb 1 1 1)
+                    , Gen.Element.inFront
+                        (additional.focus.viewCall model)
                     , Gen.Element.Font.family
                         [ Gen.Element.Font.typeface "Fira Code"
                         , Gen.Element.Font.sansSerif
                         ]
                     ]
                     (Gen.Element.column
-                        [ Gen.Element.spacing 24
-                        , Gen.Element.width Gen.Element.fill
+                        [ Gen.Element.width Gen.Element.fill
                         , Gen.Element.height Gen.Element.fill
+                        , Gen.Element.spacing 16
                         ]
-                        (List.concatMap
-                            (\mod ->
-                                -- view model applet
-                                List.map
-                                    (\interact ->
-                                        Elm.apply
-                                            (Elm.value
-                                                { importFrom = []
-                                                , annotation = Nothing
-                                                , name = "view" ++ capitalize interact.name
-                                                }
-                                            )
-                                            [ Elm.get interact.name model
-                                            ]
-                                    )
-                                    mod.examples
-                            )
-                            modules
+                        (modules
+                            |> List.concatMap
+                                (\mod ->
+                                    -- view model applet
+                                    List.indexedMap
+                                        (\index interact ->
+                                            Elm.ifThen (Elm.Op.equal (Elm.int index) (additional.example.get model))
+                                                (Gen.Element.column
+                                                    [ Gen.Element.width Gen.Element.fill
+                                                    , Gen.Element.height Gen.Element.fill
+                                                    ]
+                                                    [ Gen.Element.el
+                                                        [ Gen.Element.Font.size 24
+                                                        , Gen.Element.paddingXY 32 10
+                                                        , Gen.Ui.pointer
+                                                        , Gen.Element.Font.family
+                                                            [ Gen.Element.Font.typeface "Fira Code"
+                                                            , Gen.Element.Font.sansSerif
+                                                            ]
+                                                        , Gen.Element.Events.onClick
+                                                            (additional.example.toggleMenu (additional.example.getMenuOpen model))
+                                                        , Elm.ifThen (additional.example.getMenuOpen model)
+                                                            (Gen.Element.below
+                                                                (mod.examples
+                                                                    |> List.indexedMap
+                                                                        (\optionIndex option ->
+                                                                            Gen.Element.text option.name
+                                                                                |> Gen.Element.el
+                                                                                    [ Gen.Element.Events.onClick
+                                                                                        (additional.example.onClick optionIndex)
+                                                                                    ]
+                                                                        )
+                                                                    |> Gen.Element.column
+                                                                        [ Gen.Element.padding 16
+                                                                        , Gen.Element.moveRight 32
+                                                                        , Gen.Element.Border.width 1
+                                                                        , Gen.Element.Border.rounded 4
+                                                                        , Gen.Element.Background.color (Gen.Element.rgb 0 0 0)
+                                                                        , Gen.Element.spacing 8
+                                                                        ]
+                                                                )
+                                                            )
+                                                            Gen.Ui.pointer
+                                                        ]
+                                                        (Gen.Element.text
+                                                            -- (modul.name ++ "." ++ targeting.start.name)
+                                                            ("▶ " ++ interact.name)
+                                                        )
+                                                    , Elm.apply
+                                                        (Elm.value
+                                                            { importFrom = []
+                                                            , annotation = Nothing
+                                                            , name = "view" ++ capitalize interact.name
+                                                            }
+                                                        )
+                                                        [ model
+                                                        , Elm.get interact.name model
+                                                        ]
+                                                    ]
+                                                )
+                                                Gen.Element.none
+                                        )
+                                        mod.examples
+                                )
                         )
                     )
                     |> Elm.withType (Elm.Annotation.namedWith [ "Html" ] "Html" [ Elm.Annotation.named [] "Msg" ])
@@ -434,17 +789,27 @@ view modelAlias modules tab =
         )
 
 
-renderViewer mod =
-    List.map renderInteractiveViewer mod.examples
+renderViewer focus mod =
+    List.map (renderInteractiveViewer focus) mod.examples
 
 
-renderInteractiveViewer interact =
+renderInteractiveViewer focus interact =
     Elm.declaration ("view" ++ capitalize interact.name)
-        (Elm.fn
+        (Elm.fn2
+            ( "parent", Just appTypes.model )
             ( "model", toModelField interact |> Tuple.second |> Just )
-            (\model ->
+            (\model submodel ->
                 interact.view
-                    { model = model
+                    { model = submodel
+                    , codeOrOutput =
+                        Elm.Op.equal
+                            (focus.get model)
+                            (Elm.value
+                                { importFrom = []
+                                , name = focus.variants.output
+                                , annotation = Just focus.type_
+                                }
+                            )
                     , onChange =
                         Elm.value
                             { importFrom = []
