@@ -184,14 +184,15 @@ export class ElmProjectPane {
                       function load_interactive(node, js_string) {
                         // Kill existing Elm App
                         if ("Elm" in interactive_app) {
+                          console.log("Killing live app")
                           interactive_app.app.ports.unmount.send(null)
                           interactive_app = {}
                         }
-                       
-                        // eval and mount the new app
+                        console.log("NEW APP")
                         const evaled = scoped_eval(interactive_app, js_string)
                         var instance = interactive_app.Elm.Live.init({node: node, flags: {}})
                         interactive_app.app = instance
+                       
                       }            
 
                       
@@ -203,6 +204,7 @@ export class ElmProjectPane {
                       // Handle messages sent from the extension to the webview
                       window.addEventListener('message', event => {
                           if (event.data.msg == "InteractiveCodeRefreshed") {
+                            console.log("LIVE JS RECEIVED")
                             load_interactive(document.getElementById('live').firstChild, event.data.details.js)  
                           } else {
                             app.ports.toElm.send(event.data);

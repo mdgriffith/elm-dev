@@ -2,7 +2,7 @@ import * as Elm from "node-elm-compiler";
 import * as path from "path";
 import * as fs from "fs";
 
-export function generate(docs) {
+export function generate(docs, callback) {
   const compiled_elm_js = fs
     .readFileSync(path.join(__dirname, "generate.js"))
     .toString();
@@ -12,29 +12,20 @@ export function generate(docs) {
     path.join(__dirname, "interactive", "src"),
     "Generate",
     compiled_elm_js,
-    docs
+    docs,
+    () => {
+      // We know that our generator generates one Elm file called "Live.elm"
+      const compiled_interactive_js = Elm.compileToStringSync(
+        ["./src/Live.elm"],
+        {
+          cwd: path.join(__dirname, "interactive"),
+          pathToElm: path.join(__dirname, "elm"),
+        }
+      );
+      callback(compiled_interactive_js);
+    }
   );
-
-  // We know that our generator generates one Elm file called "Live.elm"
-  const compiled_interactive_js = Elm.compileToStringSync(["./src/Live.elm"], {
-    cwd: path.join(__dirname, "interactive"),
-    pathToElm: path.join(__dirname, "elm"),
-  });
-
-  return compiled_interactive_js;
 }
-
-// function compile() {
-//   Elm.compileToString(["./src/Main.elm"], {
-//     cwd: path.join(__dirname, "embedded"),
-//     pathToElm: path.join(__dirname, "elm"),
-//   }).then(function (data) {
-//     console.log(
-//       "compileToString produced a string with this length:",
-//       data.toString().length
-//     );
-//   });
-// }
 
 /* Run the generator
 
@@ -55,7 +46,8 @@ async function run_generator(
   output_dir: string,
   moduleName: string,
   compiled_elm_js: string,
-  flags: any
+  flags: any,
+  onSuccess: any
 ) {
   let scope: any = {};
   scoped_eval(scope, compiled_elm_js);
@@ -115,6 +107,7 @@ async function run_generator(
       //   problemCount = problemCount + 1
       // }
     }
+    onSuccess();
   } catch (errors: { title: string; description: string }[] | any) {
     console.error(errors.title);
     console.error(errors.description);

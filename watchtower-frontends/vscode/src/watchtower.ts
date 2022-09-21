@@ -255,11 +255,14 @@ export class Watchtower {
       case "Docs": {
         log.log("New docs received!");
         log.log(msg.details.filepath);
+        log.log(msg.details.docs[0].name);
 
-        const interactiveJs = Interactive.generate(msg.details.docs);
-        log.log("Interactive compiled!");
+        // const interactiveJs =
+        Interactive.generate(msg.details.docs, (interactiveJs) => {
+          log.log("Interactive compiled!");
+          ElmProjectPane.send(PanelMsg.interactiveCodeRefreshed(interactiveJs));
+        });
 
-        ElmProjectPane.send(PanelMsg.interactiveCodeRefreshed(interactiveJs));
         break;
       }
       default: {
