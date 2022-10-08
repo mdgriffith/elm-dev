@@ -233,7 +233,11 @@ Executable elm-watchtower
         Watchtower
         Watchtower.Annotate
         Watchtower.Details
+        Watchtower.Docs
+        Watchtower.Find
         Watchtower.Live
+        Watchtower.Live.Client
+        Watchtower.Live.Compile
         Watchtower.Project
         Watchtower.Questions
         Watchtower.Server
@@ -241,6 +245,7 @@ Executable elm-watchtower
         Watchtower.Test
         Watchtower.Version
         Watchtower.Websocket
+        Util
         Llamadera
         StandaloneInstances
         Test

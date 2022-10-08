@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Watchtower.Live.Compile (compileAll, recompile) where
 
 {-|-}
@@ -100,7 +102,7 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
               do
 
                   let entry = NonEmpty.List top remain
-                  
+
                   -- Compile all files
                   eitherStatusJson <-
                     compileMode
@@ -129,7 +131,7 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                         recompileProjectIfSubFile mClients changedFiles projCache
                         pure ()
 
-                  
+
 
                   -- ask for docs for the top file
                   eitherArtifacts <- Ext.CompileProxy.loadSingleArtifacts projectRoot top

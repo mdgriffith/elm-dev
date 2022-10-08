@@ -1,4 +1,6 @@
-module Watchtower.Live.Client 
+{-# LANGUAGE OverloadedStrings #-}
+
+module Watchtower.Live.Client
     ( Client(..),ClientId, ProjectRoot, State(..), ProjectCache(..), ProjectStatus(..)
     , getAllStatuses, getRoot, getProjectRoot
     , Outgoing(..), encodeOutgoing, outgoingToLog
@@ -72,14 +74,14 @@ emptyWatch :: Watching
 emptyWatch =
     Watching Set.empty Map.empty
 
-data Watching = Watching 
+data Watching = Watching
     { watchingProjects :: Set.Set ProjectRoot
     , watchingFiles :: Map.Map FilePath FileWatchType
     }
 
 data FileWatchType
-    = FileWatchType 
-        { watchForWarnings :: Bool -- missing type signatures/unused stuff 
+    = FileWatchType
+        { watchForWarnings :: Bool -- missing type signatures/unused stuff
         , watchForDocs :: Bool
         }
 
@@ -175,7 +177,7 @@ getStatus (ProjectCache proj cache) =
 
 
 
-{- 
+{-
 -}
 data Incoming
   = Discover FilePath
@@ -192,10 +194,10 @@ data Outgoing
 
 toString :: Outgoing -> String
 toString outgoing =
-    case outgoing of      
+    case outgoing of
       ElmStatus _ ->
           "GET STATUS"
-        
+
       Warnings _ _ _ ->
           "Warnings"
 
@@ -205,10 +207,10 @@ outgoingToLog outgoing =
   case outgoing of
     ElmStatus projectStatusList ->
       "Status: " ++ Ext.Common.formatList (fmap projectStatusToString projectStatusList)
-    
+
     Warnings _ _ _ ->
       "Warnings"
-    
+
     Docs _ _ ->
       "Docs"
 
@@ -258,7 +260,7 @@ encodeOutgoing out =
         Json.Encode.object
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "Warnings"),
             "details"
-              ==> Json.Encode.object 
+              ==> Json.Encode.object
                     [ "filepath" ==> Json.Encode.string (Json.String.fromChars path)
                     , "warnings" ==>
                         Json.Encode.list
@@ -266,12 +268,12 @@ encodeOutgoing out =
                           warnings
                     ]
           ]
-      
+
       Docs path docs ->
         Json.Encode.object
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "Docs"),
             "details"
-              ==> Json.Encode.object 
+              ==> Json.Encode.object
                     [ "filepath" ==> Json.Encode.string (Json.String.fromChars path)
                     , "docs" ==>
                         Docs.encode (Docs.toDict docs)
@@ -305,10 +307,10 @@ decodeIncoming =
 
 decodeWatched :: Json.Decode.Decoder T.Text (Map.Map FilePath FileWatchType)
 decodeWatched =
-  fmap 
+  fmap
     Map.fromList
-    (Json.Decode.list 
-      ((\path warns docs -> 
+    (Json.Decode.list
+      ((\path warns docs ->
           ( path
           , FileWatchType warns docs
           )
@@ -424,7 +426,7 @@ broadcast mClients msg =
   case msg of
     ElmStatus projectStatusList ->
         do
-            Ext.Common.debug $ "📢  Project status changed" 
+            Ext.Common.debug $ "📢  Project status changed"
             broadcastToMany
                 mClients
                 ( \client ->
@@ -432,17 +434,17 @@ broadcast mClients msg =
                             clientData = Watchtower.Websocket.clientData client
 
                             affectedProjectsThatWereListeningTo =
-                                List.filter 
-                                    (\(ProjectStatus proj _ _) -> 
+                                List.filter
+                                    (\(ProjectStatus proj _ _) ->
                                         isWatchingProject proj clientData
                                     )
                                     projectStatusList
-                        in 
+                        in
                         -- This isn't entirely correct as it'll give all project statuses to this client
                         -- but :shrug: for now.
                         case affectedProjectsThatWereListeningTo of
                             [] -> False
-                            _ -> 
+                            _ ->
                                 True
                 )
                 msg
@@ -457,7 +459,7 @@ broadcast mClients msg =
                         -- possibly because the filepath format differs from the map?
                         -- let
                         --     clientData = Watchtower.Websocket.clientData client
-                        -- in 
+                        -- in
                         -- isWatchingFileForWarnings file clientData
                         True
                 )
@@ -473,7 +475,7 @@ broadcast mClients msg =
                         -- possibly because the filepath format differs from the map?
                         -- let
                         --     clientData = Watchtower.Websocket.clientData client
-                        -- in 
+                        -- in
                         -- isWatchingFileForDocs file clientData
                         True
                 )
