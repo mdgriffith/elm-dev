@@ -84,7 +84,7 @@ export class Watchtower {
   public definitionsProvider: vscode.DefinitionProvider;
 
   send(msg: Msg) {
-    if (this.connection.connected) {
+    if (this.connection?.connected) {
       log.obj("SENDING", msg);
       this.connection.sendUTF(JSON.stringify(msg));
     } else {
@@ -663,12 +663,12 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
       1. First, remove the codelens
       2. Afterwards, insert the new type signature.
 
-    If we don't do this carefully, then we have a flash where 
+    If we don't do this carefully, then we have a flash where
     both the codelens and the new typesignature are present
     before the codelens is deleted
     and it looks janky.
 
-  
+
   */
   public provideCodeLenses(
     document: vscode.TextDocument,
