@@ -13,7 +13,7 @@ data Flags =
     { _port :: Maybe Int
     }
 
-  
+
 main :: IO ()
 main =
   Terminal.app intro outro
@@ -33,12 +33,12 @@ start =
 
     example =
       reflow
-        "After running that command, watchtower is listening at <http://localhost:9000>\
+        "After running that command, watchtower is listening at <http://localhost:4747>\
         \ and ready to be connected to."
 
     serverFlags =
       flags Flags
-        |-- flag "port" port_ "The port of the watchtower server (default: 9000)"
+        |-- flag "port" port_ "The port of the watchtower server (default: 4747)"
   in
   Terminal.Command "start" (Common summary) details example (optional dir) serverFlags run
 
@@ -52,7 +52,7 @@ intro =
         ," I hope you like it!"
         ]
     , ""
-   
+
     ]
 
 
@@ -71,7 +71,7 @@ port_ =
     , _plural = "ports"
     , _parser = readMaybe
     , _suggest = \_ -> return []
-    , _examples = \_ -> return ["9000"]
+    , _examples = \_ -> return ["4747"]
     }
 
 
