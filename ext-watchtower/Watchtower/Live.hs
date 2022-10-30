@@ -136,7 +136,6 @@ error404 =
 
 
 receive state clientId text = do
-  debug $ (T.unpack "RECVD" <> T.unpack text)
   case Json.Decode.fromByteString Client.decodeIncoming (T.encodeUtf8 text) of
     Left err -> do
       debug $ (T.unpack "Error decoding!" <> T.unpack text)
