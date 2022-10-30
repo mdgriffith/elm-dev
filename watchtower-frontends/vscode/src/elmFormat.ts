@@ -1,53 +1,33 @@
 import * as vscode from "vscode";
 import * as utils from "./utils/elmUtils";
 import * as path from "path";
-import { Range, StatusBarItem, TextEdit } from "vscode";
-
+import { Range, TextEdit } from "vscode";
 import { execCmd } from "./utils/elmUtils";
 
 export class ElmFormatProvider
   implements vscode.DocumentFormattingEditProvider
 {
-  private showError;
-  private clearError;
-  constructor(statusBarItem: StatusBarItem) {
-    statusBarItem.hide();
-    this.showError = statusBarMessage(statusBarItem);
-    this.clearError = clearStatus(statusBarItem);
-  }
-
   provideDocumentFormattingEdits(
     document: vscode.TextDocument,
     options?: vscode.FormattingOptions,
     token?: vscode.CancellationToken
   ): Thenable<TextEdit[]> {
-    return elmFormat(document)
-      .then(({ stdout }) => {
-        this.clearError();
-        const lastLineId = document.lineCount - 1;
-        const wholeDocument = new Range(
-          0,
-          0,
-          lastLineId,
-          document.lineAt(lastLineId).text.length
-        );
-        return [TextEdit.replace(wholeDocument, stdout)];
-      })
-      .catch(this.showError);
+    return elmFormat(document).then(({ stdout }) => {
+      const lastLineId = document.lineCount - 1;
+      const wholeDocument = new Range(
+        0,
+        0,
+        lastLineId,
+        document.lineAt(lastLineId).text.length
+      );
+      return [TextEdit.replace(wholeDocument, stdout)];
+    });
   }
 }
 
 export class ElmRangeFormatProvider
   implements vscode.DocumentRangeFormattingEditProvider
 {
-  private showError;
-  private clearError;
-  constructor(statusBarItem: StatusBarItem) {
-    statusBarItem.hide();
-    this.showError = statusBarMessage(statusBarItem);
-    this.clearError = clearStatus(statusBarItem);
-  }
-
   /*
     Formatting range is the same as formatting whole document,
     rather than user's current selection.
@@ -58,19 +38,16 @@ export class ElmRangeFormatProvider
     options?: vscode.FormattingOptions,
     token?: vscode.CancellationToken
   ): Thenable<TextEdit[]> {
-    return elmFormat(document)
-      .then(({ stdout }) => {
-        this.clearError();
-        const lastLineId = document.lineCount - 1;
-        const wholeDocument = new Range(
-          0,
-          0,
-          lastLineId,
-          document.lineAt(lastLineId).text.length
-        );
-        return [TextEdit.replace(wholeDocument, stdout)];
-      })
-      .catch(this.showError);
+    return elmFormat(document).then(({ stdout }) => {
+      const lastLineId = document.lineCount - 1;
+      const wholeDocument = new Range(
+        0,
+        0,
+        lastLineId,
+        document.lineAt(lastLineId).text.length
+      );
+      return [TextEdit.replace(wholeDocument, stdout)];
+    });
   }
 }
 
@@ -95,27 +72,4 @@ function elmFormat(document: vscode.TextDocument) {
   format.stdin.end();
 
   return format;
-}
-
-function clearStatus(statusBarItem: StatusBarItem) {
-  return function () {
-    statusBarItem.text = "";
-    statusBarItem.hide();
-  };
-}
-
-function statusBarMessage(statusBarItem: StatusBarItem) {
-  return function (err) {
-    if (!(<string>err.message).includes("SYNTAX PROBLEM")) {
-      // if this is NOT a syntax error, elm-format may not be installed
-      const message =
-        "elm-format not found! Install from " +
-        "https://github.com/avh4/elm-format and make sure it's on your path";
-      let editor = vscode.window.activeTextEditor;
-      if (editor) {
-        statusBarItem.text = message;
-        statusBarItem.show();
-      }
-    }
-  };
 }

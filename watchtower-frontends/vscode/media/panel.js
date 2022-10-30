@@ -6395,7 +6395,8 @@ var $elm$core$Debug$log = _Debug_log;
 var $author$project$Ports$incomingDecoder = A2(
 	$elm$json$Json$Decode$andThen,
 	function (msg) {
-		switch (msg) {
+		var _v0 = A2($elm$core$Debug$log, '   -> {panel}', msg);
+		switch (_v0) {
 			case 'Status':
 				return A2(
 					$elm$json$Json$Decode$map,

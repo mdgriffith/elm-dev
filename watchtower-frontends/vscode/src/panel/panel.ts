@@ -112,6 +112,7 @@ export class ElmProjectPane {
       ElmProjectPane.currentPanel._panel.webview.postMessage(msg);
     } else {
       // no panel, dropping msg
+      log.log("No panel, dropping msg");
     }
   }
 
@@ -195,7 +196,6 @@ export class ElmProjectPane {
                        
                       }            
 
-                      
                       const vscode = acquireVsCodeApi();
                       
                       var app = Elm.Main.init({node: document.getElementById('main')});
@@ -203,12 +203,12 @@ export class ElmProjectPane {
 
                       // Handle messages sent from the extension to the webview
                       window.addEventListener('message', event => {
-                          if (event.data.msg == "InteractiveCodeRefreshed") {
-                            console.log("LIVE JS RECEIVED")
-                            load_interactive(document.getElementById('live').firstChild, event.data.details.js)  
-                          } else {
-                            app.ports.toElm.send(event.data);
-                          }
+                          // if (event.data.msg == "InteractiveCodeRefreshed") {
+                          //   console.log("LIVE JS RECEIVED")
+                          //   load_interactive(document.getElementById('live').firstChild, event.data.details.js)  
+                          // } else {
+                          app.ports.toElm.send(event.data);
+                          // }
                       });
                       
                       app.ports.toWorld.subscribe(function(message) {

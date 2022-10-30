@@ -215,11 +215,12 @@ export class Watchtower {
       case "Status": {
         self.diagnostics.clear();
         for (const project of msg["details"]) {
-          log.obj("PROJECT", project);
-          log.obj("PROJECT.STATUS", project.status);
+          // log.obj("PROJECT", project);
+          // log.obj("PROJECT.STATUS", project.status);
           if ("errors" in project.status) {
             for (const error of project.status["errors"]) {
-              log.obj("ERROR", error);
+              // log.obj("ERROR", error);
+              log.log("   ERROR:" + error.path);
               const uri = vscode.Uri.file(error["path"]);
               let problems: any[] = [];
               for (const prob of error["problems"]) {
@@ -257,11 +258,11 @@ export class Watchtower {
         log.log(msg.details.filepath);
         log.log(msg.details.docs[0].name);
 
-        // const interactiveJs =
-        Interactive.generate(msg.details.docs, (interactiveJs) => {
-          log.log("Interactive compiled!");
-          ElmProjectPane.send(PanelMsg.interactiveCodeRefreshed(interactiveJs));
-        });
+        // Turn off the interactive stuff while we get everything working smoothly
+        // Interactive.generate(msg.details.docs, (interactiveJs) => {
+        //   log.log("Interactive compiled!");
+        //   ElmProjectPane.send(PanelMsg.interactiveCodeRefreshed(interactiveJs));
+        // });
 
         break;
       }

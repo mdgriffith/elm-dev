@@ -11,24 +11,17 @@ const ElmLanguage: vscode.DocumentFilter = { language: "elm", scheme: "file" };
 
 // this method is called when your extension is activated
 export function activate(context: vscode.ExtensionContext) {
-  const elmFormatStatusBar = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Left
-  );
-  elmFormatStatusBar.backgroundColor = new vscode.ThemeColor(
-    "statusBarItem.errorBackground"
-  );
-
   // Elm Format
   context.subscriptions.push(
     vscode.languages.registerDocumentFormattingEditProvider(
       ElmLanguage,
-      new ElmFormatProvider(elmFormatStatusBar)
+      new ElmFormatProvider()
     )
   );
   context.subscriptions.push(
     vscode.languages.registerDocumentRangeFormattingEditProvider(
       ElmLanguage,
-      new ElmRangeFormatProvider(elmFormatStatusBar)
+      new ElmRangeFormatProvider()
     )
   );
 
