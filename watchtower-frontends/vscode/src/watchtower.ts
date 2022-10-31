@@ -1,5 +1,3 @@
-// import { setFlagsFromString } from "v8";
-
 import * as vscode from "vscode";
 import * as log from "./utils/log";
 import * as JSONSafe from "./utils/json";
@@ -34,7 +32,7 @@ const refreshWatch = (): Msg => {
     items.push({
       path: editors[index].document.uri.fsPath,
       warnings: true,
-      docs: true,
+      docs: false,
     });
   }
 
