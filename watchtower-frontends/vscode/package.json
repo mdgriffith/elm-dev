@@ -1,6 +1,6 @@
 {
   "name": "elm-watchtower-vscode",
-  "displayName": "Elm Watchtower",
+  "displayName": "Elm Dev",
   "description": "An Elm extension for handling large Elm codebases",
   "version": "0.0.1",
   "publisher": "mgriffith",
@@ -21,7 +21,7 @@
     "commands": [
       {
         "command": "elm.projectPanel",
-        "title": "Elm Project Panel"
+        "title": "Elm Dev"
       }
     ],
     "languages": [
