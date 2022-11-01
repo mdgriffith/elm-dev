@@ -36,7 +36,6 @@ serve :: Maybe FilePath -> Flags -> IO ()
 serve maybeRoot (Flags maybePort) =
   do
     let port = Ext.Common.withDefault 4747 maybePort
-    -- Ext.Common.atomicPutStrLn $ "Go to http://localhost:" ++ show port ++ " to see your project dashboard."
     Ext.Common.atomicPutStrLn $ "elm-watchtower is now running at http://localhost:" ++ show port
 
     cwd <- Dir.getCurrentDirectory
@@ -46,30 +45,32 @@ serve maybeRoot (Flags maybePort) =
     -- compile project
     Watchtower.Live.Compile.compileAll liveState
 
+    debug <- Ext.Common.isDebug
 
     -- VSCode is telling us when files change
     -- Start file watcher for the memory mode
     -- Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
 
-    Snap.Http.Server.httpServe (config port) $
+    Snap.Http.Server.httpServe (config port debug) $
       serveAssets
         <|> Watchtower.Live.websocket liveState
         <|> Watchtower.Questions.serve liveState
         <|> error404
 
-config :: Int -> Snap.Http.Server.Config Snap a
-config port =
-  Snap.Http.Server.setVerbose True $
+config :: Int -> Bool -> Snap.Http.Server.Config Snap a
+config port isDebug =
+  Snap.Http.Server.setVerbose isDebug $
     Snap.Http.Server.setPort port $
       Snap.Http.Server.setAccessLog (Snap.Http.Server.ConfigIoLog logger) $
         Snap.Http.Server.setErrorLog
           (Snap.Http.Server.ConfigIoLog logger)
           Snap.Http.Server.defaultConfig
 
+
 logger =
   (\bs ->
-    Ext.Common.atomicPutStrLn $ T.unpack $ T.decodeUtf8 bs
+      Ext.Common.debug $ T.unpack $ T.decodeUtf8 bs
   )
 
 

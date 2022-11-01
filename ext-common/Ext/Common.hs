@@ -106,6 +106,14 @@ log label str = do
     Nothing -> pure ()
 
 
+isDebug :: IO Bool
+isDebug = do
+  debugM <- Env.lookupEnv "LDEBUG"
+  case debugM of
+    Just _ -> pure True
+    Nothing -> pure False
+
+
 debug :: String -> IO ()
 debug str = do
   debugM <- Env.lookupEnv "LDEBUG"
@@ -148,7 +156,7 @@ track label io = do
   m_ <- getTime Monotonic
   p_ <- getTime ProcessCPUTime
   t_ <- getTime ThreadCPUTime
-  atomicPutStrLn $ T.unpack $
+  debug $ T.unpack $
     sformat ("⏱  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
   pure res
 
@@ -177,7 +185,7 @@ track_ label io = do
 
 race label ios = do
   !results <- mapM (\(label, io) -> track_ label io ) ios
-  atomicPutStrLn $ "🏃 race results: " <> label -- <> "\n" <> (fmap (T.pack . show . (\(x,_,_) -> x)) results & T.intercalate "," & T.unpack)
+  debug $ "🏃 race results: " <> label -- <> "\n" <> (fmap (T.pack . show . (\(x,_,_) -> x)) results & T.intercalate "," & T.unpack)
   pure results
 
 
@@ -246,6 +254,13 @@ ghciRoot = unsafePerformIO $ do
 onlyWhen :: Monad f => Bool -> f () -> f ()
 onlyWhen condition io =
   unless (not condition) io
+
+
+-- Same but evaluates the IO
+onlyWhen_ :: Monad f => f Bool -> f () -> f ()
+onlyWhen_ condition io = do
+  res <- condition
+  unless (not res) io
 
 
 -- Re-exports

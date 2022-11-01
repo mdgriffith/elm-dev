@@ -148,6 +148,3 @@ favicon =
 -- livePaneJs :: BS.ByteString
 -- livePaneJs =
 --   $(bsToExp =<< runIO (BS.readFile ("watchtower-frontends" </> "vscode" </> "src" </> "livePanel" </> "public" </> "live.js")))
-
-
-x = 130
