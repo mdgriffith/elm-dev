@@ -9,22 +9,20 @@ This is both an elm compiler extension + server, as well as an app that talks to
 ```
 :set -fbyte-code
 :set -fobject-code
-:def rr const $ return $ unlines [":r","Test.target"]
 :set prompt "\ESC[34mλ: \ESC[m"
+:def rr const $ return $ unlines ["Ext.Common.killTrackedThreads",":r","Test.target"]
 ```
-
-Last line is optional, but it's cool! Lambda prompt!
 
 2. Run `stack ghci`
 
 3. Run `:set -XOverloadedStrings`
 
-4. Run `Test.target` - Seems weird, but this starts the watchtower server!
+4. Run `Test.target` - Seems weird, but this starts the elm-dev server!
 
 5. Then the dev feedback loop goes as follows:
 
 - Make changes to Haskell code
-- Run `:rr` to recompile + typecheck, and re-run `Test.target`
+- Run `:rr` to kill all threads, typecheck + recompile, and re-run `Test.target`
 - Fix any issues, then `:rr` again
 - If you want to just type-check _without_ running, use `:r`
 
