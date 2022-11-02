@@ -23,6 +23,7 @@ import Reporting.Doc ((<+>))
 import qualified Reporting.Doc as D
 import qualified Reporting.Error as Error
 
+import qualified Ext.Common
 
 
 -- REPORT
@@ -130,7 +131,9 @@ toStderr doc =
 
 toHandle :: Handle -> D.Doc -> IO ()
 toHandle handle doc =
-  do  isTerminal <- hIsTerminalDevice handle
-      if isTerminal
-        then D.toAnsi handle doc
-        else hPutStr handle (toString doc)
+  Ext.Common.withPrintLockIfDebug handle (\_ -> do
+    isTerminal <- hIsTerminalDevice handle
+    if isTerminal
+      then D.toAnsi handle doc
+      else hPutStr handle (toString doc)
+  )

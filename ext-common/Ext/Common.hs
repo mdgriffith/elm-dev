@@ -10,7 +10,7 @@ import Control.Concurrent.MVar
 import qualified Data.List as List
 import Text.Read (readMaybe)
 import System.IO.Unsafe (unsafePerformIO)
-import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout, hClose, openTempFile)
+import System.IO (Handle, hFlush, hPutStr, hPutStrLn, stderr, stdout, hClose, openTempFile)
 import System.Exit (exitFailure)
 import qualified System.FilePath as FP
 import qualified System.Directory as Dir
@@ -132,6 +132,15 @@ withDebug io = do
 {-# NOINLINE printLock #-}
 printLock :: MVar ()
 printLock = unsafePerformIO $ newMVar ()
+
+
+withPrintLockIfDebug :: Handle -> (() -> IO ()) -> IO ()
+withPrintLockIfDebug handle fn = do 
+  debugMode <- isDebug
+  if debugMode then 
+    withMVar printLock (\_ -> fn () >> hPutStr handle "\n" >> hFlush handle)
+  else
+    pure ()
 
 
 {- Print debugging in a concurrent setting can be painful sometimes due to output
