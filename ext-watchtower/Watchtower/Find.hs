@@ -30,7 +30,7 @@ import qualified Elm.Details
 import qualified Elm.ModuleName
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.String
-import qualified Ext.Common as Maybe
+import Ext.Common (debug)
 import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Json.String
@@ -71,8 +71,7 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
   case mSource of
     Left err ->
       do
-        print "There was an error reading the source"
-        print err
+        debug $ "There was an error reading the source: \n " ++ show err
         pure Json.Encode.null
     Right (Compile.Artifacts modul typeMap localGraph) -> do
       let found =
@@ -82,7 +81,7 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
       case found of
         FoundNothing ->
           do
-            print "Found nothing :("
+            debug "Found nothing :("
             pure (encodeSearchResult found)
         FoundExpr expr ->
           do
@@ -90,13 +89,13 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
             case locationDetails of
               Nothing ->
                 do
-                  print "Nothing found"
-                  print found
+                  debug "Nothing found"
+                  debug $ show found
                   pure (encodeSearchResult found)
               Just (Local localName) ->
                 do
-                  print "Found local"
-                  print found
+                  debug "Found local"
+                  debug $ show found
                   pure (encodeSearchResult found)
               Just (External canMod name) ->
                 do
@@ -105,8 +104,8 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
                   case lookupModulePath details canMod of
                     Nothing ->
                       do
-                        print "Could not find path"
-                        print found
+                        debug "Could not find path"
+                        debug $ show found
                         pure (encodeSearchResult found)
                     Just targetPath ->
                       do
@@ -119,7 +118,7 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
                                     sourceMod
                                       & Src._values
                                       & findFirstValueNamed name
-                              print "getting there"
+                              debug "getting there"
                               pure
                                 ( case finalResult of
                                     Nothing -> Json.Encode.null
@@ -138,12 +137,12 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
                                 )
                           Left err ->
                             do
-                              print err
+                              debug $ show err
                               pure (encodeSearchResult found)
         FoundPattern _ ->
           do
-            print "Found a patter, but who cares really?"
-            print found
+            debug "Found a pattern, but who cares really?"
+            debug $ show found
 
             pure (encodeSearchResult found)
 
