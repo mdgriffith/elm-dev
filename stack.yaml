@@ -1,12 +1,20 @@
-resolver: lts-18.28
-packages:
-  - "."
+resolver: lts-19.31 # ghc-9.0.2
+allow-newer: true
 extra-deps:
-  - language-glsl-0.3.0
-  - timeout-0.1.1@sha256:56c1d3321d7139d1f7ebf04d46c95d3a3f1c8c9e0f15666ae3ccd6bae6204b6e,1427
+- snap-server-1.1.2.0@sha256:325378e4f7a50b1a94cf6175e11b9ac6db5edcdd87226f2d5997999334b85c46,15200
+- websockets-snap-0.10.3.1@sha256:89582b7db916e67b6c8192f489e4eafe7488d9f813e349836a2e74fa4388623d,991
+- io-streams-haproxy-1.0.1.0@sha256:2241a754697935e0a11e814affcaa4861b42fe88131f807b586ef48051e28a08,3070
+- regex-posix-clib-2.7 # Required to build on windows
 
-  # Required to build on windows
-  - regex-posix-clib-2.7
 flags:
   regex-posix:
     _regex-posix-clib: true
+
+packages:
+- "."
+
+extra-include-dirs: # Try remove this in 9.3.2 as it should be fixed: https://gitlab.haskell.org/ghc/ghc/-/issues/20592#note_436353
+# This should be a system agnostic path to macos FFI libs, if not working for you try find a valid with these commands:
+# dir=`xcrun --show-sdk-path`/usr/include/ffi && ls -alh $dir && echo $dir
+# dir=`pkg-config --cflags libffi | sed -E "s/^-I//"` && ls -alh $dir && echo $dir
+- /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/ffi
