@@ -12,3 +12,6 @@ travis.log
 index.html
 node_modules
 .envrc.private
+
+
+.vscode/settings.json
