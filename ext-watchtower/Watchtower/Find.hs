@@ -31,6 +31,7 @@ import qualified Elm.ModuleName
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.String
 import Ext.Common (debug)
+import qualified Ext.CompileProxy
 import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Json.String
@@ -46,7 +47,6 @@ import qualified System.Directory as Dir
 import qualified Text.Show.Unicode
 import qualified Util
 import qualified Watchtower.Details
-import qualified Ext.CompileProxy
 
 {- Find Definition -}
 
@@ -92,53 +92,63 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
                   debug "Nothing found"
                   debug $ show found
                   pure (encodeSearchResult found)
+
               Just (Local localName) ->
                 do
                   debug "Found local"
                   debug $ show found
                   pure (encodeSearchResult found)
+
               Just (External canMod name) ->
-                do
-                  details <- Ext.CompileProxy.loadProject
+                findExternalWith findFirstValueNamed name Src._values canMod
+              
+              Just (Ctor canMod name) ->
+                findExternalWith findFirstCtorNamed name Src._unions canMod
 
-                  case lookupModulePath details canMod of
-                    Nothing ->
-                      do
-                        debug "Could not find path"
-                        debug $ show found
-                        pure (encodeSearchResult found)
-                    Just targetPath ->
-                      do
-                        eitherSource <- Ext.CompileProxy.loadFileSource root targetPath
+              where 
+                findExternalWith fn name listAccess canMod =
+                  do
+                    details <- Ext.CompileProxy.loadProject
 
-                        case eitherSource of
-                          Right (stringSource, sourceMod) ->
-                            do
-                              let finalResult =
-                                    sourceMod
-                                      & Src._values
-                                      & findFirstValueNamed name
-                              debug "getting there"
-                              pure
-                                ( case finalResult of
-                                    Nothing -> Json.Encode.null
-                                    Just (A.At region val) ->
-                                      Json.Encode.object
-                                        [ ( "definition",
-                                            Json.Encode.object
-                                              [ ("region", Watchtower.Details.encodeRegion region),
-                                                ("path", Json.Encode.string (Json.String.fromChars targetPath))
-                                              ]
-                                          ),
-                                          ("module", Util.encodeModuleName canMod),
-                                          ("package", Util.encodeModulePackage canMod),
-                                          ("name", Util.encodeName name)
-                                        ]
-                                )
-                          Left err ->
-                            do
-                              debug $ show err
-                              pure (encodeSearchResult found)
+                    case lookupModulePath details canMod of
+                      Nothing ->
+                        do
+                          debug "Could not find path"
+                          debug $ show found
+                          pure (encodeSearchResult found)
+                      Just targetPath ->
+                        do
+                          eitherSource <- Ext.CompileProxy.loadFileSource root targetPath
+
+                          case eitherSource of
+                            Right (stringSource, sourceMod) ->
+                              do
+                                let finalResult = sourceMod & listAccess & fn name 
+            
+                                debug "getting there"
+                                pure
+                                  ( case finalResult of
+                                      Nothing -> Json.Encode.null
+                                      Just (A.At region val) ->
+                                        Json.Encode.object
+                                          [ ( "definition",
+                                              Json.Encode.object
+                                                [ ("region", Watchtower.Details.encodeRegion region),
+                                                  ("path", Json.Encode.string (Json.String.fromChars targetPath))
+                                                ]
+                                            ),
+                                            ("module", Util.encodeModuleName canMod),
+                                            ("package", Util.encodeModulePackage canMod),
+                                            ("name", Util.encodeName name)
+                                          ]
+                                  )
+                            Left err ->
+                              do
+                                debug $ show err
+                                pure (encodeSearchResult found)
+
+
+
         FoundPattern _ ->
           do
             debug "Found a pattern, but who cares really?"
@@ -400,7 +410,8 @@ findFirstInList toNewResult vals =
 
 data LocatedValue
   = Local Name
-  | External ModuleName.Canonical Name
+  | External ModuleName.Canonical Name 
+  | Ctor ModuleName.Canonical Name 
 
 encodeLocatedValue :: LocatedValue -> Json.Encode.Value
 encodeLocatedValue located =
@@ -430,7 +441,7 @@ getLocatedDetails (A.At region expr) =
     Can.VarForeign mod name ann ->
       Just (External mod name)
     Can.VarCtor _ mod name idx ann ->
-      Just (External mod name)
+      Just (Ctor mod name)
     Can.VarDebug mod name ann ->
       Just (External mod name)
     Can.VarOperator firstName mod name ann ->
@@ -487,3 +498,16 @@ findFirstValueNamed name list =
       if name == valName
         then Just top
         else findFirstValueNamed name remain
+
+findFirstCtorNamed :: Name.Name -> [A.Located Src.Union] -> Maybe (A.Located Name.Name)
+findFirstCtorNamed name =
+  findFirstJust findUnion
+  where 
+    findUnion (A.At _ ((Src.Union _ _ ctors))) =
+      findFirstJust findCtor ctors
+
+    findCtor (nameAt@(A.At _ ctorName), _) =
+      if ctorName == name then 
+        Just nameAt
+      else
+        Nothing
