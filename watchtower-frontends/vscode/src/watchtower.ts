@@ -379,8 +379,8 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
       Question.ask(
         Question.questions.findDefinition(
           document.uri.fsPath,
-          position.line,
-          position.character
+          position.line + 1,
+          position.character + 1
         ),
         (resp) => {
           log.log("FOUND DEFINITION!");

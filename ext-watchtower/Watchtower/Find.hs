@@ -242,7 +242,7 @@ findFirstJust fn vals =
 
 withinRegion :: A.Position -> A.Region -> Bool
 withinRegion (A.Position row col) (A.Region (A.Position startRow startCol) (A.Position endRow endCol)) =
-  row >= startRow && row <= endRow
+  ((row == startRow && col >= startCol) || row > startRow) && ((row == endRow && col <= endCol) || row < endRow)
 
 {- Searching a Can.AST -}
 
