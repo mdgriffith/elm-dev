@@ -14,7 +14,7 @@ packages:
 - "."
 
 extra-include-dirs: # Try remove this in 9.3.2 as it should be fixed: https://gitlab.haskell.org/ghc/ghc/-/issues/20592#note_436353
-# This should be a system agnostic path to macos FFI libs, if not working for you try find a valid with these commands:
+# This should be a system agnostic path to macos FFI libs, if not working for you try find a valid path with these bash commands:
 # dir=`xcrun --show-sdk-path`/usr/include/ffi && ls -alh $dir && echo $dir
 # dir=`pkg-config --cflags libffi | sed -E "s/^-I//"` && ls -alh $dir && echo $dir
 - /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/ffi
