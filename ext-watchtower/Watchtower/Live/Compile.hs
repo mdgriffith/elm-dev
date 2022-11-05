@@ -119,6 +119,44 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                         Ext.Common.log "Changed file successful, recompiling project" "!"
                         -- If this file compiled successfully, compile the entire project
                         recompileProjectIfSubFile mClients changedFiles projCache
+                        
+                         -- ask for docs for the top file
+                        eitherArtifacts <- Ext.CompileProxy.loadSingleArtifacts projectRoot top
+                        case eitherArtifacts of
+                          Left err ->
+                              pure ()
+
+                          Right artifacts ->
+                              case  Watchtower.Docs.fromArtifacts artifacts of
+                                Left err ->
+                                  pure ()
+
+                                Right docs ->
+                                  do
+                                    Ext.Common.log "Sending down docs" "!"
+                                    Client.broadcast mClients
+                                      (Client.Docs top [ docs ])
+                                    pure ()
+                        
+
+                        -- ask for warnings for the top file
+                        eitherWarnings <- Ext.CompileProxy.warnings projectRoot top
+
+                        case eitherWarnings of
+                          Right (src, []) ->
+                            pure ()
+
+                          Right (src, warnings) ->
+                              do
+                                Ext.Common.log "Sending down warnings" "!"
+                                Client.broadcast mClients
+                                  (Client.Warnings top (Reporting.Render.Type.Localizer.fromModule src) warnings)
+                                pure ()
+
+                          Left () ->
+                              -- There was some issue compiling
+                              pure ()
+
                         pure ()
 
                     Left errJson ->
@@ -129,46 +167,6 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
 
                         -- still recompile the entire project
                         recompileProjectIfSubFile mClients changedFiles projCache
-                        pure ()
-
-
-
-                  -- ask for docs for the top file
-                  eitherArtifacts <- Ext.CompileProxy.loadSingleArtifacts projectRoot top
-                  case eitherArtifacts of
-                    Left err ->
-                        pure ()
-
-                    Right artifacts ->
-                        case  Watchtower.Docs.fromArtifacts artifacts of
-                          Left err ->
-                            pure ()
-
-                          Right docs ->
-                            do
-                              Ext.Common.log "Sending down docs" "!"
-                              Client.broadcast mClients
-                                (Client.Docs top [ docs ])
-                              pure ()
-
-
-
-                  -- ask for warnings for the top file
-                  eitherWarnings <- Ext.CompileProxy.warnings projectRoot top
-
-                  case eitherWarnings of
-                    Right (src, []) ->
-                      pure ()
-
-                    Right (src, warnings) ->
-                        do
-                          Ext.Common.log "Sending down warnings" "!"
-                          Client.broadcast mClients
-                            (Client.Warnings top (Reporting.Render.Type.Localizer.fromModule src) warnings)
-                          pure ()
-
-                    Left () ->
-                        -- There was some issue compiling
                         pure ()
 
                   pure []

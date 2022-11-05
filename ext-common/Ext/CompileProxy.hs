@@ -244,7 +244,7 @@ runTaskUnsafe task = do
       do  Exit.toStderr (Exit.reactorToReport exit)
           error
             "\n-------------------------------------------------\
-            \\nError in task, please report this.\
+            \\nError in unsafe task, please report this.\
             \\n-------------------------------------------------\
             \\n"
 
@@ -259,7 +259,7 @@ runTaskUnsafeMake task = do
       do  Exit.toStderr (Exit.makeToReport exit)
           error
             "\n-------------------------------------------------\
-            \\nError in task, please report this.\
+            \\nError in make task, please report this.\
             \\n-------------------------------------------------\
             \\n"
 
