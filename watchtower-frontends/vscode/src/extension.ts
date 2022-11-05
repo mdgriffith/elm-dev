@@ -40,7 +40,7 @@ export function activate(context: vscode.ExtensionContext) {
   tower.setup();
 
   vscode.commands.registerCommand(
-    "elm-watchtower.addTypeSignature",
+    "elm-dev.addTypeSignature",
     (doc: vscode.TextDocument, signature: any, onFire: any) => {
       onFire();
     }

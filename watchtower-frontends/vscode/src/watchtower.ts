@@ -152,10 +152,7 @@ export class Watchtower {
       (err) => {
         log.log("Watchtower is not running, starting watchtower");
         try {
-          ChildProcess.spawn("./elm-watchtower", [
-            "start",
-            `--port=${Question.port}`,
-          ]);
+          ChildProcess.spawn("./elm-dev", ["start", `--port=${Question.port}`]);
         } catch (watchTowerErr) {
           log.log("Bundled watchtower failed to auto-start");
           log.log(watchTowerErr);
@@ -470,7 +467,7 @@ function signatureToLens(
   newLens.command = {
     title: signature.name + " : " + signature.signature,
     tooltip: "Add type signature",
-    command: "elm-watchtower.addTypeSignature",
+    command: "elm-dev.addTypeSignature",
     arguments: [document, signature, onClick],
   };
   return newLens;

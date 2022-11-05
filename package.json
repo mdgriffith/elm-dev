@@ -1,5 +1,5 @@
 {
-  "name": "elm-watchtower",
+  "name": "elm-dev",
   "version": "1.0.0",
   "description": "Elm editor tooling based on the Elm compiler!",
   "main": "index.js",
