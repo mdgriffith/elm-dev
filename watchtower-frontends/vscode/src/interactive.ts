@@ -19,7 +19,7 @@ export function generate(docs, callback) {
         ["./src/Live.elm"],
         {
           cwd: path.join(__dirname, "interactive"),
-          pathToElm: path.join(__dirname, "elm"),
+          pathToElm: path.join(__dirname, "elm-dev"),
         }
       );
       callback(compiled_interactive_js);
