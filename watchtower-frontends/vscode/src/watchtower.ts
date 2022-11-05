@@ -151,10 +151,15 @@ export class Watchtower {
       },
       (err) => {
         log.log("Watchtower is not running, starting watchtower");
-        ChildProcess.spawn("elm-watchtower", [
-          "start",
-          `--port=${Question.port}`,
-        ]);
+        try {
+          ChildProcess.spawn("./elm-watchtower", [
+            "start",
+            `--port=${Question.port}`,
+          ]);
+        } catch (watchTowerErr) {
+          log.log("Bundled watchtower failed to auto-start");
+          log.log(watchTowerErr);
+        }
       }
     );
   }
