@@ -13,6 +13,7 @@ import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BSL
 import qualified Codec.Archive.Zip as Zip
 import qualified Data.Time.Clock as Time
+import qualified System.Environment as Env
 import qualified Data.Time.Clock.POSIX as Time
 
 import qualified File
@@ -234,58 +235,67 @@ removeDir path = do
 
 
 
+ifDebug :: (() -> IO ()) -> IO ()
+ifDebug io = do
+  isDebug <- Env.lookupEnv "LDEBUG"
+  
+  case isDebug of
+    Just _ -> io ()
+    Nothing -> pure ()
+
 
 -- Debugging
+debugSummary :: IO ()
+debugSummary = 
+  ifDebug $ \_ -> do
+    -- track "🧹 majorGC" $ System.Mem.performMajorGC
 
-debugSummary = do
-  -- track "🧹 majorGC" $ System.Mem.performMajorGC
+    fileCacheList <- H.toList fileCache
+    s <- RT.getRTSStats
 
-  fileCacheList <- H.toList fileCache
-  s <- RT.getRTSStats
+    overhead <- H.computeOverhead fileCache
 
-  overhead <- H.computeOverhead fileCache
+    -- Sadly this does not perform well enough to ever print even on a small Elm project...? :(
+    -- size <- GHC.DataSize.recursiveSize fileCache
 
-  -- Sadly this does not perform well enough to ever print even on a small Elm project...? :(
-  -- size <- GHC.DataSize.recursiveSize fileCache
+    let
+      entries = Prelude.length fileCacheList
 
-  let
-    entries = Prelude.length fileCacheList
+      -- @TODO memory overhead for string is 4 words per char + 2 words for the char... should swap to text/BS instead.
+      size = fileCacheList & fmap (\(k,(t, v)) -> (length k * 6) + BS.length v) & sum & fromIntegral & bytesToMb & show
+      -- (show $ bytesToMb (fromIntegral size))
 
-    -- @TODO memory overhead for string is 4 words per char + 2 words for the char... should swap to text/BS instead.
-    size = fileCacheList & fmap (\(k,(t, v)) -> (length k * 6) + BS.length v) & sum & fromIntegral & bytesToMb & show
-    -- (show $ bytesToMb (fromIntegral size))
+      -- Sum of live bytes across all major GCs. Divided by major_gcs gives the average live data over the lifetime of the program.
+      averageLiveData = bytesToMb $ RT.cumulative_live_bytes s `div` (fromIntegral $ RT.major_gcs s)
 
-    -- Sum of live bytes across all major GCs. Divided by major_gcs gives the average live data over the lifetime of the program.
-    averageLiveData = bytesToMb $ RT.cumulative_live_bytes s `div` (fromIntegral $ RT.major_gcs s)
+      gc = RT.gc s
 
-    gc = RT.gc s
+      stats =
+        [
+          -- (RT.gcdetails_gen, "") -- = 1
+        -- , (RT.gcdetails_threads, "") -- = 1
+        (RT.gcdetails_allocated_bytes, "allocated since last GC") -- = 65812848
+        , (RT.gcdetails_live_bytes, "live heap after last GC") -- = 320114080
+        , (RT.gcdetails_large_objects_bytes, "large objects") -- = 76883456
+        , (RT.gcdetails_compact_bytes, "compact regions") -- = 0
+        , (RT.gcdetails_slop_bytes, "slop (wasted memory)") -- = 9568864
+        , (RT.gcdetails_mem_in_use_bytes, "mem use RTS") -- = 884998144
+        , (RT.gcdetails_copied_bytes, "copied in GC") -- = 243233048
+        -- , (RT.gcdetails_par_max_copied_bytes, "") -- = 0
+        -- , (RT.gcdetails_par_balanced_copied_bytes, "par GC balance copy") -- = 0
+        -- , (RT.gcdetails_sync_elapsed_ns, "") -- = 11208
+        -- , (RT.gcdetails_cpu_ns, "") -- = 268024000
+        -- , (RT.gcdetails_elapsed_ns, "") -- = 304688708
+        -- , (RT.gcdetails_nonmoving_gc_sync_cpu_ns, "") -- = 0
+        -- , (RT.gcdetails_nonmoving_gc_sync_elapsed_ns, "") -- = 0}}
+        ]
+        & fmap (\(fn,label) -> label ++ ": " ++ show (bytesToMb (fromIntegral $ fn gc)) ++"MB" )
+        & List.intercalate "\n"
 
-    stats =
-      [
-        -- (RT.gcdetails_gen, "") -- = 1
-      -- , (RT.gcdetails_threads, "") -- = 1
-       (RT.gcdetails_allocated_bytes, "allocated since last GC") -- = 65812848
-      , (RT.gcdetails_live_bytes, "live heap after last GC") -- = 320114080
-      , (RT.gcdetails_large_objects_bytes, "large objects") -- = 76883456
-      , (RT.gcdetails_compact_bytes, "compact regions") -- = 0
-      , (RT.gcdetails_slop_bytes, "slop (wasted memory)") -- = 9568864
-      , (RT.gcdetails_mem_in_use_bytes, "mem use RTS") -- = 884998144
-      , (RT.gcdetails_copied_bytes, "copied in GC") -- = 243233048
-      -- , (RT.gcdetails_par_max_copied_bytes, "") -- = 0
-      -- , (RT.gcdetails_par_balanced_copied_bytes, "par GC balance copy") -- = 0
-      -- , (RT.gcdetails_sync_elapsed_ns, "") -- = 11208
-      -- , (RT.gcdetails_cpu_ns, "") -- = 268024000
-      -- , (RT.gcdetails_elapsed_ns, "") -- = 304688708
-      -- , (RT.gcdetails_nonmoving_gc_sync_cpu_ns, "") -- = 0
-      -- , (RT.gcdetails_nonmoving_gc_sync_elapsed_ns, "") -- = 0}}
-      ]
-      & fmap (\(fn,label) -> label ++ ": " ++ show (bytesToMb (fromIntegral $ fn gc)) ++"MB" )
-      & List.intercalate "\n"
-
-  debug $ "🧠 filecache entries:" ++ show entries ++ " size:~" ++ size ++ "MB overhead:" ++ show overhead
-  debug $ "🧠 average live data:~" ++ show averageLiveData ++ "MB"
-  -- debug $ "🧠 gc:" ++ show (gcstatsHuman s)
-  debug $ "🧠 gc:\n" ++ stats
+    debug $ "🧠 filecache entries:" ++ show entries ++ " size:~" ++ size ++ "MB overhead:" ++ show overhead
+    debug $ "🧠 average live data:~" ++ show averageLiveData ++ "MB"
+    -- debug $ "🧠 gc:" ++ show (gcstatsHuman s)
+    debug $ "🧠 gc:\n" ++ stats
 
 
 gcstatsHuman s =
