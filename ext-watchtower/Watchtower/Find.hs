@@ -70,7 +70,10 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
   Right (Compile.Artifacts modul typeMap localGraph) <- 
     Ext.CompileProxy.loadSingleArtifacts root path
 
-  let found = modul & Can._decls & findAtPoint point
+  let found = 
+    modul 
+      & Can._decls 
+      & findAtPoint point
 
   case found of
     FoundNothing ->
@@ -81,54 +84,46 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
         Nothing -> do
           fail "could not locate expression"
 
-        Just locatedValue ->
-          findLocatedValue root locatedValue
+        Just (Local localName) ->
+          fail "not implemented"
+
+        Just (External canMod name) ->
+          findWith findFirstValueNamed name Src._values canMod
+
+        Just (Ctor canMod name) ->
+          findWith findFirstCtorNamed name Src._unions canMod
+
+      where 
+
+        findWith findFn name listAccess canMod = do
+          details <- Ext.CompileProxy.loadProject
+
+          case lookupModulePath details canMod of
+            Nothing ->
+              fail "could not find path"
+
+            Just targetPath -> do
+              Right (stringSource, sourceMod) <- Ext.CompileProxy.loadFileSource root targetPath
+
+              let result = findFn name (listAccess sourceMod)
+
+              case result of
+                Nothing -> 
+                  pure Json.Encode.null
+
+                Just (A.At region val) ->
+                  pure $ Json.Encode.object
+                    [ ( "definition",
+                        Json.Encode.object
+                          [ ("region", Watchtower.Details.encodeRegion region),
+                            ("path", Json.Encode.string (Json.String.fromChars targetPath))
+                          ]
+                      )
+                    ]
 
     FoundPattern _ -> do
       fail "not implemented"
 
-
-findLocatedValue :: FilePath -> LocatedValue -> IO Json.Encode.Value
-findLocatedValue root located =
-  case located of 
-    Local localName -> do
-      fail "not implemented"
-
-    External canMod name ->
-      findExternalWith findFirstValueNamed name Src._values canMod
-
-    Ctor canMod name ->
-      findExternalWith findFirstCtorNamed name Src._unions canMod
-
-  where 
-    findExternalWith findFn name listAccess canMod = do
-      details <- Ext.CompileProxy.loadProject
-
-      case lookupModulePath details canMod of
-        Nothing ->
-          fail "could not find path"
-
-        Just targetPath -> do
-          Right (stringSource, sourceMod) <- Ext.CompileProxy.loadFileSource root targetPath
-
-          let result = findFn name (listAccess sourceMod)
-
-          case result of
-              Nothing -> 
-                pure Json.Encode.null
-
-              Just (A.At region val) ->
-                pure $ Json.Encode.object
-                  [ ( "definition",
-                      Json.Encode.object
-                        [ ("region", Watchtower.Details.encodeRegion region),
-                          ("path", Json.Encode.string (Json.String.fromChars targetPath))
-                        ]
-                    ),
-                    ("module", Util.encodeModuleName canMod),
-                    ("package", Util.encodeModulePackage canMod),
-                    ("name", Util.encodeName name)
-                  ]
 
 
 lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
