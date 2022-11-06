@@ -336,8 +336,12 @@ refineMatch point foundPatterns expr_ =
         & orFind (extendAndDive [pattern]) two
 
     Can.Case expr branches ->
-        dive expr
-      -- TODO: check branches too!
+        dive expr 
+          & orFind (
+              findFirstInList $
+                \(Can.CaseBranch pattern expr) -> 
+                  extendAndDive [pattern] expr
+            ) branches
     
     Can.Access expr locatedName ->
       dive expr
@@ -510,7 +514,7 @@ findFirstCtorNamed name =
 
 findFirstPatternIntroducing :: Name.Name -> [Can.Pattern] -> Maybe Can.Pattern
 findFirstPatternIntroducing name =
-  findFirstJust (findFirstPatternIntroducing name)
+  findFirstJust (findPatternIntroducing name)
 
 
 findPatternIntroducing :: Name.Name -> Can.Pattern -> Maybe Can.Pattern
@@ -555,4 +559,4 @@ findPatternIntroducing name (pattern@(A.At _ pattern_)) =
 
   inList  =
     findFirstJust (findPatternIntroducing name)
-
+    
