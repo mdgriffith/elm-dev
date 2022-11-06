@@ -73,7 +73,7 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
   let found = modul & Can._decls & findAtPoint point
 
   case found of
-    FoundNothing ->
+    FoundNothing -> do
       pure Json.Encode.null
 
     FoundExpr expr patterns -> do
@@ -81,7 +81,7 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
         Nothing -> do
           fail ("Could not locate expression: " ++ show expr)
 
-        Just (Local localName) ->
+        Just (Local localName) -> do
           findFirstPatternIntroducing localName patterns
             & encodeResult path
             & pure
@@ -118,8 +118,6 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
 
             Just targetPath -> do
               Right (stringSource, sourceMod) <- Ext.CompileProxy.loadFileSource root targetPath
-
-              debug "here"
 
               listAccess sourceMod  
                 & findFn name
@@ -268,14 +266,14 @@ findDef point foundPatterns def =
       findExpr point (map fst patternsWithTypes ++ foundPatterns) expr
 
 
-defPatterns :: Can.Def -> [Can.Pattern] 
-defPatterns def =
+defNamePattern :: Can.Def -> Can.Pattern
+defNamePattern def =
   case def of
-    Can.Def _ patterns _ ->
-      patterns
+    Can.Def (A.At region name) _ _ ->
+      A.At region $ Can.PVar name
 
-    Can.TypedDef _ _ patternsWithTypes _ _ ->
-      map fst patternsWithTypes
+    Can.TypedDef (A.At region name) _ _ _ _ ->
+      A.At region $ Can.PVar name
 
 
 findExpr :: A.Position -> [Can.Pattern] -> Can.Expr  -> SearchResult
@@ -325,11 +323,11 @@ refineMatch point foundPatterns expr_ =
 
     Can.Let def expr ->
       findDef point foundPatterns def
-        & orFind (extendAndDive (defPatterns def)) expr
+        & orFind (extendAndDive [ defNamePattern def ]) expr
 
     Can.LetRec defs expr ->
       findFirstInList (findDef point foundPatterns) defs
-        & orFind (extendAndDive (concatMap defPatterns defs)) expr
+        & orFind (extendAndDive (map defNamePattern defs)) expr
 
     Can.LetDestruct pattern one two ->
       dive one

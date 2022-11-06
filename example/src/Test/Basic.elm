@@ -1,5 +1,6 @@
 module Test.Basic exposing (..)
 
+import Html
 import Test.Module
 
 
@@ -36,6 +37,18 @@ type Reason
     | Invalid InvalidReason
 
 
+reasonToString reason =
+    case reason of
+        Custom ->
+            "custom"
+
+        Equality a b ->
+            a ++ "=" ++ b
+
+        _ ->
+            "Not implemented"
+
+
 type InvalidReason
     = EmptyList
     | NonpositiveFuzzCount
@@ -67,3 +80,25 @@ addOne x =
 suite =
     test "addOne adds one" <|
         equals (addOne 123) 124
+
+
+view user age friends =
+    let
+        { first, last } =
+            user
+
+        friendsView =
+            Html.ul []
+                << List.map
+                    (\( friendFirst, friendLast ) ->
+                        Html.li []
+                            [ Html.text friendFirst
+                            , Html.text friendLast
+                            ]
+                    )
+    in
+    Html.div []
+        [ Html.h1 [] [ Html.text (first ++ " " ++ last) ]
+        , Html.p [] [ Html.text (String.fromInt age) ]
+        , friendsView friends
+        ]
