@@ -77,41 +77,44 @@ definition root (Watchtower.Details.PointLocation path point) = do
         Just (Ctor canMod name) ->
           findExternalWith findFirstCtorNamed name Src._unions canMod
 
-      where 
-        encodeResult path result =
-          case result of 
-            Nothing -> 
-              Json.Encode.null
-
-            Just (A.At region _) ->
-              Json.Encode.object
-                [ ( "definition",
-                    Json.Encode.object
-                      [ ("region", Watchtower.Details.encodeRegion region),
-                        ("path", Json.Encode.string (Json.String.fromChars path))
-                      ]
-                  )
-                ]
-        
-          
-        findExternalWith findFn name listAccess canMod = do
-          details <- Ext.CompileProxy.loadProject
-
-          case lookupModulePath details canMod of
-            Nothing ->
-              fail "could not find path"
-
-            Just targetPath -> do
-              Right (stringSource, sourceMod) <- Ext.CompileProxy.loadFileSource root targetPath
-
-              listAccess sourceMod  
-                & findFn name
-                & encodeResult targetPath
-                & pure
-
+    FoundPattern (A.At _ (Can.PCtor canMod _ _ ctorName _ _)) -> do
+      findExternalWith findFirstCtorNamed ctorName Src._unions canMod
 
     FoundPattern _ -> do
-      fail "finding patterns, not implemented"
+      pure Json.Encode.null 
+
+  where  
+      
+    findExternalWith findFn name listAccess canMod = do
+      details <- Ext.CompileProxy.loadProject
+
+      case lookupModulePath details canMod of
+        Nothing ->
+          fail "could not find path"
+
+        Just targetPath -> do
+          Right (_, sourceMod) <- Ext.CompileProxy.loadFileSource root targetPath
+
+          listAccess sourceMod  
+            & findFn name
+            & encodeResult targetPath
+            & pure
+
+encodeResult :: FilePath -> Maybe (A.Located a) -> Json.Encode.Value
+encodeResult path result =
+  case result of 
+    Nothing -> 
+      Json.Encode.null
+
+    Just (A.At region _) ->
+      Json.Encode.object
+        [ ( "definition",
+            Json.Encode.object
+              [ ("region", Watchtower.Details.encodeRegion region),
+                ("path", Json.Encode.string (Json.String.fromChars path))
+              ]
+          )
+        ]
 
 
 lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
@@ -245,10 +248,14 @@ findDef :: A.Position -> [Can.Pattern] -> Can.Def -> SearchResult
 findDef point foundPatterns def =
   case def of
     Can.Def locatedName patterns expr ->
-      findExpr point (patterns ++ foundPatterns) expr
+      findFirstInList (findPattern point) patterns
+        & orFind (findExpr point (patterns ++ foundPatterns)) expr
 
     Can.TypedDef locatedName freeVars patternsWithTypes expr type_ ->
-      findExpr point (map fst patternsWithTypes ++ foundPatterns) expr
+      findFirstInList (findPattern point) patterns
+        & orFind (findExpr point (patterns ++ foundPatterns)) expr
+      where
+        patterns = map fst patternsWithTypes 
 
 
 defNamePattern :: Can.Def -> Can.Pattern
@@ -289,9 +296,8 @@ refineMatch point foundPatterns expr_ =
         & orFind dive exprTwo
 
     Can.Lambda patterns expr ->
-      -- findFirstInList (findPattern point) patterns
-      -- & orFind
-      extendAndDive patterns expr
+      findFirstInList (findPattern point) patterns
+        & orFind (extendAndDive patterns) expr
 
     Can.Call expr exprs ->
       findFirstInList dive exprs
@@ -315,7 +321,8 @@ refineMatch point foundPatterns expr_ =
         & orFind (extendAndDive (map defNamePattern defs)) expr
 
     Can.LetDestruct pattern one two ->
-      dive one
+      findPattern point pattern
+        & orFind dive one
         & orFind (extendAndDive [pattern]) two
 
     Can.Case expr branches ->
@@ -323,7 +330,8 @@ refineMatch point foundPatterns expr_ =
           & orFind (
               findFirstInList $
                 \(Can.CaseBranch pattern expr) -> 
-                  extendAndDive [pattern] expr
+                  findPattern point pattern
+                    & orFind (extendAndDive [pattern]) expr
             ) branches
     
     Can.Access expr locatedName ->
@@ -540,6 +548,6 @@ findPatternIntroducing name (pattern@(A.At _ pattern_)) =
 
   where
 
-  inList  =
-    findFirstJust (findPatternIntroducing name)
+    inList  =
+      findFirstJust (findPatternIntroducing name)
     
