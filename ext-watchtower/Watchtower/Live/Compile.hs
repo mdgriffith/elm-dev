@@ -142,8 +142,10 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                         -- ask for warnings for the top file
                         eitherWarnings <- Ext.CompileProxy.warnings projectRoot top
 
+
                         case eitherWarnings of
-                          Right (src, []) ->
+                          Right (src, []) -> do
+                            Ext.Common.debug $ "no warnings"
                             pure ()
 
                           Right (src, warnings) ->

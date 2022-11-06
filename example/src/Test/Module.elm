@@ -1,6 +1,18 @@
 module Test.Module exposing (myOtherFunction)
 
 
-myOtherFunction : String -> String
+import Html
+import Html.Attributes as Attr
+import Html.Events exposing (..)
+import Json.Decode as JD exposing (string)
+import Json.Encode exposing (int)
+
+
+myOtherFunction : String -> Html.Html msg
 myOtherFunction incoming =
-    incoming ++ ", the Best"
+    Html.div
+        (List.map identity [ Attr.id "carl" ])
+        [ Html.text (incoming ++ ", the Best") ]
+
+
+

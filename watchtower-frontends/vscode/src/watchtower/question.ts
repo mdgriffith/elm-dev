@@ -1,6 +1,7 @@
 import * as log from "../utils/log";
 import * as http from "http";
 import * as JSONSafe from "../utils/json";
+import { CLIENT_RENEG_WINDOW } from "tls";
 
 export type MissingSignature = {
   filepath: String;
@@ -16,6 +17,11 @@ export type Warning =
       region: Region;
       name: String;
       signature: String;
+    }
+  | {
+      warning: "UnusedImport";
+      region: Region;
+      name: String;
     };
 
 type Region = {

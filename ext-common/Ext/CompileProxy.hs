@@ -11,6 +11,8 @@ import Control.Concurrent.MVar
 import Ext.Common
 import Ext.CompileMode (getMode, CompileMode(..))
 import Json.Encode ((==>))
+import qualified AST.Canonical as Can
+import qualified AST.Optimized as Opt
 import qualified AST.Source as Src
 import qualified BackgroundWriter as BW
 import qualified Build
@@ -18,7 +20,9 @@ import qualified Canonicalize.Module as Canonicalize
 import qualified Compile
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
+import Data.Name (Name)
 import qualified Data.NonEmptyList as NE
+import qualified Data.Set as Set
 import qualified Elm.Docs as Docs
 import qualified Elm.Details as Details
 import qualified Elm.Interface as I
@@ -33,6 +37,7 @@ import qualified Json.Encode as Encode
 import qualified Optimize.Module as Optimize
 import qualified Parse.Module as Parse
 import qualified Reporting
+import qualified Reporting.Annotation as A
 import qualified Reporting.Error
 import qualified Reporting.Error.Syntax
 import qualified Reporting.Exit as Exit
@@ -207,7 +212,7 @@ warnings root path =
     ifaces <- allInterfaces [path]
     source <- File.readUtf8 path
     case Parse.fromByteString Parse.Application source of
-      Right srcModule ->
+      Right srcModule@(Src.Module _ _ _ imports _ _ _ _ _) ->
         do
           let (canWarnings, eitherCanned) = Reporting.Result.run $ Canonicalize.canonicalize Pkg.dummyName ifaces srcModule
           case eitherCanned of
@@ -221,16 +226,182 @@ warnings root path =
 
                   Right annotations ->
                     do
-                      let (optWarnings, _) = Reporting.Result.run $ Optimize.optimize annotations canModule
-                      pure (Right (srcModule, canWarnings <> optWarnings))
+                      let (optWarnings, eitherLocalGraph) = Reporting.Result.run $ Optimize.optimize annotations canModule
+                      case eitherLocalGraph of
+                        Left errs ->
+                          pure (Right (srcModule, canWarnings <> optWarnings))
+                        
+                        Right localGraph -> do
+                          let importNames = Set.fromList $ fmap Src.getImportName imports
+                          let usedDefaultImports = Set.difference importNames defaultImports
+                          let usedModules = collectUsedImports localGraph
+                          let carl = Set.difference importNames usedModules
+                          Ext.Common.debug $ ("carl 1: " <> show carl <> "\n")
+                          let unusedImports = Set.difference (carl) usedDefaultImports
+                          Ext.Common.debug $ ("carl 2: " <> show unusedImports <> "\n")
+                          let unusedImportWarnings = importsToWarnings (Set.toList unusedImports) imports
+                          -- Ext.Common.debug $ ("carl 2: " <> show unusedImportWarnings <> "\n")
 
+                          pure (Right (srcModule, canWarnings <> optWarnings <> unusedImportWarnings))
+                          
       Left err ->
         pure (Left ())
 
 
+importsToWarnings :: [Name] -> [Src.Import] -> [Warning.Warning]
+importsToWarnings unusedNames imports =
+  importsToWarningsHelper unusedNames imports []
+
+
+importsToWarningsHelper :: [Name] -> [Src.Import] -> [Warning.Warning] -> [Warning.Warning]
+importsToWarningsHelper unusedNames imports warnings =
+  case imports of
+    [] -> warnings
+    (Src.Import (A.At region name) _ _) : remainingImports ->
+      if any (\unusedName -> unusedName == name) unusedNames
+        then importsToWarningsHelper unusedNames remainingImports (Warning.UnusedImport region name : warnings)
+        else importsToWarningsHelper unusedNames remainingImports warnings
+
+
+defaultImports :: Set.Set Name
+defaultImports =
+  Set.fromList
+    [ "Basics"
+    , "Char"
+    , "Debug"
+    , "List"
+    , "Maybe"
+    , "Platform"
+    , "Platform.Cmd"
+    , "Platform.Sub"
+    , "Result"
+    , "String"
+    , "Tuple"
+    ]
+
 
 -- Helpers
 
+collectUsedImports :: Opt.LocalGraph -> Set.Set Name
+collectUsedImports ocalGraph@(Opt.LocalGraph _ nodes fields) =
+  Set.fromList $ findModules (Map.elems nodes) []
+
+
+findModules :: [Opt.Node] -> [Name] -> [Name]
+findModules nodes names =
+  case nodes of
+    [] -> names
+    
+    Opt.Define expr globals : remainingNodes ->
+      findModules remainingNodes (findModulesInExpr expr <> setGloablToNames globals <> names)
+
+    Opt.DefineTailFunc _ expr globals : remainingNodes ->
+      findModules remainingNodes (findModulesInExpr expr <> setGloablToNames globals <> names)
+
+    Opt.Link (Opt.Global (ModuleName.Canonical _ name) _) : remainingNodes ->
+      findModules remainingNodes (name : names)
+
+    Opt.Cycle _ pairsNameExpr defs globals : remainingNodes ->
+      findModules remainingNodes
+        (concatMap (\(_, expr) -> findModulesInExpr expr) pairsNameExpr
+          <> concatMap
+              (\def ->
+                case def of
+                  Opt.Def _ defExpr ->
+                    findModulesInExpr defExpr
+
+                  Opt.TailDef _ _ defExpr ->
+                    findModulesInExpr defExpr
+              )
+              defs
+          <> setGloablToNames globals
+          <> names
+        )
+
+    Opt.PortIncoming expr globals : remainingNodes ->
+      findModules remainingNodes (findModulesInExpr expr <> setGloablToNames globals <> names)
+
+    Opt.PortOutgoing expr globals : remainingNodes ->
+      findModules remainingNodes (findModulesInExpr expr <> setGloablToNames globals <> names)
+
+    _ : remainingNodes ->
+      findModules remainingNodes names
+
+  where
+    setGloablToNames globals = fmap (\(Opt.Global (ModuleName.Canonical _ name) _) -> name) $ Set.toList globals
+
+
+findModulesInExpr :: Opt.Expr -> [Name]
+findModulesInExpr expr =
+  case expr of
+    -- These have expressions which may have global names aka module names
+    Opt.Function _ expr_ ->
+      findModulesInExpr expr_
+
+    Opt.Call leftExpr rightExprs ->
+      findModulesInExpr leftExpr <>  concatMap findModulesInExpr rightExprs
+
+    Opt.List exprs ->
+      concatMap findModulesInExpr exprs
+
+    Opt.TailCall _ pairsNameEpxr ->
+      concatMap (\(_,expr_) ->findModulesInExpr expr_) pairsNameEpxr
+
+    Opt.If pairsExprExpr expr_ ->
+      concatMap (\(leftExpr,rightExpr) -> findModulesInExpr leftExpr <> findModulesInExpr rightExpr) pairsExprExpr
+        <> findModulesInExpr expr_
+
+    Opt.Let (Opt.Def _ defExpr) expr_ ->
+      findModulesInExpr defExpr <> findModulesInExpr expr_
+
+    Opt.Let (Opt.TailDef _ _ defExpr) expr_ ->
+      findModulesInExpr defExpr <> findModulesInExpr expr_
+
+    Opt.Destruct _ expr_ ->
+      findModulesInExpr expr_
+
+    Opt.Case _ _ decider pairsIntExpr ->
+      (concatMap findModulesInExpr $ deciderToExprs decider)
+        <> concatMap (\(_, expr_) -> findModulesInExpr expr_) pairsIntExpr
+
+    Opt.Access expr_ _ ->
+      findModulesInExpr expr_
+
+    Opt.Update expr_ mapNameExprs ->
+      findModulesInExpr expr_ <> (concatMap findModulesInExpr $ Map.elems mapNameExprs)
+
+    Opt.Record mapNameExprs ->
+      concatMap findModulesInExpr $ Map.elems mapNameExprs
+
+    Opt.Tuple expr1 expr2 Nothing ->
+      findModulesInExpr expr1 <> findModulesInExpr expr2
+
+    Opt.Tuple expr1 expr2 (Just expr3) ->
+      findModulesInExpr expr1 <> findModulesInExpr expr2 <> findModulesInExpr expr3
+
+    -- These are the only expressions with module names
+    Opt.VarGlobal (Opt.Global (ModuleName.Canonical _ name) _) -> [name]
+    Opt.VarEnum (Opt.Global (ModuleName.Canonical _ name) _) _ -> [name]
+    Opt.VarBox (Opt.Global (ModuleName.Canonical _ name) _) -> [name]
+
+    -- Everything else doesn't have child expressions or a module name
+    _ -> []
+
+
+deciderToExprs :: Opt.Decider Opt.Choice -> [Opt.Expr]
+deciderToExprs decider =
+  case decider of
+    Opt.Leaf (Opt.Inline expr) ->
+      [expr]
+
+    Opt.Leaf (Opt.Jump _) ->
+      []
+
+    Opt.Chain _ success failure ->
+      deciderToExprs success <> deciderToExprs failure
+
+    Opt.FanOut _ tests fallback ->
+      concatMap (\(_,decider_) -> deciderToExprs decider_) tests <> deciderToExprs fallback
 
 
 runTaskUnsafe :: Task.Task Exit.Reactor a -> IO a
