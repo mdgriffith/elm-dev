@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Watchtower.Find
-  ( definitionAndPrint,
+  ( definition,
   )
 where
 
@@ -50,23 +50,8 @@ import qualified Watchtower.Details
 
 {- Find Definition -}
 
--- |
---  Given file name and coords (line and char)
---  1. Find which name is at the coordinates
---
---  2. Resolve definition source
---
---    2.a Qualified call
---        -> resolve Qualification to full module name
---        -> resolve full module name to file path
---        -> read file, get coordinates of definition
---
---    2.b Unqualified call
---        -> Check variables in local scope
---        -> Else, check top level values in file
---        -> Else, check interface for modules with exposed values
-definitionAndPrint :: FilePath -> Watchtower.Details.PointLocation -> IO Json.Encode.Value
-definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
+definition :: FilePath -> Watchtower.Details.PointLocation -> IO Json.Encode.Value
+definition root (Watchtower.Details.PointLocation path point) = do
   Right (Compile.Artifacts modul typeMap localGraph) <- 
     Ext.CompileProxy.loadSingleArtifacts root path
 
