@@ -13,9 +13,9 @@ type Msg =
   | { msg: "Discover"; details: String }
   | { msg: "Changed"; details: { path: String } }
   | {
-      msg: "Watched";
-      details: { path: String; warnings: Boolean; docs: Boolean }[];
-    };
+    msg: "Watched";
+    details: { path: String; warnings: Boolean; docs: Boolean }[];
+  };
 
 const discover = (roots: String): Msg => {
   return { msg: "Discover", details: roots };
@@ -47,19 +47,19 @@ type Project = {
 function socketConnect(options) {
   const websocket = new WebSocketClient();
 
-  websocket.on("connectFailed", function (error) {
+  websocket.on("connectFailed", function(error) {
     log.log("Connect Error: " + error.toString());
     options.onConnectionFailed(error);
   });
 
-  websocket.on("connect", function (connection) {
-    connection.on("error", function (error) {
+  websocket.on("connect", function(connection) {
+    connection.on("error", function(error) {
       log.log("Connection Error: " + error.toString());
     });
-    connection.on("close", function () {
+    connection.on("close", function() {
       log.log("Connection Closed");
     });
-    connection.on("message", function (message) {
+    connection.on("message", function(message) {
       if (message.type === "utf8") {
         options.receive(message.utf8Data);
       }
@@ -161,7 +161,7 @@ export class Watchtower {
 
   private onConnectionFailed(error) {
     const self = this;
-    this.retry = setTimeout(function () {
+    this.retry = setTimeout(function() {
       log.log("Reattempting connection");
       socketConnect({
         url: Question.urls.websocket,
@@ -368,7 +368,7 @@ function prepareRanges(ranges) {
 // Definition Provider
 
 export class ElmDefinitionProvider implements vscode.DefinitionProvider {
-  constructor() {}
+  constructor() { }
   public provideDefinition(
     document: vscode.TextDocument,
     position: vscode.Position,
@@ -383,8 +383,6 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
           position.character + 1
         ),
         (resp) => {
-          log.log("FOUND DEFINITION!");
-          log.log(JSON.stringify(resp));
           if (!resp) {
             resolve(null);
           } else {
@@ -398,7 +396,7 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
             resolve(new vscode.Location(uri, new vscode.Range(start, end)));
           }
         },
-        (err) => {}
+        reject
       );
     });
   }

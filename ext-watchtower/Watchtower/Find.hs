@@ -67,94 +67,68 @@ import qualified Watchtower.Details
 --        -> Else, check interface for modules with exposed values
 definitionAndPrint :: FilePath -> Watchtower.Details.PointLocation -> IO Json.Encode.Value
 definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
-  mSource <- Ext.CompileProxy.loadSingleArtifacts root path
-  case mSource of
-    Left err ->
-      do
-        debug $ "There was an error reading the source: \n " ++ show err
-        pure Json.Encode.null
-    Right (Compile.Artifacts modul typeMap localGraph) -> do
-      let found =
-            modul
-              & Can._decls
-              & findAtPoint point
-      case found of
-        FoundNothing ->
-          do
-            debug "Found nothing :("
-            pure (encodeSearchResult found)
-        FoundExpr expr ->
-          do
-            let locationDetails = getLocatedDetails expr
-            case locationDetails of
-              Nothing ->
-                do
-                  debug "Nothing found"
-                  debug $ show found
-                  pure (encodeSearchResult found)
+  Right (Compile.Artifacts modul typeMap localGraph) <- 
+    Ext.CompileProxy.loadSingleArtifacts root path
 
-              Just (Local localName) ->
-                do
-                  debug "Found local"
-                  debug $ show found
-                  pure (encodeSearchResult found)
+  let found = modul & Can._decls & findAtPoint point
 
-              Just (External canMod name) ->
-                findExternalWith findFirstValueNamed name Src._values canMod
-              
-              Just (Ctor canMod name) ->
-                findExternalWith findFirstCtorNamed name Src._unions canMod
+  case found of
+    FoundNothing ->
+      pure Json.Encode.null
 
-              where 
-                findExternalWith fn name listAccess canMod =
-                  do
-                    details <- Ext.CompileProxy.loadProject
+    FoundExpr expr -> do
+      case getLocatedDetails expr of
+        Nothing -> do
+          fail "could not locate expression"
 
-                    case lookupModulePath details canMod of
-                      Nothing ->
-                        do
-                          debug "Could not find path"
-                          debug $ show found
-                          pure (encodeSearchResult found)
-                      Just targetPath ->
-                        do
-                          eitherSource <- Ext.CompileProxy.loadFileSource root targetPath
+        Just locatedValue ->
+          findLocatedValue root locatedValue
 
-                          case eitherSource of
-                            Right (stringSource, sourceMod) ->
-                              do
-                                let finalResult = sourceMod & listAccess & fn name 
-            
-                                debug "getting there"
-                                pure
-                                  ( case finalResult of
-                                      Nothing -> Json.Encode.null
-                                      Just (A.At region val) ->
-                                        Json.Encode.object
-                                          [ ( "definition",
-                                              Json.Encode.object
-                                                [ ("region", Watchtower.Details.encodeRegion region),
-                                                  ("path", Json.Encode.string (Json.String.fromChars targetPath))
-                                                ]
-                                            ),
-                                            ("module", Util.encodeModuleName canMod),
-                                            ("package", Util.encodeModulePackage canMod),
-                                            ("name", Util.encodeName name)
-                                          ]
-                                  )
-                            Left err ->
-                              do
-                                debug $ show err
-                                pure (encodeSearchResult found)
+    FoundPattern _ -> do
+      fail "not implemented"
 
 
+findLocatedValue root located =
+  case located of 
+    Local localName -> do
+      fail "not implemented"
 
-        FoundPattern _ ->
-          do
-            debug "Found a pattern, but who cares really?"
-            debug $ show found
+    External canMod name ->
+      findExternalWith findFirstValueNamed name Src._values canMod
 
-            pure (encodeSearchResult found)
+    Ctor canMod name ->
+      findExternalWith findFirstCtorNamed name Src._unions canMod
+
+  where 
+    findExternalWith findFn name listAccess canMod = do
+      details <- Ext.CompileProxy.loadProject
+
+      case lookupModulePath details canMod of
+        Nothing ->
+          fail "could not find path"
+
+        Just targetPath -> do
+          Right (stringSource, sourceMod) <- Ext.CompileProxy.loadFileSource root targetPath
+
+          let result = findFn name (listAccess sourceMod)
+
+          case result of
+              Nothing -> 
+                pure Json.Encode.null
+
+              Just (A.At region val) ->
+                pure $ Json.Encode.object
+                  [ ( "definition",
+                      Json.Encode.object
+                        [ ("region", Watchtower.Details.encodeRegion region),
+                          ("path", Json.Encode.string (Json.String.fromChars targetPath))
+                        ]
+                    ),
+                    ("module", Util.encodeModuleName canMod),
+                    ("package", Util.encodeModulePackage canMod),
+                    ("name", Util.encodeName name)
+                  ]
+
 
 lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
 lookupModulePath details canModuleName =
@@ -262,18 +236,6 @@ data SearchResult
   | FoundPattern Can.Pattern
   deriving (Show)
 
-encodeSearchResult :: SearchResult -> Json.Encode.Value
-encodeSearchResult searchResult =
-  case searchResult of
-    FoundNothing -> Json.Encode.string "nothing found ;("
-    FoundExpr expr ->
-      case getLocatedDetails expr of
-        Just jsonDetails ->
-          encodeLocatedValue jsonDetails
-        Nothing ->
-          Json.Encode.string "found expr, but no details to extract!"
-    FoundPattern pattern ->
-      Json.Encode.string "found pattern"
 
 findAtPoint :: A.Position -> Can.Decls -> SearchResult
 findAtPoint point decls =
