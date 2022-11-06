@@ -100,6 +100,7 @@ definition root (Watchtower.Details.PointLocation path point) = do
             & encodeResult targetPath
             & pure
 
+
 encodeResult :: FilePath -> Maybe (A.Located a) -> Json.Encode.Value
 encodeResult path result =
   case result of 
@@ -270,20 +271,22 @@ defNamePattern def =
 
 findExpr :: A.Position -> [Can.Pattern] -> Can.Expr -> SearchResult
 findExpr point foundPatterns expr@(A.At region expr_) =
-  if withinRegion point region
-    then case refineMatch point foundPatterns expr_ of
+  if withinRegion point region then 
+    case refineExprMatch point foundPatterns expr_ of
       FoundNothing ->
         FoundExpr expr foundPatterns
+
       refined ->
         refined
-    else FoundNothing
+  else 
+      FoundNothing
 
 isWithinLocation :: A.Position -> A.Located a -> Bool
 isWithinLocation pos (A.At region a) =
   withinRegion pos region
 
-refineMatch :: A.Position -> [Can.Pattern] -> Can.Expr_ -> SearchResult
-refineMatch point foundPatterns expr_ =
+refineExprMatch :: A.Position -> [Can.Pattern] -> Can.Expr_ -> SearchResult
+refineExprMatch point foundPatterns expr_ =
   case expr_ of
     Can.List exprs ->
       findFirstInList dive exprs
@@ -372,10 +375,46 @@ refineMatch point foundPatterns expr_ =
 
 
 findPattern :: A.Position -> Can.Pattern -> SearchResult
-findPattern point pattern@(A.At region patt) =
-  if withinRegion point region
-    then FoundPattern pattern
-    else FoundNothing
+findPattern point pattern@(A.At region pattern_) =
+  if withinRegion point region then 
+    case refinePatternMatch point pattern_ of
+      FoundNothing ->
+        FoundPattern pattern
+
+      refined ->
+        refined
+  else 
+      FoundNothing
+
+refinePatternMatch :: A.Position -> Can.Pattern_ -> SearchResult
+refinePatternMatch point pattern_ =
+  case pattern_ of
+    Can.PAlias subPattern _ ->
+      dive subPattern
+
+    Can.PTuple a b c ->
+      diveList ([ a, b ] ++ Maybe.maybeToList c)
+
+    Can.PList subPatterns ->
+      diveList subPatterns
+
+    Can.PCons a b ->
+      diveList [ a, b ]
+
+    Can.PCtor _ _ _ _ _ args ->
+      args 
+          & map Can._arg
+          & diveList
+
+    _ ->
+      FoundNothing
+      
+  where
+    dive = findPattern point
+
+    diveList = findFirstInList dive
+
+
 
 orFind :: (t -> SearchResult) -> t -> SearchResult -> SearchResult
 orFind toNewResult val existing =
