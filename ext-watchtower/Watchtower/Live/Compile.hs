@@ -150,7 +150,7 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
 
                           Right (src, warnings) ->
                               do
-                                Ext.Common.log "Sending down warnings" "!"
+                                Ext.Common.log ("Sending down " <> show (length warnings) <> " warnings") "!"
                                 Client.broadcast mClients
                                   (Client.Warnings top (Reporting.Render.Type.Localizer.fromModule src) warnings)
                                 pure ()

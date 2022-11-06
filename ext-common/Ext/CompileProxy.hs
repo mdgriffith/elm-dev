@@ -233,14 +233,9 @@ warnings root path =
                         
                         Right localGraph -> do
                           let importNames = Set.fromList $ fmap Src.getImportName imports
-                          let usedDefaultImports = Set.difference importNames defaultImports
                           let usedModules = collectUsedImports localGraph
-                          let carl = Set.difference importNames usedModules
-                          Ext.Common.debug $ ("carl 1: " <> show carl <> "\n")
-                          let unusedImports = Set.difference (carl) usedDefaultImports
-                          Ext.Common.debug $ ("carl 2: " <> show unusedImports <> "\n")
+                          let unusedImports = Set.difference importNames usedModules
                           let unusedImportWarnings = importsToWarnings (Set.toList unusedImports) imports
-                          -- Ext.Common.debug $ ("carl 2: " <> show unusedImportWarnings <> "\n")
 
                           pure (Right (srcModule, canWarnings <> optWarnings <> unusedImportWarnings))
                           
@@ -262,22 +257,6 @@ importsToWarningsHelper unusedNames imports warnings =
         then importsToWarningsHelper unusedNames remainingImports (Warning.UnusedImport region name : warnings)
         else importsToWarningsHelper unusedNames remainingImports warnings
 
-
-defaultImports :: Set.Set Name
-defaultImports =
-  Set.fromList
-    [ "Basics"
-    , "Char"
-    , "Debug"
-    , "List"
-    , "Maybe"
-    , "Platform"
-    , "Platform.Cmd"
-    , "Platform.Sub"
-    , "Result"
-    , "String"
-    , "Tuple"
-    ]
 
 
 -- Helpers
