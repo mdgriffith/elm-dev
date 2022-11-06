@@ -88,6 +88,7 @@ definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
       fail "not implemented"
 
 
+findLocatedValue :: FilePath -> LocatedValue -> IO Json.Encode.Value
 findLocatedValue root located =
   case located of 
     Local localName -> do
