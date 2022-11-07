@@ -76,20 +76,6 @@ definition root (Watchtower.Details.PointLocation path point) = do
     FoundPattern _ ->
       pure Json.Encode.null
   where
-    encodeResult path result =
-      case result of
-        Nothing ->
-          Json.Encode.null
-        Just (A.At region _) ->
-          Json.Encode.object
-            [ ( "definition",
-                Json.Encode.object
-                  [ ("region", Watchtower.Details.encodeRegion region),
-                    ("path", Json.Encode.string (Json.String.fromChars path))
-                  ]
-              )
-            ]
-
     findExternalWith findFn name listAccess canMod = do
       details <- Ext.CompileProxy.loadProject
 
