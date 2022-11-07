@@ -261,7 +261,7 @@ defNamePattern def =
       A.At region $ Can.PVar name
 
 
-findExpr :: A.Position -> [Can.Pattern] -> Can.Expr  -> SearchResult
+findExpr :: A.Position -> [Can.Pattern] -> Can.Expr -> SearchResult
 findExpr point foundPatterns expr@(A.At region expr_) =
   if withinRegion point region
     then case refineMatch point foundPatterns expr_ of
