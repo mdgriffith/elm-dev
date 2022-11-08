@@ -37,6 +37,7 @@ type Reason
     | Invalid InvalidReason
 
 
+reasonToString : Reason -> String
 reasonToString reason =
     case reason of
         Custom ->

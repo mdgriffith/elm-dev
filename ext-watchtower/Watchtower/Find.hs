@@ -51,10 +51,14 @@ import qualified Watchtower.Details
 
 definition :: FilePath -> Watchtower.Details.PointLocation -> IO Json.Encode.Value
 definition root (Watchtower.Details.PointLocation path point) = do
-  Right (Compile.Artifacts modul typeMap localGraph) <-
+  Right (Compile.Artifacts canMod typeMap localGraph) <-
     Ext.CompileProxy.loadSingleArtifacts root path
 
-  let found = modul & Can._decls & findAtPoint point
+  Right (_, srcMod) <- Ext.CompileProxy.loadFileSource root path
+
+  -- PERF: Parse only once ^
+
+  let found = findAtPoint point canMod srcMod
 
   case found of
     FoundNothing ->
@@ -67,13 +71,16 @@ definition root (Watchtower.Details.PointLocation path point) = do
           findFirstPatternIntroducing localName patterns
             & encodeResult path
             & pure
-        Just (External canMod name) ->
-          findExternalWith findFirstValueNamed name Src._values canMod
-        Just (Ctor canMod name) ->
-          findExternalWith findFirstCtorNamed name Src._unions canMod
-    FoundPattern (A.At _ (Can.PCtor canMod _ _ ctorName _ _)) ->
-      findExternalWith findFirstCtorNamed ctorName Src._unions canMod
+        Just (External extCanMod name) ->
+          findExternalWith findFirstValueNamed name Src._values extCanMod
+        Just (Ctor extCanMod name) ->
+          findExternalWith findFirstCtorNamed name Src._unions extCanMod
+    FoundPattern (A.At _ (Can.PCtor extCanMod _ _ ctorName _ _)) ->
+      findExternalWith findFirstCtorNamed ctorName Src._unions extCanMod
     FoundPattern _ ->
+      pure Json.Encode.null
+    FoundType tipe -> do
+      debug $ show tipe
       pure Json.Encode.null
   where
     findExternalWith findFn name listAccess canMod = do
@@ -118,17 +125,25 @@ data SearchResult
   = FoundNothing
   | FoundExpr Can.Expr [Can.Pattern]
   | FoundPattern Can.Pattern
+  | FoundType Src.Type
   deriving (Show)
 
-findAtPoint :: A.Position -> Can.Decls -> SearchResult
-findAtPoint point decls =
+findAtPoint :: A.Position -> Can.Module -> Src.Module -> SearchResult
+findAtPoint point canMod srcMod =
+  findAnnotation point (Src._values srcMod)
+    & orFind (findDecl point) (Can._decls canMod)
+    & orFind (findUnion point) (Src._unions srcMod)
+    & orFind (findAlias point) (Src._aliases srcMod)
+
+findDecl :: A.Position -> Can.Decls -> SearchResult
+findDecl point decls =
   case decls of
     Can.SaveTheEnvironment ->
       FoundNothing
     Can.Declare def next ->
       case findDef point [] def of
         FoundNothing ->
-          findAtPoint point next
+          findDecl point next
         found ->
           found
     Can.DeclareRec def defs next ->
@@ -136,7 +151,7 @@ findAtPoint point decls =
       case findDef point [] def of
         FoundNothing ->
           findFirstInList (findDef point []) defs
-            & orFind (findAtPoint point) next
+            & orFind (findDecl point) next
         found ->
           found
 
@@ -292,7 +307,66 @@ findFirstInList toNewResult vals =
         searchResult ->
           searchResult
 
--- Classify matched expression so we know where to search
+findRegion :: A.Position -> (a -> SearchResult) -> [A.Located a] -> SearchResult
+findRegion point findFn =
+  findFirstInList
+    ( \(A.At region node) ->
+        if withinRegion point region
+          then findFn node
+          else FoundNothing
+    )
+
+findAnnotation :: A.Position -> [A.Located Src.Value] -> SearchResult
+findAnnotation point =
+  findFirstInList
+    ( \(A.At _ (Src.Value _ _ _ typeAnn)) ->
+        maybe FoundNothing (findType point) typeAnn
+    )
+
+findAlias :: A.Position -> [A.Located Src.Alias] -> SearchResult
+findAlias point = findRegion point (\(Src.Alias _ _ type_) -> findType point type_)
+
+findUnion :: A.Position -> [A.Located Src.Union] -> SearchResult
+findUnion point =
+  findRegion
+    point
+    ( \(Src.Union _ _ ctors) ->
+        findFirstInList (findFirstInList (findType point) . snd) ctors
+    )
+
+findType :: A.Position -> Src.Type -> SearchResult
+findType point tipe@(A.At region type_) =
+  if withinRegion point region
+    then case refineTypeMatch point type_ of
+      FoundNothing ->
+        FoundType tipe
+      refined ->
+        refined
+    else FoundNothing
+
+refineTypeMatch :: A.Position -> Src.Type_ -> SearchResult
+refineTypeMatch point type_ =
+  case type_ of
+    Src.TLambda arg ret ->
+      dive arg
+        & orFind dive ret
+    Src.TVar _ ->
+      FoundNothing
+    Src.TType _ _ tvars ->
+      findFirstInList dive tvars
+    Src.TTypeQual _ _ _ tvars ->
+      findFirstInList dive tvars
+    Src.TRecord fields extRecord ->
+      -- TODO: Check extRecord
+      findFirstInList (dive . snd) fields
+    Src.TUnit ->
+      FoundNothing
+    Src.TTuple a b rest ->
+      findFirstInList dive (a : b : rest)
+  where
+    dive = findType point
+
+-- Classify matched expression or type so we know where to search
 
 data LocatedValue
   = Local Name
