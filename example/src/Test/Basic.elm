@@ -27,6 +27,9 @@ reasonToString reason =
         Equality a b ->
             a ++ "=" ++ b
 
+        Invalid EmptyList ->
+            "empty list"
+
         _ ->
             "Not implemented"
 

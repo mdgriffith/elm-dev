@@ -55,14 +55,19 @@ import qualified Watchtower.Details
 
 definition :: FilePath -> Watchtower.Details.PointLocation -> IO Json.Encode.Value
 definition root (Watchtower.Details.PointLocation path point) = do
-  Right (Compile.Artifacts canMod typeMap localGraph) <-
-    Ext.CompileProxy.loadSingleArtifacts root path
-
   Right (_, srcMod) <- Ext.CompileProxy.loadFileSource root path
 
-  -- PERF: Parse only once ^
+  let foundType = findTypeAtPoint point srcMod
 
-  let found = findAtPoint point canMod srcMod
+  found <-
+    case foundType of
+      FoundNothing -> do
+        Right (Compile.Artifacts canMod _ _) <-
+          Ext.CompileProxy.loadSingleArtifactsWithSource root path srcMod
+
+        pure $ findDeclAtPoint point (Can._decls canMod)
+      existing ->
+        pure existing
 
   case found of
     FoundNothing ->
@@ -100,7 +105,7 @@ definition root (Watchtower.Details.PointLocation path point) = do
 
       case lookupModulePath details canMod of
         Nothing ->
-          fail "could not find path"
+          fail "Could not find path"
         Just targetPath -> do
           Right (_, sourceMod) <- Ext.CompileProxy.loadFileSource root targetPath
 
@@ -140,22 +145,21 @@ data SearchResult
   | FoundType Src.Type
   deriving (Show)
 
-findAtPoint :: A.Position -> Can.Module -> Src.Module -> SearchResult
-findAtPoint point canMod srcMod =
+findTypeAtPoint :: A.Position -> Src.Module -> SearchResult
+findTypeAtPoint point srcMod =
   findAnnotation point (Src._values srcMod)
-    & orFind (findDecl point) (Can._decls canMod)
     & orFind (findUnion point) (Src._unions srcMod)
     & orFind (findAlias point) (Src._aliases srcMod)
 
-findDecl :: A.Position -> Can.Decls -> SearchResult
-findDecl point decls =
+findDeclAtPoint :: A.Position -> Can.Decls -> SearchResult
+findDeclAtPoint point decls =
   case decls of
     Can.SaveTheEnvironment ->
       FoundNothing
     Can.Declare def next ->
       case findDef point [] def of
         FoundNothing ->
-          findDecl point next
+          findDeclAtPoint point next
         found ->
           found
     Can.DeclareRec def defs next ->
@@ -163,7 +167,7 @@ findDecl point decls =
       case findDef point [] def of
         FoundNothing ->
           findFirstInList (findDef point []) defs
-            & orFind (findDecl point) next
+            & orFind (findDeclAtPoint point) next
         found ->
           found
 

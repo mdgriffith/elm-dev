@@ -166,6 +166,13 @@ loadFileSource root path = do
       Left err ->
         pure $ Left err
 
+loadSingleArtifactsWithSource :: FilePath -> FilePath -> Src.Module -> IO (Either Reporting.Error.Error Compile.Artifacts)
+loadSingleArtifactsWithSource root path srcMod =
+  Dir.withCurrentDirectory root $ do
+    ifaces <- allInterfaces [path]
+    pure $ Compile.compile Pkg.dummyName ifaces srcMod
+
+
 loadCanonicalizeEnv ::
   FilePath ->
   FilePath ->
