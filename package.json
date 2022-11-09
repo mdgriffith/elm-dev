@@ -1,5 +1,5 @@
 {
-  "name": "elm-watchtower",
+  "name": "elm-dev",
   "version": "1.0.0",
   "description": "Elm editor tooling based on the Elm compiler!",
   "main": "index.js",
@@ -9,6 +9,10 @@
   "private": true,
   "scripts": {
     "vscode": "yarn --cwd watchtower-frontends/vscode",
-    "watchtower": "stack ghci"
+    "watchtower": "stack ghci",
+    "install:system": "stack install",
+    "install:vscode": "stack --local-bin-path ./watchtower-frontends/vscode/out install",
+    "prepare:vscode": "yarn install:vscode ; (cd watchtower-frontends/vscode ; yarn package)",
+    "build": "stack build"
   }
 }

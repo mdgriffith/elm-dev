@@ -29,7 +29,7 @@ compileMode = unsafePerformIO $ do
           Just "disk" -> Disk
           Just "memory" -> Memory
           Just "race" -> Race
-          _ -> Race
+          _ -> Disk
   debug $ "setting compile mode: " <> show mode
   newMVar mode
 

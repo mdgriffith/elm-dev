@@ -26,10 +26,10 @@ start :: Terminal.Command
 start =
   let
     summary =
-      "The watchtower development experience dreams are made of."
+      "The Elm development experience dreams are made of."
 
     details =
-      "The `start` command starts the watchtower server on your computer:"
+      "The `start` command starts the Elm Dev server on your computer:"
 
     example =
       reflow
@@ -38,7 +38,7 @@ start =
 
     serverFlags =
       flags Flags
-        |-- flag "port" port_ "The port of the watchtower server (default: 4747)"
+        |-- flag "port" port_ "The port of the Elm Dev server (default: 4747)"
   in
   Terminal.Command "start" (Common summary) details example (optional dir) serverFlags run
 
@@ -48,7 +48,7 @@ intro =
   P.vcat
     [ P.fillSep
         ["Hi,","thank","you","for","trying","out"
-        ,P.green "Elm Watchtower."
+        ,P.green "Elm Dev."
         ," I hope you like it!"
         ]
     , ""
@@ -59,9 +59,7 @@ intro =
 outro :: P.Doc
 outro =
   P.fillSep $ map P.text $ words $
-    "Be sure to ask on the Elm slack if you run into trouble! Folks are friendly and\
-    \ happy to help out. They hang out there because it is fun, so be kind to get the\
-    \ best results!"
+    "Happy hacking!"
 
 
 port_ :: Parser Int
