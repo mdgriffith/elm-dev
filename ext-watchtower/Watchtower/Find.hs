@@ -9,7 +9,10 @@ import AST.Canonical (Type (..))
 import qualified AST.Canonical as Can
 import qualified AST.Optimized as Opt
 import qualified AST.Source as Src
+import qualified Canonicalize.Environment
+import qualified Canonicalize.Type
 import qualified Compile
+import Control.Applicative ((<|>))
 import qualified Data.Binary.Get as Map
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -40,6 +43,7 @@ import qualified Reporting.Annotation as A
 import qualified Reporting.Doc as D
 import Reporting.Error.Docs (SyntaxProblem (Name))
 import qualified Reporting.Exit as Exit
+import qualified Reporting.Result
 import StandaloneInstances
 import qualified Stuff as PerUserCache
 import qualified System.Directory as Dir
@@ -65,8 +69,7 @@ definition root (Watchtower.Details.PointLocation path point) = do
       pure Json.Encode.null
     FoundExpr expr patterns ->
       case getLocatedDetails expr of
-        Nothing -> do
-          fail ("Could not locate expression: " ++ show expr)
+        Nothing -> fail ("Could not locate expression: " ++ show expr)
         Just (Local localName) ->
           findFirstPatternIntroducing localName patterns
             & encodeResult path
@@ -80,8 +83,17 @@ definition root (Watchtower.Details.PointLocation path point) = do
     FoundPattern _ ->
       pure Json.Encode.null
     FoundType tipe -> do
-      debug $ show tipe
-      pure Json.Encode.null
+      Right env <- Ext.CompileProxy.loadCanonicalizeEnv root path srcMod
+
+      let (_, eitherCanType) = Reporting.Result.run $ Canonicalize.Type.canonicalize env tipe
+
+      case eitherCanType of
+        Left err ->
+          fail $ "Could not canonicalize type: " ++ show err
+        Right (Can.TType extCanMod name _) ->
+          findExternalWith findFirstTypeNamed name id extCanMod
+        Right _ ->
+          pure Json.Encode.null
   where
     findExternalWith findFn name listAccess canMod = do
       details <- Ext.CompileProxy.loadProject
@@ -179,7 +191,7 @@ findExpr point foundPatterns expr@(A.At region expr_) =
 
 withinRegion :: A.Position -> A.Region -> Bool
 withinRegion (A.Position row col) (A.Region (A.Position startRow startCol) (A.Position endRow endCol)) =
-  ((row == startRow && col >= startCol) || row > startRow) && ((row == endRow && col <= endCol) || row < endRow)
+  (row == startRow && col >= startCol || row > startRow) && (row == endRow && col <= endCol || row < endRow)
 
 refineExprMatch :: A.Position -> [Can.Pattern] -> Can.Expr_ -> SearchResult
 refineExprMatch point foundPatterns expr_ =
@@ -491,6 +503,21 @@ findPatternIntroducing name pattern@(A.At _ pattern_) =
   where
     inList =
       findFirstJust (findPatternIntroducing name)
+
+findFirstTypeNamed :: Name.Name -> Src.Module -> Maybe (A.Located ())
+findFirstTypeNamed name mod =
+  findFirstJust findAlias (Src._aliases mod)
+    <|> findFirstJust findUnion (Src._unions mod)
+  where
+    findAlias (A.At region (Src.Alias (A.At _ aliasName) _ _)) =
+      if name == aliasName
+        then Just (A.At region ())
+        else Nothing
+
+    findUnion (A.At region (Src.Union (A.At _ unionName) _ _)) =
+      if name == unionName
+        then Just (A.At region ())
+        else Nothing
 
 -- Helpers
 
