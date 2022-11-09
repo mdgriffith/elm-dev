@@ -294,7 +294,7 @@ ask state question =
                 f
        in do
             root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-            Watchtower.Find.definitionAndPrint root location
+            Watchtower.Find.definition root location
               & fmap Json.Encode.encodeUgly
 
     FindAllInstancesPlease location ->

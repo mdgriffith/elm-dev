@@ -385,8 +385,6 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
           position.character + 1,
         ),
         (resp) => {
-          log.log("FOUND DEFINITION!");
-          log.log(JSON.stringify(resp));
           if (!resp) {
             resolve(null);
           } else {
@@ -400,7 +398,7 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
             resolve(new vscode.Location(uri, new vscode.Range(start, end)));
           }
         },
-        (err) => {},
+        reject
       );
     });
   }

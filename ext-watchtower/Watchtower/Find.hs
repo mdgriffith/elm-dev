@@ -1,8 +1,7 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Watchtower.Find
-  ( definitionAndPrint,
+  ( definition,
   )
 where
 
@@ -50,111 +49,58 @@ import qualified Watchtower.Details
 
 {- Find Definition -}
 
--- |
---  Given file name and coords (line and char)
---  1. Find which name is at the coordinates
---
---  2. Resolve definition source
---
---    2.a Qualified call
---        -> resolve Qualification to full module name
---        -> resolve full module name to file path
---        -> read file, get coordinates of definition
---
---    2.b Unqualified call
---        -> Check variables in local scope
---        -> Else, check top level values in file
---        -> Else, check interface for modules with exposed values
-definitionAndPrint :: FilePath -> Watchtower.Details.PointLocation -> IO Json.Encode.Value
-definitionAndPrint root (Watchtower.Details.PointLocation path point) = do
-  mSource <- Ext.CompileProxy.loadSingleArtifacts root path
-  case mSource of
-    Left err ->
-      do
-        debug $ "There was an error reading the source: \n " ++ show err
-        pure Json.Encode.null
-    Right (Compile.Artifacts modul typeMap localGraph) -> do
-      let found =
-            modul
-              & Can._decls
-              & findAtPoint point
-      case found of
-        FoundNothing ->
-          do
-            debug "Found nothing :("
-            pure (encodeSearchResult found)
-        FoundExpr expr ->
-          do
-            let locationDetails = getLocatedDetails expr
-            case locationDetails of
-              Nothing ->
-                do
-                  debug "Nothing found"
-                  debug $ show found
-                  pure (encodeSearchResult found)
+definition :: FilePath -> Watchtower.Details.PointLocation -> IO Json.Encode.Value
+definition root (Watchtower.Details.PointLocation path point) = do
+  Right (Compile.Artifacts modul typeMap localGraph) <-
+    Ext.CompileProxy.loadSingleArtifacts root path
 
-              Just (Local localName) ->
-                do
-                  debug "Found local"
-                  debug $ show found
-                  pure (encodeSearchResult found)
+  let found = modul & Can._decls & findAtPoint point
 
-              Just (External canMod name) ->
-                findExternalWith findFirstValueNamed name Src._values canMod
-              
-              Just (Ctor canMod name) ->
-                findExternalWith findFirstCtorNamed name Src._unions canMod
+  case found of
+    FoundNothing -> do
+      pure Json.Encode.null
+    FoundExpr expr patterns -> do
+      case getLocatedDetails expr of
+        Nothing -> do
+          fail ("Could not locate expression: " ++ show expr)
+        Just (Local localName) -> do
+          findFirstPatternIntroducing localName patterns
+            & encodeResult path
+            & pure
+        Just (External canMod name) ->
+          findExternalWith findFirstValueNamed name Src._values canMod
+        Just (Ctor canMod name) ->
+          findExternalWith findFirstCtorNamed name Src._unions canMod
+      where
+        encodeResult path result =
+          case result of
+            Nothing ->
+              Json.Encode.null
+            Just (A.At region _) ->
+              Json.Encode.object
+                [ ( "definition",
+                    Json.Encode.object
+                      [ ("region", Watchtower.Details.encodeRegion region),
+                        ("path", Json.Encode.string (Json.String.fromChars path))
+                      ]
+                  )
+                ]
 
-              where 
-                findExternalWith fn name listAccess canMod =
-                  do
-                    details <- Ext.CompileProxy.loadProject
+        findExternalWith findFn name listAccess canMod = do
+          details <- Ext.CompileProxy.loadProject
 
-                    case lookupModulePath details canMod of
-                      Nothing ->
-                        do
-                          debug "Could not find path"
-                          debug $ show found
-                          pure (encodeSearchResult found)
-                      Just targetPath ->
-                        do
-                          eitherSource <- Ext.CompileProxy.loadFileSource root targetPath
+          case lookupModulePath details canMod of
+            Nothing ->
+              fail "could not find path"
+            Just targetPath -> do
+              Right (stringSource, sourceMod) <- Ext.CompileProxy.loadFileSource root targetPath
 
-                          case eitherSource of
-                            Right (stringSource, sourceMod) ->
-                              do
-                                let finalResult = sourceMod & listAccess & fn name 
-            
-                                debug "getting there"
-                                pure
-                                  ( case finalResult of
-                                      Nothing -> Json.Encode.null
-                                      Just (A.At region val) ->
-                                        Json.Encode.object
-                                          [ ( "definition",
-                                              Json.Encode.object
-                                                [ ("region", Watchtower.Details.encodeRegion region),
-                                                  ("path", Json.Encode.string (Json.String.fromChars targetPath))
-                                                ]
-                                            ),
-                                            ("module", Util.encodeModuleName canMod),
-                                            ("package", Util.encodeModulePackage canMod),
-                                            ("name", Util.encodeName name)
-                                          ]
-                                  )
-                            Left err ->
-                              do
-                                debug $ show err
-                                pure (encodeSearchResult found)
-
-
-
-        FoundPattern _ ->
-          do
-            debug "Found a pattern, but who cares really?"
-            debug $ show found
-
-            pure (encodeSearchResult found)
+              listAccess sourceMod
+                & findFn name
+                & encodeResult targetPath
+                & pure
+    FoundPattern _ -> do
+      fail "finding patterns, not implemented"
 
 lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
 lookupModulePath details canModuleName =
@@ -163,117 +109,13 @@ lookupModulePath details canModuleName =
     & Map.lookup (ModuleName._module canModuleName)
     & fmap Elm.Details._path
 
-maybeAndThen :: (a -> Maybe b) -> Maybe a -> Maybe b
-maybeAndThen fn may =
-  case may of
-    Nothing ->
-      Nothing
-    Just a ->
-      fn a
-
-getExpressionNameAt ::
-  A.Position ->
-  A.Located Src.Value ->
-  Maybe (Src.VarType, Maybe Name.Name, Name.Name)
-getExpressionNameAt point (v@(A.At region (Src.Value (A.At _ name_) params expr typeM))) =
-  getExpressionNameAtHelper point expr
-
-getExpressionNameAtHelper :: A.Position -> Src.Expr -> Maybe (Src.VarType, Maybe Name.Name, Name.Name)
-getExpressionNameAtHelper point expr =
-  if not (withinRegion point (A.toRegion expr))
-    then Nothing
-    else case A.toValue expr of
-      Src.Chr str ->
-        Nothing
-      Src.Str str ->
-        Nothing
-      Src.Int i ->
-        Nothing
-      Src.Float f ->
-        Nothing
-      Src.Var vType name ->
-        Just (vType, Nothing, name)
-      Src.VarQual vType qual name ->
-        Just (vType, Just qual, name)
-      Src.List exps ->
-        Nothing
-      Src.Op name ->
-        Nothing
-      Src.Negate exp ->
-        Nothing
-      Src.Binops ops expr ->
-        Nothing
-      Src.Lambda patterns expr ->
-        Nothing
-      Src.Call call with ->
-        Nothing
-      Src.If conditions elseExpr ->
-        Nothing
-      Src.Let defs expr ->
-        Nothing
-      Src.Case caseExpr patterns ->
-        Nothing
-      Src.Accessor name ->
-        Nothing
-      Src.Access expr locatedName ->
-        Nothing
-      Src.Update name fields ->
-        Nothing
-      Src.Record fields ->
-        Nothing
-      Src.Unit ->
-        Nothing
-      Src.Tuple one two listThree ->
-        Nothing
-      Src.Shader src types ->
-        Nothing
-
-findFirst :: (a -> Bool) -> [a] -> Maybe a
-findFirst fn vals =
-  case vals of
-    [] ->
-      Nothing
-    top : remain ->
-      if fn top
-        then Just top
-        else findFirst fn remain
-
-findFirstJust :: (t -> Maybe a) -> [t] -> Maybe a
-findFirstJust fn vals =
-  case vals of
-    [] ->
-      Nothing
-    top : remain ->
-      case fn top of
-        Nothing ->
-          findFirstJust fn remain
-        otherwise ->
-          otherwise
-
-withinRegion :: A.Position -> A.Region -> Bool
-withinRegion (A.Position row col) (A.Region (A.Position startRow startCol) (A.Position endRow endCol)) =
-  ((row == startRow && col >= startCol) || row > startRow) && ((row == endRow && col <= endCol) || row < endRow)
-
-{- Searching a Can.AST -}
+-- Match the AST node at the specified position
 
 data SearchResult
   = FoundNothing
-  | FoundExpr Can.Expr
+  | FoundExpr Can.Expr [Can.Pattern]
   | FoundPattern Can.Pattern
   deriving (Show)
-
-encodeSearchResult :: SearchResult -> Json.Encode.Value
-encodeSearchResult searchResult =
-  case searchResult of
-    FoundNothing -> Json.Encode.string "nothing found ;("
-    FoundExpr expr ->
-      case getLocatedDetails expr of
-        Just jsonDetails ->
-          encodeLocatedValue jsonDetails
-        Nothing ->
-          Json.Encode.string "found expr, but no details to extract!"
-    FoundPattern pattern ->
-      Json.Encode.string "found pattern"
 
 findAtPoint :: A.Position -> Can.Decls -> SearchResult
 findAtPoint point decls =
@@ -281,106 +123,114 @@ findAtPoint point decls =
     Can.SaveTheEnvironment ->
       FoundNothing
     Can.Declare def next ->
-      case findDef point def of
+      case findDef point [] def of
         FoundNothing ->
           findAtPoint point next
         found ->
           found
     Can.DeclareRec def defs next ->
-      --   NEED to check defs too!
-      case findDef point def of
+      -- TODO: check defs too!
+      case findDef point [] def of
         FoundNothing ->
-          findFirstInList (findDef point) defs
+          findFirstInList (findDef point []) defs
             & orFind (findAtPoint point) next
         found ->
           found
 
-findDef :: A.Position -> Can.Def -> SearchResult
-findDef point def =
+findDef :: A.Position -> [Can.Pattern] -> Can.Def -> SearchResult
+findDef point foundPatterns def =
   case def of
     Can.Def locatedName patterns expr ->
-      findExpr point expr
+      findExpr point (patterns ++ foundPatterns) expr
     Can.TypedDef locatedName freeVars patternsWithTypes expr type_ ->
-      findExpr point expr
+      findExpr point (map fst patternsWithTypes ++ foundPatterns) expr
 
-findExpr :: A.Position -> Can.Expr -> SearchResult
-findExpr point expr@(A.At region expr_) =
+findExpr :: A.Position -> [Can.Pattern] -> Can.Expr -> SearchResult
+findExpr point foundPatterns expr@(A.At region expr_) =
   if withinRegion point region
-    then case refineMatch point expr_ of
+    then case refineMatch point foundPatterns expr_ of
       FoundNothing ->
-        FoundExpr expr
+        FoundExpr expr foundPatterns
       refined ->
         refined
     else FoundNothing
 
-isWithinLocation :: A.Position -> A.Located a -> Bool
-isWithinLocation pos (A.At region a) =
-  withinRegion pos region
+withinRegion :: A.Position -> A.Region -> Bool
+withinRegion (A.Position row col) (A.Region (A.Position startRow startCol) (A.Position endRow endCol)) =
+  ((row == startRow && col >= startCol) || row > startRow) && ((row == endRow && col <= endCol) || row < endRow)
 
-refineMatch :: A.Position -> Can.Expr_ -> SearchResult
-refineMatch point expr_ =
+refineMatch :: A.Position -> [Can.Pattern] -> Can.Expr_ -> SearchResult
+refineMatch point foundPatterns expr_ =
   case expr_ of
     Can.List exprs ->
-      findFirstInList (findExpr point) exprs
+      findFirstInList dive exprs
     Can.Negate expr ->
-      findExpr point expr
+      dive expr
     Can.Binop name canName otherName annotation exprOne exprTwo ->
-      findExpr point exprOne
-        & orFind (findExpr point) exprTwo
+      dive exprOne
+        & orFind dive exprTwo
     Can.Lambda patterns expr ->
       -- findFirstInList (findPattern point) patterns
       -- & orFind
-      findExpr point expr
+      extendAndDive patterns expr
     Can.Call expr exprs ->
-      findFirstInList (findExpr point) exprs
-        & orFind (findExpr point) expr
+      findFirstInList dive exprs
+        & orFind dive expr
     Can.If listTupleExprs expr ->
       findFirstInList
         ( \(one, two) ->
-            findExpr point one
-              & orFind (findExpr point) two
+            dive one
+              & orFind dive two
         )
         listTupleExprs
-        & orFind (findExpr point) expr
+        & orFind dive expr
     Can.Let def expr ->
-      findDef point def
-        & orFind (findExpr point) expr
+      findDef point foundPatterns def
+        & orFind (extendAndDive [defNamePattern def]) expr
     Can.LetRec defs expr ->
-      findFirstInList (findDef point) defs
-        & orFind (findExpr point) expr
+      findFirstInList (findDef point foundPatterns) defs
+        & orFind (extendAndDive (map defNamePattern defs)) expr
     Can.LetDestruct pattern one two ->
-      -- findPattern point pattern
-      -- & orFind
-      findExpr point one
-        & orFind (findExpr point) two
+      dive one
+        & orFind (extendAndDive [pattern]) two
     Can.Case expr branches ->
-      findExpr point expr
+      dive expr
+        & orFind
+          ( findFirstInList $
+              \(Can.CaseBranch pattern expr) ->
+                extendAndDive [pattern] expr
+          )
+          branches
     Can.Access expr locatedName ->
-      findExpr point expr
+      dive expr
     Can.Update name expr fields ->
       fields
         & Map.toAscList
         & findFirstInList
-          (\(fieldName, Can.FieldUpdate region fieldExpr) -> findExpr point fieldExpr)
-        & orFind (findExpr point) expr
+          (\(fieldName, Can.FieldUpdate region fieldExpr) -> dive fieldExpr)
+        & orFind dive expr
     Can.Record fields ->
       fields
         & Map.toAscList
         & findFirstInList
-          (\(fieldName, fieldExpr) -> findExpr point fieldExpr)
+          (\(fieldName, fieldExpr) -> dive fieldExpr)
     Can.Tuple one two maybeThree ->
-      findExpr point one
-        & orFind (findExpr point) two
-        & orFind
-          ( \maybeExpr ->
-              case maybeExpr of
-                Nothing ->
-                  FoundNothing
-                Just three ->
-                  findExpr point three
-          )
-          maybeThree
+      dive one
+        & orFind dive two
+        & orFind (maybe FoundNothing dive) maybeThree
     _ -> FoundNothing
+  where
+    dive = findExpr point foundPatterns
+
+    extendAndDive newPatterns = findExpr point (newPatterns ++ foundPatterns)
+
+defNamePattern :: Can.Def -> Can.Pattern
+defNamePattern def =
+  case def of
+    Can.Def (A.At region name) _ _ ->
+      A.At region $ Can.PVar name
+    Can.TypedDef (A.At region name) _ _ _ _ ->
+      A.At region $ Can.PVar name
 
 findPattern :: A.Position -> Can.Pattern -> SearchResult
 findPattern point pattern@(A.At region patt) =
@@ -408,26 +258,12 @@ findFirstInList toNewResult vals =
         searchResult ->
           searchResult
 
+-- Classify matched expression so we know where to search
+
 data LocatedValue
   = Local Name
-  | External ModuleName.Canonical Name 
-  | Ctor ModuleName.Canonical Name 
-
-encodeLocatedValue :: LocatedValue -> Json.Encode.Value
-encodeLocatedValue located =
-  case located of
-    Local localName ->
-      Json.Encode.object
-        [ ("module", Json.Encode.string "local"),
-          ("package", Json.Encode.string "local"),
-          ("name", Util.encodeName localName)
-        ]
-    External canModName name ->
-      Json.Encode.object
-        [ ("module", Util.encodeModuleName canModName),
-          ("package", Util.encodeModulePackage canModName),
-          ("name", Util.encodeName name)
-        ]
+  | External ModuleName.Canonical Name
+  | Ctor ModuleName.Canonical Name
 
 getLocatedDetails :: Can.Expr -> Maybe LocatedValue
 getLocatedDetails (A.At region expr) =
@@ -489,6 +325,8 @@ getLocatedDetails (A.At region expr) =
     Can.Shader shader types ->
       Nothing
 
+-- Find the definition
+
 findFirstValueNamed :: Name.Name -> [A.Located Src.Value] -> Maybe (A.Located Src.Value)
 findFirstValueNamed name list =
   case list of
@@ -502,12 +340,60 @@ findFirstValueNamed name list =
 findFirstCtorNamed :: Name.Name -> [A.Located Src.Union] -> Maybe (A.Located Name.Name)
 findFirstCtorNamed name =
   findFirstJust findUnion
-  where 
+  where
     findUnion (A.At _ ((Src.Union _ _ ctors))) =
       findFirstJust findCtor ctors
 
     findCtor (nameAt@(A.At _ ctorName), _) =
-      if ctorName == name then 
-        Just nameAt
-      else
-        Nothing
+      if ctorName == name
+        then Just nameAt
+        else Nothing
+
+findFirstPatternIntroducing :: Name.Name -> [Can.Pattern] -> Maybe Can.Pattern
+findFirstPatternIntroducing name =
+  findFirstJust (findPatternIntroducing name)
+
+findPatternIntroducing :: Name.Name -> Can.Pattern -> Maybe Can.Pattern
+findPatternIntroducing name pattern@(A.At _ pattern_) =
+  case pattern_ of
+    Can.PVar pname ->
+      if pname == name
+        then Just pattern
+        else Nothing
+    Can.PRecord names ->
+      if name `elem` names
+        then Just pattern
+        else Nothing
+    Can.PAlias subPattern aliasName ->
+      if aliasName == name
+        then Just pattern
+        else findPatternIntroducing name subPattern
+    Can.PTuple a b c ->
+      inList ([a, b] ++ Maybe.maybeToList c)
+    Can.PList subPatterns ->
+      inList subPatterns
+    Can.PCons a b ->
+      inList [a, b]
+    Can.PCtor _ _ _ _ _ args ->
+      args
+        & map Can._arg
+        & inList
+    _ ->
+      Nothing
+  where
+    inList =
+      findFirstJust (findPatternIntroducing name)
+
+-- Helpers
+
+findFirstJust :: (t -> Maybe a) -> [t] -> Maybe a
+findFirstJust fn vals =
+  case vals of
+    [] ->
+      Nothing
+    top : remain ->
+      case fn top of
+        Nothing ->
+          findFirstJust fn remain
+        otherwise ->
+          otherwise
