@@ -197,7 +197,7 @@ parse root path =
 -- @TODO this is a disk mode function
 docs :: FilePath -> NE.List ModuleName.Raw -> IO Docs.Documentation
 docs root exposed =
-    BW.withScope $ \scope -> 
+    BW.withScope $ \scope ->
         runTaskUnsafeMake $
           do
             details  <- Task.eio Exit.MakeBadDetails $ Details.load Reporting.silent scope root
@@ -230,16 +230,16 @@ warnings root path =
                       case eitherLocalGraph of
                         Left errs ->
                           pure (Right (srcModule, canWarnings <> optWarnings))
-                        
+
                         Right localGraph -> do
-                          let filteredImports = filterOutDefualtImports imports
+                          let filteredImports = filterOutDefaultImports imports
                           let importNames = Set.fromList $ fmap Src.getImportName filteredImports
                           let usedModules = collectUsedImports localGraph
                           let unusedImports = Set.difference importNames usedModules
                           let unusedImportWarnings = importsToWarnings (Set.toList unusedImports) filteredImports
 
                           pure (Right (srcModule, canWarnings <> optWarnings <> unusedImportWarnings))
-                          
+
       Left err ->
         pure (Left ())
 
@@ -251,8 +251,8 @@ warnings root path =
 -- By default every Elm module has these modules imported with these region pairings.
 -- If they add a manual import of, e.g. `import Maybe`, then we'll get the same name
 -- but with a non-zero based region
-filterOutDefualtImports :: [Src.Import] -> [Src.Import]
-filterOutDefualtImports imports =
+filterOutDefaultImports :: [Src.Import] -> [Src.Import]
+filterOutDefaultImports imports =
     filter
       (\(Src.Import (A.At region name) _ _) ->
         not $ any (\defaultImport -> defaultImport == (name,region)) defaultImports
@@ -301,7 +301,7 @@ findModules :: [Opt.Node] -> [Name] -> [Name]
 findModules nodes names =
   case nodes of
     [] -> names
-    
+
     Opt.Define expr globals : remainingNodes ->
       findModules remainingNodes (findModulesInExpr expr <> setGloablToNames globals <> names)
 
