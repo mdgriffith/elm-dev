@@ -49,6 +49,11 @@ import qualified System.Directory as Dir
 import System.IO.Unsafe (unsafePerformIO)
 
 import StandaloneInstances
+import qualified Canonicalize.Environment
+import qualified Canonicalize.Environment.Foreign
+import qualified Reporting.Error.Canonicalize
+import Data.OneOrMore (OneOrMore(..))
+import qualified Canonicalize.Environment.Local
 
 
 type AggregateStatistics = Map.Map CompileMode Double
@@ -166,6 +171,33 @@ loadFileSource root path = do
       Left err ->
         pure $ Left err
 
+loadSingleArtifactsWithSource :: FilePath -> FilePath -> Src.Module -> IO (Either Reporting.Error.Error Compile.Artifacts)
+loadSingleArtifactsWithSource root path srcMod =
+  Dir.withCurrentDirectory root $ do
+    ifaces <- allInterfaces [path]
+    pure $ Compile.compile Pkg.dummyName ifaces srcMod
+
+
+loadCanonicalizeEnv ::
+  FilePath ->
+  FilePath ->
+  Src.Module ->
+  IO (Either (OneOrMore Reporting.Error.Canonicalize.Error) Canonicalize.Environment.Env)
+loadCanonicalizeEnv root path srcMod = do
+  Dir.withCurrentDirectory root $ do
+    ifaces <- allInterfaces [path]
+
+    let home = ModuleName.Canonical Pkg.dummyName $ Src.getName srcMod
+
+    let (_, eitherResult) = Reporting.Result.run $ 
+          Canonicalize.Environment.Local.add srcMod =<<
+            Canonicalize.Environment.Foreign.createInitialEnv home ifaces (Src._imports srcMod)
+
+    case eitherResult of 
+      Left err ->
+        pure $ Left err
+      Right (env, _, _) ->
+        pure $ Right env
 
 {- Appropriated from worker/src/Artifacts.hs
    WARNING: does not load any user code!!!
@@ -481,4 +513,3 @@ cachedHelp name ciMvar = do
             Just iface ->
               do  putMVar ciMvar (Build.Loaded iface)
                   return (Just (name, iface))
-
