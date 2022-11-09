@@ -131,11 +131,11 @@ export class Watchtower {
               docChange.document,
               docChange.document.uri.fsPath,
               change.range,
-              lineCountChange
+              lineCountChange,
             );
           }
         }
-      }
+      },
     );
 
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
@@ -157,7 +157,7 @@ export class Watchtower {
           log.log("Bundled watchtower failed to auto-start");
           log.log(watchTowerErr);
         }
-      }
+      },
     );
   }
 
@@ -240,7 +240,7 @@ export class Watchtower {
           } else {
             // Global error
             log.log(
-              "GLOBAL ERROR -> elm-vscode doesn't do anything with this right now, we should!"
+              "GLOBAL ERROR -> elm-vscode doesn't do anything with this right now, we should!",
             );
           }
         }
@@ -249,7 +249,7 @@ export class Watchtower {
       case "Warnings": {
         self.codelensProvider.setSignaturesFromWarnings(
           msg.details.filepath,
-          msg.details.warnings
+          msg.details.warnings,
         );
         break;
       }
@@ -341,7 +341,7 @@ const formatSource = (items: any): string => {
 function prepareRange(region) {
   return new vscode.Range(
     preparePosition(region["start"]),
-    preparePosition(region["end"])
+    preparePosition(region["end"]),
   );
 }
 
@@ -374,7 +374,7 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
   public provideDefinition(
     document: vscode.TextDocument,
     position: vscode.Position,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
   ): vscode.ProviderResult<vscode.Definition | vscode.LocationLink[]> {
     const self = this;
     return new Promise((resolve, reject) => {
@@ -382,7 +382,7 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
         Question.questions.findDefinition(
           document.uri.fsPath,
           position.line + 1,
-          position.character + 1
+          position.character + 1,
         ),
         (resp) => {
           log.log("FOUND DEFINITION!");
@@ -392,15 +392,15 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
           } else {
             const uri = vscode.Uri.file(resp.definition.path);
             const start: vscode.Position = preparePosition(
-              resp.definition.region.start
+              resp.definition.region.start,
             );
             const end: vscode.Position = preparePosition(
-              resp.definition.region.end
+              resp.definition.region.end,
             );
             resolve(new vscode.Location(uri, new vscode.Range(start, end)));
           }
         },
-        (err) => {}
+        (err) => {},
       );
     });
   }
@@ -446,19 +446,22 @@ function getEditorMatching(uri: vscode.Uri): vscode.TextEditor | null {
   return null;
 }
 
+/* Note: If this ever gets an invalid region, e.g. a line or column of 0,
+ * then this will eventually hang forever. and cause regions to not display.
+ */
 function regionToRange(region): vscode.Range {
   return new vscode.Range(
     region.start.line - 1,
     region.start.column - 1,
     region.end.line - 1,
-    region.end.column - 1
+    region.end.column - 1,
   );
 }
 
 function signatureToLens(
   document: vscode.TextDocument,
   signature: Question.MissingSignature,
-  onClick: any
+  onClick: any,
 ): vscode.CodeLens {
   const range = regionToRange(signature.region);
 
@@ -525,7 +528,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
 
   public setSignaturesFromWarnings(
     filepath: string,
-    warnings: Question.Warning[]
+    warnings: Question.Warning[],
   ) {
     const self = this;
 
@@ -554,6 +557,12 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
           signatures.push({ missing: sig, lens: lens });
         }
       } else if (warn.warning == "UnusedVariable") {
+        const dec = {
+          range: regionToRange(warn.region),
+          hoverMessage: "This is unused.",
+        };
+        decorations.push(dec);
+      } else if (warn.warning == "UnusedImport") {
         const dec = {
           range: regionToRange(warn.region),
           hoverMessage: "This is unused.",
@@ -590,7 +599,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
     document: vscode.TextDocument,
     filepath: string,
     affectedRange: vscode.Range,
-    lineCountChange: number
+    lineCountChange: number,
   ) {
     const self = this;
     if (lineCountChange == 0) {
@@ -628,7 +637,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
       if (editor) {
         const position = new vscode.Position(
           action.signature.region.start.line - 1,
-          action.signature.region.start.column - 1
+          action.signature.region.start.column - 1,
         );
         const newSignature =
           action.signature.name + " : " + action.signature.signature + "\n";
@@ -673,7 +682,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
   */
   public provideCodeLenses(
     document: vscode.TextDocument,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
   ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
     const self = this;
 
@@ -698,7 +707,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
 
   public resolveCodeLens(
     codeLens: vscode.CodeLens,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
   ) {
     const self = this;
     // This function will be called for each visible code lens, usually when scrolling and after calls to compute-lenses.

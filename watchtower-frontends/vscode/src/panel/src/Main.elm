@@ -434,6 +434,12 @@ viewWarning warning =
                 , Ui.text unused.name
                 ]
 
+        Ports.UnusedImport unused ->
+            Ui.row [ Ui.space.md ]
+                [ Ui.text "Unused"
+                , Ui.text unused.name
+                ]
+
         Ports.MissingAnnotation missing ->
             Ui.column
                 [ Ui.space.sm

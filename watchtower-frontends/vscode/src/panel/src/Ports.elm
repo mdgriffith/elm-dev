@@ -51,6 +51,10 @@ type Warning
         , name : String
         , signature : String
         }
+    | UnusedImport
+        { region : Editor.Region
+        , name : String
+        }
 
 
 type Outgoing
@@ -175,6 +179,21 @@ decodeWarning =
                             )
                             (Decode.field "signature"
                                 Decode.string
+                            )
+                            (Decode.field "name"
+                                Decode.string
+                            )
+
+                    "UnusedImport" ->
+                        Decode.map2
+                            (\region signature name ->
+                                UnusedImport
+                                    { region = region
+                                    , name = name
+                                    }
+                            )
+                            (Decode.field "region"
+                                Editor.decodeRegion
                             )
                             (Decode.field "name"
                                 Decode.string
