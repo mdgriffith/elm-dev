@@ -10,17 +10,14 @@ import Maybe
 import Result
 
 
-
 myOtherFunction : String -> Html.Html msg
 myOtherFunction incoming =
     let
-        adjective = Nothing
-
         carl = 5
     in
     Html.div
         (List.map identity [ Attr.id "carl" ])
-        [ Html.text (incoming ++ Maybe.withDefault ", the Best" adjective)
+        [ Html.text (incoming ++ ", the Best")
         ]
 
 

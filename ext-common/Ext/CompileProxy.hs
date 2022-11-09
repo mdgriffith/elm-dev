@@ -232,15 +232,49 @@ warnings root path =
                           pure (Right (srcModule, canWarnings <> optWarnings))
                         
                         Right localGraph -> do
-                          let importNames = Set.fromList $ fmap Src.getImportName imports
+                          let filteredImports = filterOutDefualtImports imports
+                          let importNames = Set.fromList $ fmap Src.getImportName filteredImports
                           let usedModules = collectUsedImports localGraph
                           let unusedImports = Set.difference importNames usedModules
-                          let unusedImportWarnings = importsToWarnings (Set.toList unusedImports) imports
+                          let unusedImportWarnings = importsToWarnings (Set.toList unusedImports) filteredImports
 
                           pure (Right (srcModule, canWarnings <> optWarnings <> unusedImportWarnings))
                           
       Left err ->
         pure (Left ())
+
+
+
+-- Helpers
+
+
+-- By default every Elm module has these modules imported with these region pairings.
+-- If they add a manual import of, e.g. `import Maybe`, then we'll get the same name
+-- but with a non-zero based region
+filterOutDefualtImports :: [Src.Import] -> [Src.Import]
+filterOutDefualtImports imports =
+    filter
+      (\(Src.Import (A.At region name) _ _) ->
+        not $ any (\defaultImport -> defaultImport == (name,region)) defaultImports
+      )
+      imports
+
+
+defaultImports :: [(Name, A.Region)]
+defaultImports =
+  [ ("Platform.Sub", A.Region (A.Position 0 0) (A.Position 0 0))
+  , ("Platform.Cmd", A.Region (A.Position 0 0) (A.Position 0 0))
+  , ("Platform", A.Region (A.Position 0 0) (A.Position 0 0))
+  , ("Tuple", A.Region (A.Position 0 0) (A.Position 0 0))
+  , ("Char", A.Region (A.Position 0 0) (A.Position 0 0))
+  , ("String", A.Region (A.Position 0 0) (A.Position 0 0))
+  , ("Result", A.Region (A.Position 0 0) (A.Position 0 0))
+  , ("Maybe", A.Region (A.Position 0 0) (A.Position 0 0))
+  , ("List", A.Region (A.Position 0 0) (A.Position 0 0))
+  , ("Debug", A.Region (A.Position 0 0) (A.Position 0 0))
+  , ("Basics", A.Region (A.Position 0 0) (A.Position 0 0))
+  ]
+
 
 
 importsToWarnings :: [Name] -> [Src.Import] -> [Warning.Warning]
@@ -257,9 +291,6 @@ importsToWarningsHelper unusedNames imports warnings =
         then importsToWarningsHelper unusedNames remainingImports (Warning.UnusedImport region name : warnings)
         else importsToWarningsHelper unusedNames remainingImports warnings
 
-
-
--- Helpers
 
 collectUsedImports :: Opt.LocalGraph -> Set.Set Name
 collectUsedImports ocalGraph@(Opt.LocalGraph _ nodes fields) =

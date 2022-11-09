@@ -446,6 +446,9 @@ function getEditorMatching(uri: vscode.Uri): vscode.TextEditor | null {
   return null;
 }
 
+/* Note: If this ever gets an invalid region, e.g. a line or column of 0,
+ * then this will eventually hang forever. and cause regions to not display.
+ */
 function regionToRange(region): vscode.Range {
   return new vscode.Range(
     region.start.line - 1,
