@@ -6,6 +6,7 @@ import { ElmProjectPane } from "./panel/panel";
 import * as ChildProcess from "child_process";
 import * as Interactive from "./interactive";
 import * as PanelMsg from "./panel/messages";
+import * as path from "path";
 
 var WebSocketClient = require("websocket").client;
 
@@ -48,7 +49,6 @@ function socketConnect(options) {
   const websocket = new WebSocketClient();
 
   websocket.on("connectFailed", function (error) {
-    log.log("Connect Error: " + error.toString());
     options.onConnectionFailed(error);
   });
 
@@ -86,8 +86,7 @@ export class Watchtower {
       log.obj("SENDING", msg);
       this.connection.sendUTF(JSON.stringify(msg));
     } else {
-      log.log("not connected, attempting to send -> ");
-      log.obj("SENDING", msg);
+      log.obj("SKIPPING (not connected)", msg);
     }
   }
 
@@ -147,14 +146,39 @@ export class Watchtower {
     Question.ask(
       Question.questions.serverHealth,
       (resp) => {
-        log.log("Watchtower is already running!");
+        log.log("Elm Dev server is already running!");
       },
       (err) => {
-        log.log("Watchtower is not running, starting watchtower");
+        log.log("Elm Dev server is not running, starting watchtower 2");
         try {
-          ChildProcess.spawn("./elm-dev", ["start", `--port=${Question.port}`]);
+          const elmDev = ChildProcess.spawn(path.join(__dirname, "elm-dev"), [
+            "start",
+            `--port=${Question.port}`,
+          ]);
+          // log.obj("ELM DEV", elmDev);
+          elmDev.on("close", function (code) {
+            //Here you can get the exit code of the script
+
+            log.log("THE GOOD TIMES ARE OVER code: " + code);
+          });
+
+          elmDev.stdout.setEncoding("utf8");
+          elmDev.stdout.on("data", function (data) {
+            //Here is where the output goes
+
+            log.log("elmout: " + data.toString());
+
+            // data=data.toString();
+            // scriptOutput+=data;
+          });
+
+          elmDev.stderr.setEncoding("utf8");
+          elmDev.stderr.on("data", function (data) {
+            //Here is where the error output goes
+            log.log("elmerr: " + data.toString());
+          });
         } catch (watchTowerErr) {
-          log.log("Bundled watchtower failed to auto-start");
+          log.log("Bundled Elm Dev failed to auto-start");
           log.log(watchTowerErr);
         }
       }
@@ -164,7 +188,7 @@ export class Watchtower {
   private onConnectionFailed(error) {
     const self = this;
     this.retry = setTimeout(function () {
-      log.log("Reattempting connection");
+      // log.log("Reattempting connection");
       socketConnect({
         url: Question.urls.websocket,
         onJoin: (connection) => {
@@ -177,7 +201,7 @@ export class Watchtower {
           self.receive(msg);
         },
       });
-    }, 2000);
+    }, 10000);
   }
 
   private cancelRetry() {
