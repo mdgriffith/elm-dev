@@ -6357,6 +6357,9 @@ var $author$project$Elm$decodeProject = A4(
 var $author$project$Ports$MissingAnnotation = function (a) {
 	return {$: 'MissingAnnotation', a: a};
 };
+var $author$project$Ports$UnusedImport = function (a) {
+	return {$: 'UnusedImport', a: a};
+};
 var $author$project$Ports$UnusedVaraible = function (a) {
 	return {$: 'UnusedVaraible', a: a};
 };
@@ -6385,6 +6388,16 @@ var $author$project$Ports$decodeWarning = A2(
 						}),
 					A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion),
 					A2($elm$json$Json$Decode$field, 'signature', $elm$json$Json$Decode$string),
+					A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string));
+			case 'UnusedImport':
+				return A3(
+					$elm$json$Json$Decode$map2,
+					F2(
+						function (region, name) {
+							return $author$project$Ports$UnusedImport(
+								{name: name, region: region});
+						}),
+					A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion),
 					A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string));
 			default:
 				return $elm$json$Json$Decode$fail('Unknown warning');

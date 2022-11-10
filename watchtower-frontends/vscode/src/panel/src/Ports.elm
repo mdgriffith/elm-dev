@@ -186,7 +186,7 @@ decodeWarning =
 
                     "UnusedImport" ->
                         Decode.map2
-                            (\region signature name ->
+                            (\region name ->
                                 UnusedImport
                                     { region = region
                                     , name = name
