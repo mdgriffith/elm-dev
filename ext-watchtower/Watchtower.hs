@@ -33,12 +33,12 @@ start =
 
     example =
       reflow
-        "After running that command, watchtower is listening at <http://localhost:4747>\
+        "After running that command, watchtower is listening at <http://localhost:51213>\
         \ and ready to be connected to."
 
     serverFlags =
       flags Flags
-        |-- flag "port" port_ "The port of the Elm Dev server (default: 4747)"
+        |-- flag "port" port_ "The port of the Elm Dev server (default: 51213)"
   in
   Terminal.Command "start" (Common summary) details example (optional dir) serverFlags run
 
@@ -69,7 +69,7 @@ port_ =
     , _plural = "ports"
     , _parser = readMaybe
     , _suggest = \_ -> return []
-    , _examples = \_ -> return ["4747"]
+    , _examples = \_ -> return ["51213"]
     }
 
 

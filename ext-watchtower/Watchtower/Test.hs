@@ -23,4 +23,4 @@ serve = do
     withDebug $ do
       Watchtower.Server.serve
           projectDir
-          (Watchtower.Server.Flags (Just 4747))
+          (Watchtower.Server.Flags (Just 51213))

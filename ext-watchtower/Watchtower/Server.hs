@@ -35,7 +35,7 @@ newtype Flags = Flags
 serve :: Maybe FilePath -> Flags -> IO ()
 serve maybeRoot (Flags maybePort) =
   do
-    let port = Ext.Common.withDefault 4747 maybePort
+    let port = Ext.Common.withDefault 51213 maybePort
     Ext.Common.atomicPutStrLn $ "elm-watchtower is now running at http://localhost:" ++ show port
 
     cwd <- Dir.getCurrentDirectory
