@@ -16,6 +16,11 @@ export type Warning =
       region: Region;
       name: String;
       signature: String;
+    }
+  | {
+      warning: "UnusedImport";
+      region: Region;
+      name: String;
     };
 
 type Region = {
@@ -85,7 +90,7 @@ export const ask = (question: Question, onSuccess: any, onError: any) => {
       http
         .get(
           urls.question("/discover?dir=" + question.directory),
-          captureRequest(onSuccess)
+          captureRequest(onSuccess),
         )
         .on("error", (err) => {
           log.log("Error on discovery");
@@ -99,7 +104,7 @@ export const ask = (question: Question, onSuccess: any, onError: any) => {
       http
         .get(
           urls.question(`/warnings?file=${question.filepath}`),
-          captureRequest(onSuccess)
+          captureRequest(onSuccess),
         )
         .on("error", (err) => {
           log.log("Error on requesting warnings");
@@ -112,9 +117,9 @@ export const ask = (question: Question, onSuccess: any, onError: any) => {
       http
         .get(
           urls.question(
-            `/definition?file=${question.filepath}&char=${question.char}&line=${question.line}`
+            `/definition?file=${question.filepath}&char=${question.char}&line=${question.line}`,
           ),
-          captureRequest(onSuccess)
+          captureRequest(onSuccess),
         )
         .on("error", (err) => {
           log.log("Error on finding definition");
