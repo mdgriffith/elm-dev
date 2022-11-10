@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Ext.CompileProxy where
@@ -189,11 +190,11 @@ loadCanonicalizeEnv root path srcMod = do
 
     let home = ModuleName.Canonical Pkg.dummyName $ Src.getName srcMod
 
-    let (_, eitherResult) = Reporting.Result.run $ 
+    let (_, eitherResult) = Reporting.Result.run $
           Canonicalize.Environment.Local.add srcMod =<<
             Canonicalize.Environment.Foreign.createInitialEnv home ifaces (Src._imports srcMod)
 
-    case eitherResult of 
+    case eitherResult of
       Left err ->
         pure $ Left err
       Right (env, _, _) ->
