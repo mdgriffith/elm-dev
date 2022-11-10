@@ -36,7 +36,7 @@ reasonToString reason =
 
 test desc bool =
     if bool then
-        Ok ("✅ " ++ Test.Module.myOtherFunction desc)
+        Ok (Test.Module.myOtherFunction desc)
 
     else
         Err BadDescription
