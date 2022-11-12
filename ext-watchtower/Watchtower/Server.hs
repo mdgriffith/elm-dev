@@ -15,7 +15,6 @@ import Snap.Util.FileServe
 import qualified System.Directory as Dir
 import qualified Watchtower.Live
 import qualified Watchtower.Live.Compile
-import qualified Watchtower.Project
 import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
 import Data.Maybe as Maybe

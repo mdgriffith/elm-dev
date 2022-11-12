@@ -233,22 +233,29 @@ Executable elm-dev
         -- watchtower
         Watchtower
         Watchtower.Editor
-        Watchtower.Docs
-        Watchtower.Find
+        
         Watchtower.Live
         Watchtower.Live.Client
         Watchtower.Live.Compile
-        Watchtower.Project
+        
         Watchtower.Questions
         Watchtower.Server
         Watchtower.StaticAssets
         Watchtower.Test
         Watchtower.Version
         Watchtower.Websocket
+        
+        -- elm-dev
+        Dev.Docs
+        Dev.Find
+        Dev.Project
+
         Util
         Llamadera
         StandaloneInstances
         Test
+
+
 
 
     Build-depends:

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Docs (fromArtifacts) where
+module Dev.Docs (fromArtifacts) where
 
 
 

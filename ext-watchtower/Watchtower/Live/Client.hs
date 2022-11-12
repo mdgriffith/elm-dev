@@ -36,7 +36,7 @@ import qualified Data.ByteString.Builder
 import qualified Data.Either as Either
 
 import qualified Ext.Sentry
-import qualified Watchtower.Project
+import qualified Dev.Project
 import qualified Watchtower.Websocket
 import qualified Watchtower.Editor
 import qualified Reporting.Annotation as Ann
@@ -63,7 +63,7 @@ data State = State
   }
 
 data ProjectCache = ProjectCache
-  { project :: Watchtower.Project.Project
+  { project :: Dev.Project.Project
   , sentry :: Ext.Sentry.Cache
   }
 
@@ -99,9 +99,9 @@ watchTheseFilesOnly newFileWatching (Watching watchingProjects watchingFiles) =
     Watching watchingProjects newFileWatching
 
 
-isWatchingProject :: Watchtower.Project.Project -> Watching -> Bool
+isWatchingProject :: Dev.Project.Project -> Watching -> Bool
 isWatchingProject proj (Watching watchingProjects watchingFiles) =
-    Set.member (Watchtower.Project._root proj) watchingProjects
+    Set.member (Dev.Project._root proj) watchingProjects
 
 
 isWatchingFileForWarnings :: FilePath -> Watching -> Bool
@@ -130,13 +130,13 @@ getRootHelp path projects found =
   case projects of
     [] -> found
     (ProjectCache project _) : remain ->
-      if Watchtower.Project.contains path project
+      if Dev.Project.contains path project
         then case found of
           Nothing ->
-            getRootHelp path remain (Just (Watchtower.Project._root project))
+            getRootHelp path remain (Just (Dev.Project._root project))
           Just root ->
-            if List.length (Watchtower.Project._root project) > List.length root
-              then getRootHelp path remain (Just (Watchtower.Project._root project))
+            if List.length (Dev.Project._root project) > List.length root
+              then getRootHelp path remain (Just (Dev.Project._root project))
               else getRootHelp path remain found
         else getRootHelp path remain found
 
@@ -144,11 +144,11 @@ getRootHelp path projects found =
 
 getProjectRoot :: ProjectCache -> FilePath
 getProjectRoot (ProjectCache proj _) =
-    Watchtower.Project.getRoot proj
+    Dev.Project.getRoot proj
 
 matchingProject :: ProjectCache -> ProjectCache -> Bool
 matchingProject (ProjectCache one _) (ProjectCache two _) =
-  Watchtower.Project.equal one two
+  Dev.Project.equal one two
 
 getAllStatuses :: State -> IO [ProjectStatus]
 getAllStatuses state@(State mClients mProjects) =
@@ -219,15 +219,15 @@ outgoingToLog outgoing =
 projectStatusToString :: ProjectStatus -> String
 projectStatusToString (ProjectStatus proj success json) =
     if success then
-        "Success @" ++ Watchtower.Project.getRoot proj
+        "Success @" ++ Dev.Project.getRoot proj
     else
-        "Failing @" ++ Watchtower.Project.getRoot proj
+        "Failing @" ++ Dev.Project.getRoot proj
 
 
 
 
 data ProjectStatus = ProjectStatus
-  { _project :: Watchtower.Project.Project
+  { _project :: Dev.Project.Project
   , _success :: Bool
   , _json :: Json.Encode.Value
   }
@@ -249,7 +249,7 @@ encodeOutgoing out =
                       [ "root"
                           ==> Json.Encode.string
                             ( Json.String.fromChars
-                                (Watchtower.Project._root project)
+                                (Dev.Project._root project)
                             ),
                         "status" ==> status
                       ]
@@ -326,7 +326,7 @@ decodeWatched =
 {- Encoding -}
 
 
-encodeStatus (Watchtower.Project.Project root entrypoints, js) =
+encodeStatus (Dev.Project.Project root entrypoints, js) =
   Json.Encode.object
     [ "root" ==> Json.Encode.string (Json.String.fromChars root),
       "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) entrypoints,

@@ -31,13 +31,14 @@ import qualified Elm.Docs as Docs
 import Snap.Core hiding (path)
 import qualified Snap.Util.CORS
 import qualified Watchtower.Editor
-import qualified Watchtower.Find
 import qualified Watchtower.Live
-import qualified Watchtower.Project
+import qualified Dev.Project
 import qualified Watchtower.Live.Client as Client
 
+import qualified Dev.Find
+
 import qualified Build
-import qualified Watchtower.Docs
+import qualified Dev.Docs
 
 import qualified Ext.CompileProxy
 
@@ -215,7 +216,7 @@ ask state question =
                         pure (Json.Encode.encodeUgly (Json.Encode.chars "Failed to get artifacts"))
 
                     Right artifacts ->
-                        case  Watchtower.Docs.fromArtifacts artifacts of
+                        case  Dev.Docs.fromArtifacts artifacts of
                           Left err ->
                               -- do 
                               --     Reporting.Error.Docs.toReports
@@ -262,8 +263,8 @@ ask state question =
     Discover dir ->
       do
         Ext.Common.debug $ "Discover: " ++ show dir
-        Watchtower.Project.discover dir
-          & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Watchtower.Project.encodeProjectJson projects))
+        Dev.Project.discover dir
+          & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Dev.Project.encodeProjectJson projects))
 
 
     FindDefinitionPlease location ->
@@ -273,7 +274,7 @@ ask state question =
                 f
        in do
             root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-            Watchtower.Find.definition root location
+            Dev.Find.definition root location
               & fmap Json.Encode.encodeUgly
 
     FindAllInstancesPlease location ->
@@ -291,7 +292,7 @@ allProjectStatuses (Client.State clients mProjects) =
                 result <- Ext.Sentry.getCompileResult sentry
                 pure
                   (Json.Encode.object
-                    [ "project" ==> Watchtower.Project.encodeProjectJson proj
+                    [ "project" ==> Dev.Project.encodeProjectJson proj
                     , "success" ==>
                         (case result of
                             Right _ ->

@@ -32,7 +32,7 @@ Check out `WatchTower.Test` to see the cli args provided for development.
 
 ## What the server does
 
-When the server starts, then `Watchtower.Project.discover` will run in the current directory.
+When the server starts, then `Dev.Project.discover` will run in the current directory.
 
 This recursively searches for `elm.json` files and notes them.
 

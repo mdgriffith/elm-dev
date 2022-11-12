@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Find
+module Dev.Find
   ( definition,
   )
 where
