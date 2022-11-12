@@ -32,13 +32,13 @@ import Snap.Core hiding (path)
 import qualified Snap.Util.CORS
 import qualified Watchtower.Editor
 import qualified Watchtower.Live
-import qualified Dev.Project
+import qualified Ext.Dev.Project
 import qualified Watchtower.Live.Client as Client
 
-import qualified Dev.Find
+import qualified Ext.Dev.Find
 
 import qualified Build
-import qualified Dev.Docs
+import qualified Ext.Dev.Docs
 
 import qualified Ext.CompileProxy
 
@@ -216,7 +216,7 @@ ask state question =
                         pure (Json.Encode.encodeUgly (Json.Encode.chars "Failed to get artifacts"))
 
                     Right artifacts ->
-                        case  Dev.Docs.fromArtifacts artifacts of
+                        case  Ext.Dev.Docs.fromArtifacts artifacts of
                           Left err ->
                               -- do 
                               --     Reporting.Error.Docs.toReports
@@ -263,8 +263,8 @@ ask state question =
     Discover dir ->
       do
         Ext.Common.debug $ "Discover: " ++ show dir
-        Dev.Project.discover dir
-          & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Dev.Project.encodeProjectJson projects))
+        Ext.Dev.Project.discover dir
+          & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Ext.Dev.Project.encodeProjectJson projects))
 
 
     FindDefinitionPlease location ->
@@ -274,7 +274,7 @@ ask state question =
                 f
        in do
             root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-            Dev.Find.definition root location
+            Ext.Dev.Find.definition root location
               & fmap Json.Encode.encodeUgly
 
     FindAllInstancesPlease location ->
@@ -292,7 +292,7 @@ allProjectStatuses (Client.State clients mProjects) =
                 result <- Ext.Sentry.getCompileResult sentry
                 pure
                   (Json.Encode.object
-                    [ "project" ==> Dev.Project.encodeProjectJson proj
+                    [ "project" ==> Ext.Dev.Project.encodeProjectJson proj
                     , "success" ==>
                         (case result of
                             Right _ ->

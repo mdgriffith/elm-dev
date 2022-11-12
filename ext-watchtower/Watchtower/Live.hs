@@ -36,7 +36,7 @@ import Snap.Http.Server
 import Snap.Util.FileServe
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
 import qualified Ext.CompileProxy
-import qualified Dev.Project
+import qualified Ext.Dev.Project
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Websocket
 import qualified Ext.FileProxy
@@ -75,21 +75,21 @@ initWith root =
 
 discoverProjects :: FilePath -> IO [Client.ProjectCache]
 discoverProjects root = do
-  projects <- Dev.Project.discover root
+  projects <- Ext.Dev.Project.discover root
   let projectTails = fmap (getProjectShorthand root) projects
   Ext.Common.logList ("DISCOVER 👁️  found projects\n" ++ root) projectTails
   Monad.foldM initializeProject [] projects
 
 
-getProjectShorthand :: FilePath -> Dev.Project.Project -> FilePath
+getProjectShorthand :: FilePath -> Ext.Dev.Project.Project -> FilePath
 getProjectShorthand root proj =
-    case (List.stripPrefix root (Dev.Project.getRoot proj)) of
+    case (List.stripPrefix root (Ext.Dev.Project.getRoot proj)) of
       Nothing -> "."
       Just "" -> "."
       Just str ->
         str
 
-initializeProject :: [Client.ProjectCache] -> Dev.Project.Project -> IO [Client.ProjectCache]
+initializeProject :: [Client.ProjectCache] -> Ext.Dev.Project.Project -> IO [Client.ProjectCache]
 initializeProject accum project =
   do
     cache <- Ext.Sentry.init

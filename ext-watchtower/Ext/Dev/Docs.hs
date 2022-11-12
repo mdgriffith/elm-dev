@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Dev.Docs (fromArtifacts) where
+module Ext.Dev.Docs (fromArtifacts) where
 
 
 

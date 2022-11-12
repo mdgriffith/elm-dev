@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Dev.Find
+module Ext.Dev.Find
   ( definition,
   )
 where

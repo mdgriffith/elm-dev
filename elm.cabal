@@ -246,9 +246,9 @@ Executable elm-dev
         Watchtower.Websocket
         
         -- elm-dev
-        Dev.Docs
-        Dev.Find
-        Dev.Project
+        Ext.Dev.Docs
+        Ext.Dev.Find
+        Ext.Dev.Project
 
         Util
         Llamadera

@@ -23,8 +23,8 @@ import qualified Ext.CompileProxy
 
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Websocket
-import qualified Dev.Project
-import qualified Dev.Docs
+import qualified Ext.Dev.Project
+import qualified Ext.Dev.Docs
 
 compileMode = Ext.CompileProxy.compileToJson
 
@@ -49,7 +49,7 @@ compileAll (Client.State mClients mProjects) = do
 
 
 compileProject :: STM.TVar [Client.Client] -> Client.ProjectCache -> IO [FilePath]
-compileProject mClients proj@(Client.ProjectCache (Dev.Project.Project projectRoot entrypoints) cache) =
+compileProject mClients proj@(Client.ProjectCache (Ext.Dev.Project.Project projectRoot entrypoints) cache) =
   case entrypoints of
     [] ->
       do
@@ -91,14 +91,14 @@ recompile (Client.State mClients mProjects) allChangedFiles = do
 
 
 recompileChangedFile :: STM.TVar [Client.Client] -> [String] -> Client.ProjectCache -> IO [FilePath]
-recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(Dev.Project.Project projectRoot entrypoints) cache) =
+recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot entrypoints) cache) =
     do
       case changedFiles of
         [] ->
           do
             pure []
         (top : remain) ->
-            if List.any (\f -> Dev.Project.contains f proj) changedFiles then
+            if List.any (\f -> Ext.Dev.Project.contains f proj) changedFiles then
               do
 
                   let entry = NonEmpty.List top remain
@@ -127,7 +127,7 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                               pure ()
 
                           Right artifacts ->
-                              case  Dev.Docs.fromArtifacts artifacts of
+                              case  Ext.Dev.Docs.fromArtifacts artifacts of
                                 Left err ->
                                   pure ()
 
@@ -182,11 +182,11 @@ This does mean that if the detected entrypoint doesn't ultimately import the cha
 
 -}
 recompileProjectIfSubFile :: STM.TVar [Client.Client] -> [String] -> Client.ProjectCache -> IO [FilePath]
-recompileProjectIfSubFile mClients remainingFiles (Client.ProjectCache proj@(Dev.Project.Project projectRoot entrypoints) cache) =
+recompileProjectIfSubFile mClients remainingFiles (Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot entrypoints) cache) =
     do
       let remaining =
             List.filter
-              (\file -> not (Dev.Project.contains file proj))
+              (\file -> not (Ext.Dev.Project.contains file proj))
               remainingFiles
 
       let maybeEntry =
@@ -194,7 +194,7 @@ recompileProjectIfSubFile mClients remainingFiles (Client.ProjectCache proj@(Dev
               [] ->
                 let filesWithinProject =
                       List.filter
-                        (\file -> Dev.Project.contains file proj)
+                        (\file -> Ext.Dev.Project.contains file proj)
                         remainingFiles
                   in case filesWithinProject of
                       [] -> Nothing

@@ -2,7 +2,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 
-module Dev.Project (getRoot, contains, discover, decodeProject, Project (..), encodeProjectJson, equal) where
+module Ext.Dev.Project (getRoot, contains, discover, decodeProject, Project (..), encodeProjectJson, equal) where
 
 import qualified Control.Monad as Monad
 import qualified Data.List as List
