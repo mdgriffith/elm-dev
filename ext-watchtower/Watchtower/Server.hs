@@ -38,12 +38,7 @@ serve maybeRoot (Flags maybePort) =
     let port = Ext.Common.withDefault 51213 maybePort
     Ext.Common.atomicPutStrLn $ "elm-watchtower is now running at http://localhost:" ++ show port
 
-    cwd <- Dir.getCurrentDirectory
-    let root = Maybe.fromMaybe cwd maybeRoot
-    liveState <- Watchtower.Live.init root
-
-    -- compile project
-    Watchtower.Live.Compile.compileAll liveState
+    liveState <- Watchtower.Live.init
 
     debug <- Ext.Common.isDebug
 

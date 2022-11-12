@@ -60,8 +60,14 @@ getRoot =
   Client.getRoot
 
 
-init :: FilePath -> IO Client.State
-init root =
+init :: IO Client.State
+init =
+    Client.State
+      <$> Watchtower.Websocket.clientsInit
+      <*> STM.newTVarIO []
+
+initWith :: FilePath -> IO Client.State
+initWith root =
   do
     projectList <- discoverProjects root
     Client.State
