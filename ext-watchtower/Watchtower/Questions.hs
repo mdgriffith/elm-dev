@@ -30,8 +30,7 @@ import qualified Elm.Docs as Docs
 
 import Snap.Core hiding (path)
 import qualified Snap.Util.CORS
-import qualified Watchtower.Annotate
-import qualified Watchtower.Details
+import qualified Watchtower.Editor
 import qualified Watchtower.Find
 import qualified Watchtower.Live
 import qualified Watchtower.Project
@@ -45,9 +44,8 @@ import qualified Ext.CompileProxy
 
 -- One off questions and answers you might have/want.
 data Question
-  = CallgraphPlease FilePath Name.Name
-  | FindDefinitionPlease Watchtower.Details.PointLocation
-  | FindAllInstancesPlease Watchtower.Details.PointLocation
+  = FindDefinitionPlease Watchtower.Editor.PointLocation
+  | FindAllInstancesPlease Watchtower.Editor.PointLocation
   | Docs DocsType
   | Discover FilePath
   | Status
@@ -129,20 +127,6 @@ actionHandler state =
             Just file -> do
               questionHandler state (Discover (Data.ByteString.Char8.unpack file))
 
-      Just "callgraph" ->
-        do
-          maybeFile <- getQueryParam "file"
-          maybeName <- getQueryParam "name"
-          case (maybeFile, maybeName) of
-            (Just file, Just name) ->
-              questionHandler
-                state
-                ( CallgraphPlease
-                    (Data.ByteString.Char8.unpack file)
-                    (Name.fromChars (Data.ByteString.Char8.unpack name))
-                )
-            _ ->
-              writeBS "Needs location"
 
       Just "definition" ->
         do
@@ -166,7 +150,7 @@ actionHandler state =
       _ ->
         writeBS "Wha??"
 
-getPointLocation :: Snap (Maybe Watchtower.Details.PointLocation)
+getPointLocation :: Snap (Maybe Watchtower.Editor.PointLocation)
 getPointLocation =
   do
     maybeFilePath <- getQueryParam "file"
@@ -176,7 +160,7 @@ getPointLocation =
           case (maybeFilePath, maybePosition) of
             (Just path, Just position) ->
               Just
-                ( Watchtower.Details.PointLocation
+                ( Watchtower.Editor.PointLocation
                     (Data.ByteString.Char8.unpack path)
                     position
                 )
@@ -281,16 +265,11 @@ ask state question =
         Watchtower.Project.discover dir
           & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Watchtower.Project.encodeProjectJson projects))
 
-    CallgraphPlease path name ->
-      do
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-        Watchtower.Annotate.callgraph root path name
-          & fmap Json.Encode.encodeUgly
 
     FindDefinitionPlease location ->
       let path =
             case location of
-              Watchtower.Details.PointLocation f _ ->
+              Watchtower.Editor.PointLocation f _ ->
                 f
        in do
             root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)

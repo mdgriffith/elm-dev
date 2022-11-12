@@ -36,7 +36,6 @@ import Snap.Http.Server
 import Snap.Util.FileServe
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
 import qualified Ext.CompileProxy
-import qualified Watchtower.Details
 import qualified Watchtower.Project
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Websocket

@@ -232,8 +232,7 @@ Executable elm-dev
 
         -- watchtower
         Watchtower
-        Watchtower.Annotate
-        Watchtower.Details
+        Watchtower.Editor
         Watchtower.Docs
         Watchtower.Find
         Watchtower.Live

@@ -38,7 +38,8 @@ import qualified Data.Either as Either
 import qualified Ext.Sentry
 import qualified Watchtower.Project
 import qualified Watchtower.Websocket
-import qualified Watchtower.Details
+import qualified Watchtower.Editor
+import qualified Reporting.Annotation as Ann
 import qualified Reporting.Warning as Warning
 import qualified Elm.Docs as Docs
 
@@ -339,7 +340,7 @@ encodeWarning localizer warning =
       Json.Encode.object
           [ "warning" ==> (Json.Encode.chars "UnusedImport")
           , "region" ==>
-              (Watchtower.Details.encodeRegion region)
+              (Watchtower.Editor.encodeRegion region)
           , "name" ==>
               (Json.Encode.chars (Name.toChars name))
           ]
@@ -348,7 +349,7 @@ encodeWarning localizer warning =
       Json.Encode.object
           [ "warning" ==> (Json.Encode.chars "UnusedVariable")
           , "region" ==>
-              (Watchtower.Details.encodeRegion region)
+              (Watchtower.Editor.encodeRegion region)
           , "context" ==>
               (case defOrPattern of
                   Warning.Def -> Json.Encode.chars "def"
@@ -364,7 +365,7 @@ encodeWarning localizer warning =
       Json.Encode.object
           [ "warning" ==> (Json.Encode.chars "MissingAnnotation")
           , "region" ==>
-              (Watchtower.Details.encodeRegion region)
+              (Watchtower.Editor.encodeRegion region)
           , "name" ==>
               (Json.Encode.chars (Name.toChars name))
           , "signature" ==>

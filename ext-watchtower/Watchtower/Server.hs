@@ -13,7 +13,6 @@ import Snap.Core hiding (path)
 import qualified Snap.Http.Server
 import Snap.Util.FileServe
 import qualified System.Directory as Dir
-import qualified Watchtower.Details
 import qualified Watchtower.Live
 import qualified Watchtower.Live.Compile
 import qualified Watchtower.Project

@@ -49,12 +49,12 @@ import qualified Stuff as PerUserCache
 import qualified System.Directory as Dir
 import qualified Text.Show.Unicode
 import qualified Util
-import qualified Watchtower.Details
+import qualified Watchtower.Editor
 
 {- Find Definition -}
 
-definition :: FilePath -> Watchtower.Details.PointLocation -> IO Json.Encode.Value
-definition root (Watchtower.Details.PointLocation path point) = do
+definition :: FilePath -> Watchtower.Editor.PointLocation -> IO Json.Encode.Value
+definition root (Watchtower.Editor.PointLocation path point) = do
   Right (_, srcMod) <- Ext.CompileProxy.loadFileSource root path
 
   let foundType = findTypeAtPoint point srcMod
@@ -123,7 +123,7 @@ encodeResult path result =
       Json.Encode.object
         [ ( "definition",
             Json.Encode.object
-              [ ("region", Watchtower.Details.encodeRegion region),
+              [ ("region", Watchtower.Editor.encodeRegion region),
                 ("path", Json.Encode.string (Json.String.fromChars path))
               ]
           )
