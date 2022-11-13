@@ -3,11 +3,14 @@ module Ext.CompileHelpers.Generic where
 import qualified AST.Canonical as Can
 import qualified AST.Optimized as Opt
 import qualified AST.Source as Src
+import qualified Reporting.Error.Type
+import qualified Data.NonEmptyList
 import qualified Data.Map as Map
 import qualified Data.Name as Name
 import qualified Data.OneOrMore as OneOrMore
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
+import qualified Reporting.Error
 import qualified System.IO.Unsafe
 import qualified Type.Constrain.Module as Type
 import qualified Type.Solve as Type
@@ -40,11 +43,13 @@ toUnique oneOrMore =
 
 
 
-typeCheck :: Src.Module -> Can.Module -> Either () (Map.Map Name.Name Can.Annotation)
+typeCheck :: 
+  Src.Module 
+    -> Can.Module 
+    -> Either 
+        (Data.NonEmptyList.List
+            Reporting.Error.Type.Error) 
+        (Map.Map Name.Name Can.Annotation)
 typeCheck modul canonical =
-  case System.IO.Unsafe.unsafePerformIO (Type.run =<< Type.constrain canonical) of
-    Right annotations ->
-      Right annotations
-
-    Left errors ->
-      Left ()
+  System.IO.Unsafe.unsafePerformIO (Type.run =<< Type.constrain canonical)
+    
