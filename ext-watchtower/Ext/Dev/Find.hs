@@ -553,18 +553,7 @@ findFirstJust fn vals =
 -}
 usedModules :: FilePath -> FilePath -> IO (Maybe (Set.Set ModuleName.Canonical))
 usedModules root path = do
-    source <- Ext.CompileProxy.loadFileSource root path
-    case source of
-      Left _ ->
-          pure Nothing
-
-      Right (byteString_, srcMod) -> do
-          canResult <- Ext.CompileProxy.compileSrcModule root path srcMod
-          case canResult of
-            Left _ ->
-              pure Nothing
-            
-            Right (Compile.Artifacts canMod _ _) ->
-              pure (Just (Ext.Dev.Find.Canonical.used canMod))
+    (Ext.CompileProxy.Single source warnings canonical compiled) <- Ext.CompileProxy.loadSingle root path
+    pure (fmap Ext.Dev.Find.Canonical.used canonical)
     
     

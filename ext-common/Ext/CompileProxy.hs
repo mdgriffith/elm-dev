@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Ext.CompileProxy
- ( loadSingle
+ ( loadSingle, SingleFileResult(..)
  , loadFileSource
  , loadSingleArtifacts
  , compileSrcModule
