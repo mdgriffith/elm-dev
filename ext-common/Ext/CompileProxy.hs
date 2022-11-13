@@ -1,7 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Ext.CompileProxy where
+module Ext.CompileProxy
+ ( loadFileSource
+ , loadSingleArtifacts
+ , loadSingleArtifactsWithSource
+ , loadCanonicalizeEnv
+ , loadProject
+ , parse
+ , warnings
+ , compileToJson
+ )
+ where
 
 {- This is a proxy for all compilation related functions
    that ensures we can transparently swap compilation providers/methods
