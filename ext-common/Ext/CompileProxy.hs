@@ -2,7 +2,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Ext.CompileProxy
- ( loadFileSource
+ ( loadSingle
+ , loadFileSource
  , loadSingleArtifacts
  , compileSrcModule
  , loadCanonicalizeEnv
@@ -47,11 +48,13 @@ import qualified Ext.FileProxy as File
 import qualified Json.Encode as Encode
 import qualified Optimize.Module as Optimize
 import qualified Parse.Module as Parse
+import qualified Nitpick.PatternMatches
 import qualified Reporting
 import qualified Reporting.Annotation as A
 import qualified Reporting.Error
 import qualified Reporting.Error.Syntax
 import qualified Reporting.Exit as Exit
+import qualified Reporting.Render.Type.Localizer as Localizer
 import qualified Reporting.Result
 import qualified Reporting.Task as Task
 import qualified Reporting.Warning as Warning
@@ -286,6 +289,88 @@ warnings root path =
       Left err ->
         pure (Left ())
 
+
+data SingleFileResult =
+    Single 
+      { _source :: Either Reporting.Error.Syntax.Error Src.Module
+      , _warnings :: Maybe [ Warning.Warning ]
+      , _canonical :: Maybe Can.Module
+      , _compiled :: Maybe (Either Reporting.Error.Error Compile.Artifacts)
+      }
+
+
+-- @TODO this is a disk mode function
+loadSingle :: FilePath -> FilePath -> IO SingleFileResult
+loadSingle root path =
+  Dir.withCurrentDirectory root $ do
+    ifaces <- allInterfaces [path]
+    source <- File.readUtf8 path
+    case Parse.fromByteString Parse.Application source of
+      Right srcModule ->
+        do
+          let (canWarnings, eitherCanned) = Reporting.Result.run $ Canonicalize.canonicalize Pkg.dummyName ifaces srcModule
+          case eitherCanned of
+            Left errs ->
+              pure
+                (Single 
+                  (Right srcModule)
+                  (Just canWarnings)
+                  Nothing
+                  (Just (Left (Reporting.Error.BadNames errs)))
+                ) 
+
+            Right canModule ->
+                case CompileHelpers.typeCheck srcModule canModule of
+                  Left typeErrors ->
+                       pure
+                        (Single 
+                          (Right srcModule)
+                          (Just canWarnings)
+                          (Just canModule)
+                          (Just (Left (Reporting.Error.BadTypes (Localizer.fromModule srcModule) typeErrors)))
+                        ) 
+
+                  Right annotations ->
+                    do
+                      let nitpicks = Nitpick.PatternMatches.check canModule
+
+                      let (optWarnings, eitherLocalGraph) = Reporting.Result.run $ Optimize.optimize annotations canModule
+                      case eitherLocalGraph of
+                        Left errs ->
+                          pure
+                            (Single 
+                              (Right srcModule)
+                              (Just (canWarnings <> optWarnings))
+                              (Just canModule)
+                              (Just (Left (Reporting.Error.BadMains (Localizer.fromModule srcModule) errs)))
+                            ) 
+
+                        Right localGraph -> do
+                          pure
+                            (Single 
+                              (Right srcModule)
+                              (Just (canWarnings <> optWarnings))
+                              (Just canModule)
+                              (Just 
+                                (case nitpicks of 
+                                  Right () ->
+                                      Right (Compile.Artifacts canModule annotations localGraph)
+                                   
+                                  Left errors ->
+                                      Left (Reporting.Error.BadPatterns errors)
+                                  
+                                )
+                              )
+                            ) 
+
+      Left err ->
+        pure
+          (Single 
+            (Left err)
+            Nothing
+            Nothing
+            Nothing
+          ) 
 
 
 -- Helpers
