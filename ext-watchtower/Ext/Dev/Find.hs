@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Ext.Dev.Find
-  ( definition,
+  ( definition
+  , usedModules
   )
 where
 
@@ -13,6 +14,8 @@ import qualified Canonicalize.Environment
 import qualified Canonicalize.Type
 import qualified Compile
 import Control.Applicative ((<|>))
+
+import qualified Data.Set as Set
 import qualified Data.Binary.Get as Map
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -29,7 +32,6 @@ import qualified Data.Text as T
 import qualified Data.Utf8
 import Data.Word (Word16)
 import qualified Elm.Details
-import qualified Elm.ModuleName
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.String
 import Ext.Common (debug)
@@ -50,6 +52,8 @@ import qualified System.Directory as Dir
 import qualified Text.Show.Unicode
 import qualified Util
 import qualified Watchtower.Editor
+import qualified Ext.Dev.Find.Canonical
+
 
 {- Find Definition -}
 
@@ -63,7 +67,7 @@ definition root (Watchtower.Editor.PointLocation path point) = do
     case foundType of
       FoundNothing -> do
         Right (Compile.Artifacts canMod _ _) <-
-          Ext.CompileProxy.loadSingleArtifactsWithSource root path srcMod
+          Ext.CompileProxy.compileSrcModule root path srcMod
 
         pure $ findDeclAtPoint point (Can._decls canMod)
       existing ->
@@ -536,3 +540,31 @@ findFirstJust fn vals =
           findFirstJust fn remain
         otherwise ->
           otherwise
+
+
+
+{- GATHER USED MODULES -}
+
+
+{-|
+
+  Given a root and a target file, return a set of all modules that are used.
+
+-}
+usedModules :: FilePath -> FilePath -> IO (Maybe (Set.Set ModuleName.Canonical))
+usedModules root path = do
+    source <- Ext.CompileProxy.loadFileSource root path
+    case source of
+      Left _ ->
+          pure Nothing
+
+      Right (byteString_, srcMod) -> do
+          canResult <- Ext.CompileProxy.compileSrcModule root path srcMod
+          case canResult of
+            Left _ ->
+              pure Nothing
+            
+            Right (Compile.Artifacts canMod _ _) ->
+              pure (Just (Ext.Dev.Find.Canonical.used canMod))
+    
+    

@@ -4,7 +4,7 @@
 module Ext.CompileProxy
  ( loadFileSource
  , loadSingleArtifacts
- , loadSingleArtifactsWithSource
+ , compileSrcModule
  , loadCanonicalizeEnv
  , loadProject
  , parse
@@ -182,8 +182,8 @@ loadFileSource root path = do
       Left err ->
         pure $ Left err
 
-loadSingleArtifactsWithSource :: FilePath -> FilePath -> Src.Module -> IO (Either Reporting.Error.Error Compile.Artifacts)
-loadSingleArtifactsWithSource root path srcMod =
+compileSrcModule :: FilePath -> FilePath -> Src.Module -> IO (Either Reporting.Error.Error Compile.Artifacts)
+compileSrcModule root path srcMod =
   Dir.withCurrentDirectory root $ do
     ifaces <- allInterfaces [path]
     pure $ Compile.compile Pkg.dummyName ifaces srcMod
