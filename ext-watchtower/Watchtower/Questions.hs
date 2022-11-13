@@ -35,10 +35,11 @@ import qualified Watchtower.Live
 import qualified Ext.Dev.Project
 import qualified Watchtower.Live.Client as Client
 
-import qualified Ext.Dev.Find
 
 import qualified Build
+import qualified Ext.Dev
 import qualified Ext.Dev.Docs
+import qualified Ext.Dev.Find
 
 import qualified Ext.CompileProxy
 
@@ -55,7 +56,7 @@ data Question
   | ServerHealth
 
 data DocsType 
-    = FromFiles [FilePath]
+    = FromFile FilePath
     -- | ForPackage  
 
 serve :: Watchtower.Live.State -> Snap ()
@@ -94,9 +95,8 @@ actionHandler state =
           case maybeFiles of
             Nothing ->
               writeBS "Needs a file parameter"
-            Just filesString -> do
-              let fileList = unpackStringList filesString
-              questionHandler state (Docs (FromFiles fileList))
+            Just fileString -> do
+              questionHandler state (Docs (FromFile (Data.ByteString.Char8.unpack fileString)))
 
       Just "health" ->
         questionHandler state ServerHealth
@@ -203,27 +203,17 @@ ask state question =
     Status ->
       allProjectStatuses state
 
-    Docs (FromFiles files) ->
-      case files of
-        [] ->
-            pure (Json.Encode.encodeUgly (Json.Encode.chars "At least one file should be provided."))
-        
-        (top : remaining) ->
-            do 
-                eitherArtifacts <- Ext.CompileProxy.loadSingleArtifacts "/Users/matthewgriffith/projects/blissfully/development/ironzion/packages/frontend/" top
-                case eitherArtifacts of
-                    Left err ->
-                        pure (Json.Encode.encodeUgly (Json.Encode.chars "Failed to get artifacts"))
+    Docs (FromFile path) ->
+      do
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+        maybeDocs <- Ext.Dev.docs root path
+        case maybeDocs of
+          Nothing ->
+            pure (Json.Encode.encodeUgly (Json.Encode.chars "Docs are not available"))
 
-                    Right artifacts ->
-                        case  Ext.Dev.Docs.fromArtifacts artifacts of
-                          Left err ->
-                              -- do 
-                              --     Reporting.Error.Docs.toReports
-                              pure (Json.Encode.encodeUgly (Json.Encode.chars "Doc Artifacts are dumb"))
-                          
-                          Right docs ->
-                              pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [ docs ])))
+          Just docs ->
+            pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [ docs ])))
+               
 
                         
     TimingParse path ->
