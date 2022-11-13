@@ -247,8 +247,10 @@ Executable elm-dev
         
         -- elm-dev
         Ext.Dev.Docs
-        Ext.Dev.Find
         Ext.Dev.Project
+        Ext.Dev.Find
+        Ext.Dev.Find.Canonical
+        
 
         Util
         Llamadera
