@@ -23,8 +23,10 @@ import qualified Ext.CompileProxy
 
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Websocket
+
 import qualified Ext.Dev.Project
 import qualified Ext.Dev.Docs
+import qualified Ext.Dev
 
 compileMode = Ext.CompileProxy.compileToJson
 
@@ -103,7 +105,7 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
 
                   let entry = NonEmpty.List top remain
 
-                  -- Compile all files
+                  -- Compile all changed files
                   eitherStatusJson <-
                     compileMode
                       projectRoot
@@ -112,52 +114,34 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                   Ext.Sentry.updateCompileResult cache $
                     pure eitherStatusJson
 
-                  -- Send compilation status
+
+                  -- Recompile the entire project
+                  recompileProjectIfSubFile mClients changedFiles projCache
+
+                  (Ext.Dev.Info warnings docs) <- Ext.Dev.info projectRoot top
+                  case warnings of
+                    Nothing -> pure ()
+                    
+                    Just (sourceMod, warns) -> do
+                      Ext.Common.log ("Sending down " <> show (length warnings) <> " warnings") "!"
+                      Client.broadcast mClients
+                        (Client.Warnings top (Reporting.Render.Type.Localizer.fromModule sourceMod) warns)
+                      pure ()
+
+                  
+                  case docs of
+                    Nothing -> pure ()
+
+                    Just docs -> do
+                      Ext.Common.log "Sending down docs" "!"
+                      Client.broadcast mClients
+                        (Client.Docs top [ docs ])
+                      pure ()
+
+                   -- Send compilation status
                   case eitherStatusJson of
                     Right statusJson ->
-                      do
-                        Ext.Common.log "Changed file successful, recompiling project" "!"
-                        -- If this file compiled successfully, compile the entire project
-                        recompileProjectIfSubFile mClients changedFiles projCache
-                        
-                         -- ask for docs for the top file
-                        eitherArtifacts <- Ext.CompileProxy.loadSingleArtifacts projectRoot top
-                        case eitherArtifacts of
-                          Left err ->
-                              pure ()
-
-                          Right artifacts ->
-                              case  Ext.Dev.Docs.fromArtifacts artifacts of
-                                Left err ->
-                                  pure ()
-
-                                Right docs ->
-                                  do
-                                    Ext.Common.log "Sending down docs" "!"
-                                    Client.broadcast mClients
-                                      (Client.Docs top [ docs ])
-                                    pure ()
-                        
-
-                        -- ask for warnings for the top file
-                        eitherWarnings <- Ext.CompileProxy.warnings projectRoot top
-
-                        case eitherWarnings of
-                          Right (src, []) ->
-                            pure ()
-
-                          Right (src, warnings) ->
-                              do
-                                Ext.Common.log ("Sending down " <> show (length warnings) <> " warnings") "!"
-                                Client.broadcast mClients
-                                  (Client.Warnings top (Reporting.Render.Type.Localizer.fromModule src) warnings)
-                                pure ()
-
-                          Left () ->
-                              -- There was some issue compiling
-                              pure ()
-
-                        pure ()
+                      pure ()
 
                     Left errJson ->
                       do
@@ -165,8 +149,6 @@ recompileChangedFile mClients changedFiles projCache@(Client.ProjectCache proj@(
                         Client.broadcast mClients
                           (Client.ElmStatus [ Client.ProjectStatus proj False errJson ])
 
-                        -- still recompile the entire project
-                        recompileProjectIfSubFile mClients changedFiles projCache
                         pure ()
 
                   pure []
