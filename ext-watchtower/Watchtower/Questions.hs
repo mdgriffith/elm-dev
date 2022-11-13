@@ -236,7 +236,7 @@ ask state question =
       do
         Ext.Common.debug $ "Warnings: " ++ show path
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-        eitherErrorOrWarnings <- Ext.CompileProxy.warnings root path
+        eitherErrorOrWarnings <- Ext.Dev.warnings root path
 
         let jsonResult = case eitherErrorOrWarnings of
               Right (mod, warnings) ->

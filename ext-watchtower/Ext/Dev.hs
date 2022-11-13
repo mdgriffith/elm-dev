@@ -3,6 +3,7 @@
 module Ext.Dev 
     ( docs
     , info, Info(..)
+    , warnings
     )
     where
 
@@ -19,11 +20,16 @@ import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Warnings
 
 
--- warnings :: FilePath -> FilePath -> IO (Either () (Src.Module, [ Warning.Warning ]))
--- warnings root path =
---     pure (Left ())
-
-
+warnings :: FilePath -> FilePath -> IO (Either () (Src.Module, [ Warning.Warning ]))
+warnings root path = do
+    loaded <- Ext.CompileProxy.loadSingle root path
+    let (Ext.CompileProxy.Single source maybeWarnings canonical compiled) = Ext.Dev.Warnings.addUnusedImports loaded
+    case source of
+        Right sourceMod ->
+            pure (Right (sourceMod, Maybe.fromMaybe [] maybeWarnings))
+        
+        Left _ ->
+            pure (Left ())
 
 data Info =
     Info 
