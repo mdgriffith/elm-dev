@@ -35,6 +35,7 @@ import Snap.Core hiding (path)
 import Snap.Http.Server
 import Snap.Util.FileServe
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
+import qualified System.FilePath as FilePath
 import qualified Ext.CompileProxy
 import qualified Ext.Dev.Project
 import qualified Watchtower.StaticAssets
@@ -155,12 +156,12 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
   case incoming of
     Client.Changed fileChanged ->
       do
-        Ext.Common.log "👀 file changed" fileChanged
+        Ext.Common.log "👀 file changed" (FilePath.takeFileName fileChanged)
         Watchtower.Live.Compile.recompile state [fileChanged]
 
     Client.Watched watching ->
       do
-        Ext.Common.log "👀 watch changed" ""
+        Ext.Common.log "👀 watch changed" ("\n    " ++ List.intercalate "\n    " (fmap FilePath.takeFileName ((Map.keys watching))))
         STM.atomically $ do
           STM.modifyTVar
             mClients

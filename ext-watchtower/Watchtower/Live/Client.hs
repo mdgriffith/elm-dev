@@ -46,6 +46,7 @@ import qualified Elm.Docs as Docs
 
 import qualified Data.Name as Name
 
+import qualified System.FilePath as FilePath
 import qualified Json.Decode
 import Json.Encode ((==>))
 import qualified Json.Encode
@@ -219,9 +220,9 @@ outgoingToLog outgoing =
 projectStatusToString :: ProjectStatus -> String
 projectStatusToString (ProjectStatus proj success json) =
     if success then
-        "Success @" ++ Ext.Dev.Project.getRoot proj
+        "Success: ../" ++ FilePath.takeBaseName (Ext.Dev.Project.getRoot proj)
     else
-        "Failing @" ++ Ext.Dev.Project.getRoot proj
+        "Failing: ../" ++ FilePath.takeBaseName (Ext.Dev.Project.getRoot proj)
 
 
 
