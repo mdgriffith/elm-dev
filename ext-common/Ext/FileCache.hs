@@ -15,6 +15,7 @@ import qualified Codec.Archive.Zip as Zip
 import qualified Data.Time.Clock as Time
 import qualified System.Environment as Env
 import qualified Data.Time.Clock.POSIX as Time
+import qualified System.FilePath
 
 import qualified File
 
@@ -51,10 +52,13 @@ delete path = do
   H.delete fileCache path
 
 
-log :: String -> IO ()
-log v =
-  -- pure ()
-  Ext.Log.log Ext.Log.FileProxy v
+log :: (() -> String) -> IO ()
+log toMessage =
+  Ext.Log.ifActive Ext.Log.FileProxy
+    (\() -> 
+      Ext.Log.log Ext.Log.FileProxy (toMessage ())    
+    )
+  
 
 
 currentTime :: IO Time
@@ -68,10 +72,10 @@ handleIfChanged paths action = do
   changes <- justs <$> traverse upsertPath paths
   if changes == []
     then do
-      log $ "🙈 handleIfChanged: no changes! ignoring: " <> show paths
+      log $ \() -> "🙈 handleIfChanged: no changes! ignoring: " <> show paths
       action changes
     else do
-      log $ "👀 handleIfChanged: some changes: " <> show changes
+      log $ \() -> "👀 handleIfChanged: some changes: " <> show changes
       action changes
 
 
@@ -139,7 +143,7 @@ readUtf8 path = do
           pure x
 
     Nothing -> do
-      log $ "❌👀r " ++ show path
+      log $ \() -> "❌👀r " ++ (System.FilePath.takeFileName (show path))
       -- @watch can probably be dropped when we know we can rely on fsnotify setup
       t <- File.readUtf8 path
       insert path t
@@ -147,7 +151,7 @@ readUtf8 path = do
 
 writeUtf8 :: FilePath -> BS.ByteString -> IO ()
 writeUtf8 path content = do
-  log $ "✍️ " ++ show path
+  log $ \() -> "✍️ " ++ (System.FilePath.takeFileName (show path))
   -- onlyWhen (not $ List.isInfixOf "/elm-stuff/" path) $
   insert path content
   File.writeUtf8 path content
@@ -156,7 +160,7 @@ writeUtf8 path content = do
 -- @TODO potentially skip binary serialisation entirely
 writeBinary :: (Binary.Binary a) => FilePath -> a -> IO ()
 writeBinary path value = do
-  log $ "✍️ B " ++ show path
+  log $ \() -> "✍️  Binary " ++ (System.FilePath.takeFileName (show path))
   -- onlyWhen (not $ List.isInfixOf "/elm-stuff/" path) $
   insert path $ BSL.toStrict $ Binary.encode value
   -- File.writeBinary path value
@@ -284,10 +288,10 @@ debugSummary =
         & fmap (\(fn,label) -> "    " ++  label ++ ": " ++ show (bytesToMb (fromIntegral $ fn gc)) ++"MB" )
         & List.intercalate "\n"
 
-    log $ "🧠 filecache entries:" ++ show entries ++ " size:~" ++ size ++ "MB overhead:" ++ show overhead
-    log $ "🧠 average live data:~" ++ show averageLiveData ++ "MB"
+    log $ \() -> "🧠 filecache entries:" ++ show entries ++ " size:~" ++ size ++ "MB overhead:" ++ show overhead
+    log $ \() -> "🧠 average live data:~" ++ show averageLiveData ++ "MB"
     -- log $ "🧠 gc:" ++ show (gcstatsHuman s)
-    log $ "🧠 gc:\n" ++ stats
+    log $ \() -> "🧠 gc:\n" ++ stats
 
 
 gcstatsHuman s =

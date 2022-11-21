@@ -40,7 +40,7 @@ serve maybeRoot (Flags maybePort) =
     liveState <- Watchtower.Live.init
 
     debug <- Ext.Log.isActive Ext.Log.VerboseServer
-
+    Ext.Log.log Ext.Log.VerboseServer ("Running in " <> (show Ext.CompileMode.getMode) <> " Mode")
     -- VSCode is telling us when files change
     -- Start file watcher for the memory mode
     -- Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)

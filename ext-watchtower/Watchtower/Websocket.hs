@@ -43,7 +43,7 @@ leaderInit = newTVarIO Nothing
 
 socketHandler :: TVar [Client clientData] -> OnJoined -> OnReceive -> T.Text -> clientData -> WS.ServerApp
 socketHandler mClients onJoined onReceive clientId initialClientData pending = do
-  Ext.Log.log Ext.Log.Live $ " ❇️ " <> T.unpack clientId
+  Ext.Log.log Ext.Log.Live $ "❇️  " <> T.unpack clientId
   conn <- WS.acceptRequest pending
 
   let client = Client clientId conn initialClientData
@@ -52,7 +52,7 @@ socketHandler mClients onJoined onReceive clientId initialClientData pending = d
           clients <- readTVar mClients
           let remainingClients = removeClient client clients
           writeTVar mClients remainingClients
-        Ext.Log.log Ext.Log.Live $ " 🚫 " <> T.unpack clientId
+        Ext.Log.log Ext.Log.Live $ "🚫  " <> T.unpack clientId
 
   flip finally disconnect $ do
     clientCount <- atomically $ do
