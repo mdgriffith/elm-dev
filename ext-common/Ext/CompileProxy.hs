@@ -246,7 +246,6 @@ loadSingle root path =
       Right srcModule ->
         do
         
-          artifactsDeps <- allPackageArtifacts root
           ifacesResult <- allInterfaces (NE.List path [])
           case ifacesResult of
             Left exit ->
