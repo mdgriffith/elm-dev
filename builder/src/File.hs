@@ -33,13 +33,13 @@ import qualified System.FilePath as FP
 import System.FilePath ((</>))
 import qualified System.IO as IO
 import System.IO.Error (ioeGetErrorType, annotateIOError, modifyIOError)
-
+import qualified Ext.Log 
 
 import qualified Ext.Common
 debug_ :: String -> IO ()
 debug_ v =
   -- pure ()
-  Ext.Common.debug v
+  Ext.Log.log Ext.Log.FileProxy v
 
 
 -- TIME

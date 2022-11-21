@@ -18,11 +18,11 @@ import qualified Data.Time.Clock.POSIX as Time
 
 import qualified File
 
-import Ext.Common ((&), debug, track, onlyWhen, justs)
+import Ext.Common ((&), track, onlyWhen, justs)
 import qualified GHC.Stats as RT
 -- import qualified GHC.DataSize
 import qualified System.Mem
-
+import qualified Ext.Log
 
 type HashTable k v = H.CuckooHashTable k v
 
@@ -54,7 +54,7 @@ delete path = do
 log :: String -> IO ()
 log v =
   -- pure ()
-  debug v
+  Ext.Log.log Ext.Log.FileProxy v
 
 
 currentTime :: IO Time
@@ -68,10 +68,10 @@ handleIfChanged paths action = do
   changes <- justs <$> traverse upsertPath paths
   if changes == []
     then do
-      debug $ "🙈 handleIfChanged: no changes! ignoring: " <> show paths
+      log $ "🙈 handleIfChanged: no changes! ignoring: " <> show paths
       action changes
     else do
-      debug $ "👀 handleIfChanged: some changes: " <> show changes
+      log $ "👀 handleIfChanged: some changes: " <> show changes
       action changes
 
 
@@ -235,19 +235,11 @@ removeDir path = do
 
 
 
-ifDebug :: (() -> IO ()) -> IO ()
-ifDebug io = do
-  isDebug <- Env.lookupEnv "LDEBUG"
-  
-  case isDebug of
-    Just _ -> io ()
-    Nothing -> pure ()
-
 
 -- Debugging
 debugSummary :: IO ()
 debugSummary = 
-  ifDebug $ \_ -> do
+  Ext.Log.ifActive Ext.Log.Performance $ \_ -> do
     -- track "🧹 majorGC" $ System.Mem.performMajorGC
 
     fileCacheList <- H.toList fileCache
@@ -289,13 +281,13 @@ debugSummary =
         -- , (RT.gcdetails_nonmoving_gc_sync_cpu_ns, "") -- = 0
         -- , (RT.gcdetails_nonmoving_gc_sync_elapsed_ns, "") -- = 0}}
         ]
-        & fmap (\(fn,label) -> label ++ ": " ++ show (bytesToMb (fromIntegral $ fn gc)) ++"MB" )
+        & fmap (\(fn,label) -> "    " ++  label ++ ": " ++ show (bytesToMb (fromIntegral $ fn gc)) ++"MB" )
         & List.intercalate "\n"
 
-    debug $ "🧠 filecache entries:" ++ show entries ++ " size:~" ++ size ++ "MB overhead:" ++ show overhead
-    debug $ "🧠 average live data:~" ++ show averageLiveData ++ "MB"
-    -- debug $ "🧠 gc:" ++ show (gcstatsHuman s)
-    debug $ "🧠 gc:\n" ++ stats
+    log $ "🧠 filecache entries:" ++ show entries ++ " size:~" ++ size ++ "MB overhead:" ++ show overhead
+    log $ "🧠 average live data:~" ++ show averageLiveData ++ "MB"
+    -- log $ "🧠 gc:" ++ show (gcstatsHuman s)
+    log $ "🧠 gc:\n" ++ stats
 
 
 gcstatsHuman s =

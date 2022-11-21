@@ -22,7 +22,6 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy
 import qualified Develop.Generate.Help
-import Ext.Common
 import qualified Ext.Sentry
 import qualified Json.Decode
 import Json.Encode ((==>))
@@ -42,6 +41,7 @@ import qualified Watchtower.StaticAssets
 import qualified Watchtower.Websocket
 import qualified Ext.FileProxy
 import qualified Ext.CompileMode
+import qualified Ext.Log
 
 import qualified Reporting.Doc
 import qualified Reporting.Render.Type
@@ -78,8 +78,18 @@ discoverProjects :: FilePath -> IO [Client.ProjectCache]
 discoverProjects root = do
   projects <- Ext.Dev.Project.discover root
   let projectTails = fmap (getProjectShorthand root) projects
-  Ext.Common.logList ("DISCOVER 👁️  found projects\n" ++ root) projectTails
+  Ext.Log.log Ext.Log.Live (("DISCOVER 👁️  found projects\n" ++ root) <> (formatList projectTails))
   Monad.foldM initializeProject [] projects
+
+
+indent :: Int -> String -> String
+indent i str =
+    List.replicate i ' ' ++ str
+
+formatList :: [String] -> String
+formatList strs =
+  List.foldr (\tail gathered ->  gathered ++ indent 4 tail ++ "\n") "\n" strs
+
 
 
 getProjectShorthand :: FilePath -> Ext.Dev.Project.Project -> FilePath
@@ -118,7 +128,7 @@ websocket_ state@(Client.State mClients projects) = do
             --     )
             --     []
             --     projects
-            debug "💪  Joined"
+            Ext.Log.log Ext.Log.Live "💪  Joined"
             -- pure $ Just $ builderToString $ encodeOutgoing (ElmStatus statuses)
             pure Nothing
 
@@ -144,7 +154,7 @@ error404 =
 receive state clientId text = do
   case Json.Decode.fromByteString Client.decodeIncoming (T.encodeUtf8 text) of
     Left err -> do
-      debug $ (T.unpack "Error decoding!" <> T.unpack text)
+      Ext.Log.log Ext.Log.Live  $ (T.unpack "Error decoding!" <> T.unpack text)
       pure ()
 
     Right action -> do
@@ -156,12 +166,13 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
   case incoming of
     Client.Changed fileChanged ->
       do
-        Ext.Common.log "👀 file changed" (FilePath.takeFileName fileChanged)
+        Ext.Log.log Ext.Log.Live ("👀 file changed: " <> (FilePath.takeFileName fileChanged))
         Watchtower.Live.Compile.recompile state [fileChanged]
 
     Client.Watched watching ->
       do
-        Ext.Common.log "👀 watch changed" ("\n    " ++ List.intercalate "\n    " (fmap FilePath.takeFileName ((Map.keys watching))))
+        Ext.Log.log Ext.Log.Live 
+          ("👀 watch changed" <> ("\n    " ++ List.intercalate "\n    " (fmap FilePath.takeFileName ((Map.keys watching)))))
         STM.atomically $ do
           STM.modifyTVar
             mClients
@@ -175,7 +186,7 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
 
     Client.Discover root ->
       do
-        Ext.Common.log "👀 discover requested" root
+        Ext.Log.log Ext.Log.Live ("👀 discover requested" <> root)
 
         discovered <- discoverProjects root
 

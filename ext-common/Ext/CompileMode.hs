@@ -14,7 +14,7 @@ import qualified Data.Binary as Binary
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 
-import Ext.Common (debug, atomicPutStrLn)
+import Ext.Log
 
 
 data CompileMode = Disk | Memory | Race deriving (Show, Ord, Eq)
@@ -30,7 +30,7 @@ compileMode = unsafePerformIO $ do
           Just "memory" -> Memory
           Just "race" -> Race
           _ -> Disk
-  debug $ "setting compile mode: " <> show mode
+  Ext.Log.log Ext.Log.Performance $ "setting compile mode: " <> show mode
   newMVar mode
 
 
@@ -44,19 +44,19 @@ withModeDisk io = do
 
 setModeRace :: IO ()
 setModeRace = do
-  atomicPutStrLn "🏎 race mode set"
+  Ext.Log.log Ext.Log.Performance "🏎 race mode set"
   modifyMVar_ compileMode (\_ -> pure Race)
 
 
 setModeMemory :: IO ()
 setModeMemory = do
-  atomicPutStrLn "🧠 memory mode set"
+  Ext.Log.log Ext.Log.Performance "🧠 memory mode set"
   modifyMVar_ compileMode (\_ -> pure Memory)
 
 
 setModeDisk :: IO ()
 setModeDisk = do
-  atomicPutStrLn "💾 disk mode set"
+  Ext.Log.log Ext.Log.Performance "💾 disk mode set"
   modifyMVar_ compileMode (\_ -> pure Disk)
 
 

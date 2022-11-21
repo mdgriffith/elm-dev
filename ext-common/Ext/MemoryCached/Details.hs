@@ -62,13 +62,13 @@ import qualified Reporting.Annotation as A
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Stuff
-
+import qualified Ext.Log
 
 
 -- import Elm.Details (Details(..), Extras(..), ValidOutline(..))
 import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..), Local(..))
 
-import Ext.Common (debug)
+
 import System.IO.Unsafe (unsafePerformIO)
 
 -- DETAILS
@@ -178,10 +178,10 @@ load style scope root = do
   detailsCacheM <- readMVar detailsCache
   case detailsCacheM of
     Just details -> do
-      debug $ "🎯 details cache hit"
+      Ext.Log.log Ext.Log.MemoryCache $ "🎯 details cache hit"
       pure $ Right details
     Nothing -> do
-      debug $ "❌ details cache miss"
+      Ext.Log.log Ext.Log.MemoryCache $ "❌ details cache miss"
       modifyMVar detailsCache (\_ -> do
           detailsR <- load_ style scope root
           case detailsR of

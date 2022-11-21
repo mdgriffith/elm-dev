@@ -7,6 +7,7 @@ where
 import Control.Concurrent.MVar
 import Control.Monad (liftM2, unless)
 import Ext.Common
+import qualified Ext.Log
 import Json.Encode ((==>))
 import qualified BackgroundWriter as BW
 import qualified Data.ByteString.Builder as B
@@ -22,6 +23,10 @@ import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified System.Directory as Dir
 import System.IO.Unsafe (unsafePerformIO)
+
+
+debug =
+  Ext.Log.log Ext.Log.MemoryCache
 
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
@@ -78,7 +83,6 @@ compile_ root paths_ = do
       pure $ Right ()
     x:xs -> do
       let paths = NE.List x xs
-      Ext.Common.debug $ "🚀 compiling " ++ show root ++ " -> " ++ show paths
       Dir.withCurrentDirectory root $
         BW.withScope $ \scope ->
           -- @TODO root lock shouldn't be needed unless we're falling through to disk compile

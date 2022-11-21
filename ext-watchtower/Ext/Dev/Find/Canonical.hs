@@ -32,7 +32,6 @@ import Data.Word (Word16)
 import qualified Elm.Details
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.String
-import Ext.Common (debug)
 import qualified Ext.CompileProxy
 import Json.Encode ((==>))
 import qualified Json.Encode

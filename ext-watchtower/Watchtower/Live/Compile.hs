@@ -29,6 +29,8 @@ import qualified Ext.Dev.Project
 import qualified Ext.Dev.Docs
 import qualified Ext.Dev
 
+import qualified Ext.Log
+
 compileMode = Ext.CompileProxy.compileToJson
 
 
@@ -39,7 +41,7 @@ Generally called once when the server starts, this will recompile all discovered
 compileAll :: Client.State -> IO ()
 compileAll (Client.State mClients mProjects) = do
 
-  Ext.Common.log "🛫" "Recompile everything"
+  Ext.Log.log Ext.Log.Live "🛫 Recompile everything"
   trackedForkIO $
     track "recompile all projects" $ do
       projects <- STM.readTVarIO mProjects
@@ -47,7 +49,7 @@ compileAll (Client.State mClients mProjects) = do
         (compileProject mClients)
         projects
 
-      Ext.Common.log "🛬"  "Recompile everything finished"
+      Ext.Log.log Ext.Log.Live "🛬 Recompile everything finished"
 
 
 compileProject :: STM.TVar [Client.Client] -> Client.ProjectCache -> IO ()
@@ -55,7 +57,7 @@ compileProject mClients proj@(Client.ProjectCache (Ext.Dev.Project.Project proje
   case entrypoints of
     [] ->
       do
-        Ext.Common.log "Skipping compile, no entrypoint" projectRoot
+        Ext.Log.log Ext.Log.Live ("Skipping compile, no entrypoint: " <> projectRoot)
         pure ()
 
     topEntry : remainEntry ->
@@ -82,7 +84,7 @@ recompile (Client.State mClients mProjects) allChangedFiles = do
       let affectedProjects = Maybe.mapMaybe (toAffectedProject changedElmFiles) projects
       case affectedProjects of
           [] -> 
-              Ext.Common.log "No affected projects" "!"
+              Ext.Log.log Ext.Log.Live "No affected projects"
           _ ->
               pure ()
       
@@ -147,12 +149,11 @@ recompileFile mClients ( top, remain , projCache@(Client.ProjectCache proj@(Ext.
         case eitherStatusJson of
           Right statusJson ->
             do 
-              Ext.Common.log "File successfully compiles" "!"
+              Ext.Log.log Ext.Log.Live "File successfully compiles"
               pure ()
 
           Left errJson ->
             do
-              Ext.Common.log "Changed file failed" "!"
               Client.broadcast mClients
                 (Client.ElmStatus [ Client.ProjectStatus proj False errJson ])
 
@@ -167,19 +168,15 @@ sendInfo mClients ( top, remain , projCache@(Client.ProjectCache proj@(Ext.Dev.P
         case warnings of
           Nothing -> pure ()
           
-          Just (sourceMod, warns) -> do
-            Ext.Common.log ("Sending down " <> show (length warnings) <> " warnings") "!"
+          Just (sourceMod, warns) ->
             Client.broadcast mClients
               (Client.Warnings top (Reporting.Render.Type.Localizer.fromModule sourceMod) warns)
-            pure ()
 
         case docs of
           Nothing -> pure ()
 
-          Just docs -> do
-            Ext.Common.log "Sending down docs" "!"
+          Just docs ->
             Client.broadcast mClients
               (Client.Docs top [ docs ])
-            pure ()
 
   

@@ -42,6 +42,7 @@ import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Find
 
 import qualified Ext.CompileProxy
+import qualified Ext.Log
 
 
 -- One off questions and answers you might have/want.
@@ -218,23 +219,23 @@ ask state question =
                         
     TimingParse path ->
       do
-        Ext.Common.debug $ "Parsing: " ++ show path
+        Ext.Log.log Ext.Log.Questions $ "Parsing: " ++ show path
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         Ext.Common.track "parsing"
           (do
               result <- Ext.CompileProxy.parse root path
               case result of
                 Right _ ->
-                    Ext.Common.debug $ "parsed succssfully"
+                    Ext.Log.log Ext.Log.Questions $ "parsed succssfully"
 
                 Left _ ->
-                    Ext.Common.debug $ "parsing failed"
+                    Ext.Log.log Ext.Log.Questions $ "parsing failed"
           )
         pure (Json.Encode.encodeUgly (Json.Encode.chars "The parser has been run, my liege"))
 
     Warnings path ->
       do
-        Ext.Common.debug $ "Warnings: " ++ show path
+        Ext.Log.log Ext.Log.Questions $ "Warnings: " ++ show path
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
         eitherErrorOrWarnings <- Ext.Dev.warnings root path
 
@@ -252,7 +253,7 @@ ask state question =
 
     Discover dir ->
       do
-        Ext.Common.debug $ "Discover: " ++ show dir
+        Ext.Log.log Ext.Log.Questions $ "Discover: " ++ show dir
         Ext.Dev.Project.discover dir
           & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Ext.Dev.Project.encodeProjectJson projects))
 

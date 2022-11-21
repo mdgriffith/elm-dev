@@ -5,6 +5,7 @@ import qualified System.Directory as Dir
 import qualified System.Environment as Env
 
 import Ext.Common
+import qualified Ext.Log
 import qualified Watchtower.Server
 import qualified Control.Exception
 import qualified Ext.CompileMode
@@ -20,7 +21,9 @@ serve = do
                   (const $ pure Nothing ::  Control.Exception.IOException -> IO (Maybe String))
   Ext.CompileMode.setModeDisk
   trackedForkIO $
-    withDebug $ do
+    Ext.Log.withAllBut 
+      [ -- Add any flags to exclude here!
+      ] $
       Watchtower.Server.serve
           projectDir
           (Watchtower.Server.Flags (Just 51213))

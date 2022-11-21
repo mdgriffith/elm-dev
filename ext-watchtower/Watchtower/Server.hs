@@ -25,6 +25,7 @@ import qualified Data.Text.Encoding as T
 import qualified Ext.FileCache as FileCache
 
 import qualified Ext.CompileMode
+import qualified Ext.Log
 
 newtype Flags = Flags
   { _port :: Maybe Int
@@ -38,7 +39,7 @@ serve maybeRoot (Flags maybePort) =
 
     liveState <- Watchtower.Live.init
 
-    debug <- Ext.Common.isDebug
+    debug <- Ext.Log.isActive Ext.Log.VerboseServer
 
     -- VSCode is telling us when files change
     -- Start file watcher for the memory mode
@@ -63,7 +64,7 @@ config port isDebug =
 
 logger =
   (\bs ->
-      Ext.Common.debug $ T.unpack $ T.decodeUtf8 bs
+      Ext.Log.log Ext.Log.VerboseServer  $ T.unpack $ T.decodeUtf8 bs
   )
 
 

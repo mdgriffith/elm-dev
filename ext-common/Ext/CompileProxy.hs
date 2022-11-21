@@ -66,7 +66,7 @@ import qualified Canonicalize.Environment.Foreign
 import qualified Reporting.Error.Canonicalize
 import Data.OneOrMore (OneOrMore(..))
 import qualified Canonicalize.Environment.Local
-
+import qualified Ext.Log
 
 type AggregateStatistics = Map.Map CompileMode Double
 
@@ -81,7 +81,7 @@ aggregateStatistics = unsafePerformIO $
 
 {-# NOINLINE addToAggregate #-}
 addToAggregate mode t label = do
-  Ext.Common.debug $ "📈 " ++ label ++ " +" ++ show t
+  Ext.Log.log Ext.Log.Performance $  label ++ " +" ++ show t
   modifyMVar_ aggregateStatistics (\agg -> pure $ Map.update (\existing -> Just $ existing + t) mode agg )
 
 
@@ -92,27 +92,27 @@ aggregateSummary = do
 
 
 modeRunner identifier ioDisk ioMemory = do
-  -- Ext.Common.debug $ concat ["👁 compileProxy:", identifier ]
+  -- Ext.Log.log Ext.Log.Performance $ concat ["👁 compileProxy:", identifier ]
   case getMode of
     Disk -> do
       (t, label, result) <- Ext.Common.track_ ("🎻 classic   " ++ identifier) $ ioDisk
       addToAggregate Disk t label
       summary <- aggregateSummary
-      Ext.Common.debug $ "📊 " <> summary
+      Ext.Log.log Ext.Log.Performance $ summary
       File.debugSummary
       pure result
     Memory -> do
       (t, label, result) <- Ext.Common.track_ ("🧠 memcached " ++ identifier) $ ioMemory
       addToAggregate Memory t label
       summary <- aggregateSummary
-      Ext.Common.debug $ "📊 " <> summary
+      Ext.Log.log Ext.Log.Performance $  summary
       File.debugSummary
       pure result
     Race -> do
       results <- Ext.Common.race identifier [ ("🧠 memcached " ++ identifier, ioMemory) , ("🎻 classic   " ++ identifier, ioDisk) ]
       results & zip [Memory, Disk] & mapM_ (\(m, (t, l, r)) -> addToAggregate m t (l ++ " " ++ identifier))
       summary <- aggregateSummary
-      Ext.Common.debug $ "📊 " <> summary
+      Ext.Log.log Ext.Log.Performance $ summary
       File.debugSummary
       (results !! 1) & (\(_,_,x) -> x) & pure
 
@@ -135,23 +135,11 @@ allDepArtifacts =
     (Ext.CompileHelpers.Memory.allDepArtifacts)
 
 
-allInterfaces :: [FilePath] -> IO (Map.Map ModuleName.Raw I.Interface)
-allInterfaces paths = do
-  artifactsDeps <- allDepArtifacts
-  ifacesProject <-
-    case paths of
-      -- @TODO change to NE.List
-      [] -> error "Ext.CompileProxy.allInterfaces must have at least one path specified!"
-      path:paths -> allProjectInterfaces (NE.List path paths)
-
-  pure $ Map.union ifacesProject (CompileHelpers._ifaces artifactsDeps)
-
-
-allProjectInterfaces :: NE.List FilePath -> IO (Map.Map ModuleName.Raw I.Interface)
-allProjectInterfaces paths =
+allInterfaces :: NE.List FilePath -> IO (Either Exit.Reactor (Map.Map ModuleName.Raw I.Interface))
+allInterfaces paths =
   BW.withScope $ \scope -> do
     root <- getProjectRoot
-    runTaskUnsafe $
+    Task.run $
       do  details    <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
           artifacts  <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
 
@@ -164,39 +152,54 @@ loadFileSource root path = do
     source <- File.readUtf8 path
     case Parse.fromByteString Parse.Application source of
       Right modul -> do
-        -- hindentPrintValue "module source" modul
         pure $ Right (source, modul)
 
       Left err ->
         pure $ Left err
 
-compileSrcModule :: FilePath -> FilePath -> Src.Module -> IO (Either Reporting.Error.Error Compile.Artifacts)
+compileSrcModule :: FilePath -> FilePath -> Src.Module -> IO (Maybe Compile.Artifacts)
 compileSrcModule root path srcMod =
   Dir.withCurrentDirectory root $ do
-    ifaces <- allInterfaces [path]
-    pure $ Compile.compile Pkg.dummyName ifaces srcMod
+    ifacesResult <- allInterfaces (NE.List path [])
+    case ifacesResult of
+      Left _ ->
+        pure Nothing
+
+      Right ifaces ->
+        pure $ toMaybe $ Compile.compile Pkg.dummyName ifaces srcMod
+
+toMaybe :: Either x a -> Maybe a
+toMaybe either =
+  case either of
+    Right a -> Just a
+    Left _ -> Nothing
+
 
 
 loadCanonicalizeEnv ::
   FilePath ->
   FilePath ->
   Src.Module ->
-  IO (Either (OneOrMore Reporting.Error.Canonicalize.Error) Canonicalize.Environment.Env)
+  IO (Maybe Canonicalize.Environment.Env)
 loadCanonicalizeEnv root path srcMod = do
   Dir.withCurrentDirectory root $ do
-    ifaces <- allInterfaces [path]
+    ifacesResult <- allInterfaces (NE.List path [])
+    case ifacesResult of
+      Left _ ->
+        pure Nothing
 
-    let home = ModuleName.Canonical Pkg.dummyName $ Src.getName srcMod
+      Right ifaces -> do
+        let home = ModuleName.Canonical Pkg.dummyName $ Src.getName srcMod
 
-    let (_, eitherResult) = Reporting.Result.run $
-          Canonicalize.Environment.Local.add srcMod =<<
-            Canonicalize.Environment.Foreign.createInitialEnv home ifaces (Src._imports srcMod)
+        let (_, eitherResult) = Reporting.Result.run $
+              Canonicalize.Environment.Local.add srcMod =<<
+                Canonicalize.Environment.Foreign.createInitialEnv home ifaces (Src._imports srcMod)
 
-    case eitherResult of
-      Left err ->
-        pure $ Left err
-      Right (env, _, _) ->
-        pure $ Right env
+        case eitherResult of
+          Left err ->
+            pure $ Nothing
+          Right (env, _, _) ->
+            pure $ Just env
 
 {- Appropriated from worker/src/Artifacts.hs
    WARNING: does not load any user code!!!
@@ -206,7 +209,7 @@ loadCanonicalizeEnv root path srcMod = do
 loadProject :: IO Details.Details
 loadProject =
   BW.withScope $ \scope ->
-  do  --debug "Loading allDeps"
+  do  
       let style = Reporting.silent
       root <- getProjectRoot
       result <- Details.load style scope root
@@ -225,16 +228,6 @@ parse root path =
     return $ Parse.fromByteString Parse.Application source
 
 
--- @TODO this is a disk mode function
-docs :: FilePath -> NE.List ModuleName.Raw -> IO Docs.Documentation
-docs root exposed =
-    BW.withScope $ \scope ->
-        runTaskUnsafeMake $
-          do
-            details  <- Task.eio Exit.MakeBadDetails $ Details.load Reporting.silent scope root
-            Task.eio Exit.MakeCannotBuild $ Build.fromExposed Reporting.silent root details Build.KeepDocs exposed
-
-
 data SingleFileResult =
     Single 
       { _source :: Either Reporting.Error.Syntax.Error Src.Module
@@ -248,65 +241,78 @@ data SingleFileResult =
 loadSingle :: FilePath -> FilePath -> IO SingleFileResult
 loadSingle root path =
   Dir.withCurrentDirectory root $ do
-    ifaces <- allInterfaces [path]
     source <- File.readUtf8 path
     case Parse.fromByteString Parse.Application source of
       Right srcModule ->
         do
-          let (canWarnings, eitherCanned) = Reporting.Result.run $ Canonicalize.canonicalize Pkg.dummyName ifaces srcModule
-          case eitherCanned of
-            Left errs ->
+          artifactsDeps <- allDepArtifacts
+          ifacesResult <- allInterfaces (NE.List path [])
+          case ifacesResult of
+            Left exit ->
+              -- report exit : Exit.Reactor?
               pure
                 (Single 
                   (Right srcModule)
-                  (Just canWarnings)
                   Nothing
-                  (Just (Left (Reporting.Error.BadNames errs)))
-                ) 
+                  Nothing
+                  Nothing
+                )
 
-            Right canModule ->
-                case CompileHelpers.typeCheck srcModule canModule of
-                  Left typeErrors ->
-                       pure
-                        (Single 
-                          (Right srcModule)
-                          (Just canWarnings)
-                          (Just canModule)
-                          (Just (Left (Reporting.Error.BadTypes (Localizer.fromModule srcModule) typeErrors)))
-                        ) 
+            Right ifaces -> do
+              let (canWarnings, eitherCanned) = Reporting.Result.run $ Canonicalize.canonicalize Pkg.dummyName ifaces srcModule
+              case eitherCanned of
+                Left errs ->
+                  pure
+                    (Single 
+                      (Right srcModule)
+                      (Just canWarnings)
+                      Nothing
+                      (Just (Left (Reporting.Error.BadNames errs)))
+                    ) 
 
-                  Right annotations ->
-                    do
-                      let nitpicks = Nitpick.PatternMatches.check canModule
-
-                      let (optWarnings, eitherLocalGraph) = Reporting.Result.run $ Optimize.optimize annotations canModule
-                      case eitherLocalGraph of
-                        Left errs ->
+                Right canModule ->
+                    case CompileHelpers.typeCheck srcModule canModule of
+                      Left typeErrors ->
                           pure
                             (Single 
                               (Right srcModule)
-                              (Just (canWarnings <> optWarnings))
+                              (Just canWarnings)
                               (Just canModule)
-                              (Just (Left (Reporting.Error.BadMains (Localizer.fromModule srcModule) errs)))
+                              (Just (Left (Reporting.Error.BadTypes (Localizer.fromModule srcModule) typeErrors)))
                             ) 
 
-                        Right localGraph -> do
-                          pure
-                            (Single 
-                              (Right srcModule)
-                              (Just (canWarnings <> optWarnings))
-                              (Just canModule)
-                              (Just 
-                                (case nitpicks of 
-                                  Right () ->
-                                      Right (Compile.Artifacts canModule annotations localGraph)
-                                   
-                                  Left errors ->
-                                      Left (Reporting.Error.BadPatterns errors)
-                                  
-                                )
-                              )
-                            ) 
+                      Right annotations ->
+                        do
+                          let nitpicks = Nitpick.PatternMatches.check canModule
+
+                          let (optWarnings, eitherLocalGraph) = Reporting.Result.run $ Optimize.optimize annotations canModule
+                          case eitherLocalGraph of
+                            Left errs ->
+                              pure
+                                (Single 
+                                  (Right srcModule)
+                                  (Just (canWarnings <> optWarnings))
+                                  (Just canModule)
+                                  (Just (Left (Reporting.Error.BadMains (Localizer.fromModule srcModule) errs)))
+                                ) 
+
+                            Right localGraph -> do
+                              pure
+                                (Single 
+                                  (Right srcModule)
+                                  (Just (canWarnings <> optWarnings))
+                                  (Just canModule)
+                                  (Just 
+                                    (case nitpicks of 
+                                      Right () ->
+                                          Right (Compile.Artifacts canModule annotations localGraph)
+                                      
+                                      Left errors ->
+                                          Left (Reporting.Error.BadPatterns errors)
+                                      
+                                    )
+                                  )
+                                ) 
 
       Left err ->
         pure
@@ -319,39 +325,6 @@ loadSingle root path =
 
 
 -- Helpers
-
-
-
-
-runTaskUnsafe :: Task.Task Exit.Reactor a -> IO a
-runTaskUnsafe task = do
-  result <- Task.run task
-  case result of
-    Right a ->
-      return a
-
-    Left exit ->
-      do  Exit.toStderr (Exit.reactorToReport exit)
-          error
-            "\n-------------------------------------------------\
-            \\nError in unsafe task, please report this.\
-            \\n-------------------------------------------------\
-            \\n"
-
-runTaskUnsafeMake :: Task.Task Exit.Make a -> IO a
-runTaskUnsafeMake task = do
-  result <- Task.run task
-  case result of
-    Right a ->
-      return a
-
-    Left exit ->
-      do  Exit.toStderr (Exit.makeToReport exit)
-          error
-            "\n-------------------------------------------------\
-            \\nError in make task, please report this.\
-            \\n-------------------------------------------------\
-            \\n"
 
 extractInterfaces :: [Build.Module] -> IO (Map.Map ModuleName.Raw I.Interface)
 extractInterfaces modu = do

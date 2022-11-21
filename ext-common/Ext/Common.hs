@@ -22,10 +22,12 @@ import Control.Exception ()
 import Formatting (fprint, (%), sformat)
 import Formatting.Clock (timeSpecs)
 import System.Clock (Clock(..), getTime)
-
+import qualified Ext.Log
 
 -- Re-exports
 import qualified Data.Function
+
+
 
 
 -- Copy of combined internals of Project.getRoot as it seems to notoriously cause cyclic wherever imported
@@ -44,7 +46,7 @@ getProjectRoot = do
     Nothing -> do
       binName <- Env.getProgName
       putStrLn $ "Cannot find an elm.json! Make sure you're in a project folder, or run `" <> binName <> " init` to start a new one."
-      debug $ "projectDir: " <> projectDir
+      Ext.Log.log Ext.Log.PerformanceTiming $ "projectDir: " <> projectDir
       exitFailure
 
 
@@ -88,59 +90,15 @@ indent :: Int -> String -> String
 indent i str =
     List.replicate i ' ' ++ str
 
-logList :: String -> [String] -> IO ()
-logList label strs =
-  Ext.Common.log label
-    (formatList strs)
 
 formatList :: [String] -> String
 formatList strs =
   List.foldr (\tail gathered ->  gathered ++ indent 4 tail ++ "\n") "\n" strs
 
-
-log :: String -> String -> IO ()
-log label str = do
-  debugM <- Env.lookupEnv "LDEBUG"
-  case debugM of
-    Just _ -> atomicPutStrLn $ label ++ ": " ++ str ++ "\n"
-    Nothing -> pure ()
-
-
-isDebug :: IO Bool
-isDebug = do
-  debugM <- Env.lookupEnv "LDEBUG"
-  case debugM of
-    Just _ -> pure True
-    Nothing -> pure False
-
-
-debug :: String -> IO ()
-debug str = do
-  debugM <- Env.lookupEnv "LDEBUG"
-  case debugM of
-    Just _ -> atomicPutStrLn $ "DEBUG: " ++ str
-    Nothing -> pure ()
-
-
-withDebug :: IO a -> IO ()
-withDebug io = do
-  Env.setEnv "LDEBUG" "1"
-  io
-  Env.unsetEnv "LDEBUG"
-
-
 {-# NOINLINE printLock #-}
 printLock :: MVar ()
 printLock = unsafePerformIO $ newMVar ()
 
-
-withPrintLockIfDebug :: Handle -> (() -> IO ()) -> IO ()
-withPrintLockIfDebug handle fn = do 
-  debugMode <- isDebug
-  if debugMode then 
-    withMVar printLock (\_ -> fn () >> hPutStr handle "\n" >> hFlush handle)
-  else
-    pure ()
 
 
 {- Print debugging in a concurrent setting can be painful sometimes due to output
@@ -165,8 +123,8 @@ track label io = do
   m_ <- getTime Monotonic
   p_ <- getTime ProcessCPUTime
   t_ <- getTime ThreadCPUTime
-  debug $ T.unpack $
-    sformat ("⏱  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
+  Ext.Log.log Ext.Log.PerformanceTiming $ T.unpack $
+    sformat ("  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
   pure res
 
 
@@ -194,7 +152,7 @@ track_ label io = do
 
 race label ios = do
   !results <- mapM (\(label, io) -> track_ label io ) ios
-  debug $ "🏃 race results: " <> label -- <> "\n" <> (fmap (T.pack . show . (\(x,_,_) -> x)) results & T.intercalate "," & T.unpack)
+  Ext.Log.log Ext.Log.PerformanceTiming $ "🏃 race results: " <> label -- <> "\n" <> (fmap (T.pack . show . (\(x,_,_) -> x)) results & T.intercalate "," & T.unpack)
   pure results
 
 
@@ -222,7 +180,7 @@ trackGhciThread :: ThreadId -> IO ()
 trackGhciThread threadId =
   modifyMVar_ ghciThreads
     (\threads -> do
-      -- debug $ "Tracking GHCI thread:" ++ show threadId
+      -- Ext.Log.log Ext.Log.PerformanceTiming $ "Tracking GHCI thread:" ++ show threadId
       pure $ threadId:threads
     )
 
@@ -233,17 +191,17 @@ killTrackedThreads = do
     (\threads -> do
       case threads of
         [] -> do
-          debug $ "No tracked GHCI threads to kill."
+          Ext.Log.log Ext.Log.PerformanceTiming $ "No tracked GHCI threads to kill."
           pure []
         threads -> do
-          debug $ "Killing tracked GHCI threads: " ++ show threads
+          Ext.Log.log Ext.Log.PerformanceTiming $ "Killing tracked GHCI threads: " ++ show threads
           mapM killThread threads
           pure []
     )
   -- Reset our current directory back to the original ghci root, this allows
   -- our TH `$(bsToExp ...)` expressions with relative paths to recompile properly
   root <- readMVar ghciRoot
-  debug $ "resetting ghci dir for rebuild: " <> show root
+  Ext.Log.log Ext.Log.PerformanceTiming $ "resetting ghci dir for rebuild: " <> show root
   Dir.setCurrentDirectory root
   threadDelay (10 * 1000) -- 10ms to settle as Dir.* stuff behaves oddly
 

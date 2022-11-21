@@ -34,7 +34,6 @@ import Data.Word (Word16)
 import qualified Elm.Details
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.String
-import Ext.Common (debug)
 import qualified Ext.CompileProxy
 import Json.Encode ((==>))
 import qualified Json.Encode
@@ -59,64 +58,91 @@ import qualified Ext.Dev.Find.Canonical
 
 definition :: FilePath -> Watchtower.Editor.PointLocation -> IO Json.Encode.Value
 definition root (Watchtower.Editor.PointLocation path point) = do
-  Right (_, srcMod) <- Ext.CompileProxy.loadFileSource root path
+  sourceResult <- Ext.CompileProxy.loadFileSource root path
+  case sourceResult of
+    Left _ ->
+       pure Json.Encode.null
+    
+    Right (_, srcMod) -> do
+      let foundType = findTypeAtPoint point srcMod
 
-  let foundType = findTypeAtPoint point srcMod
+      found <-
+        case foundType of
+          FoundNothing -> do
+            compiledResult <- Ext.CompileProxy.compileSrcModule root path srcMod
+            case compiledResult of
+              Just (Compile.Artifacts canMod _ _) ->
+                  pure $ findDeclAtPoint point (Can._decls canMod)
+              
+              Nothing ->
+                  pure foundType
 
-  found <-
-    case foundType of
-      FoundNothing -> do
-        Right (Compile.Artifacts canMod _ _) <-
-          Ext.CompileProxy.compileSrcModule root path srcMod
+          existing ->
+            pure existing
 
-        pure $ findDeclAtPoint point (Can._decls canMod)
-      existing ->
-        pure existing
-
-  case found of
-    FoundNothing ->
-      pure Json.Encode.null
-    FoundExpr expr patterns ->
-      case getLocatedDetails expr of
-        Nothing -> fail ("Could not locate expression: " ++ show expr)
-        Just (Local localName) ->
-          findFirstPatternIntroducing localName patterns
-            & encodeResult path
-            & pure
-        Just (External extCanMod name) ->
-          findExternalWith findFirstValueNamed name Src._values extCanMod
-        Just (Ctor extCanMod name) ->
-          findExternalWith findFirstCtorNamed name Src._unions extCanMod
-    FoundPattern (A.At _ (Can.PCtor extCanMod _ _ ctorName _ _)) ->
-      findExternalWith findFirstCtorNamed ctorName Src._unions extCanMod
-    FoundPattern _ ->
-      pure Json.Encode.null
-    FoundType tipe -> do
-      Right env <- Ext.CompileProxy.loadCanonicalizeEnv root path srcMod
-
-      let (_, eitherCanType) = Reporting.Result.run $ Canonicalize.Type.canonicalize env tipe
-
-      case eitherCanType of
-        Left err ->
-          fail $ "Could not canonicalize type: " ++ show err
-        Right (Can.TType extCanMod name _) ->
-          findExternalWith findFirstTypeNamed name id extCanMod
-        Right _ ->
+      case found of
+        FoundNothing ->
           pure Json.Encode.null
-  where
-    findExternalWith findFn name listAccess canMod = do
-      details <- Ext.CompileProxy.loadProject
 
-      case lookupModulePath details canMod of
-        Nothing ->
-          fail "Could not find path"
-        Just targetPath -> do
-          Right (_, sourceMod) <- Ext.CompileProxy.loadFileSource root targetPath
+        FoundExpr expr patterns ->
+          case getLocatedDetails expr of
+            Nothing ->
+                pure Json.Encode.null
 
-          listAccess sourceMod
-            & findFn name
-            & encodeResult targetPath
-            & pure
+            Just (Local localName) ->
+              findFirstPatternIntroducing localName patterns
+                & encodeResult path
+                & pure
+
+            Just (External extCanMod name) ->
+              findExternalWith findFirstValueNamed name Src._values extCanMod
+
+            Just (Ctor extCanMod name) ->
+              findExternalWith findFirstCtorNamed name Src._unions extCanMod
+
+        FoundPattern (A.At _ (Can.PCtor extCanMod _ _ ctorName _ _)) ->
+          findExternalWith findFirstCtorNamed ctorName Src._unions extCanMod
+
+        FoundPattern _ ->
+          pure Json.Encode.null
+
+        FoundType tipe -> do
+          canonicalizationEnvResult <- Ext.CompileProxy.loadCanonicalizeEnv root path srcMod
+          case canonicalizationEnvResult of
+            Nothing ->
+              pure Json.Encode.null
+
+            Just env -> do
+              let (_, eitherCanType) = Reporting.Result.run $ Canonicalize.Type.canonicalize env tipe
+
+              case eitherCanType of
+                Left err ->
+                  pure Json.Encode.null
+
+                Right (Can.TType extCanMod name _) ->
+                  findExternalWith findFirstTypeNamed name id extCanMod
+
+                Right _ ->
+                  pure Json.Encode.null
+      where
+        findExternalWith findFn name listAccess canMod = do
+          details <- Ext.CompileProxy.loadProject
+
+          case lookupModulePath details canMod of
+            Nothing ->
+               pure Json.Encode.null
+
+            Just targetPath -> do
+              loadedFile <- Ext.CompileProxy.loadFileSource root targetPath
+              case loadedFile of
+                Right (_, sourceMod) -> do
+                  listAccess sourceMod
+                    & findFn name
+                    & encodeResult targetPath
+                    & pure
+                
+                Left _ ->
+                     pure Json.Encode.null
 
 encodeResult :: FilePath -> Maybe (A.Located a) -> Json.Encode.Value
 encodeResult path result =

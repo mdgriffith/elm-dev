@@ -9,6 +9,7 @@ import qualified Data.List as List
 import qualified Ext.Common
 import qualified System.FSNotify
 import qualified System.FilePath
+import qualified Ext.Log
 
 watch :: FilePath -> ([FilePath] -> IO ()) -> IO ()
 watch root action =
@@ -32,7 +33,7 @@ watch root action =
         root -- directory to watch
         shouldTrigger -- predicate
         (\event -> do
-            Ext.Common.debug ("Filewatch.event: " <> toString event)
+            Ext.Log.log Ext.Log.FileWatch (toString event)
             Debounce.send trigger (getEventFilePath event)
         )
 

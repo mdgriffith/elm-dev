@@ -30,6 +30,7 @@ import Llamadera
 import qualified Network.WebSockets as WS
 import qualified Network.WebSockets.Snap as WS
 import Snap.Core (MonadSnap)
+import Ext.Log
 
 runWebSocketsSnap :: MonadSnap m => WS.ServerApp -> m ()
 runWebSocketsSnap = WS.runWebSocketsSnap
@@ -42,7 +43,7 @@ leaderInit = newTVarIO Nothing
 
 socketHandler :: TVar [Client clientData] -> OnJoined -> OnReceive -> T.Text -> clientData -> WS.ServerApp
 socketHandler mClients onJoined onReceive clientId initialClientData pending = do
-  debug $ "[websocket] ❇️  " <> T.unpack clientId
+  Ext.Log.log Ext.Log.Live $ " ❇️ " <> T.unpack clientId
   conn <- WS.acceptRequest pending
 
   let client = Client clientId conn initialClientData
@@ -51,7 +52,7 @@ socketHandler mClients onJoined onReceive clientId initialClientData pending = d
           clients <- readTVar mClients
           let remainingClients = removeClient client clients
           writeTVar mClients remainingClients
-        debug $ "[websocket] 🚫 " <> T.unpack clientId
+        Ext.Log.log Ext.Log.Live $ " 🚫 " <> T.unpack clientId
 
   flip finally disconnect $ do
     clientCount <- atomically $ do

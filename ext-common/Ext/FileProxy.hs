@@ -19,7 +19,6 @@ import qualified Data.Binary as Binary
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 
-import Ext.Common (debug)
 
 import Ext.CompileMode (getMode, CompileMode(..))
 

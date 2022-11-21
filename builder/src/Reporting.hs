@@ -44,7 +44,7 @@ import qualified Reporting.Doc as D
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Exit.Help as Help
 
-import qualified Ext.Common
+import qualified Ext.Log
 
 
 
@@ -206,7 +206,7 @@ detailsLoop chan state@(DState total _ _ _ _ built _) =
           detailsLoop chan =<< detailsStep dmsg state
 
         Nothing ->
-          Ext.Common.debug $ clear (toBuildProgress total total) $
+          Ext.Log.log Ext.Log.ElmCompiler $ clear (toBuildProgress total total) $
             if built == total
             then "Dependencies ready!"
             else "Dependency problem!"
@@ -244,7 +244,7 @@ detailsStep msg (DState total cached rqst rcvd failed built broken) =
       putTransition (DState total (cached + 1) rqst rcvd failed built broken)
 
     DRequested ->
-      do  when (rqst == 0) (Ext.Common.debug "Starting downloads...\n")
+      do  when (rqst == 0) (Ext.Log.log Ext.Log.ElmCompiler "Starting downloads...\n")
           return (DState total cached (rqst + 1) rcvd failed built broken)
 
     DReceived pkg vsn ->
@@ -349,7 +349,7 @@ buildLoop chan done =
             !message = toFinalMessage done result
             !width = 12 + length (show done)
           in
-          Ext.Common.debug $
+          Ext.Log.log Ext.Log.ElmCompiler $
             if length message < width
             then '\r' : replicate width ' ' ++ '\r' : message
             else '\r' : message
@@ -392,7 +392,7 @@ reportGenerate style names output =
     Terminal mvar ->
       do  readMVar mvar
           let cnames = fmap ModuleName.toChars names
-          Ext.Common.debug ('\n' : toGenDiagram cnames output)
+          Ext.Log.log Ext.Log.ElmCompiler ('\n' : toGenDiagram cnames output)
 
 
 toGenDiagram :: NE.List [Char] -> FilePath -> [Char]
@@ -436,7 +436,7 @@ putStrFlush =
   -- elm-dev: 
   --    This used to print strings without a new line in the original compiler.
   --    However, contiously writing to the same line doesn't work well in a concurrency setting.
-  Ext.Common.debug
+  Ext.Log.log Ext.Log.ElmCompiler
 
 
 

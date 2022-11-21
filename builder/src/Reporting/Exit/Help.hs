@@ -23,7 +23,7 @@ import Reporting.Doc ((<+>))
 import qualified Reporting.Doc as D
 import qualified Reporting.Error as Error
 
-import qualified Ext.Common
+import qualified Ext.Log
 
 
 -- REPORT
@@ -131,7 +131,7 @@ toStderr doc =
 
 toHandle :: Handle -> D.Doc -> IO ()
 toHandle handle doc =
-  Ext.Common.withPrintLockIfDebug handle (\_ -> do
+  Ext.Log.withPrintLockIf Ext.Log.ElmCompiler handle (\_ -> do
     isTerminal <- hIsTerminalDevice handle
     if isTerminal
       then D.toAnsi handle doc

@@ -62,14 +62,16 @@ import qualified Reporting.Error.Import as Import
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type.Localizer as L
 import qualified Stuff
-
+import qualified Ext.Log
 
 import qualified Build
 import Prelude hiding (log)
 import Build (Module(..), Artifacts(..), CachedInterface(..), Root(..))
-import Ext.Common (debug, log)
+
 import StandaloneInstances
 
+debug =
+  Ext.Log.log Ext.Log.MemoryCache
 
 
 

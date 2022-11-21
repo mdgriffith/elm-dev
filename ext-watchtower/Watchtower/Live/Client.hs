@@ -4,7 +4,7 @@ module Watchtower.Live.Client
     ( Client(..),ClientId, ProjectRoot, State(..), ProjectCache(..), ProjectStatus(..)
     , getAllStatuses, getRoot, getProjectRoot
     , Outgoing(..), encodeOutgoing, outgoingToLog
-    , Incoming(..), decodeIncoming, toString, encodeWarning
+    , Incoming(..), decodeIncoming, encodeWarning
     , broadcast, broadcastTo
     , matchingProject
     , isWatchingFileForWarnings, isWatchingFileForDocs
@@ -55,6 +55,7 @@ import qualified Reporting.Doc
 import qualified Reporting.Render.Type
 import qualified Reporting.Render.Type.Localizer
 import qualified Ext.Common
+import qualified Ext.Log
 
 data State = State
   { clients :: STM.TVar [Client],
@@ -194,15 +195,6 @@ data Outgoing
   | Docs FilePath [Docs.Module]
 
 
-toString :: Outgoing -> String
-toString outgoing =
-    case outgoing of
-      ElmStatus _ ->
-          "GET STATUS"
-
-      Warnings _ _ _ ->
-          "Warnings"
-
 
 outgoingToLog :: Outgoing -> String
 outgoingToLog outgoing =
@@ -210,8 +202,8 @@ outgoingToLog outgoing =
     ElmStatus projectStatusList ->
       "Status: " ++ Ext.Common.formatList (fmap projectStatusToString projectStatusList)
 
-    Warnings _ _ _ ->
-      "Warnings"
+    Warnings _ _ warnings ->
+      show (length warnings) <> " warnings"
 
     Docs _ _ ->
       "Docs"
@@ -400,7 +392,7 @@ broadcastAll allClients outgoing =
 broadcastTo :: STM.TVar [Client] -> ClientId -> Outgoing -> IO ()
 broadcastTo allClients id outgoing =
   do
-    Ext.Common.log "◀️" (outgoingToLog outgoing)
+    Ext.Log.log Ext.Log.Live (outgoingToLog outgoing)
     Watchtower.Websocket.broadcastWith
       allClients
       ( Watchtower.Websocket.matchId id
@@ -412,14 +404,14 @@ broadcastTo allClients id outgoing =
 
 broadcastToMany :: STM.TVar [Client] -> (Client -> Bool) -> Outgoing -> IO ()
 broadcastToMany allClients shouldBroadcast outgoing =
-  do
-    Ext.Common.log "◀️" (outgoingToLog outgoing)
-    Watchtower.Websocket.broadcastWith
-      allClients
-      shouldBroadcast
-      ( builderToString $
-          encodeOutgoing outgoing
-      )
+    do
+      Ext.Log.log Ext.Log.Live (outgoingToLog outgoing)
+      Watchtower.Websocket.broadcastWith
+        allClients
+        shouldBroadcast
+        ( builderToString $
+            encodeOutgoing outgoing
+        )
 
 
 
@@ -428,7 +420,6 @@ broadcast mClients msg =
   case msg of
     ElmStatus projectStatusList ->
         do
-            Ext.Common.debug $ "📢  Project status changed"
             broadcastToMany
                 mClients
                 ( \client ->
@@ -453,7 +444,6 @@ broadcast mClients msg =
 
     Warnings file localizer warnings ->
         do
-            Ext.Common.debug $ "📢  Warnings reported"
             broadcastToMany
                 mClients
                 ( \client ->
@@ -469,7 +459,6 @@ broadcast mClients msg =
 
     Docs file docs ->
         do
-            Ext.Common.debug $ "📢  Docs reported"
             broadcastToMany
                 mClients
                 ( \client ->
