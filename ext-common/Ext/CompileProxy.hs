@@ -128,11 +128,11 @@ compileToJson root paths = do
   pure res
 
 
-allDepArtifacts :: IO CompileHelpers.Artifacts
-allDepArtifacts =
-  modeRunner "allDepArtifacts"
-    (Ext.CompileHelpers.Disk.allDepArtifacts)
-    (Ext.CompileHelpers.Memory.allDepArtifacts)
+allPackageArtifacts :: FilePath -> IO CompileHelpers.Artifacts
+allPackageArtifacts root =
+  modeRunner "allPackageArtifacts"
+    (Ext.CompileHelpers.Disk.allPackageArtifacts root)
+    (Ext.CompileHelpers.Memory.allPackageArtifacts root)
 
 
 allInterfaces :: NE.List FilePath -> IO (Either Exit.Reactor (Map.Map ModuleName.Raw I.Interface))
@@ -245,7 +245,8 @@ loadSingle root path =
     case Parse.fromByteString Parse.Application source of
       Right srcModule ->
         do
-          artifactsDeps <- allDepArtifacts
+        
+          artifactsDeps <- allPackageArtifacts root
           ifacesResult <- allInterfaces (NE.List path [])
           case ifacesResult of
             Left exit ->
@@ -259,60 +260,60 @@ loadSingle root path =
                 )
 
             Right ifaces -> do
-              let (canWarnings, eitherCanned) = Reporting.Result.run $ Canonicalize.canonicalize Pkg.dummyName ifaces srcModule
-              case eitherCanned of
-                Left errs ->
-                  pure
-                    (Single 
-                      (Right srcModule)
-                      (Just canWarnings)
-                      Nothing
-                      (Just (Left (Reporting.Error.BadNames errs)))
-                    ) 
+                let (canWarnings, eitherCanned) = Reporting.Result.run $ Canonicalize.canonicalize Pkg.dummyName ifaces srcModule
+                case eitherCanned of
+                  Left errs ->
+                    pure
+                      (Single 
+                        (Right srcModule)
+                        (Just canWarnings)
+                        Nothing
+                        (Just (Left (Reporting.Error.BadNames errs)))
+                      ) 
 
-                Right canModule ->
-                    case CompileHelpers.typeCheck srcModule canModule of
-                      Left typeErrors ->
-                          pure
-                            (Single 
-                              (Right srcModule)
-                              (Just canWarnings)
-                              (Just canModule)
-                              (Just (Left (Reporting.Error.BadTypes (Localizer.fromModule srcModule) typeErrors)))
-                            ) 
+                  Right canModule ->
+                      case CompileHelpers.typeCheck srcModule canModule of
+                        Left typeErrors ->
+                            pure
+                              (Single 
+                                (Right srcModule)
+                                (Just canWarnings)
+                                (Just canModule)
+                                (Just (Left (Reporting.Error.BadTypes (Localizer.fromModule srcModule) typeErrors)))
+                              ) 
 
-                      Right annotations ->
-                        do
-                          let nitpicks = Nitpick.PatternMatches.check canModule
+                        Right annotations ->
+                          do
+                            let nitpicks = Nitpick.PatternMatches.check canModule
 
-                          let (optWarnings, eitherLocalGraph) = Reporting.Result.run $ Optimize.optimize annotations canModule
-                          case eitherLocalGraph of
-                            Left errs ->
-                              pure
-                                (Single 
-                                  (Right srcModule)
-                                  (Just (canWarnings <> optWarnings))
-                                  (Just canModule)
-                                  (Just (Left (Reporting.Error.BadMains (Localizer.fromModule srcModule) errs)))
-                                ) 
+                            let (optWarnings, eitherLocalGraph) = Reporting.Result.run $ Optimize.optimize annotations canModule
+                            case eitherLocalGraph of
+                              Left errs ->
+                                pure
+                                  (Single 
+                                    (Right srcModule)
+                                    (Just (canWarnings <> optWarnings))
+                                    (Just canModule)
+                                    (Just (Left (Reporting.Error.BadMains (Localizer.fromModule srcModule) errs)))
+                                  ) 
 
-                            Right localGraph -> do
-                              pure
-                                (Single 
-                                  (Right srcModule)
-                                  (Just (canWarnings <> optWarnings))
-                                  (Just canModule)
-                                  (Just 
-                                    (case nitpicks of 
-                                      Right () ->
-                                          Right (Compile.Artifacts canModule annotations localGraph)
-                                      
-                                      Left errors ->
-                                          Left (Reporting.Error.BadPatterns errors)
-                                      
+                              Right localGraph -> do
+                                pure
+                                  (Single 
+                                    (Right srcModule)
+                                    (Just (canWarnings <> optWarnings))
+                                    (Just canModule)
+                                    (Just 
+                                      (case nitpicks of 
+                                        Right () ->
+                                            Right (Compile.Artifacts canModule annotations localGraph)
+                                        
+                                        Left errors ->
+                                            Left (Reporting.Error.BadPatterns errors)
+                                        
+                                      )
                                     )
-                                  )
-                                ) 
+                                  ) 
 
       Left err ->
         pure

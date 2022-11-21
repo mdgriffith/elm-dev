@@ -1,6 +1,6 @@
 module Ext.CompileHelpers.Disk
   ( compileToJson
-  , allDepArtifacts
+  , allPackageArtifacts
   )
 where
 
@@ -87,12 +87,11 @@ compileWithoutJsGen root paths =
 {- Appropriated from worker/src/Artifacts.hs
    WARNING: does not load any user code!!!
 -}
-allDepArtifacts :: IO CompileHelpers.Artifacts
-allDepArtifacts =
+allPackageArtifacts :: FilePath ->  IO CompileHelpers.Artifacts
+allPackageArtifacts root =
   BW.withScope $ \scope ->
   do  --debug "Loading allDeps"
       let style = Reporting.silent
-      root <- getProjectRoot
       result <- Details.load style scope root
       case result of
         Left _ ->

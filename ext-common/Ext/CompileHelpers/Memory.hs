@@ -1,6 +1,6 @@
 module Ext.CompileHelpers.Memory
   ( compileToJson
-  , allDepArtifacts
+  , allPackageArtifacts
   )
 where
 
@@ -109,16 +109,16 @@ artifactsCache :: MVar CompileHelpers.Artifacts
 artifactsCache = unsafePerformIO $ newEmptyMVar
 
 
-allDepArtifacts :: IO CompileHelpers.Artifacts
-allDepArtifacts = do
+allPackageArtifacts :: FilePath -> IO CompileHelpers.Artifacts
+allPackageArtifacts root = do
   artifactsCacheM <- tryReadMVar artifactsCache
   case artifactsCacheM of
     Just artifacts -> do
-      debug $ "🎯 allDepArtifacts cache hit"
+      debug $ "🎯 allPackageArtifacts cache hit"
       pure artifacts
     Nothing -> do
-      debug $ "❌ allDepArtifacts cache miss"
-      artifacts <- allDepArtifacts_
+      debug $ "❌ allPackageArtifacts cache miss"
+      artifacts <- allPackageArtifacts_ root
       placed <- tryPutMVar artifactsCache artifacts
       if placed
         then pure ()
@@ -130,12 +130,11 @@ allDepArtifacts = do
 {- Appropriated from worker/src/Artifacts.hs
    WARNING: does not load any user code!!!
 -}
-allDepArtifacts_ :: IO CompileHelpers.Artifacts
-allDepArtifacts_ =
+allPackageArtifacts_ :: FilePath -> IO CompileHelpers.Artifacts
+allPackageArtifacts_ root =
   BW.withScope $ \scope ->
   do  --debug "Loading allDeps"
       let style = Reporting.silent
-      root <- getProjectRoot
       result <- Ext.MemoryCached.Details.load style scope root
       case result of
         Left _ ->
