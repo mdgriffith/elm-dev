@@ -30,11 +30,13 @@ const refreshWatch = (): Msg => {
   const editors = vscode.window.visibleTextEditors;
   const items = [];
   for (const index in editors) {
-    items.push({
-      path: editors[index].document.uri.fsPath,
-      warnings: true,
-      docs: false,
-    });
+    if (editors[index].document.uri.fsPath.endsWith(".elm")) {
+      items.push({
+        path: editors[index].document.uri.fsPath,
+        warnings: true,
+        docs: false,
+      });
+    }
   }
 
   return { msg: "Watched", details: items };
@@ -76,6 +78,8 @@ function socketConnect(options) {
 export class Watchtower {
   private connection;
   private projects: Project[];
+  private editsSinceSave: vscode.TextDocumentChangeEvent[];
+  private trackEditsSinceSave: boolean;
   private retry;
   public codelensProvider: SignatureCodeLensProvider;
   public diagnostics: vscode.DiagnosticCollection;
@@ -92,12 +96,11 @@ export class Watchtower {
 
   constructor() {
     let self = this;
-    // create code lens provider
+    self.editsSinceSave = [];
+    self.trackEditsSinceSave = false;
     self.codelensProvider = new SignatureCodeLensProvider();
-
     self.definitionsProvider = new ElmDefinitionProvider();
-    self.diagnostics =
-      vscode.languages.createDiagnosticCollection("elmWatchtower");
+    self.diagnostics = vscode.languages.createDiagnosticCollection("elmDev");
 
     self.startServer();
 
@@ -115,26 +118,33 @@ export class Watchtower {
     });
 
     vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
+      self.editsSinceSave = [];
+      self.trackEditsSinceSave = true;
       self.send(changed(document.uri.fsPath));
     });
 
     vscode.workspace.onDidChangeTextDocument(
       (docChange: vscode.TextDocumentChangeEvent) => {
         if (docChange.document.languageId == "elm") {
+          // We track what edits were done since save so that we can correct the source positions on data coming
+          // back from the server
+          // This is a temporary hack until the server can handle edits being sent to it.
+          if (self.trackEditsSinceSave) {
+            self.editsSinceSave.push(docChange);
+          }
+
+          // Adjust the lines of the code lenses so they stay in sync
           for (const change of docChange.contentChanges) {
-            const oldLineCount =
-              change.range.end.line - change.range.start.line;
-            const newLineCount = (change.text.match(/\n/g) || "").length;
-            const lineCountChange = newLineCount - oldLineCount;
+            const lineCountChange = lineCountDelta(change);
             self.codelensProvider.lineAdjustment(
               docChange.document,
               docChange.document.uri.fsPath,
               change.range,
-              lineCountChange,
+              lineCountChange
             );
           }
         }
-      },
+      }
     );
 
     vscode.window.onDidChangeVisibleTextEditors((editors) => {
@@ -181,7 +191,7 @@ export class Watchtower {
           log.log("Bundled Elm Dev failed to auto-start");
           log.log(watchTowerErr);
         }
-      },
+      }
     );
   }
 
@@ -222,7 +232,6 @@ export class Watchtower {
     ) {
       const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
       this.send(discover(root));
-      this.send(refreshWatch());
     }
   }
 
@@ -239,11 +248,8 @@ export class Watchtower {
       case "Status": {
         self.diagnostics.clear();
         for (const project of msg["details"]) {
-          // log.obj("PROJECT", project);
-          // log.obj("PROJECT.STATUS", project.status);
           if ("errors" in project.status) {
             for (const error of project.status["errors"]) {
-              // log.obj("ERROR", error);
               log.log("   ERROR:" + error.path);
               const uri = vscode.Uri.file(error["path"]);
               let problems: any[] = [];
@@ -251,7 +257,10 @@ export class Watchtower {
                 problems.push({
                   code: "elm-compiler",
                   message: formatMessage(prob["message"]),
-                  range: prepareRange(prob["region"]),
+                  range: regionToRange(prob["region"], {
+                    uri: uri,
+                    edits: self.editsSinceSave,
+                  }),
                   severity: vscode.DiagnosticSeverity.Error,
                   source: "",
                   relatedInformation: [],
@@ -264,7 +273,7 @@ export class Watchtower {
           } else {
             // Global error
             log.log(
-              "GLOBAL ERROR -> elm-vscode doesn't do anything with this right now, we should!",
+              "GLOBAL ERROR -> elm-vscode doesn't do anything with this right now, we should!"
             );
           }
         }
@@ -274,6 +283,7 @@ export class Watchtower {
         self.codelensProvider.setSignaturesFromWarnings(
           msg.details.filepath,
           msg.details.warnings,
+          self.editsSinceSave
         );
         break;
       }
@@ -295,6 +305,10 @@ export class Watchtower {
         log.log(msgString);
       }
     }
+    // Stop tracking edits for the correction.
+    // This isn't totally correct because we're using a websocket and
+    //  can receive N messages for one "save" message we send up
+    self.trackEditsSinceSave = false;
   }
 
   setup() {
@@ -362,35 +376,6 @@ const formatSource = (items: any): string => {
 
 /*   Asking questions!  */
 
-function prepareRange(region) {
-  return new vscode.Range(
-    preparePosition(region["start"]),
-    preparePosition(region["end"]),
-  );
-}
-
-function preparePosition(pos: any) {
-  return new vscode.Position(pos["line"] - 1, pos["column"] - 1);
-}
-
-function prepareRanges(ranges) {
-  const rangeLength = ranges.length;
-
-  var prepared: any[] = [];
-  for (var i = 0; i < rangeLength; i++) {
-    const start = {
-      character: ranges[i].start.character,
-      line: ranges[i].start.line,
-    };
-    const end = {
-      character: ranges[i].end.character,
-      line: ranges[i].end.line,
-    };
-    prepared.push({ start: start, end: end });
-  }
-  return prepared;
-}
-
 // Definition Provider
 
 export class ElmDefinitionProvider implements vscode.DefinitionProvider {
@@ -398,7 +383,7 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
   public provideDefinition(
     document: vscode.TextDocument,
     position: vscode.Position,
-    token: vscode.CancellationToken,
+    token: vscode.CancellationToken
   ): vscode.ProviderResult<vscode.Definition | vscode.LocationLink[]> {
     const self = this;
     return new Promise((resolve, reject) => {
@@ -406,20 +391,17 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
         Question.questions.findDefinition(
           document.uri.fsPath,
           position.line + 1,
-          position.character + 1,
+          position.character + 1
         ),
         (resp) => {
           if (!resp) {
             resolve(null);
           } else {
             const uri = vscode.Uri.file(resp.definition.path);
-            const start: vscode.Position = preparePosition(
-              resp.definition.region.start,
-            );
-            const end: vscode.Position = preparePosition(
-              resp.definition.region.end,
-            );
-            resolve(new vscode.Location(uri, new vscode.Range(start, end)));
+
+            const region = regionToRange(resp.definition.region, null);
+
+            resolve(new vscode.Location(uri, region));
           }
         },
         reject
@@ -468,15 +450,35 @@ function getEditorMatching(uri: vscode.Uri): vscode.TextEditor | null {
   return null;
 }
 
+function lineCountDelta(edit) {
+  const oldLineCount = edit.range.end.line - edit.range.start.line;
+  const newLineCount = (edit.text.match(/\n/g) || "").length;
+  return newLineCount - oldLineCount;
+}
+
 /* Note: If this ever gets an invalid region, e.g. a line or column of 0,
  * then this will eventually hang forever. and cause regions to not display.
  */
-function regionToRange(region): vscode.Range {
+function regionToRange(region, maybeEditsSinceSave): vscode.Range {
+  let lineOffset = 0;
+  if (maybeEditsSinceSave != null) {
+    const uri = maybeEditsSinceSave.uri;
+    for (const edit of maybeEditsSinceSave.edits) {
+      if (edit.document.uri.fsPath == uri.fsPath) {
+        for (const change of edit.contentChanges) {
+          if (change.start.line < region.start.line) {
+            lineOffset += lineCountDelta(change);
+          }
+        }
+      }
+    }
+  }
+
   return new vscode.Range(
-    region.start.line - 1,
-    region.start.column - 1,
-    region.end.line - 1,
-    region.end.column - 1,
+    Math.max(0, region.start.line - 1 + lineOffset),
+    Math.max(0, region.start.column - 1),
+    Math.max(0, region.end.line - 1 + lineOffset),
+    Math.max(0, region.end.column - 1)
   );
 }
 
@@ -484,8 +486,9 @@ function signatureToLens(
   document: vscode.TextDocument,
   signature: Question.MissingSignature,
   onClick: any,
+  editsSinceSave: null | vscode.TextDocumentChangeEvent[]
 ): vscode.CodeLens {
-  const range = regionToRange(signature.region);
+  const range = regionToRange(signature.region, editsSinceSave);
 
   let newLens = new vscode.CodeLens(range);
 
@@ -522,35 +525,13 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
       });
       */
   }
-  public setSignatures(filepath: string, sigs: Question.MissingSignature[]) {
-    const self = this;
 
-    // TODO! destroy existing codelenses
-    const signatures: any[] = [];
-    for (const sig of sigs) {
-      const document = getDocumentMatching(vscode.Uri.file(filepath));
-
-      if (document != null) {
-        const onClick = () => {
-          self.queueAction({
-            signature: sig,
-            filepath: document.uri.fsPath,
-          });
-        };
-        const lens = signatureToLens(document, sig, onClick);
-        signatures.push({ missing: sig, lens: lens });
-      }
-    }
-
-    this.signatures[filepath] = {
-      signatures: signatures,
-    };
-    this._onDidChangeCodeLenses.fire();
-  }
-
+  // editsSinceSave is the dumb correction we need to make until
+  // the server is fast enough to return before edits can come in.
   public setSignaturesFromWarnings(
     filepath: string,
     warnings: Question.Warning[],
+    editsSinceSave: vscode.TextDocumentChangeEvent[]
   ) {
     const self = this;
 
@@ -575,18 +556,18 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
               filepath: document.uri.fsPath,
             });
           };
-          const lens = signatureToLens(document, sig, onClick);
+          const lens = signatureToLens(document, sig, onClick, editsSinceSave);
           signatures.push({ missing: sig, lens: lens });
         }
       } else if (warn.warning == "UnusedVariable") {
         const dec = {
-          range: regionToRange(warn.region),
+          range: regionToRange(warn.region, editsSinceSave),
           hoverMessage: "This is unused.",
         };
         decorations.push(dec);
       } else if (warn.warning == "UnusedImport") {
         const dec = {
-          range: regionToRange(warn.region),
+          range: regionToRange(warn.region, editsSinceSave),
           hoverMessage: "This is unused.",
         };
         decorations.push(dec);
@@ -621,7 +602,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
     document: vscode.TextDocument,
     filepath: string,
     affectedRange: vscode.Range,
-    lineCountChange: number,
+    lineCountChange: number
   ) {
     const self = this;
     if (lineCountChange == 0) {
@@ -644,7 +625,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
                 filepath: document.uri.fsPath,
               });
             };
-            sig.lens = signatureToLens(document, sig.missing, onClick);
+            sig.lens = signatureToLens(document, sig.missing, onClick, null);
           }
         }
       }
@@ -659,7 +640,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
       if (editor) {
         const position = new vscode.Position(
           action.signature.region.start.line - 1,
-          action.signature.region.start.column - 1,
+          action.signature.region.start.column - 1
         );
         const newSignature =
           action.signature.name + " : " + action.signature.signature + "\n";
@@ -704,7 +685,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
   */
   public provideCodeLenses(
     document: vscode.TextDocument,
-    token: vscode.CancellationToken,
+    token: vscode.CancellationToken
   ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
     const self = this;
 
@@ -729,7 +710,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
 
   public resolveCodeLens(
     codeLens: vscode.CodeLens,
-    token: vscode.CancellationToken,
+    token: vscode.CancellationToken
   ) {
     const self = this;
     // This function will be called for each visible code lens, usually when scrolling and after calls to compute-lenses.
