@@ -6,6 +6,7 @@ import Control.Applicative ((<$>), (<*>))
 import Control.Monad.Trans (MonadIO (liftIO))
 import qualified Control.Concurrent.STM as STM
 import qualified Control.Monad as Monad
+import qualified Control.Exception as Exception
 import qualified Data.ByteString as BS
 import qualified Data.NonEmptyList as NE
 import qualified Data.ByteString.Builder
@@ -34,7 +35,7 @@ import qualified Watchtower.Editor
 import qualified Watchtower.Live
 import qualified Ext.Dev.Project
 import qualified Watchtower.Live.Client as Client
-
+import qualified Stuff
 
 import qualified Build
 import qualified Ext.Dev
@@ -58,13 +59,32 @@ data Question
 
 data DocsType 
     = FromFile FilePath
-    -- | ForPackage  
+    | ForPackage PackageDetails
+
+data PackageDetails =
+  PackageDetails 
+    { _owner :: String
+    , _package :: String
+    , _version :: String
+    , _page :: PackagePage
+    }
+
+
+data PackagePage = ReadMe | DocsJson
+
+pageToFile :: PackagePage -> String
+pageToFile page =
+  case page of
+    ReadMe -> "README.md"
+    DocsJson -> "docs.json"
+
 
 serve :: Watchtower.Live.State -> Snap ()
 serve state =
   do
     route
-      [ ("/:action", actionHandler state)
+      [ ("/docs/:owner/:package/:version/:readme", docsHandler state)
+      , ("/:action", actionHandler state)
       ]
 
 questionHandler :: Watchtower.Live.State -> Question -> Snap ()
@@ -82,6 +102,28 @@ unpackStringList string =
       (Data.ByteString.Char8.split ',' string)
 
 
+
+docsHandler :: Watchtower.Live.State -> Snap ()
+docsHandler state =
+  do
+    maybeOwner <- getParam "owner"
+    maybePackage <- getParam "package"
+    maybeVersion <- getParam "version"
+    maybeReadme <- getParam "readme"
+    case (maybeOwner, maybePackage, maybeVersion, maybeReadme) of
+      (Just owner, Just package, Just version, Just "docs.json") -> do
+          let details = PackageDetails (Data.ByteString.Char8.unpack owner) (Data.ByteString.Char8.unpack package) (Data.ByteString.Char8.unpack version) DocsJson
+          questionHandler state (Docs (ForPackage details))
+      
+      (Just owner, Just package, Just version, Just "README.md") -> do
+          let details = PackageDetails (Data.ByteString.Char8.unpack owner) (Data.ByteString.Char8.unpack package) (Data.ByteString.Char8.unpack version) ReadMe
+          questionHandler state (Docs (ForPackage details))
+
+      _ ->
+          writeBS "Wha??"
+
+     
+
 actionHandler :: Watchtower.Live.State -> Snap ()
 actionHandler state =
   do
@@ -92,10 +134,11 @@ actionHandler state =
 
       Just "docs" ->
         do
-          maybeFiles <- getQueryParam "files"
+          maybeFiles <- getQueryParam "file"
           case maybeFiles of
             Nothing ->
               writeBS "Needs a file parameter"
+
             Just fileString -> do
               questionHandler state (Docs (FromFile (Data.ByteString.Char8.unpack fileString)))
 
@@ -216,6 +259,12 @@ ask state question =
             pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [ docs ])))
                
 
+    Docs (ForPackage (PackageDetails owner package version page)) ->
+      do
+        elmHome <- Stuff.getElmHome
+        let filepath = elmHome Path.</> "0.19.1" Path.</> "packages" Path.</> owner Path.</> package Path.</> version Path.</> pageToFile page
+        Data.ByteString.Builder.byteString <$> BS.readFile filepath
+        
                         
     TimingParse path ->
       do
