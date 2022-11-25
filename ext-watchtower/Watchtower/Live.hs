@@ -8,6 +8,7 @@ import Control.Applicative ((<$>), (<*>), (<|>))
 import qualified Control.Concurrent.STM as STM
 import Control.Monad as Monad (foldM, guard)
 import Control.Monad.Trans (liftIO)
+import Data.Function ((&))
 
 import qualified Data.Name as Name
 import qualified Data.ByteString.Builder
@@ -173,6 +174,9 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
       do
         Ext.Log.log Ext.Log.Live 
           ("👀 watch changed" <> ("\n    " ++ List.intercalate "\n    " (fmap FilePath.takeFileName ((Map.keys watching)))))
+        
+        maybePreviouslyWatching <- Client.getClientData clientId state
+        
         STM.atomically $ do
           STM.modifyTVar
             mClients
@@ -182,43 +186,59 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
                     (Client.watchTheseFilesOnly watching)
                 )
             )
-        Watchtower.Live.Compile.recompile state (Map.keys watching)
 
-    Client.Discover root ->
+        -- Only recompile files that were not being watched before.
+        case maybePreviouslyWatching of
+          Nothing ->
+            pure ()
+          
+          Just previouslyWatching -> do
+            let previouslyWatchingFiles = Client.watchedFiles previouslyWatching
+            -- Map.difference, values in watching, not in previouslyWatching
+            let addedKeys = Map.keys (Map.difference watching previouslyWatchingFiles)
+            case addedKeys of
+              [] -> pure ()
+
+              _ -> Watchtower.Live.Compile.recompile state addedKeys
+         
+        
+
+    Client.Discover root watching ->
       do
         Ext.Log.log Ext.Log.Live ("👀 discover requested: " <> root)
 
         discovered <- discoverProjects root
 
-        STM.atomically $
-            do
-              STM.modifyTVar mProjects
-                  (\projects ->
-                      List.foldl
-                        (\existing new ->
-                          if List.any (Client.matchingProject new) existing then
-                              existing
-                          else
-                              new : existing
+        STM.atomically $ do
+          STM.modifyTVar mProjects
+              (\projects ->
+                  List.foldl
+                    (\existing new ->
+                      if List.any (Client.matchingProject new) existing then
+                          existing
+                      else
+                          new : existing
 
-                        )
-                        projects
-                        discovered
-                  )
-
-              STM.modifyTVar
-                mClients
-                ( fmap
-                    ( Watchtower.Websocket.updateClientData
-                        clientId
-                        ( Client.watchProjects (List.map Client.getProjectRoot discovered))
-                        
                     )
+                    projects
+                    discovered
+              )
+
+          STM.modifyTVar
+            mClients
+            ( fmap
+                ( Watchtower.Websocket.updateClientData
+                    clientId
+                    (\clientWatching ->
+                        clientWatching
+                          & Client.watchProjects (List.map Client.getProjectRoot discovered)
+                          & Client.watchTheseFilesOnly watching
+                    )
+                    
                 )
+            )
 
-        statuses <- Client.getAllStatuses state
-
-        Client.broadcastTo mClients clientId (Client.ElmStatus statuses)
+        Watchtower.Live.Compile.recompile state (Map.keys watching)
 
 
 
