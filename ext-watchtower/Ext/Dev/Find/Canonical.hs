@@ -85,9 +85,15 @@ usedInDef def found =
             List.foldl (flip usedInPattern) found patterns
                 & usedInExpr expr
         
-        Can.TypedDef _ freeVars patternTypes expr tipe ->
-            List.foldl (\innerFound (pattern, _) -> usedInPattern pattern innerFound) found patternTypes
+        Can.TypedDef _ _ patternTypes expr tipe ->
+            List.foldl
+                (\innerFound (pattern, patternTipe) -> 
+                    innerFound
+                        & usedInPattern pattern  
+                        & usedInType patternTipe
+                ) found patternTypes
                 & usedInExpr expr
+                & usedInType tipe
 
 
 usedInPattern :: Can.Pattern -> Set.Set ModuleName.Canonical -> Set.Set ModuleName.Canonical
@@ -183,6 +189,7 @@ usedInExpr (A.At pos expr) found =
             Set.insert used found
                  & usedInExpr exprOne
                  & usedInExpr exprTwo
+                 & usedInAnnotation annotation
 
         Can.Lambda patternList expr ->
             List.foldr usedInPattern found patternList
