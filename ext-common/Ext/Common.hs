@@ -143,6 +143,7 @@ track_ label io = do
           v:"ms":_ -> v & T.unpack & readMaybe
           v:"us":_ -> v & T.unpack & readMaybe & fmap (/ 1000)
           v:"s":_  -> v & T.unpack & readMaybe & fmap (* 1000)
+          v:"m":_  -> v & T.unpack & readMaybe & fmap (* 60000)
           _      -> error $ "woah there! unhandled track_ result: " <> T.unpack result
 
   case millisM of
