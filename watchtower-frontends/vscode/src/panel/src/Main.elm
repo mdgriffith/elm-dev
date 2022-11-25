@@ -396,29 +396,24 @@ viewWarningsOrStatus model =
     in
     case activeWarnings of
         [] ->
-            case List.concat (Dict.values model.warnings) of
-                [] ->
-                    Keyed.el
-                        [ Ui.centerX
-                        , Ui.centerY
-                        ]
-                        ( String.fromInt model.projectsVersion
-                        , case model.lastUpdated of
-                            Nothing ->
-                                Ui.el
-                                    [ Ui.anim.blink
-                                    ]
-                                    (Ui.text "Waiting for info!")
+            Keyed.el
+                [ Ui.centerX
+                , Ui.centerY
+                ]
+                ( String.fromInt model.projectsVersion
+                , case model.lastUpdated of
+                    Nothing ->
+                        Ui.el
+                            [ Ui.anim.blink
+                            ]
+                            (Ui.text "Waiting for info!")
 
-                            Just _ ->
-                                Ui.el
-                                    [ Ui.anim.blink
-                                    ]
-                                    (Ui.text "Lookin good! 🎉")
-                        )
-
-                allWarnings ->
-                    viewWarningOverview allWarnings
+                    Just _ ->
+                        Ui.el
+                            [ Ui.anim.blink
+                            ]
+                            (Ui.text "Lookin good! 🎉")
+                )
 
         _ ->
             viewWarningOverview activeWarnings
@@ -446,7 +441,7 @@ viewWarningOverview warnings =
                 }
                 warnings
     in
-    Ui.column [ Ui.space.md, Ui.centerX, Ui.centerY, Ui.width (Ui.px 500) ]
+    Ui.column [ Ui.space.md, Ui.centerX, Ui.centerY, Ui.width (Ui.px 400) ]
         [ Ui.el
             [ Ui.anim.blink
             ]
