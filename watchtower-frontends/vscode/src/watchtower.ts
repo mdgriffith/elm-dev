@@ -459,14 +459,21 @@ function lineCountDelta(edit) {
 /* Note: If this ever gets an invalid region, e.g. a line or column of 0,
  * then this will eventually hang forever. and cause regions to not display.
  */
-function regionToRange(region, maybeEditsSinceSave): vscode.Range {
+function regionToRange(
+  region,
+  maybeEditsSinceSave: {
+    uri: vscode.Uri;
+    edits: vscode.TextDocumentChangeEvent[];
+  } | null
+): vscode.Range {
   let lineOffset = 0;
   if (maybeEditsSinceSave != null) {
     const uri = maybeEditsSinceSave.uri;
+
     for (const edit of maybeEditsSinceSave.edits) {
       if (edit.document.uri.fsPath == uri.fsPath) {
         for (const change of edit.contentChanges) {
-          if (change.start.line < region.start.line) {
+          if (change.range.start.line < region.start.line) {
             lineOffset += lineCountDelta(change);
           }
         }
@@ -488,7 +495,14 @@ function signatureToLens(
   onClick: any,
   editsSinceSave: null | vscode.TextDocumentChangeEvent[]
 ): vscode.CodeLens {
-  const range = regionToRange(signature.region, editsSinceSave);
+  let edits = {
+    uri: document.uri,
+    edits: editsSinceSave,
+  };
+  if (editsSinceSave == null) {
+    edits = null;
+  }
+  const range = regionToRange(signature.region, edits);
 
   let newLens = new vscode.CodeLens(range);
 
@@ -534,7 +548,7 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
     editsSinceSave: vscode.TextDocumentChangeEvent[]
   ) {
     const self = this;
-
+    const uri = vscode.Uri.file(filepath);
     const decorations: any[] = [];
 
     // TODO! destroy existing codelenses
@@ -561,13 +575,19 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
         }
       } else if (warn.warning == "UnusedVariable") {
         const dec = {
-          range: regionToRange(warn.region, editsSinceSave),
+          range: regionToRange(warn.region, {
+            uri: uri,
+            edits: editsSinceSave,
+          }),
           hoverMessage: "This is unused.",
         };
         decorations.push(dec);
       } else if (warn.warning == "UnusedImport") {
         const dec = {
-          range: regionToRange(warn.region, editsSinceSave),
+          range: regionToRange(warn.region, {
+            uri: uri,
+            edits: editsSinceSave,
+          }),
           hoverMessage: "This is unused.",
         };
         decorations.push(dec);
