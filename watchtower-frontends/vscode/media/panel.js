@@ -13652,10 +13652,6 @@ var $author$project$Main$viewMetric = F3(
 				A2($elm$core$List$map, viewer, vals));
 		}
 	});
-var $author$project$Ui$anim = {
-	blink: $mdgriffith$elm_ui$Element$htmlAttribute(
-		$elm$html$Html$Attributes$class('blink'))
-};
 var $mdgriffith$elm_ui$Internal$Model$CenterX = {$: 'CenterX'};
 var $mdgriffith$elm_ui$Element$centerX = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$CenterX);
 var $mdgriffith$elm_ui$Internal$Model$CenterY = {$: 'CenterY'};
@@ -13716,11 +13712,7 @@ var $author$project$Main$viewWarningOverview = function (warnings) {
 			]),
 		_List_fromArray(
 			[
-				A2(
-				$mdgriffith$elm_ui$Element$el,
-				_List_fromArray(
-					[$author$project$Ui$anim.blink]),
-				$mdgriffith$elm_ui$Element$text('No type errors! But I found a few other things.')),
+				$mdgriffith$elm_ui$Element$text('No type errors! But I found a few other things.'),
 				A2(
 				$mdgriffith$elm_ui$Element$column,
 				_List_fromArray(
@@ -13760,14 +13752,12 @@ var $author$project$Main$viewWarningsOrStatus = function (model) {
 					if (_v1.$ === 'Nothing') {
 						return A2(
 							$mdgriffith$elm_ui$Element$el,
-							_List_fromArray(
-								[$author$project$Ui$anim.blink]),
+							_List_Nil,
 							$mdgriffith$elm_ui$Element$text('Waiting for info!'));
 					} else {
 						return A2(
 							$mdgriffith$elm_ui$Element$el,
-							_List_fromArray(
-								[$author$project$Ui$anim.blink]),
+							_List_Nil,
 							$mdgriffith$elm_ui$Element$text('Lookin good! 🎉'));
 					}
 				}()));

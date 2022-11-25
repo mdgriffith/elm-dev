@@ -404,14 +404,12 @@ viewWarningsOrStatus model =
                 , case model.lastUpdated of
                     Nothing ->
                         Ui.el
-                            [ Ui.anim.blink
-                            ]
+                            []
                             (Ui.text "Waiting for info!")
 
                     Just _ ->
                         Ui.el
-                            [ Ui.anim.blink
-                            ]
+                            []
                             (Ui.text "Lookin good! 🎉")
                 )
 
@@ -442,10 +440,7 @@ viewWarningOverview warnings =
                 warnings
     in
     Ui.column [ Ui.space.md, Ui.centerX, Ui.centerY, Ui.width (Ui.px 400) ]
-        [ Ui.el
-            [ Ui.anim.blink
-            ]
-            (Ui.text "No type errors! But I found a few other things.")
+        [ Ui.text "No type errors! But I found a few other things."
         , Ui.column [ Ui.space.md, Ui.pad.xy.lg.zero ]
             [ viewCount "unused imports" warningCounts.unusedImports
             , viewCount "unused values" warningCounts.unusedValues
