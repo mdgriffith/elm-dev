@@ -58,7 +58,6 @@ compileToBuilder root paths = do
 compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor B.Builder)
 compile root paths =
   do
-    -- Ext.Common.debug $ " compiling " ++ show root ++ " -> " ++ show paths
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope -> Stuff.withRootLock root $
         Task.run $
