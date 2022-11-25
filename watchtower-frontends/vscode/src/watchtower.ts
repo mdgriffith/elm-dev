@@ -11,35 +11,22 @@ import * as path from "path";
 var WebSocketClient = require("websocket").client;
 
 type Msg =
-  | { msg: "Discover"; details: String }
+  | { msg: "Discover"; details: { root: String; watching: Watching[] } }
   | { msg: "Changed"; details: { path: String } }
   | {
       msg: "Watched";
-      details: { path: String; warnings: Boolean; docs: Boolean }[];
+      details: Watching[];
     };
 
+type Watching = { path: String; warnings: Boolean; docs: Boolean };
+
 const discover = (roots: String): Msg => {
-  return { msg: "Discover", details: roots };
+  const items = getWatchedItems();
+  return { msg: "Discover", details: { root: roots, watching: items } };
 };
 
 const changed = (filepath: String): Msg => {
   return { msg: "Changed", details: { path: filepath } };
-};
-
-const refreshWatch = (): Msg => {
-  const editors = vscode.window.visibleTextEditors;
-  const items = [];
-  for (const index in editors) {
-    if (editors[index].document.uri.fsPath.endsWith(".elm")) {
-      items.push({
-        path: editors[index].document.uri.fsPath,
-        warnings: true,
-        docs: false,
-      });
-    }
-  }
-
-  return { msg: "Watched", details: items };
 };
 
 type Project = {
@@ -73,6 +60,21 @@ function socketConnect(options) {
   websocket.connect(options.url);
 
   return { websocket: websocket };
+}
+
+function getWatchedItems() {
+  const editors = vscode.window.visibleTextEditors;
+  const items = [];
+  for (const index in editors) {
+    if (editors[index].document.uri.fsPath.endsWith(".elm")) {
+      items.push({
+        path: editors[index].document.uri.fsPath,
+        warnings: true,
+        docs: false,
+      });
+    }
+  }
+  return items;
 }
 
 export class Watchtower {
@@ -147,8 +149,8 @@ export class Watchtower {
       }
     );
 
-    vscode.window.onDidChangeVisibleTextEditors((editors) => {
-      self.send(refreshWatch());
+    vscode.window.onDidChangeVisibleTextEditors((_) => {
+      self.refreshWatching();
     });
   }
 
@@ -193,6 +195,14 @@ export class Watchtower {
         }
       }
     );
+  }
+
+  private refreshWatching() {
+    const self = this;
+    const items = getWatchedItems();
+    if (items.length != 0) {
+      self.send({ msg: "Watched", details: items });
+    }
   }
 
   private onConnectionFailed(error) {

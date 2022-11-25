@@ -2,7 +2,7 @@
 
 module Watchtower.Live.Client
     ( Client(..),ClientId, ProjectRoot, State(..), ProjectCache(..), ProjectStatus(..)
-    , getAllStatuses, getRoot, getProjectRoot
+    , getAllStatuses, getRoot, getProjectRoot, getClientData
     , Outgoing(..), encodeOutgoing, outgoingToLog
     , Incoming(..), decodeIncoming, encodeWarning
     , broadcast, broadcastTo
@@ -11,6 +11,8 @@ module Watchtower.Live.Client
     , emptyWatch
     , watchProjects
     , watchTheseFilesOnly
+
+    , watchedFiles
     ) where
 
 
@@ -90,6 +92,32 @@ data FileWatchType
 
 type ProjectRoot = FilePath
 
+
+watchedFiles :: Watching -> Map.Map FilePath FileWatchType
+watchedFiles (Watching _ files) =
+  files
+
+getClientData :: ClientId -> State -> IO (Maybe Watching)
+getClientData clientId (State mClients _) = do
+  clients <- STM.atomically $ STM.readTVar mClients
+
+  pure (List.foldl 
+          (\found client -> 
+              case found of
+                  Nothing ->
+                    if Watchtower.Websocket.matchId clientId client then 
+                      Just (Watchtower.Websocket.clientData client)
+                    else
+                      Nothing
+
+                  _ ->
+                      found
+          )
+          Nothing
+          clients
+        )
+
+  
 
 watchProjects :: [ProjectRoot] -> Watching -> Watching
 watchProjects newRoots (Watching watchingProjects watchingFiles) =
@@ -183,7 +211,7 @@ getStatus (ProjectCache proj cache) =
 {-
 -}
 data Incoming
-  = Discover FilePath
+  = Discover FilePath (Map.Map FilePath FileWatchType)
   | Changed FilePath
   | Watched (Map.Map FilePath FileWatchType)
 
@@ -290,10 +318,17 @@ decodeIncoming =
                         )
 
               "Discover" ->
-                    Discover <$> Json.Decode.field "details" (Json.String.toChars <$> Json.Decode.string)
+                    Json.Decode.field "details"
+                      (Discover 
+                          <$> Json.Decode.field "root" (Json.String.toChars <$> Json.Decode.string)
+                          <*> Json.Decode.field "watching" decodeWatched
+                      )           
+                       
 
               "Watched" ->
-                    Watched <$> Json.Decode.field "details" decodeWatched
+                    Watched 
+                       <$> Json.Decode.field "details" 
+                            decodeWatched
 
               _ ->
                 Json.Decode.failure "Unknown msg"

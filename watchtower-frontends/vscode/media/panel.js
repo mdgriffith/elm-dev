@@ -13677,16 +13677,6 @@ var $mdgriffith$elm_ui$Element$Keyed$el = F2(
 				_List_fromArray(
 					[child])));
 	});
-var $elm$core$Dict$values = function (dict) {
-	return A3(
-		$elm$core$Dict$foldr,
-		F3(
-			function (key, value, valueList) {
-				return A2($elm$core$List$cons, value, valueList);
-			}),
-		_List_Nil,
-		dict);
-};
 var $author$project$Main$viewCount = F2(
 	function (label, amount) {
 		return (!amount) ? $mdgriffith$elm_ui$Element$none : $mdgriffith$elm_ui$Element$text(
@@ -13722,7 +13712,7 @@ var $author$project$Main$viewWarningOverview = function (warnings) {
 				$mdgriffith$elm_ui$Element$centerX,
 				$mdgriffith$elm_ui$Element$centerY,
 				$mdgriffith$elm_ui$Element$width(
-				$mdgriffith$elm_ui$Element$px(500))
+				$mdgriffith$elm_ui$Element$px(400))
 			]),
 		_List_fromArray(
 			[
@@ -13759,35 +13749,28 @@ var $author$project$Main$viewWarningsOrStatus = function (model) {
 			$author$project$Main$visibleWarnings(model.warnings),
 			model.active));
 	if (!activeWarnings.b) {
-		var _v1 = $elm$core$List$concat(
-			$elm$core$Dict$values(model.warnings));
-		if (!_v1.b) {
-			return A2(
-				$mdgriffith$elm_ui$Element$Keyed$el,
-				_List_fromArray(
-					[$mdgriffith$elm_ui$Element$centerX, $mdgriffith$elm_ui$Element$centerY]),
-				_Utils_Tuple2(
-					$elm$core$String$fromInt(model.projectsVersion),
-					function () {
-						var _v2 = model.lastUpdated;
-						if (_v2.$ === 'Nothing') {
-							return A2(
-								$mdgriffith$elm_ui$Element$el,
-								_List_fromArray(
-									[$author$project$Ui$anim.blink]),
-								$mdgriffith$elm_ui$Element$text('Waiting for info!'));
-						} else {
-							return A2(
-								$mdgriffith$elm_ui$Element$el,
-								_List_fromArray(
-									[$author$project$Ui$anim.blink]),
-								$mdgriffith$elm_ui$Element$text('Lookin good! 🎉'));
-						}
-					}()));
-		} else {
-			var allWarnings = _v1;
-			return $author$project$Main$viewWarningOverview(allWarnings);
-		}
+		return A2(
+			$mdgriffith$elm_ui$Element$Keyed$el,
+			_List_fromArray(
+				[$mdgriffith$elm_ui$Element$centerX, $mdgriffith$elm_ui$Element$centerY]),
+			_Utils_Tuple2(
+				$elm$core$String$fromInt(model.projectsVersion),
+				function () {
+					var _v1 = model.lastUpdated;
+					if (_v1.$ === 'Nothing') {
+						return A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$author$project$Ui$anim.blink]),
+							$mdgriffith$elm_ui$Element$text('Waiting for info!'));
+					} else {
+						return A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$author$project$Ui$anim.blink]),
+							$mdgriffith$elm_ui$Element$text('Lookin good! 🎉'));
+					}
+				}()));
 	} else {
 		return $author$project$Main$viewWarningOverview(activeWarnings);
 	}
