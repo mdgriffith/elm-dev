@@ -550,13 +550,12 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
     const self = this;
     const uri = vscode.Uri.file(filepath);
     const decorations: any[] = [];
+    const document = getDocumentMatching(uri);
 
     // TODO! destroy existing codelenses
     const signatures: any[] = [];
     for (const warn of warnings) {
       if (warn.warning == "MissingAnnotation") {
-        const document = getDocumentMatching(vscode.Uri.file(filepath));
-
         if (document != null) {
           const sig: Question.MissingSignature = {
             filepath: filepath,
@@ -583,11 +582,16 @@ export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
         };
         decorations.push(dec);
       } else if (warn.warning == "UnusedImport") {
+        const range = regionToRange(warn.region, {
+          uri: uri,
+          edits: editsSinceSave,
+        });
+        // We do this so that the whole line is highlighted
+        // instead of just the import name
+        const line = document.lineAt(range.start.line);
+
         const dec = {
-          range: regionToRange(warn.region, {
-            uri: uri,
-            edits: editsSinceSave,
-          }),
+          range: line.range,
           hoverMessage: "This is unused.",
         };
         decorations.push(dec);
