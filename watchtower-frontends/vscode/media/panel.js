@@ -6360,8 +6360,8 @@ var $author$project$Ports$MissingAnnotation = function (a) {
 var $author$project$Ports$UnusedImport = function (a) {
 	return {$: 'UnusedImport', a: a};
 };
-var $author$project$Ports$UnusedVaraible = function (a) {
-	return {$: 'UnusedVaraible', a: a};
+var $author$project$Ports$UnusedVariable = function (a) {
+	return {$: 'UnusedVariable', a: a};
 };
 var $author$project$Ports$decodeWarning = A2(
 	$elm$json$Json$Decode$andThen,
@@ -6372,7 +6372,7 @@ var $author$project$Ports$decodeWarning = A2(
 					$elm$json$Json$Decode$map3,
 					F3(
 						function (region, context, name) {
-							return $author$project$Ports$UnusedVaraible(
+							return $author$project$Ports$UnusedVariable(
 								{context: context, name: name, region: region});
 						}),
 					A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion),
@@ -13065,12 +13065,6 @@ var $author$project$Ui$header = {
 			$mdgriffith$elm_ui$Element$text(str));
 	}
 };
-var $elm$core$Basics$always = F2(
-	function (a, _v0) {
-		return a;
-	});
-var $mdgriffith$elm_ui$Internal$Model$unstyled = A2($elm$core$Basics$composeL, $mdgriffith$elm_ui$Internal$Model$Unstyled, $elm$core$Basics$always);
-var $mdgriffith$elm_ui$Element$html = $mdgriffith$elm_ui$Internal$Model$unstyled;
 var $mdgriffith$elm_ui$Internal$Model$InFront = {$: 'InFront'};
 var $mdgriffith$elm_ui$Element$inFront = function (element) {
 	return A2($mdgriffith$elm_ui$Internal$Model$Nearby, $mdgriffith$elm_ui$Internal$Model$InFront, element);
@@ -13099,15 +13093,6 @@ var $mdgriffith$elm_ui$Internal$Model$Px = function (a) {
 	return {$: 'Px', a: a};
 };
 var $mdgriffith$elm_ui$Element$px = $mdgriffith$elm_ui$Internal$Model$Px;
-var $author$project$Ui$live = '\n#live {\n    display:block !important;\n}\n\n';
-var $author$project$Ui$showLive = A3(
-	$elm$html$Html$node,
-	'style',
-	_List_Nil,
-	_List_fromArray(
-		[
-			$elm$html$Html$text($author$project$Ui$live)
-		]));
 var $author$project$Editor$overlap = F2(
 	function (one, two) {
 		return ((_Utils_cmp(one.start.row, two.start.row) > -1) && (_Utils_cmp(one.start.row, two.end.row) < 1)) ? true : (((_Utils_cmp(one.end.row, two.start.row) > -1) && (_Utils_cmp(one.end.row, two.end.row) < 1)) ? true : false);
@@ -13667,6 +13652,146 @@ var $author$project$Main$viewMetric = F3(
 				A2($elm$core$List$map, viewer, vals));
 		}
 	});
+var $author$project$Ui$anim = {
+	blink: $mdgriffith$elm_ui$Element$htmlAttribute(
+		$elm$html$Html$Attributes$class('blink'))
+};
+var $mdgriffith$elm_ui$Internal$Model$CenterX = {$: 'CenterX'};
+var $mdgriffith$elm_ui$Element$centerX = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$CenterX);
+var $mdgriffith$elm_ui$Internal$Model$CenterY = {$: 'CenterY'};
+var $mdgriffith$elm_ui$Element$centerY = $mdgriffith$elm_ui$Internal$Model$AlignY($mdgriffith$elm_ui$Internal$Model$CenterY);
+var $mdgriffith$elm_ui$Element$Keyed$el = F2(
+	function (attrs, child) {
+		return A4(
+			$mdgriffith$elm_ui$Internal$Model$element,
+			$mdgriffith$elm_ui$Internal$Model$asEl,
+			$mdgriffith$elm_ui$Internal$Model$div,
+			A2(
+				$elm$core$List$cons,
+				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$shrink),
+				A2(
+					$elm$core$List$cons,
+					$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$shrink),
+					attrs)),
+			$mdgriffith$elm_ui$Internal$Model$Keyed(
+				_List_fromArray(
+					[child])));
+	});
+var $elm$core$Dict$values = function (dict) {
+	return A3(
+		$elm$core$Dict$foldr,
+		F3(
+			function (key, value, valueList) {
+				return A2($elm$core$List$cons, value, valueList);
+			}),
+		_List_Nil,
+		dict);
+};
+var $author$project$Main$viewCount = F2(
+	function (label, amount) {
+		return (!amount) ? $mdgriffith$elm_ui$Element$none : $mdgriffith$elm_ui$Element$text(
+			$elm$core$String$fromInt(amount) + (' ' + label));
+	});
+var $author$project$Main$viewWarningOverview = function (warnings) {
+	var warningCounts = A3(
+		$elm$core$List$foldl,
+		F2(
+			function (warning, count) {
+				switch (warning.$) {
+					case 'UnusedImport':
+						return _Utils_update(
+							count,
+							{unusedImports: count.unusedImports + 1});
+					case 'UnusedVariable':
+						return _Utils_update(
+							count,
+							{unusedValues: count.unusedValues + 1});
+					default:
+						return _Utils_update(
+							count,
+							{missingSignature: count.missingSignature + 1});
+				}
+			}),
+		{missingSignature: 0, unusedImports: 0, unusedValues: 0},
+		warnings);
+	return A2(
+		$mdgriffith$elm_ui$Element$column,
+		_List_fromArray(
+			[
+				$author$project$Ui$space.md,
+				$mdgriffith$elm_ui$Element$centerX,
+				$mdgriffith$elm_ui$Element$centerY,
+				$mdgriffith$elm_ui$Element$width(
+				$mdgriffith$elm_ui$Element$px(500))
+			]),
+		_List_fromArray(
+			[
+				A2(
+				$mdgriffith$elm_ui$Element$el,
+				_List_fromArray(
+					[$author$project$Ui$anim.blink]),
+				$mdgriffith$elm_ui$Element$text('No type errors! But I found a few other things.')),
+				A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[$author$project$Ui$space.md, $author$project$Ui$pad.xy.lg.zero]),
+				_List_fromArray(
+					[
+						A2($author$project$Main$viewCount, 'unused imports', warningCounts.unusedImports),
+						A2($author$project$Main$viewCount, 'unused values', warningCounts.unusedValues),
+						A2($author$project$Main$viewCount, 'missing typesignatures', warningCounts.missingSignature)
+					]))
+			]));
+};
+var $author$project$Main$visibleWarnings = F2(
+	function (warnings, activeEditor) {
+		return A2(
+			$elm$core$Maybe$withDefault,
+			_List_Nil,
+			A2($elm$core$Dict$get, activeEditor.fileName, warnings));
+	});
+var $author$project$Main$viewWarningsOrStatus = function (model) {
+	var activeWarnings = A2(
+		$elm$core$Maybe$withDefault,
+		_List_Nil,
+		A2(
+			$elm$core$Maybe$map,
+			$author$project$Main$visibleWarnings(model.warnings),
+			model.active));
+	if (!activeWarnings.b) {
+		var _v1 = $elm$core$List$concat(
+			$elm$core$Dict$values(model.warnings));
+		if (!_v1.b) {
+			return A2(
+				$mdgriffith$elm_ui$Element$Keyed$el,
+				_List_fromArray(
+					[$mdgriffith$elm_ui$Element$centerX, $mdgriffith$elm_ui$Element$centerY]),
+				_Utils_Tuple2(
+					$elm$core$String$fromInt(model.projectsVersion),
+					function () {
+						var _v2 = model.lastUpdated;
+						if (_v2.$ === 'Nothing') {
+							return A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$anim.blink]),
+								$mdgriffith$elm_ui$Element$text('Waiting for info!'));
+						} else {
+							return A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$anim.blink]),
+								$mdgriffith$elm_ui$Element$text('Lookin good! 🎉'));
+						}
+					}()));
+		} else {
+			var allWarnings = _v1;
+			return $author$project$Main$viewWarningOverview(allWarnings);
+		}
+	} else {
+		return $author$project$Main$viewWarningOverview(activeWarnings);
+	}
+};
 var $author$project$Main$viewOverview = function (model) {
 	var viewTypeSignature = F2(
 		function (file, signature) {
@@ -13847,7 +13972,7 @@ var $author$project$Main$viewOverview = function (model) {
 					if (!notVisibleErrors.b) {
 						var _v3 = found.globals;
 						if (!_v3.b) {
-							return $mdgriffith$elm_ui$Element$html($author$project$Ui$showLive);
+							return $author$project$Main$viewWarningsOrStatus(model);
 						} else {
 							return A3($author$project$Main$viewMetric, 'Global', $author$project$Main$viewGlobalError, found.globals);
 						}

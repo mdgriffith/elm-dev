@@ -355,9 +355,9 @@ viewOverview model =
                     [] ->
                         case found.globals of
                             [] ->
-                                -- viewWarningsOrStatus model
-                                Ui.html Ui.showLive
+                                viewWarningsOrStatus model
 
+                            -- Ui.html Ui.showLive
                             _ ->
                                 viewMetric
                                     "Global"
@@ -398,19 +398,73 @@ viewWarningsOrStatus model =
         [] ->
             case List.concat (Dict.values model.warnings) of
                 [] ->
-                    Keyed.el []
+                    Keyed.el
+                        [ Ui.centerX
+                        , Ui.centerY
+                        ]
                         ( String.fromInt model.projectsVersion
-                        , Ui.el
-                            [ Ui.anim.blink
-                            ]
-                            (Ui.text "Lookin good! 🎉")
+                        , case model.lastUpdated of
+                            Nothing ->
+                                Ui.el
+                                    [ Ui.anim.blink
+                                    ]
+                                    (Ui.text "Waiting for info!")
+
+                            Just _ ->
+                                Ui.el
+                                    [ Ui.anim.blink
+                                    ]
+                                    (Ui.text "Lookin good! 🎉")
                         )
 
                 allWarnings ->
-                    viewWarningList allWarnings
+                    viewWarningOverview allWarnings
 
         _ ->
-            viewWarningList activeWarnings
+            viewWarningOverview activeWarnings
+
+
+viewWarningOverview : List Ports.Warning -> Ui.Element Msg
+viewWarningOverview warnings =
+    let
+        warningCounts =
+            List.foldl
+                (\warning count ->
+                    case warning of
+                        Ports.UnusedImport _ ->
+                            { count | unusedImports = count.unusedImports + 1 }
+
+                        Ports.UnusedVariable _ ->
+                            { count | unusedValues = count.unusedValues + 1 }
+
+                        Ports.MissingAnnotation _ ->
+                            { count | missingSignature = count.missingSignature + 1 }
+                )
+                { unusedImports = 0
+                , unusedValues = 0
+                , missingSignature = 0
+                }
+                warnings
+    in
+    Ui.column [ Ui.space.md, Ui.centerX, Ui.centerY, Ui.width (Ui.px 500) ]
+        [ Ui.el
+            [ Ui.anim.blink
+            ]
+            (Ui.text "No type errors! But I found a few other things.")
+        , Ui.column [ Ui.space.md, Ui.pad.xy.lg.zero ]
+            [ viewCount "unused imports" warningCounts.unusedImports
+            , viewCount "unused values" warningCounts.unusedValues
+            , viewCount "missing typesignatures" warningCounts.missingSignature
+            ]
+        ]
+
+
+viewCount label amount =
+    if amount == 0 then
+        Ui.none
+
+    else
+        Ui.text (String.fromInt amount ++ " " ++ label)
 
 
 viewWarningList warnings =
@@ -428,7 +482,7 @@ viewWarningList warnings =
 viewWarning : Ports.Warning -> Ui.Element Msg
 viewWarning warning =
     case warning of
-        Ports.UnusedVaraible unused ->
+        Ports.UnusedVariable unused ->
             Ui.row [ Ui.space.md ]
                 [ Ui.text "Unused"
                 , Ui.text unused.name

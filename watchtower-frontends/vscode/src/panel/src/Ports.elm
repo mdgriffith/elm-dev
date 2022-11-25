@@ -41,7 +41,7 @@ type Incoming
 
 
 type Warning
-    = UnusedVaraible
+    = UnusedVariable
         { region : Editor.Region
         , context : String
         , name : String
@@ -149,7 +149,7 @@ decodeWarning =
                     "UnusedVariable" ->
                         Decode.map3
                             (\region context name ->
-                                UnusedVaraible
+                                UnusedVariable
                                     { region = region
                                     , context = context
                                     , name = name
