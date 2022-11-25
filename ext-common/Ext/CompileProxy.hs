@@ -21,6 +21,7 @@ import Control.Concurrent.MVar
 import Ext.Common
 import Ext.CompileMode (getMode, CompileMode(..))
 import Json.Encode ((==>))
+import qualified Control.Monad (foldM_)
 import qualified AST.Canonical as Can
 import qualified AST.Optimized as Opt
 import qualified AST.Source as Src
@@ -30,13 +31,12 @@ import qualified Canonicalize.Module as Canonicalize
 import qualified Compile
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
-import Data.Name (Name)
+import qualified Data.Name as Name (Name, toChars)
 import qualified Data.NonEmptyList as NE
 import qualified Data.Set as Set
 import qualified Elm.Docs as Docs
 import qualified Elm.Details as Details
 import qualified Elm.Interface as I
-import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
 import qualified Ext.CompileHelpers.Disk
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
@@ -67,6 +67,10 @@ import qualified Reporting.Error.Canonicalize
 import Data.OneOrMore (OneOrMore(..))
 import qualified Canonicalize.Environment.Local
 import qualified Ext.Log
+
+
+
+
 
 type AggregateStatistics = Map.Map CompileMode Double
 
@@ -135,15 +139,15 @@ allPackageArtifacts root =
     (Ext.CompileHelpers.Memory.allPackageArtifacts root)
 
 
-allInterfaces :: NE.List FilePath -> IO (Either Exit.Reactor (Map.Map ModuleName.Raw I.Interface))
-allInterfaces paths =
-  BW.withScope $ \scope -> do
-    root <- getProjectRoot
-    Task.run $
-      do  details    <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-          artifacts  <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
+allInterfaces :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor (Map.Map ModuleName.Raw I.Interface))
+allInterfaces root paths =
+  Dir.withCurrentDirectory root $
+    BW.withScope $ \scope -> Stuff.withRootLock root $
+      Task.run $
+        do  details    <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
+            artifacts  <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
 
-          Task.io $ extractInterfaces $ Build._modules artifacts
+            Task.io $ extractInterfaces $ Build._modules artifacts
 
 
 loadFileSource :: FilePath -> FilePath -> IO (Either Reporting.Error.Syntax.Error (BS.ByteString, Src.Module))
@@ -160,7 +164,7 @@ loadFileSource root path = do
 compileSrcModule :: FilePath -> FilePath -> Src.Module -> IO (Maybe Compile.Artifacts)
 compileSrcModule root path srcMod =
   Dir.withCurrentDirectory root $ do
-    ifacesResult <- allInterfaces (NE.List path [])
+    ifacesResult <- allInterfaces root (NE.List path [])
     case ifacesResult of
       Left _ ->
         pure Nothing
@@ -183,7 +187,7 @@ loadCanonicalizeEnv ::
   IO (Maybe Canonicalize.Environment.Env)
 loadCanonicalizeEnv root path srcMod = do
   Dir.withCurrentDirectory root $ do
-    ifacesResult <- allInterfaces (NE.List path [])
+    ifacesResult <- allInterfaces root (NE.List path [])
     case ifacesResult of
       Left _ ->
         pure Nothing
@@ -246,7 +250,8 @@ loadSingle root path =
       Right srcModule ->
         do
         
-          ifacesResult <- allInterfaces (NE.List path [])
+          ifacesResult <- allInterfaces root (NE.List path [])
+          (CompileHelpers.Artifacts packageIfaces globalGraph) <- allPackageArtifacts root
           case ifacesResult of
             Left exit ->
               -- report exit : Exit.Reactor?
@@ -258,10 +263,11 @@ loadSingle root path =
                   Nothing
                 )
 
-            Right ifaces -> do
+            Right localIfaces -> do
+                let ifaces = Map.union localIfaces packageIfaces
                 let (canWarnings, eitherCanned) = Reporting.Result.run $ Canonicalize.canonicalize Pkg.dummyName ifaces srcModule
                 case eitherCanned of
-                  Left errs ->
+                  Left errs -> 
                     pure
                       (Single 
                         (Right srcModule)
