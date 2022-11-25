@@ -103,6 +103,25 @@ usedInPattern (A.At _ pattern) found =
                 found args
                 & usedInUnion union
                 & Set.insert modName
+
+        Can.PCons consOne consTwo ->
+            usedInPattern consOne found
+                & usedInPattern consTwo
+
+        Can.PList patterns ->
+            List.foldr usedInPattern found patterns
+
+        Can.PAlias pattern _ ->
+            usedInPattern pattern found
+        
+        Can.PTuple one two Nothing ->
+            usedInPattern one found
+                & usedInPattern two
+        
+        Can.PTuple one two (Just three) ->
+            usedInPattern one found
+                & usedInPattern two
+                & usedInPattern three
         
         _ ->
             found
@@ -119,39 +138,56 @@ usedInExpr (A.At pos expr) found =
     case expr of
         Can.VarLocal _ ->
             found
+
         Can.VarTopLevel used _ ->
             Set.insert used found
+            
         Can.VarKernel _ _ ->
             found
+
         Can.VarForeign used _ annotation ->
             Set.insert used found
                 & usedInAnnotation annotation 
+
         Can.VarCtor _ used _ index annotation ->
             Set.insert used found
                 & usedInAnnotation annotation
+
         Can.VarDebug used _ annotation ->
             Set.insert used found
                 & usedInAnnotation annotation
+
         Can.VarOperator _ used _ annotation ->
             Set.insert used found
                 & usedInAnnotation annotation
+
         Can.Chr _ ->
             found
+
         Can.Str _ ->
             found
+
         Can.Int _ ->
             found
+
         Can.Float _ ->
             found
+
         Can.List exprList ->
             List.foldr usedInExpr found exprList
+
         Can.Negate expr ->
             usedInExpr expr found
+
         Can.Binop name used _ annotation exprOne exprTwo ->
             Set.insert used found
+                 & usedInExpr exprOne
+                 & usedInExpr exprTwo
+
         Can.Lambda patternList expr ->
             List.foldr usedInPattern found patternList
                 & usedInExpr expr
+
         Can.Call expr exprList ->
             List.foldr usedInExpr found exprList
                 & usedInExpr expr
@@ -186,6 +222,7 @@ usedInExpr (A.At pos expr) found =
 
         Can.Accessor _ ->
             found
+
         Can.Access expr _ ->
             usedInExpr expr found
 
@@ -197,14 +234,18 @@ usedInExpr (A.At pos expr) found =
         Can.Record record ->
             Map.elems record
                 & List.foldl (flip usedInExpr) found
+        
         Can.Unit ->
             found
 
         Can.Tuple one two Nothing ->
-            found
+            usedInExpr one found
+                & usedInExpr two
 
         Can.Tuple one two (Just three) ->
-            found
+            usedInExpr one found
+                & usedInExpr two
+                & usedInExpr three
 
         Can.Shader _ _ ->
             found
