@@ -96,21 +96,18 @@ recompile (Client.State mClients mProjects) allChangedFiles = do
             (recompileFile mClients)
             affectedProjects
           
+          -- Get the status of the entire project
+          Monad.mapM_
+            (recompileProject mClients)
+            affectedProjects
+
           -- send down warnings and docs
           Monad.mapM_
             (sendInfo mClients)
             affectedProjects
 
-          -- Get the status of the entire project
-          -- Monad.foldM
-          --   (recompileProject mClients)
-          --   affectedProjects
-
-
     else
         pure ()
-
-
 
 
 
@@ -129,35 +126,45 @@ toAffectedProject changedFiles projCache@(Client.ProjectCache proj@(Ext.Dev.Proj
 
 
 
+recompileProject ::STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
+recompileProject mClients ( _, _, proj@(Client.ProjectCache (Ext.Dev.Project.Project projectRoot entrypoints) cache)) =
+  case entrypoints of
+    [] ->
+      do
+        Ext.Log.log Ext.Log.Live ("Skipping compile, no entrypoint: " <> projectRoot)
+        pure ()
 
-recompileFile ::  STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
-recompileFile mClients ( top, remain , projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot entrypoints) cache)) =
+    topEntry : remainEntry ->
+        recompileFile mClients (topEntry, remainEntry, proj)
+
+
+
+
+recompileFile :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
+recompileFile mClients ( top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot entrypoints) cache)) =
     do
+      let entry = NonEmpty.List top remain
 
-        let entry = NonEmpty.List top remain
+      -- Compile all changed files
+      eitherStatusJson <-
+        compileMode
+          projectRoot
+          entry
 
-        -- Compile all changed files
-        eitherStatusJson <-
-          compileMode
-            projectRoot
-            entry
+      Ext.Sentry.updateCompileResult cache $
+        pure eitherStatusJson
 
-        Ext.Sentry.updateCompileResult cache $
-          pure eitherStatusJson
+      -- Send compilation status
+      case eitherStatusJson of
+        Right statusJson -> do
+          Client.broadcast mClients
+            (Client.ElmStatus [ Client.ProjectStatus proj True statusJson ])
 
-        -- Send compilation status
-        case eitherStatusJson of
-          Right statusJson ->
-            do 
-              Ext.Log.log Ext.Log.Live "File successfully compiles"
-              pure ()
+        Left errJson -> do
+          Client.broadcast mClients
+            (Client.ElmStatus [ Client.ProjectStatus proj False errJson ])
 
-          Left errJson ->
-            do
-              Client.broadcast mClients
-                (Client.ElmStatus [ Client.ProjectStatus proj False errJson ])
 
-              pure ()
 
 
 sendInfo ::  STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
