@@ -16,21 +16,14 @@ import qualified Compile
 import Control.Applicative ((<|>))
 
 import qualified Data.Set as Set
-import qualified Data.Binary.Get as Map
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
-import qualified Data.ByteString.Lazy as BSL
 import Data.Function ((&))
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import Data.Name (Name)
 import qualified Data.Name as Name
-import qualified Data.Set as Set
-import Data.Text (Text, pack)
+
 import qualified Data.Text as T
-import qualified Data.Utf8
-import Data.Word (Word16)
 import qualified Elm.Details
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.String
@@ -38,8 +31,6 @@ import qualified Ext.CompileProxy
 import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Json.String
-import qualified Llamadera
-import qualified Reporting
 import qualified Reporting.Annotation as A
 import qualified Reporting.Doc as D
 import Reporting.Error.Docs (SyntaxProblem (Name))

@@ -7,28 +7,16 @@ where
 
 import AST.Canonical (Type (..))
 import qualified AST.Canonical as Can
-
-import qualified Canonicalize.Environment
-import qualified Canonicalize.Type
-import qualified Compile
-import Control.Applicative ((<|>))
-
 import qualified Data.Set as Set
 import qualified Data.Map as Map
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as B
-import qualified Data.ByteString.Lazy as BSL
-import Data.Function ((&))
 import qualified Data.List as List
-import qualified Data.Map as Map
-import qualified Data.Maybe as Maybe
-import Data.Name (Name)
-import qualified Data.Name as Name
-import qualified Data.Set as Set
 import Data.Text (Text, pack)
 import qualified Data.Text as T
-import qualified Data.Utf8
-import Data.Word (Word16)
+
+import Data.Function ((&))
+import Data.Name (Name)
+import qualified Data.Name as Name
+
 import qualified Elm.Details
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.String
@@ -36,18 +24,10 @@ import qualified Ext.CompileProxy
 import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Json.String
-import qualified Llamadera
-import qualified Reporting
+
 import qualified Reporting.Annotation as A
-import qualified Reporting.Doc as D
 import Reporting.Error.Docs (SyntaxProblem (Name))
-import qualified Reporting.Exit as Exit
-import qualified Reporting.Result
 import StandaloneInstances
-import qualified Stuff as PerUserCache
-import qualified System.Directory as Dir
-import qualified Text.Show.Unicode
-import qualified Util
 
 
 
@@ -328,3 +308,66 @@ usedInType type_ found =
                 & usedInType aliasType
                 & Set.insert modName
 
+
+
+
+data Found
+    = FoundDef Can.Def
+    | FoundUnion Can.Union
+    | FoundAlias Can.Alias
+
+
+fromName :: Name -> Can.Module -> Maybe Found
+fromName name (Can.Module modName exports docs decls unions aliases binops effects) = 
+    (FoundUnion <$> Map.lookup name unions)
+        & orLookup FoundAlias name aliases
+        & orFindDecl name decls
+
+orFindDecl :: Name -> Can.Decls -> Maybe Found -> Maybe Found
+orFindDecl name decls previous =
+    case previous of
+        Nothing ->
+            findDeclNamed name decls
+
+        _ ->
+          previous
+
+
+findDeclNamed :: Name -> Can.Decls -> Maybe Found
+findDeclNamed name decls =
+    case decls of
+        Can.SaveTheEnvironment ->
+            Nothing
+
+        Can.Declare def moarDecls ->
+            if defNamed def name then
+                Just (FoundDef def)
+
+            else
+                findDeclNamed name moarDecls
+
+        Can.DeclareRec def subDefs moarDecls ->
+            if defNamed def name then
+                Just (FoundDef def)
+
+            else
+                findDeclNamed name moarDecls
+
+
+defNamed :: Can.Def -> Name -> Bool
+defNamed def name =
+    case def of
+        Can.Def (A.At _ defName) _ _ ->
+            name == defName
+        
+        Can.TypedDef (A.At _ defName) _ _ _ _ ->
+            name == defName
+
+
+orLookup toResult name map previousResult =
+    case previousResult of
+        Nothing ->
+            toResult <$> Map.lookup name map
+
+        _ ->
+            previousResult
