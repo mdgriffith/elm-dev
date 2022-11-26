@@ -53,25 +53,23 @@ import qualified Util
 import qualified Watchtower.Editor
 import qualified Ext.Dev.Find.Canonical
 
-
 {- Find Definition -}
 
 definition :: FilePath -> Watchtower.Editor.PointLocation -> IO Json.Encode.Value
 definition root (Watchtower.Editor.PointLocation path point) = do
-  sourceResult <- Ext.CompileProxy.loadFileSource root path
-  case sourceResult of
+  (Ext.CompileProxy.Single source warnings canonical compiled) <- Ext.CompileProxy.loadSingle root path
+  case source of
     Left _ ->
        pure Json.Encode.null
     
-    Right (_, srcMod) -> do
+    Right srcMod -> do
       let foundType = findTypeAtPoint point srcMod
 
       found <-
         case foundType of
           FoundNothing -> do
-            compiledResult <- Ext.CompileProxy.compileSrcModule root path srcMod
-            case compiledResult of
-              Just (Compile.Artifacts canMod _ _) ->
+            case canonical of
+              Just canMod ->
                   pure $ findDeclAtPoint point (Can._decls canMod)
               
               Nothing ->
@@ -81,10 +79,10 @@ definition root (Watchtower.Editor.PointLocation path point) = do
             pure existing
 
       case found of
-        FoundNothing ->
+        FoundNothing -> do
           pure Json.Encode.null
 
-        FoundExpr expr patterns ->
+        FoundExpr expr patterns -> do
           case getLocatedDetails expr of
             Nothing ->
                 pure Json.Encode.null
@@ -100,7 +98,7 @@ definition root (Watchtower.Editor.PointLocation path point) = do
             Just (Ctor extCanMod name) ->
               findExternalWith findFirstCtorNamed name Src._unions extCanMod
 
-        FoundPattern (A.At _ (Can.PCtor extCanMod _ _ ctorName _ _)) ->
+        FoundPattern (A.At _ (Can.PCtor extCanMod _ _ ctorName _ _)) -> do
           findExternalWith findFirstCtorNamed ctorName Src._unions extCanMod
 
         FoundPattern _ ->

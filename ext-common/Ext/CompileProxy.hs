@@ -4,7 +4,6 @@
 module Ext.CompileProxy
  ( loadSingle, SingleFileResult(..)
  , loadFileSource
- , compileSrcModule
  , loadCanonicalizeEnv
  , loadProject
  , parse
@@ -161,17 +160,6 @@ loadFileSource root path = do
       Left err ->
         pure $ Left err
 
-compileSrcModule :: FilePath -> FilePath -> Src.Module -> IO (Maybe Compile.Artifacts)
-compileSrcModule root path srcMod =
-  Dir.withCurrentDirectory root $ do
-    ifacesResult <- allInterfaces root (NE.List path [])
-    case ifacesResult of
-      Left _ ->
-        pure Nothing
-
-      Right ifaces ->
-        pure $ toMaybe $ Compile.compile Pkg.dummyName ifaces srcMod
-
 toMaybe :: Either x a -> Maybe a
 toMaybe either =
   case either of
@@ -188,11 +176,13 @@ loadCanonicalizeEnv ::
 loadCanonicalizeEnv root path srcMod = do
   Dir.withCurrentDirectory root $ do
     ifacesResult <- allInterfaces root (NE.List path [])
+    (CompileHelpers.Artifacts packageIfaces globalGraph) <- allPackageArtifacts root
     case ifacesResult of
       Left _ ->
         pure Nothing
 
-      Right ifaces -> do
+      Right localIfaces -> do
+        let ifaces = Map.union localIfaces packageIfaces
         let home = ModuleName.Canonical Pkg.dummyName $ Src.getName srcMod
 
         let (_, eitherResult) = Reporting.Result.run $
