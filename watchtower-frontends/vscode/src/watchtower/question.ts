@@ -37,7 +37,14 @@ type Question =
   | { msg: "Discover"; directory: String }
   | { msg: "ServerHealth" }
   | { msg: "Warnings"; filepath: String }
-  | { msg: "FindDefinition"; filepath: string; line: number; char: number };
+  | { msg: "FindDefinition"; filepath: string; line: number; char: number }
+  | {
+      msg: "FindInstances";
+      filepath: string;
+      line: number;
+      char: number;
+      includeDeclaration: boolean;
+    };
 
 const serverHealth: Question = {
   msg: "ServerHealth",
@@ -63,6 +70,20 @@ export const questions = {
       filepath: filepath,
       line: line,
       char: char,
+    };
+  },
+  findInstances: (
+    filepath: string,
+    line: number,
+    char: number,
+    includeDeclaration: boolean
+  ): Question => {
+    return {
+      msg: "FindInstances",
+      filepath: filepath,
+      line: line,
+      char: char,
+      includeDeclaration,
     };
   },
 };
@@ -128,6 +149,20 @@ export const ask = (question: Question, onSuccess: any, onError: any) => {
         });
       break;
     }
+    case "FindInstances":
+      http
+        .get(
+          urls.question(
+            `/instances?file=${question.filepath}&char=${question.char}&line=${question.line}&decl=${question.includeDeclaration}`
+          ),
+          captureRequest(onSuccess)
+        )
+        .on("error", (err) => {
+          log.log("Error on finding instances");
+          log.log(err);
+          onError(err);
+        });
+      break;
     default: {
       log.log("wut?");
     }

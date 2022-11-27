@@ -37,6 +37,10 @@ export function activate(context: vscode.ExtensionContext) {
     ElmLanguage,
     tower.definitionsProvider
   );
+  vscode.languages.registerReferenceProvider(
+    ElmLanguage,
+    tower.referenceProvider
+  );
   tower.setup();
 
   vscode.commands.registerCommand(

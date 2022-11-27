@@ -44,12 +44,16 @@ import qualified Ext.Dev.Find
 
 import qualified Ext.CompileProxy
 import qualified Ext.Log
+import qualified Watchtower.Editor
 
 
 -- One off questions and answers you might have/want.
 data Question
   = FindDefinitionPlease Watchtower.Editor.PointLocation
-  | FindAllInstancesPlease Watchtower.Editor.PointLocation
+  | FindAllInstancesPlease
+      { _location :: Watchtower.Editor.PointLocation,
+        _includeDeclaration :: Bool
+      }
   | Docs DocsType
   | Discover FilePath
   | Status
@@ -182,15 +186,16 @@ actionHandler state =
             Just location ->
               questionHandler state (FindDefinitionPlease location)
 
-      -- Just "instances" ->
-      --     do
-      --         maybeLocation   <- getLocation
-      --         case maybeLocation of
-      --             Nothing ->
-      --                 writeBS "Needs location"
+      Just "instances" -> do
+        maybeLocation <- getPointLocation
+        maybeIncludeDecl <- getQueryParam "decl"
+        let includeDeclaration = maybeIncludeDecl == Just "true"
+        case maybeLocation of
+            Nothing ->
+                writeBS "Needs location"
 
-      --             Just location ->
-      --                 questionHandler "." (FindAllInstancesPlease location)
+            Just location ->
+                questionHandler state (FindAllInstancesPlease location includeDeclaration)
 
       _ ->
         writeBS "Wha??"
@@ -307,19 +312,30 @@ ask state question =
           & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Ext.Dev.Project.encodeProjectJson projects))
 
 
-    FindDefinitionPlease location ->
-      let path =
-            case location of
-              Watchtower.Editor.PointLocation f _ ->
-                f
-       in do
-            root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-            Ext.Dev.Find.definition root location
-              & fmap Json.Encode.encodeUgly
+    FindDefinitionPlease location@(Watchtower.Editor.PointLocation path _) -> do
+      root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+      maybeDefinition <- Ext.Dev.Find.definition root location
 
-    FindAllInstancesPlease location ->
-      pure (Data.ByteString.Builder.byteString ("NOTDONE"))
+      maybeDefinition 
+          & maybe Json.Encode.null (encodeWrappingObject "definition" . Watchtower.Editor.encodePointRegion) 
+          & Json.Encode.encodeUgly
+          & pure 
 
+    FindAllInstancesPlease location@(Watchtower.Editor.PointLocation path _) inclDecl -> do
+      root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+      instances <- Ext.Dev.Find.instances root location inclDecl
+
+      instances
+        & fmap Watchtower.Editor.encodePointRegion
+        & Json.Encode.array
+        & encodeWrappingObject "instances"
+        & Json.Encode.encodeUgly
+        & pure
+
+
+encodeWrappingObject :: String -> Json.Encode.Value -> Json.Encode.Value
+encodeWrappingObject name value =
+  Json.Encode.object [ name ==> value ]
 
 
 allProjectStatuses (Client.State clients mProjects) =

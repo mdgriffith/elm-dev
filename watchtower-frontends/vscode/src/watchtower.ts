@@ -86,6 +86,7 @@ export class Watchtower {
   public codelensProvider: SignatureCodeLensProvider;
   public diagnostics: vscode.DiagnosticCollection;
   public definitionsProvider: vscode.DefinitionProvider;
+  public referenceProvider: vscode.ReferenceProvider;
 
   send(msg: Msg) {
     if (this.connection?.connected) {
@@ -102,6 +103,7 @@ export class Watchtower {
     self.trackEditsSinceSave = false;
     self.codelensProvider = new SignatureCodeLensProvider();
     self.definitionsProvider = new ElmDefinitionProvider();
+    self.referenceProvider = new ElmReferenceProvider();
     self.diagnostics = vscode.languages.createDiagnosticCollection("elmDev");
 
     self.startServer();
@@ -412,6 +414,44 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
             const region = regionToRange(resp.definition.region, null);
 
             resolve(new vscode.Location(uri, region));
+          }
+        },
+        reject
+      );
+    });
+  }
+}
+
+// Reference Provider
+
+export class ElmReferenceProvider implements vscode.ReferenceProvider {
+  constructor() {}
+  public provideReferences(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    context: vscode.ReferenceContext,
+    token: vscode.CancellationToken
+  ): vscode.ProviderResult<vscode.Location[]> {
+    return new Promise((resolve, reject) => {
+      Question.ask(
+        Question.questions.findInstances(
+          document.uri.fsPath,
+          position.line + 1,
+          position.character + 1,
+          context.includeDeclaration
+        ),
+        (resp) => {
+          if (!resp) {
+            resolve(null);
+          } else {
+            resolve(
+              resp.instances.map((instance) => {
+                const uri = vscode.Uri.file(instance.path);
+                const region = regionToRange(instance.region, null);
+
+                return new vscode.Location(uri, region);
+              })
+            );
           }
         },
         reject

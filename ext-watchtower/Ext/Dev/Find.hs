@@ -3,6 +3,7 @@
 module Ext.Dev.Find
   ( definition
   , usedModules
+  , instances
   )
 where
 
@@ -52,15 +53,18 @@ import qualified Text.Show.Unicode
 import qualified Util
 import qualified Watchtower.Editor
 import qualified Ext.Dev.Find.Canonical
+import Watchtower.Editor (PointRegion(..))
+import qualified Data.Maybe
 
 {- Find Definition -}
 
-definition :: FilePath -> Watchtower.Editor.PointLocation -> IO Json.Encode.Value
+
+definition :: FilePath -> Watchtower.Editor.PointLocation -> IO (Maybe PointRegion)
 definition root (Watchtower.Editor.PointLocation path point) = do
   (Ext.CompileProxy.Single source warnings canonical compiled) <- Ext.CompileProxy.loadSingle root path
   case source of
     Left _ ->
-       pure Json.Encode.null
+       pure Nothing
     
     Right srcMod -> do
       let foundType = findTypeAtPoint point srcMod
@@ -70,26 +74,26 @@ definition root (Watchtower.Editor.PointLocation path point) = do
           FoundNothing -> do
             case canonical of
               Just canMod ->
-                  pure $ findDeclAtPoint point (Can._decls canMod)
+                pure $ findDeclAtPoint point (Can._decls canMod)
               
               Nothing ->
-                  pure foundType
+                pure foundType
 
           existing ->
             pure existing
 
       case found of
         FoundNothing -> do
-          pure Json.Encode.null
+          pure Nothing
 
         FoundExpr expr patterns -> do
           case getLocatedDetails expr of
             Nothing ->
-                pure Json.Encode.null
+                pure Nothing
 
             Just (Local localName) ->
               findFirstPatternIntroducing localName patterns
-                & encodeResult path
+                & defResult path
                 & pure
 
             Just (External extCanMod name) ->
@@ -102,33 +106,33 @@ definition root (Watchtower.Editor.PointLocation path point) = do
           findExternalWith findFirstCtorNamed ctorName Src._unions extCanMod
 
         FoundPattern _ ->
-          pure Json.Encode.null
+          pure Nothing
 
         FoundType tipe -> do
           canonicalizationEnvResult <- Ext.CompileProxy.loadCanonicalizeEnv root path srcMod
           case canonicalizationEnvResult of
             Nothing ->
-              pure Json.Encode.null
+              pure Nothing
 
             Just env -> do
               let (_, eitherCanType) = Reporting.Result.run $ Canonicalize.Type.canonicalize env tipe
 
               case eitherCanType of
                 Left err ->
-                  pure Json.Encode.null
+                  pure Nothing
 
                 Right (Can.TType extCanMod name _) ->
                   findExternalWith findFirstTypeNamed name id extCanMod
 
                 Right _ ->
-                  pure Json.Encode.null
+                  pure Nothing
       where
         findExternalWith findFn name listAccess canMod = do
           details <- Ext.CompileProxy.loadProject
 
           case lookupModulePath details canMod of
             Nothing ->
-               pure Json.Encode.null
+              pure Nothing
 
             Just targetPath -> do
               loadedFile <- Ext.CompileProxy.loadFileSource root targetPath
@@ -136,26 +140,21 @@ definition root (Watchtower.Editor.PointLocation path point) = do
                 Right (_, sourceMod) -> do
                   listAccess sourceMod
                     & findFn name
-                    & encodeResult targetPath
+                    & defResult targetPath
                     & pure
                 
                 Left _ ->
-                     pure Json.Encode.null
+                  pure Nothing
 
-encodeResult :: FilePath -> Maybe (A.Located a) -> Json.Encode.Value
-encodeResult path result =
-  case result of
-    Nothing ->
-      Json.Encode.null
-    Just (A.At region _) ->
-      Json.Encode.object
-        [ ( "definition",
-            Json.Encode.object
-              [ ("region", Watchtower.Editor.encodeRegion region),
-                ("path", Json.Encode.string (Json.String.fromChars path))
-              ]
-          )
-        ]
+defResult :: FilePath -> Maybe (A.Located a) -> Maybe PointRegion
+defResult path =
+  fmap
+    ( \(A.At region _) ->
+        PointRegion
+          { _regionFile = path,
+            _region = region
+          }
+    )
 
 lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
 lookupModulePath details canModuleName =
@@ -581,3 +580,14 @@ usedModules root path = do
     pure (fmap Ext.Dev.Find.Canonical.used canonical)
     
     
+
+
+{- Instances -}
+
+instances :: FilePath -> Watchtower.Editor.PointLocation -> Bool -> IO [PointRegion]
+instances path location includeDeclaration =
+  if includeDeclaration then do
+    def <- definition path location
+    pure $ Data.Maybe.maybeToList def
+  else
+    pure []
