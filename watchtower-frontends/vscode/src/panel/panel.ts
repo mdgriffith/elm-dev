@@ -10,6 +10,7 @@ export class ElmProjectPane {
   public static currentPanel: ElmProjectPane | undefined;
 
   public static readonly viewType = "elmProjectView";
+  private static _undelivered: Message.ToProjectPanel[] = [];
 
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionPath: string;
@@ -77,6 +78,13 @@ export class ElmProjectPane {
     );
   }
 
+  public static isOpen() {
+    if (ElmProjectPane.currentPanel) {
+      return true;
+    }
+    return false;
+  }
+
   public static createOrShow(extensionPath: string) {
     // If we already have a panel, show it.
     if (ElmProjectPane.currentPanel) {
@@ -101,6 +109,16 @@ export class ElmProjectPane {
     );
 
     ElmProjectPane.currentPanel = new ElmProjectPane(panel, extensionPath);
+    this.replayUndelivered();
+  }
+
+  private static replayUndelivered() {
+    if (ElmProjectPane.currentPanel) {
+      for (const msg of this._undelivered) {
+        this.send(msg);
+      }
+      this._undelivered = [];
+    }
   }
 
   public static revive(panel: vscode.WebviewPanel, extensionPath: string) {
@@ -111,8 +129,8 @@ export class ElmProjectPane {
     if (ElmProjectPane.currentPanel) {
       ElmProjectPane.currentPanel._panel.webview.postMessage(msg);
     } else {
-      // no panel, dropping msg
-      // log.log("No panel, dropping msg");
+      // no panel, caching msg.
+      this._undelivered.push(msg);
     }
   }
 

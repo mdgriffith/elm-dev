@@ -86,6 +86,7 @@ export class Watchtower {
   public codelensProvider: SignatureCodeLensProvider;
   public diagnostics: vscode.DiagnosticCollection;
   public definitionsProvider: vscode.DefinitionProvider;
+  public statusbar: vscode.StatusBarItem;
 
   send(msg: Msg) {
     if (this.connection?.connected) {
@@ -103,6 +104,14 @@ export class Watchtower {
     self.codelensProvider = new SignatureCodeLensProvider();
     self.definitionsProvider = new ElmDefinitionProvider();
     self.diagnostics = vscode.languages.createDiagnosticCollection("elmDev");
+
+    self.statusbar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      10
+    );
+
+    self.statusbar.command = "elm.projectPanel";
+    self.status("Open Elm Dev");
 
     self.startServer();
 
@@ -152,6 +161,48 @@ export class Watchtower {
     vscode.window.onDidChangeVisibleTextEditors((_) => {
       self.refreshWatching();
     });
+  }
+
+  private statusFromErrorCount(errorCount) {
+    const plural = errorCount == 1 ? "" : "s";
+    if (ElmProjectPane.isOpen()) {
+      this.statusDanger(`${errorCount} Elm error${plural}`);
+    } else {
+      this.statusDanger(`Click to view ${errorCount} Elm error${plural}`);
+    }
+  }
+
+  private statusNoErrors() {
+    if (ElmProjectPane.isOpen()) {
+      this.status(`Open Elm Dev`);
+    } else {
+      this.status(`Open Elm Dev`);
+    }
+  }
+
+  private statusDanger(message: string) {
+    this.statusbar.text = message;
+    this.statusbar.show();
+
+    this.statusbar.backgroundColor = new vscode.ThemeColor(
+      "statusBarItem.errorBackground"
+    );
+  }
+
+  private statusWarning(message: string) {
+    this.statusbar.text = message;
+    this.statusbar.show();
+
+    this.statusbar.backgroundColor = new vscode.ThemeColor(
+      "statusBarItem.warningBackground"
+    );
+  }
+
+  private status(message: string) {
+    this.statusbar.text = message;
+    this.statusbar.show();
+
+    this.statusbar.backgroundColor = null;
   }
 
   private startServer() {
@@ -209,9 +260,11 @@ export class Watchtower {
     const self = this;
     this.retry = setTimeout(function () {
       // log.log("Reattempting connection");
+      self.statusDanger("Unable to connect to Elm Dev");
       socketConnect({
         url: Question.urls.websocket,
         onJoin: (connection) => {
+          self.statusNoErrors();
           self.onJoin(connection);
         },
         onConnectionFailed: (err) => {
@@ -276,10 +329,13 @@ export class Watchtower {
                   relatedInformation: [],
                 });
               }
+              self.statusFromErrorCount(problems.length);
+
               self.diagnostics.set(uri, problems);
             }
           } else if ("compiled" in project.status) {
             // success
+            self.statusNoErrors();
           } else {
             // Global error
             log.log(
@@ -529,6 +585,9 @@ function signatureToLens(
 
 const unusedValueDecorationType = vscode.window.createTextEditorDecorationType({
   opacity: "0.5",
+  // overviewRulerColor: "#ff00ff",
+  // isWholeLine: true,
+  // overviewRulerLane: vscode.OverviewRulerLane.Full,
 });
 
 /**

@@ -46,6 +46,8 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  context.subscriptions.push(tower.statusbar);
+
   context.subscriptions.push(
     vscode.commands.registerCommand("elm.projectPanel", () => {
       ElmProjectPane.createOrShow(context.extensionPath);
