@@ -80,7 +80,7 @@ export class ElmProjectPane {
 
   public static isOpen() {
     if (ElmProjectPane.currentPanel) {
-      return true;
+      return ElmProjectPane.currentPanel._panel.visible;
     }
     return false;
   }
@@ -109,16 +109,11 @@ export class ElmProjectPane {
     );
 
     ElmProjectPane.currentPanel = new ElmProjectPane(panel, extensionPath);
-    this.replayUndelivered();
-  }
-
-  private static replayUndelivered() {
-    if (ElmProjectPane.currentPanel) {
-      for (const msg of this._undelivered) {
-        this.send(msg);
-      }
-      this._undelivered = [];
+    for (const msg of this._undelivered.reverse()) {
+      log.obj("2 - Replaying undelivered msg!", msg);
+      ElmProjectPane.currentPanel._panel.webview.postMessage(msg);
     }
+    this._undelivered = [];
   }
 
   public static revive(panel: vscode.WebviewPanel, extensionPath: string) {

@@ -195,6 +195,7 @@ mergeProjects new existing =
         new :: newProjects
 
 
+view : Model -> Html.Html Msg
 view model =
     Html.div
         [ Html.Attributes.style "width" "100vw"
@@ -389,29 +390,32 @@ viewOverview model =
 viewWarningsOrStatus model =
     let
         activeWarnings =
-            model.active
-                |> Maybe.map
-                    (visibleWarnings model.warnings)
-                |> Maybe.withDefault []
+            model.visible
+                |> List.concatMap (visibleWarnings model.warnings)
     in
     case activeWarnings of
         [] ->
-            Keyed.el
-                [ Ui.centerX
-                , Ui.centerY
-                ]
-                ( String.fromInt model.projectsVersion
-                , case model.lastUpdated of
-                    Nothing ->
-                        Ui.el
-                            []
-                            (Ui.text "Waiting for info!")
+            case List.concat (Dict.values model.warnings) of
+                [] ->
+                    Keyed.el
+                        [ Ui.centerX
+                        , Ui.centerY
+                        ]
+                        ( String.fromInt model.projectsVersion
+                        , case model.lastUpdated of
+                            Nothing ->
+                                Ui.el
+                                    []
+                                    (Ui.text "Waiting for info!")
 
-                    Just _ ->
-                        Ui.el
-                            []
-                            (Ui.text "Lookin good! 🎉")
-                )
+                            Just _ ->
+                                Ui.el
+                                    []
+                                    (Ui.text "Lookin good! 🎉")
+                        )
+
+                allWarnings ->
+                    viewWarningOverview allWarnings
 
         _ ->
             viewWarningOverview activeWarnings
@@ -815,6 +819,7 @@ onlyBelow maybeViewing iss =
             Editor.below iss.region viewing.ranges
 
 
+fillToEighty : String -> String
 fillToEighty str =
     let
         fill =

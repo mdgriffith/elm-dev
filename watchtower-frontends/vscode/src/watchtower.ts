@@ -164,11 +164,28 @@ export class Watchtower {
   }
 
   private statusFromErrorCount(errorCount) {
+    if (errorCount < 1) {
+      return;
+    }
     const plural = errorCount == 1 ? "" : "s";
     if (ElmProjectPane.isOpen()) {
       this.statusDanger(`${errorCount} Elm error${plural}`);
     } else {
       this.statusDanger(`Click to view ${errorCount} Elm error${plural}`);
+    }
+  }
+
+  private statusFromWarningCount(warningCount) {
+    if (warningCount < 1) {
+      return;
+    }
+    const plural = warningCount == 1 ? "" : "s";
+    if (ElmProjectPane.isOpen()) {
+      this.statusWarning(`${warningCount} Elm suggestion${plural}`);
+    } else {
+      this.statusWarning(
+        `Click to view ${warningCount} Elm suggestion${plural}`
+      );
     }
   }
 
@@ -346,6 +363,7 @@ export class Watchtower {
         break;
       }
       case "Warnings": {
+        self.statusFromWarningCount(msg.details.warnings.length);
         self.codelensProvider.setSignaturesFromWarnings(
           msg.details.filepath,
           msg.details.warnings,
