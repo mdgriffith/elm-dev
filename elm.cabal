@@ -250,6 +250,7 @@ Executable elm-dev
         Ext.Dev.Docs
         Ext.Dev.Project
         Ext.Dev.Warnings
+        Ext.Dev.Canonicalize
         Ext.Dev.Find
         Ext.Dev.Find.Canonical
         
