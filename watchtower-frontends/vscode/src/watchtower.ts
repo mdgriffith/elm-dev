@@ -270,6 +270,8 @@ export class Watchtower {
     const items = getWatchedItems();
     if (items.length != 0) {
       self.send({ msg: "Watched", details: items });
+    } else {
+      self.statusNoErrors();
     }
   }
 
