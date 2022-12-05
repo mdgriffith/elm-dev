@@ -41,6 +41,7 @@ import qualified Build
 import qualified Ext.Dev
 import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Find
+import qualified Ext.Dev.Explain
 
 import qualified Ext.CompileProxy
 import qualified Ext.Log
@@ -50,6 +51,7 @@ import qualified Ext.Log
 data Question
   = FindDefinitionPlease Watchtower.Editor.PointLocation
   | FindAllInstancesPlease Watchtower.Editor.PointLocation
+  | Explain Watchtower.Editor.PointLocation
   | Docs DocsType
   | Discover FilePath
   | Status
@@ -181,6 +183,15 @@ actionHandler state =
               writeBS "Needs location"
             Just location ->
               questionHandler state (FindDefinitionPlease location)
+      
+      Just "explain" ->
+        do
+          maybeLocation <- getPointLocation
+          case maybeLocation of
+            Nothing ->
+              writeBS "Needs location"
+            Just location ->
+              questionHandler state (Explain location)
 
       -- Just "instances" ->
       --     do
@@ -306,6 +317,24 @@ ask state question =
         Ext.Dev.Project.discover dir
           & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Ext.Dev.Project.encodeProjectJson projects))
 
+    Explain location ->
+      let path =
+            case location of
+              Watchtower.Editor.PointLocation f _ ->
+                f
+       in do
+            root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+            maybeExplanation <- Ext.Dev.Explain.explain root location
+            case maybeExplanation of
+              Nothing ->
+                Json.Encode.null
+                  & Json.Encode.encodeUgly
+                  & pure
+
+              Just explanation ->
+                Ext.Dev.Explain.encode explanation
+                  & Json.Encode.encodeUgly
+                  & pure
 
     FindDefinitionPlease location ->
       let path =
