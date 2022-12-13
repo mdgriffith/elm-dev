@@ -41,6 +41,7 @@ import qualified Build
 import qualified Ext.Dev
 import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Find
+import qualified Ext.Dev.Explain
 
 import qualified Ext.CompileProxy
 import qualified Ext.Log
@@ -54,6 +55,7 @@ data Question
       { _location :: Watchtower.Editor.PointLocation,
         _includeDeclaration :: Bool
       }
+  | Explain Watchtower.Editor.PointLocation
   | Docs DocsType
   | Discover FilePath
   | Status
@@ -186,13 +188,12 @@ actionHandler state =
             Just location ->
               questionHandler state (FindDefinitionPlease location)
 
-      Just "instances" -> do
-        maybeLocation <- getPointLocation
-        maybeIncludeDecl <- getQueryParam "decl"
-        let includeDeclaration = maybeIncludeDecl == Just "true"
-        case maybeLocation of
-            Nothing ->
-                writeBS "Needs location"
+      -- Just "instances" ->
+      --     do
+      --         maybeLocation   <- getLocation
+      --         case maybeLocation of
+      --             Nothing ->
+      --                 writeBS "Needs location"
 
             Just location ->
                 questionHandler state (FindAllInstancesPlease location includeDeclaration)
@@ -311,6 +312,24 @@ ask state question =
         Ext.Dev.Project.discover dir
           & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Ext.Dev.Project.encodeProjectJson projects))
 
+    Explain location ->
+      let path =
+            case location of
+              Watchtower.Editor.PointLocation f _ ->
+                f
+       in do
+            root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+            maybeExplanation <- Ext.Dev.Explain.explain root location
+            case maybeExplanation of
+              Nothing ->
+                Json.Encode.null
+                  & Json.Encode.encodeUgly
+                  & pure
+
+              Just explanation ->
+                Ext.Dev.Explain.encode explanation
+                  & Json.Encode.encodeUgly
+                  & pure
 
     FindDefinitionPlease location@(Watchtower.Editor.PointLocation path _) -> do
       root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)

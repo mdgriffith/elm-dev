@@ -7024,8 +7024,8 @@ var $author$project$Main$update = F2(
 									{errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, lastUpdated: model.now, projects: statuses, projectsVersion: model.projectsVersion + 1}),
 								$elm$core$Platform$Cmd$none);
 						default:
-							var filepath = editorMsg.a.filepath;
 							var warnings = editorMsg.a.warnings;
+							var filepath = editorMsg.a.filepath;
 							var _v4 = $author$project$Main$panelLog('WarningsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -13673,6 +13673,16 @@ var $mdgriffith$elm_ui$Element$Keyed$el = F2(
 				_List_fromArray(
 					[child])));
 	});
+var $elm$core$Dict$values = function (dict) {
+	return A3(
+		$elm$core$Dict$foldr,
+		F3(
+			function (key, value, valueList) {
+				return A2($elm$core$List$cons, value, valueList);
+			}),
+		_List_Nil,
+		dict);
+};
 var $author$project$Main$viewCount = F2(
 	function (label, amount) {
 		return (!amount) ? $mdgriffith$elm_ui$Element$none : $mdgriffith$elm_ui$Element$text(
@@ -13734,33 +13744,37 @@ var $author$project$Main$visibleWarnings = F2(
 	});
 var $author$project$Main$viewWarningsOrStatus = function (model) {
 	var activeWarnings = A2(
-		$elm$core$Maybe$withDefault,
-		_List_Nil,
-		A2(
-			$elm$core$Maybe$map,
-			$author$project$Main$visibleWarnings(model.warnings),
-			model.active));
+		$elm$core$List$concatMap,
+		$author$project$Main$visibleWarnings(model.warnings),
+		model.visible);
 	if (!activeWarnings.b) {
-		return A2(
-			$mdgriffith$elm_ui$Element$Keyed$el,
-			_List_fromArray(
-				[$mdgriffith$elm_ui$Element$centerX, $mdgriffith$elm_ui$Element$centerY]),
-			_Utils_Tuple2(
-				$elm$core$String$fromInt(model.projectsVersion),
-				function () {
-					var _v1 = model.lastUpdated;
-					if (_v1.$ === 'Nothing') {
-						return A2(
-							$mdgriffith$elm_ui$Element$el,
-							_List_Nil,
-							$mdgriffith$elm_ui$Element$text('Waiting for info!'));
-					} else {
-						return A2(
-							$mdgriffith$elm_ui$Element$el,
-							_List_Nil,
-							$mdgriffith$elm_ui$Element$text('Lookin good! 🎉'));
-					}
-				}()));
+		var _v1 = $elm$core$List$concat(
+			$elm$core$Dict$values(model.warnings));
+		if (!_v1.b) {
+			return A2(
+				$mdgriffith$elm_ui$Element$Keyed$el,
+				_List_fromArray(
+					[$mdgriffith$elm_ui$Element$centerX, $mdgriffith$elm_ui$Element$centerY]),
+				_Utils_Tuple2(
+					$elm$core$String$fromInt(model.projectsVersion),
+					function () {
+						var _v2 = model.lastUpdated;
+						if (_v2.$ === 'Nothing') {
+							return A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_Nil,
+								$mdgriffith$elm_ui$Element$text('Waiting for info!'));
+						} else {
+							return A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_Nil,
+								$mdgriffith$elm_ui$Element$text('Lookin good! 🎉'));
+						}
+					}()));
+		} else {
+			var allWarnings = _v1;
+			return $author$project$Main$viewWarningOverview(allWarnings);
+		}
 	} else {
 		return $author$project$Main$viewWarningOverview(activeWarnings);
 	}
@@ -13868,8 +13882,8 @@ var $author$project$Main$viewOverview = function (model) {
 		$elm$core$List$foldl,
 		F2(
 			function (project, gathered) {
-				var globals = gathered.globals;
 				var errs = gathered.errs;
+				var globals = gathered.globals;
 				switch (project.$) {
 					case 'NoData':
 						return gathered;
