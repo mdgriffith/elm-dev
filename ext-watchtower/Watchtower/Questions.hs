@@ -42,6 +42,7 @@ import qualified Ext.Dev
 import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Find
 import qualified Ext.Dev.Explain
+import qualified Ext.Dev.CallGraph
 
 import qualified Ext.CompileProxy
 import qualified Ext.Log
@@ -54,6 +55,7 @@ data Question
   | Explain Watchtower.Editor.PointLocation
   | Docs DocsType
   | Discover FilePath
+  | CallGraph FilePath
   | Status
   | Warnings FilePath
   | TimingParse FilePath
@@ -173,7 +175,15 @@ actionHandler state =
               writeBS "Needs a directory parameter"
             Just file -> do
               questionHandler state (Discover (Data.ByteString.Char8.unpack file))
-
+      
+      Just "callgraph" ->
+        do
+          maybeFile <- getQueryParam "file"
+          case maybeFile of
+            Nothing ->
+              writeBS "Needs a directory parameter"
+            Just file -> do
+              questionHandler state (CallGraph (Data.ByteString.Char8.unpack file))
 
       Just "definition" ->
         do
@@ -310,6 +320,18 @@ ask state question =
                   Json.Encode.encodeUgly (Json.Encode.chars "Parser error")
 
         pure jsonResult
+
+    CallGraph file ->
+      do
+        Ext.Log.log Ext.Log.Questions $ "Callgraph: " ++ show file
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot file state)
+        maybeCallgraph <- Ext.Dev.CallGraph.callgraph root file
+        case maybeCallgraph of
+            Nothing ->
+                pure (Json.Encode.encodeUgly (Json.Encode.chars "No callgraph"))
+
+            Just callgraph ->
+                pure (Json.Encode.encodeUgly (Ext.Dev.CallGraph.encode callgraph))
 
     Discover dir ->
       do

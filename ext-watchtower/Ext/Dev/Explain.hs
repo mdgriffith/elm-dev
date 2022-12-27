@@ -279,7 +279,7 @@ encode (Explanation localizer references) =
 encodeReference :: Reporting.Render.Type.Localizer.Localizer -> Reference -> Json.Encode.Value
 encodeReference localizer ref =
     case ref of
-        TypeReference modName name canType maybeDef ->
+        TypeReference modName name canType ->
             Json.Encode.object 
                 [ "module" ==> encodeCanName modName
                 , "name" ==> Json.Encode.chars (Name.toChars name)
