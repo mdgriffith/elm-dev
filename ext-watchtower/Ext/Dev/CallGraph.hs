@@ -36,9 +36,20 @@ data Node =
     Node 
         { _id :: Id
         , _recursive :: Bool
-        , _calls :: Set.Set Id
+        , _calls :: Set.Set Call
         , _callers :: Set.Set Id
         }
+
+data Call =
+    Call 
+        { _callType :: CallType 
+        , _callId :: Id
+        }
+        deriving (Eq, Ord)
+
+data CallType =
+    Local | TopLevel | Foreign | Constructor | Debug | Operator
+    deriving (Eq, Ord)
 
 data Id =
     Id 
@@ -59,23 +70,55 @@ encodeNode (Node id recursive callsMade callers) =
     Json.Encode.object 
         [ "id" ==> encodeId id
         , "recursive" ==> Json.Encode.bool recursive
-        , "calls" ==> Json.Encode.list encodeId (Set.toList callsMade)
+        , "calls" ==> Json.Encode.list encodeCall (Set.toList callsMade)
         , "callers" ==> Json.Encode.list encodeId (Set.toList callers)
         ]
 
-encodeId :: Id -> Json.Encode.Value
-encodeId (Id can name) =
+
+
+encodeCall :: Call -> Json.Encode.Value
+encodeCall (Call callType id) =
      Json.Encode.object 
-        [ "module" ==> encodeCanName can
-        , "name" ==> Json.Encode.chars (Name.toChars name)
+        [ "id" ==> encodeId id
+        , "callType" ==> encodeCallType callType
         ]
 
-encodeCanName :: ModuleName.Canonical -> Json.Encode.Value
-encodeCanName (ModuleName.Canonical pkgName modName) =
-    Json.Encode.object 
-        [ "pkg" ==> Package.encode pkgName
-        , "module" ==>  Json.Encode.chars (Name.toChars modName)
-        ]   
+encodeCallType :: CallType -> Json.Encode.Value
+encodeCallType callType =
+    case callType of
+        Local ->  Json.Encode.chars "local"
+        TopLevel ->  Json.Encode.chars "top-level"
+        Foreign ->  Json.Encode.chars "foreign"
+        Constructor ->  Json.Encode.chars "constructor"
+        Debug ->  Json.Encode.chars "debug"
+        Operator ->  Json.Encode.chars "operator"
+
+
+
+encodeId :: Id -> Json.Encode.Value
+encodeId (Id (ModuleName.Canonical pkgName modName) name) =
+     Json.Encode.chars
+        (Package.toChars pkgName 
+            <> "$"
+            <> Name.toChars modName
+            <> "."
+            <> (Name.toChars name)
+        )
+    
+
+-- encodeId :: Id -> Json.Encode.Value
+-- encodeId (Id can name) =
+--      Json.Encode.object 
+--         [ "module" ==> encodeCanName can
+--         , "name" ==> Json.Encode.chars (Name.toChars name)
+--         ]
+
+-- encodeCanName :: ModuleName.Canonical -> Json.Encode.Value
+-- encodeCanName (ModuleName.Canonical pkgName modName) =
+--     Json.Encode.object 
+--         [ "pkg" ==> Package.encode pkgName
+--         , "module" ==>  Json.Encode.chars (Name.toChars modName)
+--         ]   
 
 
 callgraph :: String -> String -> IO (Maybe Calls)
@@ -132,7 +175,7 @@ defToNodes moduleName def found =
 
 
 
-callsInDef :: ModuleName.Canonical -> Can.Def -> Set.Set Id -> Set.Set Id
+callsInDef :: ModuleName.Canonical -> Can.Def -> Set.Set Call -> Set.Set Call
 callsInDef selfCanMod def found =
     case def of
         Can.Def (A.At _ defName) patterns expr ->
@@ -143,35 +186,35 @@ callsInDef selfCanMod def found =
             
 
             
-callsInBranch :: ModuleName.Canonical -> Can.CaseBranch -> Set.Set Id -> Set.Set Id
+callsInBranch :: ModuleName.Canonical -> Can.CaseBranch -> Set.Set Call -> Set.Set Call
 callsInBranch selfCanMod (Can.CaseBranch pattern expr) found =
     callsInExpr selfCanMod expr found
 
 
-callsInExpr :: ModuleName.Canonical -> Can.Expr -> Set.Set Id -> Set.Set Id
+callsInExpr :: ModuleName.Canonical -> Can.Expr -> Set.Set Call -> Set.Set Call
 callsInExpr selfCanMod (A.At pos expr) found =
     case expr of
         Can.VarLocal name ->
-            Set.insert (Id selfCanMod name) found
+            Set.insert (Call Local (Id selfCanMod name)) found
 
         Can.VarTopLevel canMod name ->
-            Set.insert (Id canMod name) found
+            Set.insert (Call TopLevel (Id canMod name)) found
             
         Can.VarKernel _ _ ->
             found
 
         Can.VarForeign canMod name annotation ->
-            Set.insert (Id canMod name) found
+            Set.insert (Call Foreign (Id canMod name)) found
                 
 
         Can.VarCtor _ canMod name index annotation ->
-            Set.insert (Id canMod name) found 
+            Set.insert (Call Constructor (Id canMod name)) found 
 
         Can.VarDebug canMod name annotation ->
-            Set.insert (Id canMod name) found
+            Set.insert (Call Debug (Id canMod name)) found
                 
         Can.VarOperator _ canMod name annotation ->
-            Set.insert (Id canMod name) found
+            Set.insert (Call Operator (Id canMod name)) found
 
         Can.Chr _ ->
             found
@@ -192,7 +235,7 @@ callsInExpr selfCanMod (A.At pos expr) found =
             callsInExpr selfCanMod expr found
 
         Can.Binop _ canMod name annotation exprOne exprTwo ->
-            Set.insert (Id canMod name) found
+            Set.insert (Call Operator (Id canMod name)) found
                  & callsInExpr selfCanMod exprOne
                  & callsInExpr selfCanMod exprTwo
 
