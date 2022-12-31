@@ -8,7 +8,15 @@ import * as Interactive from "./interactive";
 import * as PanelMsg from "./panel/messages";
 import * as path from "path";
 
+
+
+
+
+
+
+
 var WebSocketClient = require("websocket").client;
+
 
 type Msg =
   | { msg: "Discover"; details: { root: String; watching: Watching[] } }
@@ -79,16 +87,25 @@ function getWatchedItems() {
 
 export class Watchtower {
   private connection;
-  private projects: Project[];
   private editsSinceSave: vscode.TextDocumentChangeEvent[];
   private trackEditsSinceSave: boolean;
   private retry;
+
+
+  // The core model of our Elm project
+  private elmEditorVisibility: { active: PanelMsg.EditorVisibility | null; visible: PanelMsg.EditorVisibility[] };
+  private elmStatus: PanelMsg.ProjectStatus[];
+  private elmWarninigs: { warnings: Question.Warning[]; filepath: string };
+  private elmDocs;
+
+
+  // Providers and diagnostics
   public codelensProvider: SignatureCodeLensProvider;
   public diagnostics: vscode.DiagnosticCollection;
   public definitionsProvider: vscode.DefinitionProvider;
   public statusbar: vscode.StatusBarItem;
 
-  send(msg: Msg) {
+  private send(msg: Msg) {
     if (this.connection?.connected) {
       log.obj("SENDING", msg);
       this.connection.sendUTF(JSON.stringify(msg));
@@ -158,10 +175,33 @@ export class Watchtower {
       }
     );
 
+
+    /*  Send editor visibility msgs to the Panel
+        And sometimes to the watchtower
+    */
     vscode.window.onDidChangeVisibleTextEditors((_) => {
       self.refreshWatching();
     });
+
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      this.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
+    });
+  
+    vscode.window.onDidChangeTextEditorSelection((selection) => {
+      this.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
+    });
+  
+    vscode.window.onDidChangeTextEditorVisibleRanges((visibleRanges) => {
+      this.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
+    });
+
+    this.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
+
   }
+
+
+ 
+
 
   private statusFromErrorCount(errorCount) {
     if (errorCount < 1) {
@@ -328,6 +368,7 @@ export class Watchtower {
     log.log("Received: " + msg["msg"]);
     switch (msg["msg"]) {
       case "Status": {
+        self.elmStatus = msg.details
         self.diagnostics.clear();
         for (const project of msg["details"]) {
           if ("errors" in project.status) {
@@ -365,6 +406,8 @@ export class Watchtower {
         break;
       }
       case "Warnings": {
+        self.elmWarninigs = msg.details
+
         self.statusFromWarningCount(msg.details.warnings.length);
         self.codelensProvider.setSignaturesFromWarnings(
           msg.details.filepath,
@@ -377,6 +420,8 @@ export class Watchtower {
         log.log("New docs received!");
         log.log(msg.details.filepath);
         log.log(msg.details.docs[0].name);
+
+        self.elmDocs = msg.details.docs
 
         // Turn off the interactive stuff while we get everything working smoothly
         // Interactive.generate(msg.details.docs, (interactiveJs) => {
@@ -396,6 +441,32 @@ export class Watchtower {
     //  can receive N messages for one "save" message we send up
     self.trackEditsSinceSave = false;
   }
+
+  // Panel Management
+  showPanel(extensionPath) {
+    const self = this
+    const msgs = []
+    if (self.elmStatus) {
+      msgs.push(PanelMsg.status(self.elmStatus))
+    }
+    if (self.elmWarninigs) {
+      msgs.push(PanelMsg.warnings(self.elmWarninigs))
+    }
+    if (self.elmEditorVisibility) {
+      msgs.push(PanelMsg.visibility(self.elmEditorVisibility))
+    }
+
+    ElmProjectPane.createOrShow(extensionPath, msgs);
+
+  }
+
+  editorVisibilityUpdated(visibility) {
+    const self = this
+    self.elmEditorVisibility = visibility.details
+    ElmProjectPane.send(visibility)
+  }
+
+
 
   setup() {
     // log.log("Setting up! (which means doing nothing right now.");

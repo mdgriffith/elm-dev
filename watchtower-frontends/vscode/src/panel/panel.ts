@@ -10,7 +10,6 @@ export class ElmProjectPane {
   public static currentPanel: ElmProjectPane | undefined;
 
   public static readonly viewType = "elmProjectView";
-  private static _undelivered: Message.ToProjectPanel[] = [];
 
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionPath: string;
@@ -85,7 +84,7 @@ export class ElmProjectPane {
     return false;
   }
 
-  public static createOrShow(extensionPath: string) {
+  public static createOrShow(extensionPath: string, msgs:  Message.ToProjectPanel[]) {
     // If we already have a panel, show it.
     if (ElmProjectPane.currentPanel) {
       ElmProjectPane.currentPanel._panel.reveal(vscode.ViewColumn.Two);
@@ -109,11 +108,10 @@ export class ElmProjectPane {
     );
 
     ElmProjectPane.currentPanel = new ElmProjectPane(panel, extensionPath);
-    for (const msg of this._undelivered.reverse()) {
-      log.obj("2 - Replaying undelivered msg!", msg);
+    for (const msg of msgs) {
       ElmProjectPane.currentPanel._panel.webview.postMessage(msg);
     }
-    this._undelivered = [];
+    
   }
 
   public static revive(panel: vscode.WebviewPanel, extensionPath: string) {
@@ -123,9 +121,6 @@ export class ElmProjectPane {
   public static send(msg: Message.ToProjectPanel) {
     if (ElmProjectPane.currentPanel) {
       ElmProjectPane.currentPanel._panel.webview.postMessage(msg);
-    } else {
-      // no panel, caching msg.
-      this._undelivered.push(msg);
     }
   }
 

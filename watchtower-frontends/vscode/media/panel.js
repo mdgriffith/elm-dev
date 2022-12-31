@@ -7024,8 +7024,8 @@ var $author$project$Main$update = F2(
 									{errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, lastUpdated: model.now, projects: statuses, projectsVersion: model.projectsVersion + 1}),
 								$elm$core$Platform$Cmd$none);
 						default:
-							var warnings = editorMsg.a.warnings;
 							var filepath = editorMsg.a.filepath;
+							var warnings = editorMsg.a.warnings;
 							var _v4 = $author$project$Main$panelLog('WarningsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -12563,6 +12563,8 @@ var $mdgriffith$elm_ui$Element$alignBottom = $mdgriffith$elm_ui$Internal$Model$A
 var $mdgriffith$elm_ui$Internal$Model$AlignX = function (a) {
 	return {$: 'AlignX', a: a};
 };
+var $mdgriffith$elm_ui$Internal$Model$Left = {$: 'Left'};
+var $mdgriffith$elm_ui$Element$alignLeft = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$Left);
 var $mdgriffith$elm_ui$Internal$Model$Right = {$: 'Right'};
 var $mdgriffith$elm_ui$Element$alignRight = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$Right);
 var $mdgriffith$elm_ui$Internal$Model$Transparency = F2(
@@ -13652,6 +13654,46 @@ var $author$project$Main$viewMetric = F3(
 				A2($elm$core$List$map, viewer, vals));
 		}
 	});
+var $elm$core$String$endsWith = _String_endsWith;
+var $elm$core$List$head = function (list) {
+	if (list.b) {
+		var x = list.a;
+		var xs = list.b;
+		return $elm$core$Maybe$Just(x);
+	} else {
+		return $elm$core$Maybe$Nothing;
+	}
+};
+var $author$project$Editor$moduleName = function (editor) {
+	return A2(
+		$elm$core$Maybe$withDefault,
+		editor.fileName,
+		$elm$core$List$head(
+			$elm$core$List$reverse(
+				A2($elm$core$String$split, '/', editor.fileName))));
+};
+var $author$project$Main$viewVisible = function (model) {
+	return A2(
+		$mdgriffith$elm_ui$Element$el,
+		_List_fromArray(
+			[$author$project$Ui$pad.xy.lg.sm, $author$project$Ui$font.dark.light, $author$project$Ui$background.black, $author$project$Ui$rounded.md]),
+		$mdgriffith$elm_ui$Element$text(
+			A2(
+				$elm$core$String$join,
+				', ',
+				A2(
+					$elm$core$List$map,
+					$author$project$Editor$moduleName,
+					A2(
+						$elm$core$List$filter,
+						A2(
+							$elm$core$Basics$composeL,
+							$elm$core$String$endsWith('.elm'),
+							function ($) {
+								return $.fileName;
+							}),
+						model.visible)))));
+};
 var $mdgriffith$elm_ui$Internal$Model$CenterX = {$: 'CenterX'};
 var $mdgriffith$elm_ui$Element$centerX = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$CenterX);
 var $mdgriffith$elm_ui$Internal$Model$CenterY = {$: 'CenterY'};
@@ -13882,8 +13924,8 @@ var $author$project$Main$viewOverview = function (model) {
 		$elm$core$List$foldl,
 		F2(
 			function (project, gathered) {
-				var errs = gathered.errs;
 				var globals = gathered.globals;
+				var errs = gathered.errs;
 				switch (project.$) {
 					case 'NoData':
 						return gathered;
@@ -13935,7 +13977,13 @@ var $author$project$Main$viewOverview = function (model) {
 					$mdgriffith$elm_ui$Element$el,
 					_List_fromArray(
 						[$mdgriffith$elm_ui$Element$alignBottom, $mdgriffith$elm_ui$Element$alignRight]),
-					$author$project$Main$viewLastUpdated(model)))
+					$author$project$Main$viewLastUpdated(model))),
+				$mdgriffith$elm_ui$Element$inFront(
+				A2(
+					$mdgriffith$elm_ui$Element$el,
+					_List_fromArray(
+						[$mdgriffith$elm_ui$Element$alignBottom, $mdgriffith$elm_ui$Element$alignLeft]),
+					$author$project$Main$viewVisible(model)))
 			]),
 		_List_fromArray(
 			[

@@ -50,7 +50,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("elm.projectPanel", () => {
-      ElmProjectPane.createOrShow(context.extensionPath);
+      tower.showPanel(context.extensionPath)
     })
   );
 
@@ -59,23 +59,6 @@ export function activate(context: vscode.ExtensionContext) {
     new ElmProjectSerializer(context.extensionPath)
   );
 
-  /*  Send editor visibility msgs to the Panel */
-
-  vscode.window.onDidChangeActiveTextEditor((editor) => {
-    ElmProjectPane.send(PanelMsg.sendEditorVisibility());
-  });
-
-  vscode.window.onDidChangeTextEditorSelection((selection) => {
-    ElmProjectPane.send(PanelMsg.sendEditorVisibility());
-  });
-
-  vscode.window.onDidChangeTextEditorVisibleRanges((visibleRanges) => {
-    ElmProjectPane.send(PanelMsg.sendEditorVisibility());
-  });
-
-  if (vscode.window.activeTextEditor) {
-    ElmProjectPane.send(PanelMsg.sendEditorVisibility());
-  }
 }
 
 export function deactivate() {}
