@@ -13,6 +13,10 @@ export type ToProjectPanel =
       details: { warnings: Question.Warning[]; filepath: string };
     }
   | {
+      msg: "CallGraph";
+      details: { filepath: string; callgraph: CallGraphNode[]; };
+    }
+  | {
       msg: "InteractiveCodeRefreshed";
       details: { js: string };
     };
@@ -44,6 +48,25 @@ export type Position = {
   line: number;
   column: number;
 };
+
+
+// CallGraph
+
+export type CallGraphNode = {
+  id: string;
+  recursive: boolean;
+  calls: Call[];
+}
+
+export type Call = {
+  id: string
+  callType: CallType
+}
+
+export type CallType = 
+    "top-level"  | "local" | "foreign" 
+      | "constructor" | "debug" | "operator"
+
 
 // Focus clicked:
 //     like when a type error is clicked
@@ -145,4 +168,8 @@ export function warnings(details: { warnings: Question.Warning[]; filepath: stri
 
 export function visibility(details: { active: EditorVisibility | null; visible: EditorVisibility[] }): ToProjectPanel {
   return { msg: "EditorVisibilityChanged", details: details }
+}
+
+export function callgraph(details: { filepath: string; callgraph: CallGraphNode[]; }): ToProjectPanel {
+  return { msg: "CallGraph", details: details }
 }
