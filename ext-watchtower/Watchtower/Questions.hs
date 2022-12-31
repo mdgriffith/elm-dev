@@ -181,7 +181,7 @@ actionHandler state =
           maybeFile <- getQueryParam "file"
           case maybeFile of
             Nothing ->
-              writeBS "Needs a directory parameter"
+              writeBS "Needs a file parameter"
             Just file -> do
               questionHandler state (CallGraph (Data.ByteString.Char8.unpack file))
 

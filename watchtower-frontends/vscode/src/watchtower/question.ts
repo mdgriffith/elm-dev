@@ -37,7 +37,9 @@ type Question =
   | { msg: "Discover"; directory: String }
   | { msg: "ServerHealth" }
   | { msg: "Warnings"; filepath: String }
-  | { msg: "FindDefinition"; filepath: string; line: number; char: number };
+  | { msg: "CallGraph"; filepath: String }
+  | { msg: "FindDefinition"; filepath: string; line: number; char: number }
+  | { msg: "Explain"; filepath: string; line: number; char: number };
 
 const serverHealth: Question = {
   msg: "ServerHealth",
@@ -49,6 +51,12 @@ export const questions = {
     return {
       msg: "Discover",
       directory: dir,
+    };
+  },
+  callgraph: (filepath: String): Question => {
+    return {
+      msg: "CallGraph",
+      filepath: filepath,
     };
   },
   warnings: (filepath: String): Question => {
@@ -124,6 +132,34 @@ export const ask = (question: Question, onSuccess: any, onError: any) => {
         .on("error", (err) => {
           log.log("Error on finding definition");
           log.log(err);
+          onError(err);
+        });
+      break;
+    }
+    case "Explain": {
+      http
+        .get(
+          urls.question(
+            `/explain?file=${question.filepath}&char=${question.char}&line=${question.line}`
+          ),
+          captureRequest(onSuccess)
+        )
+        .on("error", (err) => {
+          log.log("Error on finding definition");
+          log.log(err);
+          onError(err);
+        });
+      break;
+    }
+    case "CallGraph": {
+      http
+        .get(
+          urls.question(
+            `/callgraph?file=${question.filepath}`
+          ),
+          captureRequest(onSuccess)
+        )
+        .on("error", (err) => {
           onError(err);
         });
       break;

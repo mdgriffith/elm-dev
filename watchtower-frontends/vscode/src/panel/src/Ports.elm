@@ -1,11 +1,17 @@
-port module Ports exposing (Incoming(..), Outgoing(..), incoming, outgoing, Warning(..))
+port module Ports exposing
+    ( Incoming(..), Outgoing(..), incoming, outgoing, Warning(..)
+    , CallGraphNode, Call, CallType(..)
+    )
 
 {-|
 
 @docs Incoming, Outgoing, incoming, outgoing, Warning
 
+@docs CallGraphNode, Call, CallType
+
 -}
 
+import Dict exposing (Dict)
 import Editor
 import Elm
 import Json.Decode as Decode
@@ -38,6 +44,77 @@ type Incoming
         { filepath : String
         , warnings : List Warning
         }
+    | CallGraphReceived
+        { filepath : String
+        , callgraph : List CallGraphNode
+        }
+
+
+decodeCallGraphNode : Decode.Decoder CallGraphNode
+decodeCallGraphNode =
+    Decode.map4 CallGraphNode
+        (Decode.field "id" Decode.string)
+        (Decode.field "recursive" Decode.bool)
+        (Decode.field "calls" (Decode.list decodeCall))
+        (Decode.field "callers" (Decode.list decodeCall))
+
+
+decodeCall : Decode.Decoder Call
+decodeCall =
+    Decode.map2 Call
+        (Decode.field "id" Decode.string)
+        (Decode.field "callType" decodeCallType)
+
+
+decodeCallType : Decode.Decoder CallType
+decodeCallType =
+    enum
+        (Dict.fromList
+            [ Tuple.pair "local" Local
+            , Tuple.pair "top-level" TopLevel
+            , Tuple.pair "foreign" Foreign
+            , Tuple.pair "constructor" Constructor
+            , Tuple.pair "debug" Debug
+            , Tuple.pair "operator" Operator
+            ]
+        )
+
+
+enum : Dict String val -> Decode.Decoder val
+enum vals =
+    Decode.string
+        |> Decode.andThen
+            (\str ->
+                case Dict.get str vals of
+                    Nothing ->
+                        Decode.fail ("Don't recognize " ++ str)
+
+                    Just val ->
+                        Decode.succeed val
+            )
+
+
+type alias CallGraphNode =
+    { id : String
+    , recursive : Bool
+    , calls : List Call
+    , callers : List Call
+    }
+
+
+type alias Call =
+    { id : String
+    , callType : CallType
+    }
+
+
+type CallType
+    = Local
+    | TopLevel
+    | Foreign
+    | Constructor
+    | Debug
+    | Operator
 
 
 type Warning
@@ -128,6 +205,23 @@ incomingDecoder =
                                 )
                                 (Decode.field "warnings"
                                     (Decode.list decodeWarning)
+                                )
+                            )
+
+                    "CallGraph" ->
+                        Decode.field "details"
+                            (Decode.map2
+                                (\filepath callgraph ->
+                                    CallGraphReceived
+                                        { filepath = filepath
+                                        , callgraph = callgraph
+                                        }
+                                )
+                                (Decode.field "filepath"
+                                    Decode.string
+                                )
+                                (Decode.field "callgraph"
+                                    (Decode.list decodeCallGraphNode)
                                 )
                             )
 

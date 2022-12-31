@@ -15,6 +15,7 @@ import Html.Events
 import Json.Decode as Decode
 import Json.Encode
 import Model exposing (..)
+import Navigator
 import Ports
 import Question
 import Set exposing (Set)
@@ -50,6 +51,7 @@ init =
       , warnings = Dict.empty
       , errorMenuVisible = False
       , errorCodeExpanded = Set.empty
+      , callgraph = Dict.empty
       }
     , Cmd.none
     )
@@ -63,6 +65,10 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Incoming (Err err) ->
+            let
+                _ =
+                    panelLog err
+            in
             ( model
             , Cmd.none
             )
@@ -106,6 +112,18 @@ update msg model =
                     in
                     ( { model
                         | warnings = Dict.insert filepath warnings model.warnings
+                        , lastUpdated = model.now
+                      }
+                    , Cmd.none
+                    )
+
+                Ports.CallGraphReceived { filepath, callgraph } ->
+                    let
+                        _ =
+                            panelLog "Callgraph received!"
+                    in
+                    ( { model
+                        | callgraph = Dict.insert filepath callgraph model.callgraph
                         , lastUpdated = model.now
                       }
                     , Cmd.none
@@ -363,7 +381,12 @@ viewOverview model =
                     [] ->
                         case found.globals of
                             [] ->
-                                viewWarningsOrStatus model
+                                case List.head <| Dict.values model.callgraph of
+                                    Nothing ->
+                                        viewWarningsOrStatus model
+
+                                    Just callgraph ->
+                                        Navigator.view callgraph
 
                             -- Ui.html Ui.showLive
                             _ ->

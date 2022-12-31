@@ -31,6 +31,7 @@ type alias Model =
     , warnings : Dict FilePath (List Ports.Warning)
     , errorMenuVisible : Bool
     , errorCodeExpanded : Set Elm.CodeReferenceKey
+    , callgraph : Dict FilePath (List Ports.CallGraphNode)
     }
 
 

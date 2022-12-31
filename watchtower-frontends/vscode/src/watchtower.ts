@@ -7,12 +7,7 @@ import * as ChildProcess from "child_process";
 import * as Interactive from "./interactive";
 import * as PanelMsg from "./panel/messages";
 import * as path from "path";
-
-
-
-
-
-
+import * as feature from "./watchtower/feature"
 
 
 var WebSocketClient = require("websocket").client;
@@ -96,6 +91,7 @@ export class Watchtower {
   private elmEditorVisibility: { active: PanelMsg.EditorVisibility | null; visible: PanelMsg.EditorVisibility[] };
   private elmStatus: PanelMsg.ProjectStatus[];
   private elmWarninigs: { warnings: Question.Warning[]; filepath: string };
+  private elmCallGraph: { filepath: string; callgraph: PanelMsg.CallGraphNode[]; }
   private elmDocs;
 
 
@@ -111,6 +107,7 @@ export class Watchtower {
       this.connection.sendUTF(JSON.stringify(msg));
     } else {
       log.obj("SKIPPING (not connected)", msg);
+      this.statusDanger("Elm Dev is disconnected")
     }
   }
 
@@ -181,6 +178,10 @@ export class Watchtower {
     */
     vscode.window.onDidChangeVisibleTextEditors((_) => {
       self.refreshWatching();
+      if (vscode.window.activeTextEditor && feature.callgraph) {
+        self.askCallGraph(vscode.window.activeTextEditor.document.fileName);
+      }
+     
     });
 
     vscode.window.onDidChangeActiveTextEditor((editor) => {
@@ -313,6 +314,20 @@ export class Watchtower {
     } else {
       self.statusNoErrors();
     }
+  }
+
+  private askCallGraph(filepath: string) {
+    const self = this
+    Question.ask(
+      Question.questions.callgraph(filepath),
+      (resp) => {
+        self.elmCallGraph = { filepath: filepath, callgraph: resp}
+        ElmProjectPane.send(PanelMsg.callgraph(self.elmCallGraph))
+      },
+      (err) => {
+        log.log("Issue retrieving callgraph")
+      }
+    );
   }
 
   private onConnectionFailed(error) {
@@ -454,6 +469,9 @@ export class Watchtower {
     }
     if (self.elmEditorVisibility) {
       msgs.push(PanelMsg.visibility(self.elmEditorVisibility))
+    }
+    if (self.elmCallGraph) {
+      msgs.push(PanelMsg.callgraph(self.elmCallGraph))
     }
 
     ElmProjectPane.createOrShow(extensionPath, msgs);
