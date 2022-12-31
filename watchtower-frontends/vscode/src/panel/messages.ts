@@ -133,3 +133,16 @@ function prepareRanges(ranges: readonly Code.Range[]): Range[] {
   }
   return prepared;
 }
+
+
+export function status(details: ProjectStatus[]): ToProjectPanel {
+  return { msg: "Status", details: details }
+}
+
+export function warnings(details: { warnings: Question.Warning[]; filepath: string }): ToProjectPanel {
+  return { msg: "Warnings", details: details }
+}
+
+export function visibility(details: { active: EditorVisibility | null; visible: EditorVisibility[] }): ToProjectPanel {
+  return { msg: "EditorVisibilityChanged", details: details }
+}
