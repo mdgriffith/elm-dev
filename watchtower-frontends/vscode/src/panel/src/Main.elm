@@ -339,6 +339,13 @@ viewOverview model =
                 ]
                 (viewLastUpdated model)
             )
+        , Ui.inFront
+            (Ui.el
+                [ Ui.alignBottom
+                , Ui.alignLeft
+                ]
+                (viewVisible model)
+            )
         ]
         [ Ui.row [ Ui.width Ui.fill ]
             [ Ui.el [ Ui.font.cyan ]
@@ -542,6 +549,23 @@ viewLastUpdated model =
 
         _ ->
             Ui.none
+
+
+viewVisible : Model -> Ui.Element msg
+viewVisible model =
+    Ui.el
+        [ Ui.pad.xy.lg.sm
+        , Ui.font.dark.light
+        , Ui.background.black
+        , Ui.rounded.md
+        ]
+        (Ui.text
+            (model.visible
+                |> List.filter (String.endsWith ".elm" << .fileName)
+                |> List.map Editor.moduleName
+                |> String.join ", "
+            )
+        )
 
 
 foundErrorsMenu model found =

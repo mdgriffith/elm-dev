@@ -54,6 +54,15 @@ type alias Position =
     }
 
 
+moduleName : Editor -> String
+moduleName editor =
+    editor.fileName
+        |> String.split "/"
+        |> List.reverse
+        |> List.head
+        |> Maybe.withDefault editor.fileName
+
+
 regionToString : Region -> String
 regionToString region =
     String.fromInt region.start.row ++ ":" ++ String.fromInt region.end.row
