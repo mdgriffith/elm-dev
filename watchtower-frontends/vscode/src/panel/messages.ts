@@ -18,12 +18,17 @@ export type ToProjectPanel =
     }
   | {
       msg: "Explanation";
-      details: { filepath: string; facts: Fact[]; };
+      details: { filepath: string; explanation: Explanation; };
     }
   | {
       msg: "InteractiveCodeRefreshed";
       details: { js: string };
     };
+
+export type Explanation = {
+  definition: {name : string, type: string | null, recursive: Boolean, region: Range}
+  facts: Fact[]
+}
 
 export type EditorVisibility = {
   fileName: string;
@@ -193,6 +198,6 @@ export function callgraph(details: { filepath: string; callgraph: CallGraphNode[
   return { msg: "CallGraph", details: details }
 }
 
-export function explanation(details: { filepath: string; facts: Fact[]; }): ToProjectPanel {
+export function explanation(details: { filepath: string; explanation: Explanation; }): ToProjectPanel {
   return { msg: "Explanation", details: details }
 }

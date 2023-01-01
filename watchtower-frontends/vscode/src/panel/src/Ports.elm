@@ -2,6 +2,7 @@ port module Ports exposing
     ( Incoming(..), Outgoing(..), incoming, outgoing, Warning(..)
     , CallGraphNode, Call, CallType(..)
     , Fact, Module
+    , Source(..)
     )
 
 {-|
@@ -53,16 +54,30 @@ type Incoming
         }
     | ExplanationReceived
         { filepath : String
+        , definition : ExplainedDefinition
         , facts : List Fact
         }
     | ServerConnection { connected : Bool }
 
 
+type alias ExplainedDefinition =
+    { name : String
+    , type_ : Maybe String
+    , recursive : Bool
+    , range : Editor.Region
+    }
+
+
 type alias Fact =
-    { module_ : Module
+    { source : Source
     , name : String
     , type_ : String
     }
+
+
+type Source
+    = LocalSource
+    | External Module
 
 
 type alias Module =
@@ -74,9 +89,25 @@ type alias Module =
 decodeFact : Decode.Decoder Fact
 decodeFact =
     Decode.map3 Fact
-        (Decode.field "module" decodeModule)
+        (Decode.field "source" decodeSource)
         (Decode.field "name" Decode.string)
         (Decode.field "type" Decode.string)
+
+
+decodeSource : Decode.Decoder Source
+decodeSource =
+    Decode.oneOf
+        [ Decode.string
+            |> Decode.andThen
+                (\str ->
+                    if str == "local" then
+                        Decode.succeed LocalSource
+
+                    else
+                        Decode.fail "Data source is not local"
+                )
+        , Decode.map External decodeModule
+        ]
 
 
 decodeModule : Decode.Decoder Module
@@ -263,18 +294,26 @@ incomingDecoder =
 
                     "Explanation" ->
                         Decode.field "details"
-                            (Decode.map2
-                                (\filepath facts ->
+                            (Decode.map3
+                                (\filepath definition facts ->
                                     ExplanationReceived
                                         { filepath = filepath
+                                        , definition = definition
                                         , facts = facts
                                         }
                                 )
                                 (Decode.field "filepath"
                                     Decode.string
                                 )
-                                (Decode.field "facts"
-                                    (Decode.list decodeFact)
+                                (Decode.field "explanation"
+                                    (Decode.field "definition"
+                                        decodeExplanationDefinition
+                                    )
+                                )
+                                (Decode.field "explanation"
+                                    (Decode.field "facts"
+                                        (Decode.list decodeFact)
+                                    )
                                 )
                             )
 
@@ -285,6 +324,21 @@ incomingDecoder =
                         in
                         Decode.fail "UNRECOGNIZED INCOMING MSG"
             )
+
+
+decodeExplanationDefinition : Decode.Decoder ExplainedDefinition
+decodeExplanationDefinition =
+    Decode.map4 ExplainedDefinition
+        (Decode.field "name" Decode.string)
+        (Decode.field "type"
+            (Decode.oneOf
+                [ Decode.null Nothing
+                , Decode.map Just Decode.string
+                ]
+            )
+        )
+        (Decode.field "recursive" Decode.bool)
+        (Decode.field "region" Editor.decodeRegion)
 
 
 decodeWarning : Decode.Decoder Warning

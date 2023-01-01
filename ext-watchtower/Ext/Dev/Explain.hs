@@ -20,6 +20,7 @@ import qualified Reporting.Doc
 
 import qualified Data.List as List
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Data.Name as Name
 import Data.Name (Name)
 
@@ -36,18 +37,31 @@ import qualified Ext.Log
 data Explanation =
     Explanation
         { _localizer :: Reporting.Render.Type.Localizer.Localizer
+        , _declaration :: DeclarationMetadata
         , _references :: [ Reference ]
         }
 
+data DeclarationMetadata =
+        DeclarationMetadata
+            { _declarationName :: Name
+            , _declarationType :: Maybe Can.Type
+            , _declarationRange :: A.Region
+            , _declarationRecursive :: Bool
+            }
 
-data Reference =
-    TypeReference   
-        { _mod :: ModuleName.Canonical
+
+data Reference
+    = ValueReference   
+        { _source :: Source
         , _name :: Name
         , _type :: Can.Type
         }
-        deriving (Show)
 
+data Source 
+    = External ModuleName.Canonical
+    | LetValue
+    deriving (Eq, Ord, Show)
+  
 
 data TypeDefinition
     = Union Can.Union
@@ -66,13 +80,16 @@ explain root location@(Watchtower.Editor.PointLocation path _) = do
                     pure Nothing
 
                 Just (Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val)) -> 
-                    pure 
-                        (Just 
-                            (Explanation
-                                localizer
-                                (getFoundDefTypes def)
+                    do
+                        let (ReferenceCollection refMap usedTypes usedModules) = getFoundDefTypes def emptyRefCollection
+                        pure 
+                            (Just 
+                                (Explanation
+                                    localizer
+                                    (getDeclarationMetadata pos def)
+                                    (Map.elems refMap)
+                                )
                             )
-                        )
                 
                 Just (Ext.Dev.Find.Source.FoundUnion (Just union) (A.At pos srcUnion)) ->
                     pure Nothing
@@ -87,206 +104,327 @@ explain root location@(Watchtower.Editor.PointLocation path _) = do
              pure Nothing
 
 
-getFoundDefTypes :: Ext.Dev.Find.Source.Def ->  [ Reference ]
-getFoundDefTypes foundDef =
+
+getDeclarationMetadata pos foundDef =
     case foundDef of
         Ext.Dev.Find.Source.Def def ->
-            getDefTypes def
+            getCanDeclarationMetadata pos def False
 
         Ext.Dev.Find.Source.DefRecursive def otherDefs ->
-            getDefTypes def
+            getCanDeclarationMetadata pos def True
+            
+
+getCanDeclarationMetadata pos def recursive =
+    case def of
+        Can.Def (A.At _ name) patterns expr ->
+            DeclarationMetadata name Nothing pos recursive
+        
+        Can.TypedDef (A.At _ name) freevars patterns expr type_ ->
+            DeclarationMetadata name (Just type_) pos recursive
 
 
-getDefTypes :: Can.Def ->  [ Reference ]
-getDefTypes foundDef =
+{-| REFERENCE COLLECTION -}
+
+data ReferenceCollection =
+    ReferenceCollection 
+        { _refs :: Map.Map (Source, Name) Reference
+        , _usedTypes :: Set.Set (ModuleName.Canonical, Name)
+        , _usedModules :: Map.Map ModuleName.Canonical (Set.Set Name)
+        }
+
+
+emptyRefCollection :: ReferenceCollection
+emptyRefCollection =
+    ReferenceCollection Map.empty Set.empty Map.empty
+
+addRef :: Reference -> ReferenceCollection -> ReferenceCollection
+addRef (ref@(ValueReference mod name type_)) (ReferenceCollection refs usedTypes usedModules) =
+    ReferenceCollection 
+        (Map.insert (mod, name) ref refs)
+        usedTypes
+        usedModules
+
+
+
+
+{-| Traverse and build reference collection
+-}
+
+
+
+getFoundDefTypes :: Ext.Dev.Find.Source.Def -> ReferenceCollection  ->  ReferenceCollection
+getFoundDefTypes foundDef collec =
+    case foundDef of
+        Ext.Dev.Find.Source.Def def ->
+            getDefTypes def collec
+
+        Ext.Dev.Find.Source.DefRecursive def otherDefs ->
+            getDefTypes def collec
+
+
+getDefTypes :: Can.Def ->  ReferenceCollection ->  ReferenceCollection
+getDefTypes foundDef collec =
     case foundDef of
         Can.Def locatedName patterns expr ->
-            List.concatMap getPatternTypes patterns
-                <> getExprTypes expr
+            patterns
+                & List.foldl (flip getPatternTypes) collec 
+                & getExprTypes expr
 
-        Can.TypedDef locatedName freeVars patterns expr type_ ->
-            getExprTypes expr
+        Can.TypedDef (A.At namePos name) freeVars patterns expr type_ ->
+            (fmap fst patterns)
+                & List.foldl (flip getPatternTypes) collec 
+                & getExprTypes expr
+                & addRef (ValueReference LetValue name type_)
 
 
-getPatternTypes :: Can.Pattern -> [ Reference ]
-getPatternTypes pattern =
+getPatternTypes :: Can.Pattern -> ReferenceCollection -> ReferenceCollection
+getPatternTypes pattern collec =
     case A.toValue pattern of
         Can.PAnything ->
-            []
+            collec
 
         Can.PVar name ->
-            []
+            collec
 
         Can.PRecord names ->
-            []
+            collec
 
         Can.PAlias innerPattern name ->
-            getPatternTypes innerPattern
+            getPatternTypes innerPattern collec
 
         Can.PUnit ->
-            []
+            collec
 
         Can.PTuple onePattern twoPattern Nothing ->
-            getPatternTypes onePattern <> getPatternTypes twoPattern 
+             collec
+                & getPatternTypes onePattern 
+                & getPatternTypes twoPattern
         
         Can.PTuple onePattern twoPattern (Just threePattern) ->
-            getPatternTypes onePattern <> getPatternTypes twoPattern <> getPatternTypes threePattern 
+            collec
+                & getPatternTypes onePattern 
+                & getPatternTypes twoPattern
+                & getPatternTypes threePattern 
 
         Can.PList patterns ->
-            List.concatMap getPatternTypes patterns
+            patterns
+                & List.foldl (flip getPatternTypes) collec 
 
         Can.PCons onePattern twoPattern ->
-             getPatternTypes onePattern <> getPatternTypes twoPattern 
+              collec
+                & getPatternTypes onePattern 
+                & getPatternTypes twoPattern
 
         Can.PBool union bool ->
-            []
+            collec
 
         Can.PChr str ->
-            []
+            collec
 
         Can.PStr str ->
-            []
+            collec
 
         Can.PInt int ->
-            []
+            collec
 
         Can.PCtor canName typeName union name index args ->
             -- We may want to return `Union` from ctor!
-            []
+            collec
 
 
 
-getExprTypes :: Can.Expr -> [ Reference ]
-getExprTypes expr =
+getExprTypes :: Can.Expr -> ReferenceCollection -> ReferenceCollection
+getExprTypes expr collec =
     case A.toValue expr of
         Can.VarLocal name -> 
-            []
+            collec
 
         Can.VarTopLevel modName name -> 
-            []
+            collec
 
         Can.VarKernel internalName name -> 
-            []
+            collec
 
         Can.VarForeign modName name annotation -> 
-            [ annotationToType modName name annotation ]
+            collec
+                & annotationToType modName name annotation
 
         Can.VarCtor opts modName name zeroBasedIndex annotation -> 
-            [ annotationToType modName name annotation ]
+            collec
+                & annotationToType modName name annotation
 
         Can.VarDebug modName name annotation -> 
-            [ annotationToType modName name annotation ]
+            collec
+                & annotationToType modName name annotation
 
         Can.VarOperator opName modName name annotation  -> 
-            [ annotationToType modName name annotation ]
+            collec
+                & annotationToType modName name annotation
 
         Can.Chr str -> 
-            []
+            collec
 
         Can.Str str -> 
-            []
+            collec
 
         Can.Int int -> 
-            []
+            collec
 
         Can.Float float -> 
-            []
+            collec
 
         Can.List innerExprs -> 
-            List.concatMap getExprTypes innerExprs
+            List.foldl (flip getExprTypes) collec innerExprs
 
         Can.Negate inner -> 
-            getExprTypes inner
+            getExprTypes inner collec
 
         Can.Binop binName modName name annotation one two  -> 
-            annotationToType modName name annotation : getExprTypes one <> getExprTypes two 
+            collec
+                & annotationToType modName name annotation 
+                & getExprTypes one 
+                & getExprTypes two 
 
         Can.Lambda patterns inner -> 
-            List.concatMap getPatternTypes patterns <> getExprTypes inner
+            List.foldl (flip getPatternTypes) collec patterns
+                & getExprTypes inner
 
         Can.Call inner argExprs -> 
-            getExprTypes inner <> List.concatMap getExprTypes argExprs
+            List.foldl (flip getExprTypes) collec argExprs
+                & getExprTypes inner 
 
         Can.If ifExprs inner -> 
-             getExprTypes inner
-                 <> List.concatMap 
-                        (\(oneExpr, twoExpr) -> 
-                             getExprTypes oneExpr <> getExprTypes twoExpr 
-                        )
-                        ifExprs 
+            List.foldl 
+                (\innerCollec (oneExpr, twoExpr) -> 
+                    innerCollec
+                        & getExprTypes oneExpr 
+                        & getExprTypes twoExpr 
+                )
+                collec
+                ifExprs
+                & getExprTypes inner
 
         Can.Let innerDef inner -> 
-            getDefTypes innerDef <>  getExprTypes inner
+            collec 
+                & getDefTypes innerDef
+                & getExprTypes inner
 
         Can.LetRec innerDefs inner -> 
-            List.concatMap getDefTypes innerDefs <>  getExprTypes inner
+            List.foldl 
+                (\innerCollec letDef -> 
+                    innerCollec
+                        & getDefTypes letDef
+                )
+                collec
+                innerDefs
+                & getExprTypes inner
 
         Can.LetDestruct pattern one two -> 
-            getPatternTypes pattern <> getExprTypes one <> getExprTypes two
+            collec 
+                & getPatternTypes pattern 
+                & getExprTypes one 
+                & getExprTypes two
 
         Can.Case inner branches -> 
-            getExprTypes inner
-                <> List.concatMap 
-                        (\(Can.CaseBranch casePattern caseExpr) -> 
-                             getPatternTypes casePattern <> getExprTypes caseExpr
-                        )
-                        branches 
+            List.foldl 
+                (\innerCollec (Can.CaseBranch casePattern caseExpr) -> 
+                    innerCollec
+                        & getPatternTypes casePattern 
+                        & getExprTypes caseExpr
+                )
+                collec
+                branches 
+                & getExprTypes inner
+                 
                 
 
         Can.Accessor name -> 
-            []
+            collec
 
         Can.Access inner locatedName -> 
-            getExprTypes inner
+            getExprTypes inner collec
 
         Can.Update name inner fields -> 
-            getExprTypes inner
-                 <> List.concatMap 
-                        (\(Can.FieldUpdate region fieldExpr) -> 
-                             getExprTypes fieldExpr
-                        )
-                        (Map.elems fields) 
+            List.foldl 
+                (\innerCollec (Can.FieldUpdate region fieldExpr) -> 
+                    getExprTypes fieldExpr innerCollec
+                )
+                collec
+                (Map.elems fields) 
+                & getExprTypes inner
 
         Can.Record fields -> 
-            List.concatMap getExprTypes (Map.elems fields)
+            Map.elems fields
+                & List.foldl (flip getExprTypes) collec 
 
         Can.Unit -> 
-            []
+            collec
 
         Can.Tuple one two Nothing -> 
-            getExprTypes one <> getExprTypes two
+            collec
+                & getExprTypes one 
+                & getExprTypes two 
         
         Can.Tuple one two (Just three) -> 
-            getExprTypes one <> getExprTypes two <> getExprTypes three
+           collec
+                & getExprTypes one 
+                & getExprTypes two 
+                & getExprTypes three
+
 
         Can.Shader source types -> 
-            []
+            collec
 
 
-annotationToType modName name (Can.Forall vars type_) =
-    TypeReference modName name type_ 
+annotationToType modName name (Can.Forall vars type_) collec =
+    addRef (ValueReference (External modName) name type_ ) collec
           
 
 
 {- JSON ENCODING -}
 
 encode :: Explanation -> Json.Encode.Value
-encode (Explanation localizer references) =
-    Json.Encode.list
-        (encodeReference localizer)
-        references
+encode (Explanation localizer def references) =
+    Json.Encode.object
+        [ "definition" ==> encodeDefinitionMetadata localizer def
+        , "facts" ==>
+            Json.Encode.list
+                (encodeReference localizer)
+                references
+        ]
+    
+encodeDefinitionMetadata ::  Reporting.Render.Type.Localizer.Localizer ->  DeclarationMetadata -> Json.Encode.Value
+encodeDefinitionMetadata localizer (DeclarationMetadata name maybeType region recursive) =
+    Json.Encode.object 
+        [ "name" ==> Json.Encode.chars (Name.toChars name)
+        , "type" ==> 
+            case maybeType of
+                Nothing -> Json.Encode.null
+                Just canType ->
+                    encodeCanType localizer canType
+        , "region" ==> Watchtower.Editor.encodeRegion region
+        , "recursive" ==>  Json.Encode.bool recursive
+        ]   
+
 
 encodeReference :: Reporting.Render.Type.Localizer.Localizer -> Reference -> Json.Encode.Value
 encodeReference localizer ref =
     case ref of
-        TypeReference modName name canType ->
+        ValueReference source name canType ->
             Json.Encode.object 
-                [ "module" ==> encodeCanName modName
+                [ "source" ==> 
+                    case source of
+                        External modName ->
+                            encodeCanName modName
+
+                        LetValue ->
+                            Json.Encode.chars "local"
                 , "name" ==> Json.Encode.chars (Name.toChars name)
                 , "type" ==> encodeCanType localizer canType
                 ]
+        
 
-
+  
 encodeCanName :: ModuleName.Canonical -> Json.Encode.Value
 encodeCanName (ModuleName.Canonical pkgName modName) =
     Json.Encode.object 

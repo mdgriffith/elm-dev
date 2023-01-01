@@ -108,7 +108,7 @@ export class Watchtower {
       this.connection.sendUTF(JSON.stringify(msg));
     } else {
       log.obj("SKIPPING (not connected)", msg);
-      this.statusDanger("Elm Dev is disconnected")
+      this.connect()
     }
   }
 
@@ -126,22 +126,8 @@ export class Watchtower {
     );
 
     self.statusbar.command = "elm.projectPanel";
-    self.status("Open Elm Dev");
-
-    self.startServer();
-
-    socketConnect({
-      url: Question.urls.websocket,
-      onJoin: (connection) => {
-        self.onJoin(connection);
-      },
-      onConnectionFailed: (err) => {
-        self.onConnectionFailed(err);
-      },
-      receive: (msg) => {
-        self.receive(msg);
-      },
-    });
+    
+    self.connect()
 
     vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
       self.editsSinceSave = [];
@@ -208,7 +194,27 @@ export class Watchtower {
   }
 
 
- 
+ private connect(){ 
+    const self = this
+    if (this.connection?.connected) {
+      return
+    }
+    this.statusDanger("Elm Dev connecting...")
+    self.startServer();
+    socketConnect({
+      url: Question.urls.websocket,
+      onJoin: (connection) => {
+        self.status("Open Elm Dev");
+        self.onJoin(connection);
+      },
+      onConnectionFailed: (err) => {
+        self.onConnectionFailed(err);
+      },
+      receive: (msg) => {
+        self.receive(msg);
+      },
+    });
+ }
 
 
   private statusFromErrorCount(errorCount) {
@@ -329,7 +335,7 @@ export class Watchtower {
       Question.questions.explain(filepath, line, char),
       (resp) => {
         log.log(JSON.stringify(resp))
-        self.elmExplanation = { filepath: filepath, facts: resp}
+        self.elmExplanation = { filepath: filepath, explanation: resp}
         ElmProjectPane.send(PanelMsg.explanation(self.elmExplanation))
       },
       (err) => {

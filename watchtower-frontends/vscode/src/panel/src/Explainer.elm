@@ -35,21 +35,31 @@ viewFact fact =
         , Ui.rounded.md
         , Ui.width (Ui.px 500)
         ]
-        [ viewModuleName fact.module_
-        , Ui.text (prefixModule fact.module_ fact.name ++ " : " ++ fact.type_)
+        [ viewModuleName fact.source
+        , Ui.text (prefixModule fact.source fact.name ++ " : " ++ fact.type_)
         ]
 
 
-prefixModule : Ports.Module -> String -> String
-prefixModule mod name =
-    mod.name ++ "." ++ name
+prefixModule : Ports.Source -> String -> String
+prefixModule source name =
+    case source of
+        Ports.LocalSource ->
+            name
+
+        Ports.External mod ->
+            mod.name ++ "." ++ name
 
 
-viewModuleName : Ports.Module -> Ui.Element msg
-viewModuleName mod =
-    case mod.pkg of
-        "author/project" ->
+viewModuleName : Ports.Source -> Ui.Element msg
+viewModuleName source =
+    case source of
+        Ports.LocalSource ->
             Ui.none
 
-        _ ->
-            Ui.el [] (Ui.text mod.pkg)
+        Ports.External mod ->
+            case mod.pkg of
+                "author/project" ->
+                    Ui.none
+
+                _ ->
+                    Ui.el [] (Ui.text mod.pkg)

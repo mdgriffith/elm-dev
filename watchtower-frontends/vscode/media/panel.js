@@ -5748,10 +5748,34 @@ var $author$project$Editor$decodeEditor = A5(
 		$elm$json$Json$Decode$field,
 		'selections',
 		$elm$json$Json$Decode$list($author$project$Editor$decodeRegion)));
-var $author$project$Ports$Fact = F3(
-	function (module_, name, type_) {
-		return {module_: module_, name: name, type_: type_};
+var $author$project$Ports$ExplainedDefinition = F4(
+	function (name, type_, recursive, range) {
+		return {name: name, range: range, recursive: recursive, type_: type_};
 	});
+var $elm$json$Json$Decode$null = _Json_decodeNull;
+var $author$project$Ports$decodeExplanationDefinition = A5(
+	$elm$json$Json$Decode$map4,
+	$author$project$Ports$ExplainedDefinition,
+	A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
+	A2(
+		$elm$json$Json$Decode$field,
+		'type',
+		$elm$json$Json$Decode$oneOf(
+			_List_fromArray(
+				[
+					$elm$json$Json$Decode$null($elm$core$Maybe$Nothing),
+					A2($elm$json$Json$Decode$map, $elm$core$Maybe$Just, $elm$json$Json$Decode$string)
+				]))),
+	A2($elm$json$Json$Decode$field, 'recursive', $elm$json$Json$Decode$bool),
+	A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion));
+var $author$project$Ports$Fact = F3(
+	function (source, name, type_) {
+		return {name: name, source: source, type_: type_};
+	});
+var $author$project$Ports$External = function (a) {
+	return {$: 'External', a: a};
+};
+var $author$project$Ports$LocalSource = {$: 'LocalSource'};
 var $author$project$Ports$Module = F2(
 	function (pkg, name) {
 		return {name: name, pkg: pkg};
@@ -5761,11 +5785,22 @@ var $author$project$Ports$decodeModule = A3(
 	$author$project$Ports$Module,
 	A2($elm$json$Json$Decode$field, 'pkg', $elm$json$Json$Decode$string),
 	A2($elm$json$Json$Decode$field, 'module', $elm$json$Json$Decode$string));
+var $author$project$Ports$decodeSource = $elm$json$Json$Decode$oneOf(
+	_List_fromArray(
+		[
+			A2(
+			$elm$json$Json$Decode$andThen,
+			function (str) {
+				return (str === 'local') ? $elm$json$Json$Decode$succeed($author$project$Ports$LocalSource) : $elm$json$Json$Decode$fail('Data source is not local');
+			},
+			$elm$json$Json$Decode$string),
+			A2($elm$json$Json$Decode$map, $author$project$Ports$External, $author$project$Ports$decodeModule)
+		]));
 var $elm$json$Json$Decode$map3 = _Json_map3;
 var $author$project$Ports$decodeFact = A4(
 	$elm$json$Json$Decode$map3,
 	$author$project$Ports$Fact,
-	A2($elm$json$Json$Decode$field, 'module', $author$project$Ports$decodeModule),
+	A2($elm$json$Json$Decode$field, 'source', $author$project$Ports$decodeSource),
 	A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
 	A2($elm$json$Json$Decode$field, 'type', $elm$json$Json$Decode$string));
 var $author$project$Elm$Project = F3(
@@ -6304,7 +6339,6 @@ var $author$project$Elm$Cyan = {$: 'Cyan'};
 var $author$project$Elm$Green = {$: 'Green'};
 var $author$project$Elm$Red = {$: 'Red'};
 var $author$project$Elm$Yellow = {$: 'Yellow'};
-var $elm$json$Json$Decode$null = _Json_decodeNull;
 var $elm$core$String$toUpper = _String_toUpper;
 var $author$project$Elm$maybeColor = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
@@ -6576,18 +6610,25 @@ var $author$project$Ports$incomingDecoder = A2(
 				return A2(
 					$elm$json$Json$Decode$field,
 					'details',
-					A3(
-						$elm$json$Json$Decode$map2,
-						F2(
-							function (filepath, facts) {
+					A4(
+						$elm$json$Json$Decode$map3,
+						F3(
+							function (filepath, definition, facts) {
 								return $author$project$Ports$ExplanationReceived(
-									{facts: facts, filepath: filepath});
+									{definition: definition, facts: facts, filepath: filepath});
 							}),
 						A2($elm$json$Json$Decode$field, 'filepath', $elm$json$Json$Decode$string),
 						A2(
 							$elm$json$Json$Decode$field,
-							'facts',
-							$elm$json$Json$Decode$list($author$project$Ports$decodeFact))));
+							'explanation',
+							A2($elm$json$Json$Decode$field, 'definition', $author$project$Ports$decodeExplanationDefinition)),
+						A2(
+							$elm$json$Json$Decode$field,
+							'explanation',
+							A2(
+								$elm$json$Json$Decode$field,
+								'facts',
+								$elm$json$Json$Decode$list($author$project$Ports$decodeFact)))));
 			default:
 				var _v1 = A2($elm$core$Debug$log, 'UNRECOGNIZED INCOMING MSG', msg);
 				return $elm$json$Json$Decode$fail('UNRECOGNIZED INCOMING MSG');
@@ -13291,18 +13332,28 @@ var $elm$core$Dict$values = function (dict) {
 		dict);
 };
 var $author$project$Explainer$prefixModule = F2(
-	function (mod, name) {
-		return mod.name + ('.' + name);
+	function (source, name) {
+		if (source.$ === 'LocalSource') {
+			return name;
+		} else {
+			var mod = source.a;
+			return mod.name + ('.' + name);
+		}
 	});
-var $author$project$Explainer$viewModuleName = function (mod) {
-	var _v0 = mod.pkg;
-	if (_v0 === 'author/project') {
+var $author$project$Explainer$viewModuleName = function (source) {
+	if (source.$ === 'LocalSource') {
 		return $mdgriffith$elm_ui$Element$none;
 	} else {
-		return A2(
-			$mdgriffith$elm_ui$Element$el,
-			_List_Nil,
-			$mdgriffith$elm_ui$Element$text(mod.pkg));
+		var mod = source.a;
+		var _v1 = mod.pkg;
+		if (_v1 === 'author/project') {
+			return $mdgriffith$elm_ui$Element$none;
+		} else {
+			return A2(
+				$mdgriffith$elm_ui$Element$el,
+				_List_Nil,
+				$mdgriffith$elm_ui$Element$text(mod.pkg));
+		}
 	}
 };
 var $author$project$Explainer$viewFact = function (fact) {
@@ -13319,9 +13370,9 @@ var $author$project$Explainer$viewFact = function (fact) {
 			]),
 		_List_fromArray(
 			[
-				$author$project$Explainer$viewModuleName(fact.module_),
+				$author$project$Explainer$viewModuleName(fact.source),
 				$mdgriffith$elm_ui$Element$text(
-				A2($author$project$Explainer$prefixModule, fact.module_, fact.name) + (' : ' + fact.type_))
+				A2($author$project$Explainer$prefixModule, fact.source, fact.name) + (' : ' + fact.type_))
 			]));
 };
 var $author$project$Explainer$view = function (facts) {
