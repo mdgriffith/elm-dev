@@ -9,6 +9,7 @@ import Element.Events as Events
 import Element.Font as Font
 import Element.Keyed as Keyed
 import Elm
+import Explainer
 import Html
 import Html.Attributes
 import Html.Events
@@ -41,7 +42,8 @@ main =
 
 init : ( Model, Cmd Msg )
 init =
-    ( { active = Nothing
+    ( { server = { connected = True }
+      , active = Nothing
       , visible = []
       , projects = []
       , projectsVersion = 0
@@ -52,6 +54,7 @@ init =
       , errorMenuVisible = False
       , errorCodeExpanded = Set.empty
       , callgraph = Dict.empty
+      , facts = Dict.empty
       }
     , Cmd.none
     )
@@ -126,6 +129,23 @@ update msg model =
                         | callgraph = Dict.insert filepath callgraph model.callgraph
                         , lastUpdated = model.now
                       }
+                    , Cmd.none
+                    )
+
+                Ports.ExplanationReceived { filepath, facts } ->
+                    let
+                        _ =
+                            panelLog "Facts received!"
+                    in
+                    ( { model
+                        | facts = Dict.insert filepath facts model.facts
+                        , lastUpdated = model.now
+                      }
+                    , Cmd.none
+                    )
+
+                Ports.ServerConnection server ->
+                    ( { model | server = server }
                     , Cmd.none
                     )
 
@@ -383,7 +403,12 @@ viewOverview model =
                             [] ->
                                 case List.head <| Dict.values model.callgraph of
                                     Nothing ->
-                                        viewWarningsOrStatus model
+                                        case List.head <| Dict.values model.facts of
+                                            Nothing ->
+                                                viewWarningsOrStatus model
+
+                                            Just facts ->
+                                                Explainer.view facts
 
                                     Just callgraph ->
                                         Navigator.view callgraph

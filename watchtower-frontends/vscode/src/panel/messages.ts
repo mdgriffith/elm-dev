@@ -17,6 +17,10 @@ export type ToProjectPanel =
       details: { filepath: string; callgraph: CallGraphNode[]; };
     }
   | {
+      msg: "Explanation";
+      details: { filepath: string; facts: Fact[]; };
+    }
+  | {
       msg: "InteractiveCodeRefreshed";
       details: { js: string };
     };
@@ -66,6 +70,21 @@ export type Call = {
 export type CallType = 
     "top-level"  | "local" | "foreign" 
       | "constructor" | "debug" | "operator"
+
+
+
+// Explanation
+
+export type Fact = {
+  module: Module,
+  name: string,
+  type: string
+}
+
+export type Module = {
+  pkg: string
+  module: string
+}
 
 
 // Focus clicked:
@@ -172,4 +191,8 @@ export function visibility(details: { active: EditorVisibility | null; visible: 
 
 export function callgraph(details: { filepath: string; callgraph: CallGraphNode[]; }): ToProjectPanel {
   return { msg: "CallGraph", details: details }
+}
+
+export function explanation(details: { filepath: string; facts: Fact[]; }): ToProjectPanel {
+  return { msg: "Explanation", details: details }
 }

@@ -59,6 +59,14 @@ export const questions = {
       filepath: filepath,
     };
   },
+  explain: (filepath: string, line: number, char: number): Question => {
+    return {
+      msg: "Explain",
+      filepath: filepath,
+      line: line,
+      char: char,
+    };
+  },
   warnings: (filepath: String): Question => {
     return {
       msg: "Warnings",

@@ -17,7 +17,10 @@ import Time
 
 
 type alias Model =
-    { active : Maybe Editor.Editor
+    { server : Server
+
+    -- editor
+    , active : Maybe Editor.Editor
     , visible : List Editor.Editor
     , projects : List Elm.Status
     , projectsVersion : Int
@@ -32,7 +35,12 @@ type alias Model =
     , errorMenuVisible : Bool
     , errorCodeExpanded : Set Elm.CodeReferenceKey
     , callgraph : Dict FilePath (List Ports.CallGraphNode)
+    , facts : Dict FilePath (List Ports.Fact)
     }
+
+
+type alias Server =
+    { connected : Bool }
 
 
 type alias FilePath =

@@ -92,6 +92,7 @@ export class Watchtower {
   private elmStatus: PanelMsg.ProjectStatus[];
   private elmWarninigs: { warnings: Question.Warning[]; filepath: string };
   private elmCallGraph: { filepath: string; callgraph: PanelMsg.CallGraphNode[]; }
+  private elmExplanation: { filepath: string; facts: PanelMsg.Fact[]; }
   private elmDocs;
 
 
@@ -185,18 +186,24 @@ export class Watchtower {
     });
 
     vscode.window.onDidChangeActiveTextEditor((editor) => {
-      this.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
+      self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
     });
   
     vscode.window.onDidChangeTextEditorSelection((selection) => {
-      this.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
+      
+      if (feature.explain && selection.selections.length == 1 && selection.selections[0].isEmpty && selection.textEditor.document.fileName.endsWith(".elm")){
+        const point = selection.selections[0].anchor
+        self.askExplanation(selection.textEditor.document.fileName, point.line - 1, point.character - 1);
+      }
+      
+      self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
     });
   
     vscode.window.onDidChangeTextEditorVisibleRanges((visibleRanges) => {
-      this.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
+      self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
     });
 
-    this.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
+    self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
 
   }
 
@@ -316,6 +323,21 @@ export class Watchtower {
     }
   }
 
+  private askExplanation(filepath: string, line: number, char: number) {
+    const self = this
+    Question.ask(
+      Question.questions.explain(filepath, line, char),
+      (resp) => {
+        log.log(JSON.stringify(resp))
+        self.elmExplanation = { filepath: filepath, facts: resp}
+        ElmProjectPane.send(PanelMsg.explanation(self.elmExplanation))
+      },
+      (err) => {
+        log.log("Issue retrieving callgraph")
+      }
+    );
+  }
+ 
   private askCallGraph(filepath: string) {
     const self = this
     Question.ask(
@@ -472,6 +494,9 @@ export class Watchtower {
     }
     if (self.elmCallGraph) {
       msgs.push(PanelMsg.callgraph(self.elmCallGraph))
+    }
+    if (self.elmExplanation) {
+      msgs.push(PanelMsg.explanation(self.elmExplanation))
     }
 
     ElmProjectPane.createOrShow(extensionPath, msgs);

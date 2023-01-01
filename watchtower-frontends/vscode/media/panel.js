@@ -5605,6 +5605,12 @@ var $elm$time$Time$every = F2(
 			A2($elm$time$Time$Every, interval, tagger));
 	});
 var $elm$json$Json$Decode$decodeValue = _Json_run;
+var $author$project$Ports$CallGraphReceived = function (a) {
+	return {$: 'CallGraphReceived', a: a};
+};
+var $author$project$Ports$ExplanationReceived = function (a) {
+	return {$: 'ExplanationReceived', a: a};
+};
 var $author$project$Ports$ProjectsStatusUpdated = function (a) {
 	return {$: 'ProjectsStatusUpdated', a: a};
 };
@@ -5615,16 +5621,93 @@ var $author$project$Ports$WarningsUpdated = function (a) {
 	return {$: 'WarningsUpdated', a: a};
 };
 var $elm$json$Json$Decode$andThen = _Json_andThen;
+var $author$project$Ports$CallGraphNode = F4(
+	function (id, recursive, calls, callers) {
+		return {callers: callers, calls: calls, id: id, recursive: recursive};
+	});
+var $elm$json$Json$Decode$bool = _Json_decodeBool;
+var $author$project$Ports$Call = F2(
+	function (id, callType) {
+		return {callType: callType, id: id};
+	});
+var $author$project$Ports$Constructor = {$: 'Constructor'};
+var $author$project$Ports$Debug = {$: 'Debug'};
+var $author$project$Ports$Foreign = {$: 'Foreign'};
+var $author$project$Ports$Local = {$: 'Local'};
+var $author$project$Ports$Operator = {$: 'Operator'};
+var $author$project$Ports$TopLevel = {$: 'TopLevel'};
+var $elm$json$Json$Decode$fail = _Json_fail;
+var $elm$json$Json$Decode$string = _Json_decodeString;
+var $author$project$Ports$enum = function (vals) {
+	return A2(
+		$elm$json$Json$Decode$andThen,
+		function (str) {
+			var _v0 = A2($elm$core$Dict$get, str, vals);
+			if (_v0.$ === 'Nothing') {
+				return $elm$json$Json$Decode$fail('Don\'t recognize ' + str);
+			} else {
+				var val = _v0.a;
+				return $elm$json$Json$Decode$succeed(val);
+			}
+		},
+		$elm$json$Json$Decode$string);
+};
+var $elm$core$Dict$fromList = function (assocs) {
+	return A3(
+		$elm$core$List$foldl,
+		F2(
+			function (_v0, dict) {
+				var key = _v0.a;
+				var value = _v0.b;
+				return A3($elm$core$Dict$insert, key, value, dict);
+			}),
+		$elm$core$Dict$empty,
+		assocs);
+};
+var $elm$core$Tuple$pair = F2(
+	function (a, b) {
+		return _Utils_Tuple2(a, b);
+	});
+var $author$project$Ports$decodeCallType = $author$project$Ports$enum(
+	$elm$core$Dict$fromList(
+		_List_fromArray(
+			[
+				A2($elm$core$Tuple$pair, 'local', $author$project$Ports$Local),
+				A2($elm$core$Tuple$pair, 'top-level', $author$project$Ports$TopLevel),
+				A2($elm$core$Tuple$pair, 'foreign', $author$project$Ports$Foreign),
+				A2($elm$core$Tuple$pair, 'constructor', $author$project$Ports$Constructor),
+				A2($elm$core$Tuple$pair, 'debug', $author$project$Ports$Debug),
+				A2($elm$core$Tuple$pair, 'operator', $author$project$Ports$Operator)
+			])));
+var $elm$json$Json$Decode$field = _Json_decodeField;
+var $author$project$Ports$decodeCall = A3(
+	$elm$json$Json$Decode$map2,
+	$author$project$Ports$Call,
+	A2($elm$json$Json$Decode$field, 'id', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'callType', $author$project$Ports$decodeCallType));
+var $elm$json$Json$Decode$list = _Json_decodeList;
+var $elm$json$Json$Decode$map4 = _Json_map4;
+var $author$project$Ports$decodeCallGraphNode = A5(
+	$elm$json$Json$Decode$map4,
+	$author$project$Ports$CallGraphNode,
+	A2($elm$json$Json$Decode$field, 'id', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'recursive', $elm$json$Json$Decode$bool),
+	A2(
+		$elm$json$Json$Decode$field,
+		'calls',
+		$elm$json$Json$Decode$list($author$project$Ports$decodeCall)),
+	A2(
+		$elm$json$Json$Decode$field,
+		'callers',
+		$elm$json$Json$Decode$list($author$project$Ports$decodeCall)));
 var $author$project$Editor$Editor = F4(
 	function (fileName, unsavedChanges, ranges, selections) {
 		return {fileName: fileName, ranges: ranges, selections: selections, unsavedChanges: unsavedChanges};
 	});
-var $elm$json$Json$Decode$bool = _Json_decodeBool;
 var $author$project$Editor$Region = F2(
 	function (start, end) {
 		return {end: end, start: start};
 	});
-var $elm$json$Json$Decode$field = _Json_decodeField;
 var $author$project$Editor$Position = F2(
 	function (row, col) {
 		return {col: col, row: row};
@@ -5652,9 +5735,6 @@ var $author$project$Editor$decodeRegion = A3(
 	$author$project$Editor$Region,
 	A2($elm$json$Json$Decode$field, 'start', $author$project$Editor$position),
 	A2($elm$json$Json$Decode$field, 'end', $author$project$Editor$position));
-var $elm$json$Json$Decode$list = _Json_decodeList;
-var $elm$json$Json$Decode$map4 = _Json_map4;
-var $elm$json$Json$Decode$string = _Json_decodeString;
 var $author$project$Editor$decodeEditor = A5(
 	$elm$json$Json$Decode$map4,
 	$author$project$Editor$Editor,
@@ -5668,6 +5748,26 @@ var $author$project$Editor$decodeEditor = A5(
 		$elm$json$Json$Decode$field,
 		'selections',
 		$elm$json$Json$Decode$list($author$project$Editor$decodeRegion)));
+var $author$project$Ports$Fact = F3(
+	function (module_, name, type_) {
+		return {module_: module_, name: name, type_: type_};
+	});
+var $author$project$Ports$Module = F2(
+	function (pkg, name) {
+		return {name: name, pkg: pkg};
+	});
+var $author$project$Ports$decodeModule = A3(
+	$elm$json$Json$Decode$map2,
+	$author$project$Ports$Module,
+	A2($elm$json$Json$Decode$field, 'pkg', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'module', $elm$json$Json$Decode$string));
+var $elm$json$Json$Decode$map3 = _Json_map3;
+var $author$project$Ports$decodeFact = A4(
+	$elm$json$Json$Decode$map3,
+	$author$project$Ports$Fact,
+	A2($elm$json$Json$Decode$field, 'module', $author$project$Ports$decodeModule),
+	A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'type', $elm$json$Json$Decode$string));
 var $author$project$Elm$Project = F3(
 	function (root, entrypoints, status) {
 		return {entrypoints: entrypoints, root: root, status: status};
@@ -5685,7 +5785,6 @@ var $author$project$Elm$GlobalErrorDetails = F2(
 var $author$project$Elm$Success = {$: 'Success'};
 var $author$project$Elm$Many = {$: 'Many'};
 var $author$project$Elm$Single = {$: 'Single'};
-var $elm$json$Json$Decode$fail = _Json_fail;
 var $author$project$Elm$decodeErrorType = A2(
 	$elm$json$Json$Decode$andThen,
 	function (str) {
@@ -5712,7 +5811,6 @@ var $author$project$Elm$Problem = F3(
 	function (title, message, region) {
 		return {message: message, region: region, title: title};
 	});
-var $elm$json$Json$Decode$map3 = _Json_map3;
 var $author$project$Elm$NoCapture = {$: 'NoCapture'};
 var $author$project$Elm$CodeQuote = F2(
 	function (a, b) {
@@ -6458,6 +6556,38 @@ var $author$project$Ports$incomingDecoder = A2(
 							$elm$json$Json$Decode$field,
 							'warnings',
 							$elm$json$Json$Decode$list($author$project$Ports$decodeWarning))));
+			case 'CallGraph':
+				return A2(
+					$elm$json$Json$Decode$field,
+					'details',
+					A3(
+						$elm$json$Json$Decode$map2,
+						F2(
+							function (filepath, callgraph) {
+								return $author$project$Ports$CallGraphReceived(
+									{callgraph: callgraph, filepath: filepath});
+							}),
+						A2($elm$json$Json$Decode$field, 'filepath', $elm$json$Json$Decode$string),
+						A2(
+							$elm$json$Json$Decode$field,
+							'callgraph',
+							$elm$json$Json$Decode$list($author$project$Ports$decodeCallGraphNode))));
+			case 'Explanation':
+				return A2(
+					$elm$json$Json$Decode$field,
+					'details',
+					A3(
+						$elm$json$Json$Decode$map2,
+						F2(
+							function (filepath, facts) {
+								return $author$project$Ports$ExplanationReceived(
+									{facts: facts, filepath: filepath});
+							}),
+						A2($elm$json$Json$Decode$field, 'filepath', $elm$json$Json$Decode$string),
+						A2(
+							$elm$json$Json$Decode$field,
+							'facts',
+							$elm$json$Json$Decode$list($author$project$Ports$decodeFact))));
 			default:
 				var _v1 = A2($elm$core$Debug$log, 'UNRECOGNIZED INCOMING MSG', msg);
 				return $elm$json$Json$Decode$fail('UNRECOGNIZED INCOMING MSG');
@@ -6481,7 +6611,21 @@ var $elm$core$Set$empty = $elm$core$Set$Set_elm_builtin($elm$core$Dict$empty);
 var $elm$core$Platform$Cmd$batch = _Platform_batch;
 var $elm$core$Platform$Cmd$none = $elm$core$Platform$Cmd$batch(_List_Nil);
 var $author$project$Main$init = _Utils_Tuple2(
-	{active: $elm$core$Maybe$Nothing, errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, lastUpdated: $elm$core$Maybe$Nothing, now: $elm$core$Maybe$Nothing, projects: _List_Nil, projectsVersion: 0, viewing: $author$project$Model$Overview, visible: _List_Nil, warnings: $elm$core$Dict$empty},
+	{
+		active: $elm$core$Maybe$Nothing,
+		callgraph: $elm$core$Dict$empty,
+		errorCodeExpanded: $elm$core$Set$empty,
+		errorMenuVisible: false,
+		facts: $elm$core$Dict$empty,
+		lastUpdated: $elm$core$Maybe$Nothing,
+		now: $elm$core$Maybe$Nothing,
+		projects: _List_Nil,
+		projectsVersion: 0,
+		server: {connected: true},
+		viewing: $author$project$Model$Overview,
+		visible: _List_Nil,
+		warnings: $elm$core$Dict$empty
+	},
 	$elm$core$Platform$Cmd$none);
 var $author$project$Ports$FillTypeSignatures = function (a) {
 	return {$: 'FillTypeSignatures', a: a};
@@ -7002,13 +7146,14 @@ var $author$project$Main$update = F2(
 			case 'Incoming':
 				if (msg.a.$ === 'Err') {
 					var err = msg.a.a;
+					var _v1 = $author$project$Main$panelLog(err);
 					return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 				} else {
 					var editorMsg = msg.a.a;
 					switch (editorMsg.$) {
 						case 'VisibleEditorsUpdated':
 							var visible = editorMsg.a;
-							var _v2 = $author$project$Main$panelLog('VisibleEditorsUpdated');
+							var _v3 = $author$project$Main$panelLog('VisibleEditorsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
 									model,
@@ -7017,16 +7162,16 @@ var $author$project$Main$update = F2(
 						case 'ProjectsStatusUpdated':
 							var statuses = editorMsg.a;
 							var success = $author$project$Elm$successful(statuses);
-							var _v3 = $author$project$Main$panelLog('ProjectsStatusUpdated');
+							var _v4 = $author$project$Main$panelLog('ProjectsStatusUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
 									model,
 									{errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, lastUpdated: model.now, projects: statuses, projectsVersion: model.projectsVersion + 1}),
 								$elm$core$Platform$Cmd$none);
-						default:
-							var filepath = editorMsg.a.filepath;
+						case 'WarningsUpdated':
 							var warnings = editorMsg.a.warnings;
-							var _v4 = $author$project$Main$panelLog('WarningsUpdated');
+							var filepath = editorMsg.a.filepath;
+							var _v5 = $author$project$Main$panelLog('WarningsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
 									model,
@@ -7034,6 +7179,37 @@ var $author$project$Main$update = F2(
 										lastUpdated: model.now,
 										warnings: A3($elm$core$Dict$insert, filepath, warnings, model.warnings)
 									}),
+								$elm$core$Platform$Cmd$none);
+						case 'CallGraphReceived':
+							var callgraph = editorMsg.a.callgraph;
+							var filepath = editorMsg.a.filepath;
+							var _v6 = $author$project$Main$panelLog('Callgraph received!');
+							return _Utils_Tuple2(
+								_Utils_update(
+									model,
+									{
+										callgraph: A3($elm$core$Dict$insert, filepath, callgraph, model.callgraph),
+										lastUpdated: model.now
+									}),
+								$elm$core$Platform$Cmd$none);
+						case 'ExplanationReceived':
+							var facts = editorMsg.a.facts;
+							var filepath = editorMsg.a.filepath;
+							var _v7 = $author$project$Main$panelLog('Facts received!');
+							return _Utils_Tuple2(
+								_Utils_update(
+									model,
+									{
+										facts: A3($elm$core$Dict$insert, filepath, facts, model.facts),
+										lastUpdated: model.now
+									}),
+								$elm$core$Platform$Cmd$none);
+						default:
+							var server = editorMsg.a;
+							return _Utils_Tuple2(
+								_Utils_update(
+									model,
+									{server: server}),
 								$elm$core$Platform$Cmd$none);
 					}
 				}
@@ -7087,7 +7263,7 @@ var $author$project$Main$update = F2(
 			default:
 				if (msg.a.$ === 'Err') {
 					var err = msg.a.a;
-					var _v5 = A2($elm$core$Debug$log, 'PANEL: HTTP, Answer error', err);
+					var _v8 = A2($elm$core$Debug$log, 'PANEL: HTTP, Answer error', err);
 					return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 				} else {
 					var answer = msg.a.a;
@@ -13043,6 +13219,15 @@ var $author$project$Main$foundErrorsMenu = F2(
 					]));
 		}
 	});
+var $elm$core$List$head = function (list) {
+	if (list.b) {
+		var x = list.a;
+		var xs = list.b;
+		return $elm$core$Maybe$Just(x);
+	} else {
+		return $elm$core$Maybe$Nothing;
+	}
+};
 var $mdgriffith$elm_ui$Internal$Flag$fontWeight = $mdgriffith$elm_ui$Internal$Flag$flag(13);
 var $mdgriffith$elm_ui$Element$Font$bold = A2($mdgriffith$elm_ui$Internal$Model$Class, $mdgriffith$elm_ui$Internal$Flag$fontWeight, $mdgriffith$elm_ui$Internal$Style$classes.bold);
 var $author$project$Ui$header = {
@@ -13095,6 +13280,124 @@ var $mdgriffith$elm_ui$Internal$Model$Px = function (a) {
 	return {$: 'Px', a: a};
 };
 var $mdgriffith$elm_ui$Element$px = $mdgriffith$elm_ui$Internal$Model$Px;
+var $elm$core$Dict$values = function (dict) {
+	return A3(
+		$elm$core$Dict$foldr,
+		F3(
+			function (key, value, valueList) {
+				return A2($elm$core$List$cons, value, valueList);
+			}),
+		_List_Nil,
+		dict);
+};
+var $author$project$Explainer$prefixModule = F2(
+	function (mod, name) {
+		return mod.name + ('.' + name);
+	});
+var $author$project$Explainer$viewModuleName = function (mod) {
+	var _v0 = mod.pkg;
+	if (_v0 === 'author/project') {
+		return $mdgriffith$elm_ui$Element$none;
+	} else {
+		return A2(
+			$mdgriffith$elm_ui$Element$el,
+			_List_Nil,
+			$mdgriffith$elm_ui$Element$text(mod.pkg));
+	}
+};
+var $author$project$Explainer$viewFact = function (fact) {
+	return A2(
+		$mdgriffith$elm_ui$Element$column,
+		_List_fromArray(
+			[
+				$author$project$Ui$pad.lg,
+				$author$project$Ui$font.dark.light,
+				$author$project$Ui$background.black,
+				$author$project$Ui$rounded.md,
+				$mdgriffith$elm_ui$Element$width(
+				$mdgriffith$elm_ui$Element$px(500))
+			]),
+		_List_fromArray(
+			[
+				$author$project$Explainer$viewModuleName(fact.module_),
+				$mdgriffith$elm_ui$Element$text(
+				A2($author$project$Explainer$prefixModule, fact.module_, fact.name) + (' : ' + fact.type_))
+			]));
+};
+var $author$project$Explainer$view = function (facts) {
+	return A2(
+		$mdgriffith$elm_ui$Element$column,
+		_List_fromArray(
+			[
+				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+				$mdgriffith$elm_ui$Element$height(
+				$mdgriffith$elm_ui$Element$px(1000)),
+				$mdgriffith$elm_ui$Element$htmlAttribute(
+				A2($elm$html$Html$Attributes$style, 'overflow', 'auto'))
+			]),
+		A2($elm$core$List$map, $author$project$Explainer$viewFact, facts));
+};
+var $elm$core$List$member = F2(
+	function (x, xs) {
+		return A2(
+			$elm$core$List$any,
+			function (a) {
+				return _Utils_eq(a, x);
+			},
+			xs);
+	});
+var $author$project$Navigator$viewNode = function (node) {
+	return A2(
+		$mdgriffith$elm_ui$Element$column,
+		_List_fromArray(
+			[
+				$author$project$Ui$pad.lg,
+				$author$project$Ui$font.dark.light,
+				$author$project$Ui$background.black,
+				$author$project$Ui$rounded.md,
+				$mdgriffith$elm_ui$Element$width(
+				$mdgriffith$elm_ui$Element$px(500))
+			]),
+		_List_fromArray(
+			[
+				$mdgriffith$elm_ui$Element$text(node.id),
+				function () {
+				var calls = A2(
+					$elm$core$List$filterMap,
+					function (call) {
+						return A2(
+							$elm$core$List$member,
+							call.callType,
+							_List_fromArray(
+								[$author$project$Ports$TopLevel])) ? $elm$core$Maybe$Just(
+							$mdgriffith$elm_ui$Element$text(call.id)) : $elm$core$Maybe$Nothing;
+					},
+					node.calls);
+				if (!calls.b) {
+					return $mdgriffith$elm_ui$Element$none;
+				} else {
+					return A2(
+						$mdgriffith$elm_ui$Element$column,
+						_List_fromArray(
+							[$author$project$Ui$pad.lg]),
+						calls);
+				}
+			}()
+			]));
+};
+var $author$project$Navigator$view = function (nodes) {
+	return A2(
+		$mdgriffith$elm_ui$Element$column,
+		_List_fromArray(
+			[
+				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+				$mdgriffith$elm_ui$Element$height(
+				$mdgriffith$elm_ui$Element$px(1000)),
+				$mdgriffith$elm_ui$Element$htmlAttribute(
+				A2($elm$html$Html$Attributes$style, 'overflow', 'auto'))
+			]),
+		A2($elm$core$List$map, $author$project$Navigator$viewNode, nodes));
+};
 var $author$project$Editor$overlap = F2(
 	function (one, two) {
 		return ((_Utils_cmp(one.start.row, two.start.row) > -1) && (_Utils_cmp(one.start.row, two.end.row) < 1)) ? true : (((_Utils_cmp(one.end.row, two.start.row) > -1) && (_Utils_cmp(one.end.row, two.end.row) < 1)) ? true : false);
@@ -13655,15 +13958,6 @@ var $author$project$Main$viewMetric = F3(
 		}
 	});
 var $elm$core$String$endsWith = _String_endsWith;
-var $elm$core$List$head = function (list) {
-	if (list.b) {
-		var x = list.a;
-		var xs = list.b;
-		return $elm$core$Maybe$Just(x);
-	} else {
-		return $elm$core$Maybe$Nothing;
-	}
-};
 var $author$project$Editor$moduleName = function (editor) {
 	return A2(
 		$elm$core$Maybe$withDefault,
@@ -13715,16 +14009,6 @@ var $mdgriffith$elm_ui$Element$Keyed$el = F2(
 				_List_fromArray(
 					[child])));
 	});
-var $elm$core$Dict$values = function (dict) {
-	return A3(
-		$elm$core$Dict$foldr,
-		F3(
-			function (key, value, valueList) {
-				return A2($elm$core$List$cons, value, valueList);
-			}),
-		_List_Nil,
-		dict);
-};
 var $author$project$Main$viewCount = F2(
 	function (label, amount) {
 		return (!amount) ? $mdgriffith$elm_ui$Element$none : $mdgriffith$elm_ui$Element$text(
@@ -13887,9 +14171,9 @@ var $author$project$Main$viewOverview = function (model) {
 							]))
 					]));
 		});
-	var viewSignatureGroup = function (_v5) {
-		var editor = _v5.a;
-		var signatures = _v5.b;
+	var viewSignatureGroup = function (_v7) {
+		var editor = _v7.a;
+		var signatures = _v7.b;
 		return A2(
 			$mdgriffith$elm_ui$Element$column,
 			_List_fromArray(
@@ -13924,8 +14208,8 @@ var $author$project$Main$viewOverview = function (model) {
 		$elm$core$List$foldl,
 		F2(
 			function (project, gathered) {
-				var globals = gathered.globals;
 				var errs = gathered.errs;
+				var globals = gathered.globals;
 				switch (project.$) {
 					case 'NoData':
 						return gathered;
@@ -14007,7 +14291,21 @@ var $author$project$Main$viewOverview = function (model) {
 					if (!notVisibleErrors.b) {
 						var _v3 = found.globals;
 						if (!_v3.b) {
-							return $author$project$Main$viewWarningsOrStatus(model);
+							var _v4 = $elm$core$List$head(
+								$elm$core$Dict$values(model.callgraph));
+							if (_v4.$ === 'Nothing') {
+								var _v5 = $elm$core$List$head(
+									$elm$core$Dict$values(model.facts));
+								if (_v5.$ === 'Nothing') {
+									return $author$project$Main$viewWarningsOrStatus(model);
+								} else {
+									var facts = _v5.a;
+									return $author$project$Explainer$view(facts);
+								}
+							} else {
+								var callgraph = _v4.a;
+								return $author$project$Navigator$view(callgraph);
+							}
 						} else {
 							return A3($author$project$Main$viewMetric, 'Global', $author$project$Main$viewGlobalError, found.globals);
 						}

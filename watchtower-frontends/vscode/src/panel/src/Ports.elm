@@ -1,6 +1,7 @@
 port module Ports exposing
     ( Incoming(..), Outgoing(..), incoming, outgoing, Warning(..)
     , CallGraphNode, Call, CallType(..)
+    , Fact, Module
     )
 
 {-|
@@ -8,6 +9,8 @@ port module Ports exposing
 @docs Incoming, Outgoing, incoming, outgoing, Warning
 
 @docs CallGraphNode, Call, CallType
+
+@docs Fact, Module
 
 -}
 
@@ -48,6 +51,39 @@ type Incoming
         { filepath : String
         , callgraph : List CallGraphNode
         }
+    | ExplanationReceived
+        { filepath : String
+        , facts : List Fact
+        }
+    | ServerConnection { connected : Bool }
+
+
+type alias Fact =
+    { module_ : Module
+    , name : String
+    , type_ : String
+    }
+
+
+type alias Module =
+    { pkg : String
+    , name : String
+    }
+
+
+decodeFact : Decode.Decoder Fact
+decodeFact =
+    Decode.map3 Fact
+        (Decode.field "module" decodeModule)
+        (Decode.field "name" Decode.string)
+        (Decode.field "type" Decode.string)
+
+
+decodeModule : Decode.Decoder Module
+decodeModule =
+    Decode.map2 Module
+        (Decode.field "pkg" Decode.string)
+        (Decode.field "module" Decode.string)
 
 
 decodeCallGraphNode : Decode.Decoder CallGraphNode
@@ -222,6 +258,23 @@ incomingDecoder =
                                 )
                                 (Decode.field "callgraph"
                                     (Decode.list decodeCallGraphNode)
+                                )
+                            )
+
+                    "Explanation" ->
+                        Decode.field "details"
+                            (Decode.map2
+                                (\filepath facts ->
+                                    ExplanationReceived
+                                        { filepath = filepath
+                                        , facts = facts
+                                        }
+                                )
+                                (Decode.field "filepath"
+                                    Decode.string
+                                )
+                                (Decode.field "facts"
+                                    (Decode.list decodeFact)
                                 )
                             )
 
