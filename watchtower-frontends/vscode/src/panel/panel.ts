@@ -88,6 +88,10 @@ export class ElmProjectPane {
     // If we already have a panel, show it.
     if (ElmProjectPane.currentPanel) {
       ElmProjectPane.currentPanel._panel.reveal(vscode.ViewColumn.Two);
+      // Reply existing msgs so that we're up to date.
+      for (const msg of msgs) {
+        ElmProjectPane.currentPanel._panel.webview.postMessage(msg);
+      }
       return;
     }
     // Otherwise, create a new panel.
