@@ -15,13 +15,16 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Reporting.Annotation as A
 import qualified Reporting.Render.Type
 import qualified Reporting.Render.Type.Localizer
+import qualified Control.Monad as Monad
 
 import qualified Reporting.Doc
 
+import qualified Data.Maybe as Maybe
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Name as Name
+import qualified Data.Utf8 as Utf8
 import Data.Name (Name)
 
 import Data.Function ((&))
@@ -30,8 +33,11 @@ import Json.Encode ((==>))
 
 import qualified Ext.CompileProxy
 import qualified Ext.Dev.Find.Source
+import qualified Ext.Dev.Lookup
+
 import qualified Watchtower.Editor
 import qualified Ext.Log
+
 
 
 data Explanation =
@@ -42,12 +48,12 @@ data Explanation =
         }
 
 data DeclarationMetadata =
-        DeclarationMetadata
-            { _declarationName :: Name
-            , _declarationType :: Maybe Can.Type
-            , _declarationRange :: A.Region
-            , _declarationRecursive :: Bool
-            }
+    DeclarationMetadata
+        { _declarationName :: Name
+        , _declarationType :: Maybe Can.Type
+        , _declarationRange :: A.Region
+        , _declarationRecursive :: Bool
+        }
 
 
 data Reference
@@ -56,6 +62,9 @@ data Reference
         , _name :: Name
         , _type :: Can.Type
         }
+    | TypeReference 
+        TypeFragment
+        Ext.Dev.Lookup.LookupResult
 
 data Source 
     = External ModuleName.Canonical
@@ -63,10 +72,145 @@ data Source
     deriving (Eq, Ord, Show)
   
 
-data TypeDefinition
-    = Union Can.Union
-    | Alias Can.Alias
-    deriving (Show)
+getTypeLookups found (ValueReference _ _ type_) =
+   getExternalTypeFragments type_ found
+
+data TypeFragment
+    = TypeFragment ModuleName.Canonical Name [ Can.Type ]
+    | AliasFragment ModuleName.Canonical Name [(Name, Can.Type)] Can.AliasType
+    deriving (Eq, Show)
+
+getFragmentCanonicalName :: TypeFragment -> ModuleName.Canonical 
+getFragmentCanonicalName frag =
+    case frag of
+        TypeFragment can name types ->
+            can
+
+        AliasFragment can name vars aliasType ->
+            can
+
+
+getFragmentName :: TypeFragment -> Name
+getFragmentName frag =
+    case frag of
+        TypeFragment can name types ->
+            name
+
+        AliasFragment can name vars aliasType ->
+            name
+
+
+data FragmentCollection =
+    FragmentCollection
+        { _fragments :: Map.Map ModuleName.Canonical (Map.Map Name TypeFragment)
+        }
+
+emptyFragments :: FragmentCollection
+emptyFragments =
+    FragmentCollection (Map.empty)
+
+addFragment :: TypeFragment -> FragmentCollection -> FragmentCollection
+addFragment fragment (FragmentCollection fragments) =
+    FragmentCollection 
+        (Map.alter 
+            (\maybeValue ->
+                case maybeValue of
+                    Nothing ->
+                        Just (Map.singleton (getFragmentName fragment) fragment)
+                    
+                    Just set ->
+                        Just (Map.insert (getFragmentName fragment) fragment set)
+            )
+            (getFragmentCanonicalName fragment)
+            fragments
+        )
+
+getExternalTypeFragments :: Can.Type -> FragmentCollection -> FragmentCollection
+getExternalTypeFragments canType collection =
+    case canType of
+        Can.TLambda one two ->
+            collection
+                & getExternalTypeFragments one
+                & getExternalTypeFragments two
+
+        Can.TVar name ->
+            collection
+
+        Can.TType canMod name varTypes ->
+            addFragment (TypeFragment canMod name varTypes)
+                collection
+
+        Can.TRecord fields extensibleName ->
+            Map.foldl 
+                (\innerCollection (Can.FieldType _ fieldType) -> 
+                    getExternalTypeFragments fieldType innerCollection
+                )
+                collection
+                fields
+
+        Can.TUnit ->
+            collection
+
+        Can.TTuple one two Nothing ->
+              collection 
+                & getExternalTypeFragments one 
+                & getExternalTypeFragments two
+
+        Can.TTuple one two (Just three) ->
+            collection
+                & getExternalTypeFragments one 
+                & getExternalTypeFragments two 
+                & getExternalTypeFragments three
+        
+        Can.TAlias canMod name varTypes aliasType ->
+            addFragment (AliasFragment canMod name varTypes aliasType)
+                collection
+
+
+lookUpTypesByFragments :: String -> FragmentCollection -> IO [ Reference ]
+lookUpTypesByFragments root (FragmentCollection fragments) =
+    List.concat <$> Monad.mapM (findFragment root) (Map.toList fragments)
+    
+
+        
+findFragment root (canMod, fragmentMap) =
+    if isSkippable canMod then 
+        pure []
+
+    else
+        do 
+            definitions <- Ext.Dev.Lookup.lookupMany root canMod (Map.keys fragmentMap)
+            pure 
+                (List.foldl 
+                    (\gathered (fragname, frag) ->
+                        case Map.lookup fragname definitions of
+                            Nothing ->
+                                gathered
+
+                            Just fragDef ->
+                                TypeReference frag fragDef  : gathered
+                    ) 
+                    []
+                    (Map.toList fragmentMap)
+                )
+
+   
+{-| Skip internalmodules
+
+-}
+isSkippable :: ModuleName.Canonical -> Bool
+isSkippable (ModuleName.Canonical (Package.Name author project) modName) =
+    let 
+        projectString = Utf8.toChars project
+    in
+    Utf8.toChars author == "elm"
+        && (projectString == "core"
+             || projectString == "browser"
+           )
+    
+
+
+
 
 explain :: String -> Watchtower.Editor.PointLocation -> IO (Maybe Explanation)
 explain root location@(Watchtower.Editor.PointLocation path _) = do
@@ -82,12 +226,18 @@ explain root location@(Watchtower.Editor.PointLocation path _) = do
                 Just (Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val)) -> 
                     do
                         let (ReferenceCollection refMap usedTypes usedModules) = getFoundDefTypes def emptyRefCollection
+                        let refs = Map.elems refMap
+
+                        let typeFragments = List.foldl getTypeLookups emptyFragments refs
+
+                        foundTypeRefs <- lookUpTypesByFragments root typeFragments
+                    
                         pure 
                             (Just 
                                 (Explanation
                                     localizer
                                     (getDeclarationMetadata pos def)
-                                    (Map.elems refMap)
+                                    (Map.elems refMap <> foundTypeRefs)
                                 )
                             )
                 
@@ -422,7 +572,30 @@ encodeReference localizer ref =
                 , "name" ==> Json.Encode.chars (Name.toChars name)
                 , "type" ==> encodeCanType localizer canType
                 ]
+
+        TypeReference fragment (Ext.Dev.Lookup.Union canUnion) ->
+            Json.Encode.object 
+                [ "union" ==> 
+                    encodeCanUnion localizer fragment canUnion
+                ]
+
+          
         
+        TypeReference fragment (Ext.Dev.Lookup.Alias alias) ->
+            Json.Encode.object 
+                [ "alias" ==> 
+                    encodeAlias localizer fragment alias
+                ]
+        
+
+encodeAlias :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment -> Can.Alias -> Json.Encode.Value
+encodeAlias localizer fragment (Can.Alias vars type_) =
+    Json.Encode.object 
+        [ "name" ==> Json.Encode.name (getFragmentName fragment)
+        , "args" ==> encodeVarList localizer vars fragment
+        , "type" ==> encodeCanType localizer type_
+        ] 
+
 
   
 encodeCanName :: ModuleName.Canonical -> Json.Encode.Value
@@ -432,38 +605,54 @@ encodeCanName (ModuleName.Canonical pkgName modName) =
         , "module" ==>  Json.Encode.chars (Name.toChars modName)
         ]   
 
-
-
-encodeDefinition :: TypeDefinition -> Json.Encode.Value
-encodeDefinition typeDef =
-    case typeDef of
-        Union union ->
-            encodeCanUnion union
-
-        Alias alias ->
-            Json.Encode.chars "alias"
-
-
-encodeCanUnion (Can.Union vars ctors i opts) =
+encodeCanUnion :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment -> Can.Union -> Json.Encode.Value
+encodeCanUnion localizer fragment (Can.Union vars ctors i opts) =
     Json.Encode.object 
-        [ "type" ==> Json.Encode.chars "UNION"
-        , "vars" ==> Json.Encode.list (Json.Encode.chars . Name.toChars) vars
-        , "variants" ==> Json.Encode.list encodeUnionVariant ctors
-        -- , "module" ==>  Json.Encode.chars (Name.toChars modName)
+        [ "name" ==> Json.Encode.name (getFragmentName fragment)
+        , "args" ==> 
+            encodeVarList localizer vars fragment
+        , "cases" ==> Json.Encode.list (encodeUnionVariant localizer) ctors
         ] 
 
 
-encodeUnionVariant (Can.Ctor name _ _ values) =
-    Json.Encode.object 
-        [ "name" ==> Json.Encode.chars (Name.toChars name)
-        -- , "values" ==> Json.Encode.list encodeCanType values
+encodeVarList :: Reporting.Render.Type.Localizer.Localizer -> [ Name ] -> TypeFragment -> Json.Encode.Value
+encodeVarList localizer varNames fragment =
+    case fragment of
+        TypeFragment canName name varTypes ->
+            Json.Encode.list
+                (encodeVar localizer)
+                (List.zip varNames varTypes)
+
+        AliasFragment canName name varNameTypes aliasType ->
+            let 
+                varTypes = fmap snd varNameTypes
+            in
+            Json.Encode.list
+                (encodeVar localizer)
+                (List.zip varNames varTypes)
+
+
+
+encodeVar :: Reporting.Render.Type.Localizer.Localizer -> (Name, Can.Type) -> Json.Encode.Value
+encodeVar localizer (name, type_) =
+     Json.Encode.object 
+        [ "name" ==> Json.Encode.name name
+        , "type" ==> encodeCanType localizer type_
+        ]
+
+
+encodeUnionVariant :: Reporting.Render.Type.Localizer.Localizer -> Can.Ctor  -> Json.Encode.Value
+encodeUnionVariant localizer (Can.Ctor name _ _ args) =
+    Json.Encode.list id 
+        [ Json.Encode.name name
+        , Json.Encode.list (encodeCanType localizer) args
         ]
 
 
 
+encodeCanType :: Reporting.Render.Type.Localizer.Localizer -> Can.Type -> Json.Encode.Value
 encodeCanType localizer type_ =
-    Json.Encode.chars
-        (Reporting.Doc.toString
-            (Reporting.Render.Type.canToDoc localizer Reporting.Render.Type.None type_)
-        )
+    Reporting.Doc.encode
+        (Reporting.Render.Type.canToDoc localizer Reporting.Render.Type.None type_)
+    
     
