@@ -5752,6 +5752,10 @@ var $author$project$Ports$ExplainedDefinition = F4(
 	function (name, type_, recursive, range) {
 		return {name: name, range: range, recursive: recursive, type_: type_};
 	});
+var $author$project$Ports$decodeType = A2(
+	$elm$json$Json$Decode$map,
+	$elm$core$String$join(''),
+	$elm$json$Json$Decode$list($elm$json$Json$Decode$string));
 var $elm$json$Json$Decode$null = _Json_decodeNull;
 var $author$project$Ports$decodeExplanationDefinition = A5(
 	$elm$json$Json$Decode$map4,
@@ -5764,14 +5768,44 @@ var $author$project$Ports$decodeExplanationDefinition = A5(
 			_List_fromArray(
 				[
 					$elm$json$Json$Decode$null($elm$core$Maybe$Nothing),
-					A2($elm$json$Json$Decode$map, $elm$core$Maybe$Just, $elm$json$Json$Decode$string)
+					A2($elm$json$Json$Decode$map, $elm$core$Maybe$Just, $author$project$Ports$decodeType)
 				]))),
 	A2($elm$json$Json$Decode$field, 'recursive', $elm$json$Json$Decode$bool),
 	A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion));
-var $author$project$Ports$Fact = F3(
+var $author$project$Ports$Alias = function (a) {
+	return {$: 'Alias', a: a};
+};
+var $author$project$Ports$AliasDetails = F2(
+	function (name, type_) {
+		return {name: name, type_: type_};
+	});
+var $author$project$Ports$Union = function (a) {
+	return {$: 'Union', a: a};
+};
+var $author$project$Ports$UnionDetails = F3(
+	function (name, args, cases) {
+		return {args: args, cases: cases, name: name};
+	});
+var $author$project$Ports$Value = function (a) {
+	return {$: 'Value', a: a};
+};
+var $author$project$Ports$ValueDetails = F3(
 	function (source, name, type_) {
 		return {name: name, source: source, type_: type_};
 	});
+var $author$project$Ports$Variant = F2(
+	function (name, types_) {
+		return {name: name, types_: types_};
+	});
+var $elm$json$Json$Decode$index = _Json_decodeIndex;
+var $author$project$Ports$decodeCase = A3(
+	$elm$json$Json$Decode$map2,
+	$author$project$Ports$Variant,
+	A2($elm$json$Json$Decode$index, 0, $elm$json$Json$Decode$string),
+	A2(
+		$elm$json$Json$Decode$index,
+		1,
+		$elm$json$Json$Decode$list($author$project$Ports$decodeType)));
 var $author$project$Ports$External = function (a) {
 	return {$: 'External', a: a};
 };
@@ -5797,12 +5831,48 @@ var $author$project$Ports$decodeSource = $elm$json$Json$Decode$oneOf(
 			A2($elm$json$Json$Decode$map, $author$project$Ports$External, $author$project$Ports$decodeModule)
 		]));
 var $elm$json$Json$Decode$map3 = _Json_map3;
-var $author$project$Ports$decodeFact = A4(
-	$elm$json$Json$Decode$map3,
-	$author$project$Ports$Fact,
-	A2($elm$json$Json$Decode$field, 'source', $author$project$Ports$decodeSource),
-	A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
-	A2($elm$json$Json$Decode$field, 'type', $elm$json$Json$Decode$string));
+var $author$project$Ports$decodeFact = $elm$json$Json$Decode$oneOf(
+	_List_fromArray(
+		[
+			A2(
+			$elm$json$Json$Decode$map,
+			$author$project$Ports$Union,
+			A2(
+				$elm$json$Json$Decode$field,
+				'union',
+				A4(
+					$elm$json$Json$Decode$map3,
+					$author$project$Ports$UnionDetails,
+					A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
+					A2(
+						$elm$json$Json$Decode$field,
+						'args',
+						$elm$json$Json$Decode$succeed(_List_Nil)),
+					A2(
+						$elm$json$Json$Decode$field,
+						'cases',
+						$elm$json$Json$Decode$list($author$project$Ports$decodeCase))))),
+			A2(
+			$elm$json$Json$Decode$map,
+			$author$project$Ports$Alias,
+			A2(
+				$elm$json$Json$Decode$field,
+				'alias',
+				A3(
+					$elm$json$Json$Decode$map2,
+					$author$project$Ports$AliasDetails,
+					A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
+					A2($elm$json$Json$Decode$field, 'type', $author$project$Ports$decodeType)))),
+			A2(
+			$elm$json$Json$Decode$map,
+			$author$project$Ports$Value,
+			A4(
+				$elm$json$Json$Decode$map3,
+				$author$project$Ports$ValueDetails,
+				A2($elm$json$Json$Decode$field, 'source', $author$project$Ports$decodeSource),
+				A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
+				A2($elm$json$Json$Decode$field, 'type', $author$project$Ports$decodeType)))
+		]));
 var $author$project$Elm$Project = F3(
 	function (root, entrypoints, status) {
 		return {entrypoints: entrypoints, root: root, status: status};
@@ -13356,24 +13426,87 @@ var $author$project$Explainer$viewModuleName = function (source) {
 		}
 	}
 };
-var $author$project$Explainer$viewFact = function (fact) {
+var $author$project$Explainer$viewUnionCase = function (variant) {
 	return A2(
-		$mdgriffith$elm_ui$Element$column,
+		$mdgriffith$elm_ui$Element$row,
+		_List_Nil,
 		_List_fromArray(
 			[
-				$author$project$Ui$pad.lg,
-				$author$project$Ui$font.dark.light,
-				$author$project$Ui$background.black,
-				$author$project$Ui$rounded.md,
-				$mdgriffith$elm_ui$Element$width(
-				$mdgriffith$elm_ui$Element$px(500))
-			]),
-		_List_fromArray(
-			[
-				$author$project$Explainer$viewModuleName(fact.source),
-				$mdgriffith$elm_ui$Element$text(
-				A2($author$project$Explainer$prefixModule, fact.source, fact.name) + (' : ' + fact.type_))
+				$mdgriffith$elm_ui$Element$text('| '),
+				$mdgriffith$elm_ui$Element$text(variant.name),
+				$mdgriffith$elm_ui$Element$text(' '),
+				A2(
+				$mdgriffith$elm_ui$Element$row,
+				_List_fromArray(
+					[$author$project$Ui$space.md]),
+				A2($elm$core$List$map, $mdgriffith$elm_ui$Element$text, variant.types_))
 			]));
+};
+var $author$project$Explainer$viewFact = function (fact) {
+	switch (fact.$) {
+		case 'Value':
+			var value = fact.a;
+			return A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[
+						$author$project$Ui$pad.lg,
+						$author$project$Ui$font.dark.light,
+						$author$project$Ui$background.black,
+						$author$project$Ui$rounded.md,
+						$mdgriffith$elm_ui$Element$width(
+						$mdgriffith$elm_ui$Element$px(500))
+					]),
+				_List_fromArray(
+					[
+						$author$project$Explainer$viewModuleName(value.source),
+						$mdgriffith$elm_ui$Element$text(
+						A2($author$project$Explainer$prefixModule, value.source, value.name) + (' : ' + value.type_))
+					]));
+		case 'Union':
+			var union = fact.a;
+			return A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[$author$project$Ui$pad.lg, $author$project$Ui$font.info, $author$project$Ui$background.black, $author$project$Ui$rounded.md]),
+				_List_fromArray(
+					[
+						A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_Nil,
+						$mdgriffith$elm_ui$Element$text('type ' + (union.name + ' ='))),
+						A2(
+						$mdgriffith$elm_ui$Element$column,
+						_List_fromArray(
+							[$author$project$Ui$pad.md, $author$project$Ui$space.sm]),
+						A2($elm$core$List$map, $author$project$Explainer$viewUnionCase, union.cases))
+					]));
+		default:
+			var alias_ = fact.a;
+			return A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[
+						$author$project$Ui$pad.lg,
+						$author$project$Ui$font.dark.light,
+						$author$project$Ui$background.black,
+						$author$project$Ui$rounded.md,
+						$mdgriffith$elm_ui$Element$width(
+						$mdgriffith$elm_ui$Element$px(500))
+					]),
+				_List_fromArray(
+					[
+						A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_Nil,
+						$mdgriffith$elm_ui$Element$text('type alias ' + (alias_.name + ' ='))),
+						A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_fromArray(
+							[$author$project$Ui$pad.md]),
+						$mdgriffith$elm_ui$Element$text(alias_.type_))
+					]));
+	}
 };
 var $author$project$Explainer$view = function (facts) {
 	return A2(
@@ -13386,7 +13519,10 @@ var $author$project$Explainer$view = function (facts) {
 				$mdgriffith$elm_ui$Element$htmlAttribute(
 				A2($elm$html$Html$Attributes$style, 'overflow', 'auto'))
 			]),
-		A2($elm$core$List$map, $author$project$Explainer$viewFact, facts));
+		A2(
+			$elm$core$List$map,
+			$author$project$Explainer$viewFact,
+			$elm$core$List$reverse(facts)));
 };
 var $elm$core$List$member = F2(
 	function (x, xs) {

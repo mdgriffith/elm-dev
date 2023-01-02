@@ -146,7 +146,7 @@ allInterfaces root paths =
         do  details    <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
             artifacts  <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
 
-            Task.io $ extractInterfaces $ Build._modules artifacts
+            Task.io $ extractInterfaces root $ Build._modules artifacts
 
 
 loadFileSource :: FilePath -> FilePath -> IO (Either Reporting.Error.Syntax.Error (BS.ByteString, Src.Module))
@@ -200,12 +200,11 @@ loadCanonicalizeEnv root path srcMod = do
 
    We generally do this when we want a mapping of modulenames to filepaths
 -}
-loadProject :: IO Details.Details
-loadProject =
+loadProject :: FilePath -> IO Details.Details
+loadProject root =
   BW.withScope $ \scope ->
   do  
       let style = Reporting.silent
-      root <- getProjectRoot
       result <- Details.load style scope root
       case result of
         Left _ ->
@@ -322,22 +321,22 @@ loadSingle root path =
 
 -- Helpers
 
-extractInterfaces :: [Build.Module] -> IO (Map.Map ModuleName.Raw I.Interface)
-extractInterfaces modu = do
+extractInterfaces :: FilePath -> [Build.Module] -> IO (Map.Map ModuleName.Raw I.Interface)
+extractInterfaces root modu = do
   k <- modu
     & mapM (\m ->
       case m of
         Build.Fresh nameRaw ifaces _ ->
           pure $ Just (nameRaw, ifaces)
         Build.Cached name _ mCachedInterface ->
-          cachedHelp name mCachedInterface
+          cachedHelp root name mCachedInterface
     )
   pure $ Map.fromList $ justs k
 
 
 {- Appropriated from Build.loadInterface -}
-cachedHelp :: ModuleName.Raw -> MVar Build.CachedInterface -> IO (Maybe (ModuleName.Raw, I.Interface))
-cachedHelp name ciMvar = do
+cachedHelp :: FilePath -> ModuleName.Raw -> MVar Build.CachedInterface -> IO (Maybe (ModuleName.Raw, I.Interface))
+cachedHelp root name ciMvar = do
   cachedInterface <- takeMVar ciMvar
   case cachedInterface of
     Build.Corrupted ->
@@ -349,7 +348,7 @@ cachedHelp name ciMvar = do
           return (Just (name, iface))
 
     Build.Unneeded ->
-      do  root <- getProjectRoot
+      do 
           maybeIface <- File.readBinary (Stuff.elmi root name)
           case maybeIface of
             Nothing ->

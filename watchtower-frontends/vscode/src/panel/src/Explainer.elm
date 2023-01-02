@@ -21,22 +21,65 @@ view facts =
         ]
         (List.map
             viewFact
-            facts
+            (List.reverse facts)
         )
 
 
 {-| -}
 viewFact : Ports.Fact -> Ui.Element msg
 viewFact fact =
-    Ui.column
-        [ Ui.pad.lg
-        , Ui.font.dark.light
-        , Ui.background.black
-        , Ui.rounded.md
-        , Ui.width (Ui.px 500)
-        ]
-        [ viewModuleName fact.source
-        , Ui.text (prefixModule fact.source fact.name ++ " : " ++ fact.type_)
+    case fact of
+        Ports.Value value ->
+            Ui.column
+                [ Ui.pad.lg
+                , Ui.font.dark.light
+                , Ui.background.black
+                , Ui.rounded.md
+                , Ui.width (Ui.px 500)
+                ]
+                [ viewModuleName value.source
+                , Ui.text (prefixModule value.source value.name ++ " : " ++ value.type_)
+                ]
+
+        Ports.Union union ->
+            Ui.column
+                [ Ui.pad.lg
+                , Ui.font.info
+                , Ui.background.black
+                , Ui.rounded.md
+                ]
+                [ Ui.el [] (Ui.text ("type " ++ union.name ++ " ="))
+                , Ui.column
+                    [ Ui.pad.md
+                    , Ui.space.sm
+                    ]
+                    (List.map
+                        viewUnionCase
+                        union.cases
+                    )
+                ]
+
+        Ports.Alias alias_ ->
+            Ui.column
+                [ Ui.pad.lg
+                , Ui.font.dark.light
+                , Ui.background.black
+                , Ui.rounded.md
+                , Ui.width (Ui.px 500)
+                ]
+                [ Ui.el [] (Ui.text ("type alias " ++ alias_.name ++ " ="))
+                , Ui.el [ Ui.pad.md ] (Ui.text alias_.type_)
+                ]
+
+
+viewUnionCase variant =
+    Ui.row
+        []
+        [ Ui.text "| "
+        , Ui.text variant.name
+        , Ui.text " "
+        , Ui.row [ Ui.space.md ]
+            (List.map Ui.text variant.types_)
         ]
 
 

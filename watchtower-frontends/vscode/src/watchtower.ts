@@ -92,7 +92,7 @@ export class Watchtower {
   private elmStatus: PanelMsg.ProjectStatus[];
   private elmWarninigs: { warnings: Question.Warning[]; filepath: string };
   private elmCallGraph: { filepath: string; callgraph: PanelMsg.CallGraphNode[]; }
-  private elmExplanation: { filepath: string; facts: PanelMsg.Fact[]; }
+  private elmExplanation: { filepath: string;  explanation: PanelMsg.Explanation; }
   private elmDocs;
 
 

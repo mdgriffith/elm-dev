@@ -84,13 +84,35 @@ export type Fact = {
   module: Module,
   name: string,
   type: string
-}
+} | { union : Union } | { alias: Alias }
+
 
 export type Module = {
   pkg: string
   module: string
 }
 
+
+export type Union = {
+  name: string
+  args: Arg[]
+  cases: [string, ElmType][]
+}
+
+
+export type Alias = {
+  name: string
+  args: Arg[]
+  type: ElmType
+}
+
+
+export type Arg = {
+  name: string
+  type: ElmType
+}
+
+type ElmType = any
 
 // Focus clicked:
 //     like when a type error is clicked

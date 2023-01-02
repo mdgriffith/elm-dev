@@ -41,7 +41,7 @@ data LookupResult
 lookup :: String -> ModuleName.Canonical -> Name -> IO (Maybe LookupResult)
 lookup root mod name =
     do
-        project <- Ext.CompileProxy.loadProject
+        project <- Ext.CompileProxy.loadProject root
         case lookupModulePath project mod of 
             Nothing ->
                 pure Nothing
@@ -65,7 +65,7 @@ lookup root mod name =
 lookupMany :: String -> ModuleName.Canonical -> [ Name ] -> IO (Map.Map Name LookupResult)
 lookupMany root mod names =
     do
-        project <- Ext.CompileProxy.loadProject
+        project <- Ext.CompileProxy.loadProject root
         case lookupModulePath project mod of 
             Nothing ->
                 pure Map.empty 

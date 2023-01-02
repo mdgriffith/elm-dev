@@ -1,7 +1,7 @@
 port module Ports exposing
     ( Incoming(..), Outgoing(..), incoming, outgoing, Warning(..)
     , CallGraphNode, Call, CallType(..)
-    , Fact, Module
+    , Fact(..), Module
     , Source(..)
     )
 
@@ -68,9 +68,34 @@ type alias ExplainedDefinition =
     }
 
 
-type alias Fact =
+type Fact
+    = Value ValueDetails
+    | Union UnionDetails
+    | Alias AliasDetails
+
+
+type alias ValueDetails =
     { source : Source
     , name : String
+    , type_ : String
+    }
+
+
+type alias UnionDetails =
+    { name : String
+    , args : List String
+    , cases : List Variant
+    }
+
+
+type alias Variant =
+    { name : String
+    , types_ : List String
+    }
+
+
+type alias AliasDetails =
+    { name : String
     , type_ : String
     }
 
@@ -88,10 +113,43 @@ type alias Module =
 
 decodeFact : Decode.Decoder Fact
 decodeFact =
-    Decode.map3 Fact
-        (Decode.field "source" decodeSource)
-        (Decode.field "name" Decode.string)
-        (Decode.field "type" Decode.string)
+    Decode.oneOf
+        [ Decode.map Union
+            (Decode.field "union"
+                (Decode.map3 UnionDetails
+                    (Decode.field "name" Decode.string)
+                    (Decode.field "args" (Decode.succeed []))
+                    (Decode.field "cases"
+                        (Decode.list decodeCase)
+                    )
+                )
+            )
+        , Decode.map Alias
+            (Decode.field "alias"
+                (Decode.map2 AliasDetails
+                    (Decode.field "name" Decode.string)
+                    (Decode.field "type" decodeType)
+                )
+            )
+        , Decode.map3 ValueDetails
+            (Decode.field "source" decodeSource)
+            (Decode.field "name" Decode.string)
+            (Decode.field "type" decodeType)
+            |> Decode.map Value
+        ]
+
+
+decodeCase : Decode.Decoder Variant
+decodeCase =
+    Decode.map2 Variant
+        (Decode.index 0 Decode.string)
+        (Decode.index 1 (Decode.list decodeType))
+
+
+decodeType : Decode.Decoder String
+decodeType =
+    Decode.list Decode.string
+        |> Decode.map (String.join "")
 
 
 decodeSource : Decode.Decoder Source
@@ -333,7 +391,7 @@ decodeExplanationDefinition =
         (Decode.field "type"
             (Decode.oneOf
                 [ Decode.null Nothing
-                , Decode.map Just Decode.string
+                , Decode.map Just decodeType
                 ]
             )
         )

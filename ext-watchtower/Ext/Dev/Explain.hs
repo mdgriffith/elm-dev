@@ -104,6 +104,7 @@ data FragmentCollection =
     FragmentCollection
         { _fragments :: Map.Map ModuleName.Canonical (Map.Map Name TypeFragment)
         }
+        deriving (Eq, Show)
 
 emptyFragments :: FragmentCollection
 emptyFragments =
@@ -179,7 +180,11 @@ findFragment root (canMod, fragmentMap) =
 
     else
         do 
+            Ext.Log.log Ext.Log.Misc root
+            Ext.Log.log Ext.Log.Misc (show canMod)
+            Ext.Log.log Ext.Log.Misc (show (Map.keys fragmentMap))
             definitions <- Ext.Dev.Lookup.lookupMany root canMod (Map.keys fragmentMap)
+            Ext.Log.log Ext.Log.Misc (show (Map.keys definitions))
             pure 
                 (List.foldl 
                     (\gathered (fragname, frag) ->
@@ -188,7 +193,7 @@ findFragment root (canMod, fragmentMap) =
                                 gathered
 
                             Just fragDef ->
-                                TypeReference frag fragDef  : gathered
+                                TypeReference frag fragDef : gathered
                     ) 
                     []
                     (Map.toList fragmentMap)
@@ -230,7 +235,11 @@ explain root location@(Watchtower.Editor.PointLocation path _) = do
 
                         let typeFragments = List.foldl getTypeLookups emptyFragments refs
 
+
                         foundTypeRefs <- lookUpTypesByFragments root typeFragments
+
+                        Ext.Log.log Ext.Log.Misc (show (List.length foundTypeRefs))
+            
                     
                         pure 
                             (Just 
