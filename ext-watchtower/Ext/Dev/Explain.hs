@@ -10,6 +10,7 @@ where
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 
+import qualified Json.String
 import qualified Elm.Package as Package
 import qualified Elm.ModuleName as ModuleName
 import qualified Reporting.Annotation as A
@@ -582,27 +583,41 @@ encodeReference localizer ref =
                 , "type" ==> encodeCanType localizer canType
                 ]
 
-        TypeReference fragment (Ext.Dev.Lookup.Union canUnion) ->
+        TypeReference fragment (Ext.Dev.Lookup.Union maybeComment canUnion) ->
             Json.Encode.object 
                 [ "union" ==> 
-                    encodeCanUnion localizer fragment canUnion
+                    encodeCanUnion localizer fragment maybeComment canUnion
                 ]
-
-          
         
-        TypeReference fragment (Ext.Dev.Lookup.Alias alias) ->
+        TypeReference fragment (Ext.Dev.Lookup.Alias maybeComment alias) ->
             Json.Encode.object 
                 [ "alias" ==> 
-                    encodeAlias localizer fragment alias
+                    encodeAlias localizer fragment maybeComment alias
                 ]
-        
 
-encodeAlias :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment -> Can.Alias -> Json.Encode.Value
-encodeAlias localizer fragment (Can.Alias vars type_) =
+        TypeReference fragment (Ext.Dev.Lookup.Def comment) ->
+            Json.Encode.object 
+                [ "definition" ==> 
+                    encodeComment comment
+                ]
+
+encodeComment (Src.Comment docComment) =
+    Json.Encode.string 
+        (Json.String.fromComment docComment)
+
+encodeMaybe encoder maybe =
+    case maybe of
+        Nothing -> Json.Encode.null
+        Just val ->
+            encoder val
+
+encodeAlias :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment ->  Maybe Src.Comment -> Can.Alias -> Json.Encode.Value
+encodeAlias localizer fragment maybeComment (Can.Alias vars type_) =
     Json.Encode.object 
         [ "name" ==> Json.Encode.name (getFragmentName fragment)
         , "args" ==> encodeVarList localizer vars fragment
         , "type" ==> encodeCanType localizer type_
+        , "comment" ==> encodeMaybe encodeComment maybeComment
         ] 
 
 
@@ -614,13 +629,14 @@ encodeCanName (ModuleName.Canonical pkgName modName) =
         , "module" ==>  Json.Encode.chars (Name.toChars modName)
         ]   
 
-encodeCanUnion :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment -> Can.Union -> Json.Encode.Value
-encodeCanUnion localizer fragment (Can.Union vars ctors i opts) =
+encodeCanUnion :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment -> Maybe Src.Comment -> Can.Union -> Json.Encode.Value
+encodeCanUnion localizer fragment maybeComment (Can.Union vars ctors i opts) =
     Json.Encode.object 
         [ "name" ==> Json.Encode.name (getFragmentName fragment)
         , "args" ==> 
             encodeVarList localizer vars fragment
         , "cases" ==> Json.Encode.list (encodeUnionVariant localizer) ctors
+        , "comment" ==> encodeMaybe encodeComment maybeComment
         ] 
 
 

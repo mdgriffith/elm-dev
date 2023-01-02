@@ -18,6 +18,7 @@ Lookup is for when you know the name of the thing, you just want to get it.
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Reporting.Annotation as A
+import qualified Parse.Primitives as P
 import qualified Watchtower.Editor
 import qualified Data.List as List
 
@@ -34,8 +35,9 @@ import Data.Function ((&))
 
 
 data LookupResult
-    = Union Can.Union
-    | Alias Can.Alias
+    = Union (Maybe Src.Comment) Can.Union
+    | Alias (Maybe Src.Comment) Can.Alias
+    | Def Src.Comment
     deriving (Show)
 
 lookup :: String -> ModuleName.Canonical -> Name -> IO (Maybe LookupResult)
@@ -48,17 +50,32 @@ lookup root mod name =
             
             Just path -> do
                 (Ext.CompileProxy.Single source warnings maybeCanonical compiled) <- Ext.CompileProxy.loadSingle root path
+                
                 case maybeCanonical of
                     Nothing -> pure Nothing
 
                     Just canonical -> do
                         let (Can.Module canModName exports docs decls unions aliases binops effects) = canonical
+                        
+                        let maybeDocs = (case docs of
+                                            Src.NoDocs _ ->
+                                                Nothing
+                                            Src.YesDocs comm docComments ->
+                                                Map.lookup name (Map.fromList docComments)
+                                        )
+
                         case Map.lookup name unions of
                             Nothing ->
-                                pure (fmap Alias (Map.lookup name aliases))
+                                case Map.lookup name aliases of
+                                    Nothing ->
+                                        pure (fmap Def maybeDocs)
+
+                                    Just alias ->
+                                        pure (Just (Alias maybeDocs alias))
+                                    
 
                             Just union ->
-                                pure (Just (Union union))
+                                pure (Just (Union maybeDocs union))
 
 
 
@@ -80,6 +97,15 @@ lookupMany root mod names =
 
 
 getType (Can.Module canModName exports docs decls unions aliases binops effects) foundNames name =
+    let 
+        maybeDocs =
+            case docs of
+                Src.NoDocs _ ->
+                    Nothing
+                Src.YesDocs comm docComments ->
+                    Map.lookup name (Map.fromList docComments) 
+                        
+    in
     case Map.lookup name unions of
         Nothing ->
             case Map.lookup name aliases of
@@ -87,11 +113,10 @@ getType (Can.Module canModName exports docs decls unions aliases binops effects)
                     foundNames
 
                 Just alias_ ->
-                    Map.insert name (Alias alias_) foundNames
+                    Map.insert name (Alias maybeDocs alias_) foundNames
         
-
         Just union ->
-            Map.insert name (Union union) foundNames
+            Map.insert name (Union maybeDocs union) foundNames
 
 lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
 lookupModulePath details canModuleName =
@@ -99,3 +124,7 @@ lookupModulePath details canModuleName =
     & Elm.Details._locals
     & Map.lookup (ModuleName._module canModuleName)
     & fmap Elm.Details._path
+
+
+
+
