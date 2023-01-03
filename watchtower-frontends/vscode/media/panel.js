@@ -5775,16 +5775,23 @@ var $author$project$Ports$decodeExplanationDefinition = A5(
 var $author$project$Ports$Alias = function (a) {
 	return {$: 'Alias', a: a};
 };
-var $author$project$Ports$AliasDetails = F2(
-	function (name, type_) {
-		return {name: name, type_: type_};
+var $author$project$Ports$AliasDetails = F3(
+	function (name, comment, type_) {
+		return {comment: comment, name: name, type_: type_};
+	});
+var $author$project$Ports$Def = function (a) {
+	return {$: 'Def', a: a};
+};
+var $author$project$Ports$DefDetails = F3(
+	function (name, type_, comment) {
+		return {comment: comment, name: name, type_: type_};
 	});
 var $author$project$Ports$Union = function (a) {
 	return {$: 'Union', a: a};
 };
-var $author$project$Ports$UnionDetails = F3(
-	function (name, args, cases) {
-		return {args: args, cases: cases, name: name};
+var $author$project$Ports$UnionDetails = F4(
+	function (name, args, comment, cases) {
+		return {args: args, cases: cases, comment: comment, name: name};
 	});
 var $author$project$Ports$Value = function (a) {
 	return {$: 'Value', a: a};
@@ -5831,6 +5838,14 @@ var $author$project$Ports$decodeSource = $elm$json$Json$Decode$oneOf(
 			A2($elm$json$Json$Decode$map, $author$project$Ports$External, $author$project$Ports$decodeModule)
 		]));
 var $elm$json$Json$Decode$map3 = _Json_map3;
+var $elm$json$Json$Decode$nullable = function (decoder) {
+	return $elm$json$Json$Decode$oneOf(
+		_List_fromArray(
+			[
+				$elm$json$Json$Decode$null($elm$core$Maybe$Nothing),
+				A2($elm$json$Json$Decode$map, $elm$core$Maybe$Just, decoder)
+			]));
+};
 var $author$project$Ports$decodeFact = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
 		[
@@ -5840,14 +5855,18 @@ var $author$project$Ports$decodeFact = $elm$json$Json$Decode$oneOf(
 			A2(
 				$elm$json$Json$Decode$field,
 				'union',
-				A4(
-					$elm$json$Json$Decode$map3,
+				A5(
+					$elm$json$Json$Decode$map4,
 					$author$project$Ports$UnionDetails,
 					A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
 					A2(
 						$elm$json$Json$Decode$field,
 						'args',
 						$elm$json$Json$Decode$succeed(_List_Nil)),
+					A2(
+						$elm$json$Json$Decode$field,
+						'comment',
+						$elm$json$Json$Decode$nullable($elm$json$Json$Decode$string)),
 					A2(
 						$elm$json$Json$Decode$field,
 						'cases',
@@ -5858,11 +5877,30 @@ var $author$project$Ports$decodeFact = $elm$json$Json$Decode$oneOf(
 			A2(
 				$elm$json$Json$Decode$field,
 				'alias',
-				A3(
-					$elm$json$Json$Decode$map2,
+				A4(
+					$elm$json$Json$Decode$map3,
 					$author$project$Ports$AliasDetails,
 					A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
+					A2(
+						$elm$json$Json$Decode$field,
+						'comment',
+						$elm$json$Json$Decode$nullable($elm$json$Json$Decode$string)),
 					A2($elm$json$Json$Decode$field, 'type', $author$project$Ports$decodeType)))),
+			A2(
+			$elm$json$Json$Decode$map,
+			$author$project$Ports$Def,
+			A2(
+				$elm$json$Json$Decode$field,
+				'definition',
+				A4(
+					$elm$json$Json$Decode$map3,
+					$author$project$Ports$DefDetails,
+					A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
+					A2(
+						$elm$json$Json$Decode$field,
+						'type',
+						$elm$json$Json$Decode$nullable($author$project$Ports$decodeType)),
+					A2($elm$json$Json$Decode$field, 'comment', $elm$json$Json$Decode$string)))),
 			A2(
 			$elm$json$Json$Decode$map,
 			$author$project$Ports$Value,
@@ -6493,14 +6531,6 @@ var $author$project$Elm$fileError = A4(
 							return $.row;
 						}))),
 			$elm$json$Json$Decode$list($author$project$Elm$decodeProblem))));
-var $elm$json$Json$Decode$nullable = function (decoder) {
-	return $elm$json$Json$Decode$oneOf(
-		_List_fromArray(
-			[
-				$elm$json$Json$Decode$null($elm$core$Maybe$Nothing),
-				A2($elm$json$Json$Decode$map, $elm$core$Maybe$Just, decoder)
-			]));
-};
 var $author$project$Elm$decodeStatus = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
 		[
@@ -13410,6 +13440,15 @@ var $author$project$Explainer$prefixModule = F2(
 			return mod.name + ('.' + name);
 		}
 	});
+var $author$project$Explainer$viewMaybe = F2(
+	function (maybe, viewer) {
+		if (maybe.$ === 'Nothing') {
+			return $mdgriffith$elm_ui$Element$none;
+		} else {
+			var val = maybe.a;
+			return viewer(val);
+		}
+	});
 var $author$project$Explainer$viewModuleName = function (source) {
 	if (source.$ === 'LocalSource') {
 		return $mdgriffith$elm_ui$Element$none;
@@ -13479,9 +13518,19 @@ var $author$project$Explainer$viewFact = function (fact) {
 						$mdgriffith$elm_ui$Element$column,
 						_List_fromArray(
 							[$author$project$Ui$pad.md, $author$project$Ui$space.sm]),
-						A2($elm$core$List$map, $author$project$Explainer$viewUnionCase, union.cases))
+						A2($elm$core$List$map, $author$project$Explainer$viewUnionCase, union.cases)),
+						A2(
+						$author$project$Explainer$viewMaybe,
+						union.comment,
+						function (comment) {
+							return A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$pad.md]),
+								$mdgriffith$elm_ui$Element$text(comment));
+						})
 					]));
-		default:
+		case 'Alias':
 			var alias_ = fact.a;
 			return A2(
 				$mdgriffith$elm_ui$Element$column,
@@ -13504,7 +13553,51 @@ var $author$project$Explainer$viewFact = function (fact) {
 						$mdgriffith$elm_ui$Element$el,
 						_List_fromArray(
 							[$author$project$Ui$pad.md]),
-						$mdgriffith$elm_ui$Element$text(alias_.type_))
+						$mdgriffith$elm_ui$Element$text(alias_.type_)),
+						A2(
+						$author$project$Explainer$viewMaybe,
+						alias_.comment,
+						function (comment) {
+							return A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_fromArray(
+									[$author$project$Ui$pad.md]),
+								$mdgriffith$elm_ui$Element$text(comment));
+						})
+					]));
+		default:
+			var def = fact.a;
+			return A2(
+				$mdgriffith$elm_ui$Element$column,
+				_List_fromArray(
+					[
+						$author$project$Ui$pad.lg,
+						$author$project$Ui$font.dark.light,
+						$author$project$Ui$background.black,
+						$author$project$Ui$rounded.md,
+						$mdgriffith$elm_ui$Element$width(
+						$mdgriffith$elm_ui$Element$px(500))
+					]),
+				_List_fromArray(
+					[
+						A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_Nil,
+						$mdgriffith$elm_ui$Element$text(def.name)),
+						A2(
+						$author$project$Explainer$viewMaybe,
+						def.type_,
+						function (type_) {
+							return A2(
+								$mdgriffith$elm_ui$Element$el,
+								_List_Nil,
+								$mdgriffith$elm_ui$Element$text(type_));
+						}),
+						A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_fromArray(
+							[$author$project$Ui$pad.md]),
+						$mdgriffith$elm_ui$Element$text(def.comment))
 					]));
 	}
 };

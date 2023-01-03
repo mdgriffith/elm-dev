@@ -57,6 +57,9 @@ viewFact fact =
                         viewUnionCase
                         union.cases
                     )
+                , viewMaybe union.comment <|
+                    \comment ->
+                        Ui.el [ Ui.pad.md ] (Ui.text comment)
                 ]
 
         Ports.Alias alias_ ->
@@ -69,7 +72,34 @@ viewFact fact =
                 ]
                 [ Ui.el [] (Ui.text ("type alias " ++ alias_.name ++ " ="))
                 , Ui.el [ Ui.pad.md ] (Ui.text alias_.type_)
+                , viewMaybe alias_.comment <|
+                    \comment ->
+                        Ui.el [ Ui.pad.md ] (Ui.text comment)
                 ]
+
+        Ports.Def def ->
+            Ui.column
+                [ Ui.pad.lg
+                , Ui.font.dark.light
+                , Ui.background.black
+                , Ui.rounded.md
+                , Ui.width (Ui.px 500)
+                ]
+                [ Ui.el [] (Ui.text def.name)
+                , viewMaybe def.type_ <|
+                    \type_ ->
+                        Ui.el [] (Ui.text type_)
+                , Ui.el [ Ui.pad.md ] (Ui.text def.comment)
+                ]
+
+
+viewMaybe maybe viewer =
+    case maybe of
+        Nothing ->
+            Ui.none
+
+        Just val ->
+            viewer val
 
 
 viewUnionCase variant =

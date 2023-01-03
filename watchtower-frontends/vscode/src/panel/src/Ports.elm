@@ -72,6 +72,7 @@ type Fact
     = Value ValueDetails
     | Union UnionDetails
     | Alias AliasDetails
+    | Def DefDetails
 
 
 type alias ValueDetails =
@@ -84,6 +85,7 @@ type alias ValueDetails =
 type alias UnionDetails =
     { name : String
     , args : List String
+    , comment : Maybe String
     , cases : List Variant
     }
 
@@ -96,7 +98,15 @@ type alias Variant =
 
 type alias AliasDetails =
     { name : String
+    , comment : Maybe String
     , type_ : String
+    }
+
+
+type alias DefDetails =
+    { name : String
+    , type_ : Maybe String
+    , comment : String
     }
 
 
@@ -116,9 +126,10 @@ decodeFact =
     Decode.oneOf
         [ Decode.map Union
             (Decode.field "union"
-                (Decode.map3 UnionDetails
+                (Decode.map4 UnionDetails
                     (Decode.field "name" Decode.string)
                     (Decode.field "args" (Decode.succeed []))
+                    (Decode.field "comment" (Decode.nullable Decode.string))
                     (Decode.field "cases"
                         (Decode.list decodeCase)
                     )
@@ -126,9 +137,18 @@ decodeFact =
             )
         , Decode.map Alias
             (Decode.field "alias"
-                (Decode.map2 AliasDetails
+                (Decode.map3 AliasDetails
                     (Decode.field "name" Decode.string)
+                    (Decode.field "comment" (Decode.nullable Decode.string))
                     (Decode.field "type" decodeType)
+                )
+            )
+        , Decode.map Def
+            (Decode.field "definition"
+                (Decode.map3 DefDetails
+                    (Decode.field "name" Decode.string)
+                    (Decode.field "type" (Decode.nullable decodeType))
+                    (Decode.field "comment" Decode.string)
                 )
             )
         , Decode.map3 ValueDetails

@@ -14,11 +14,11 @@ export type ToProjectPanel =
     }
   | {
       msg: "CallGraph";
-      details: { filepath: string; callgraph: CallGraphNode[]; };
+      details: { filepath: string; callgraph: CallGraphNode[] };
     }
   | {
       msg: "Explanation";
-      details: { filepath: string; explanation: Explanation; };
+      details: { filepath: string; explanation: Explanation };
     }
   | {
       msg: "InteractiveCodeRefreshed";
@@ -26,9 +26,14 @@ export type ToProjectPanel =
     };
 
 export type Explanation = {
-  definition: {name : string, type: string | null, recursive: Boolean, region: Range}
-  facts: Fact[]
-}
+  definition: {
+    name: string;
+    type: string | null;
+    recursive: Boolean;
+    region: Range;
+  };
+  facts: Fact[];
+};
 
 export type EditorVisibility = {
   fileName: string;
@@ -58,61 +63,69 @@ export type Position = {
   column: number;
 };
 
-
 // CallGraph
 
 export type CallGraphNode = {
   id: string;
   recursive: boolean;
   calls: Call[];
-}
+};
 
 export type Call = {
-  id: string
-  callType: CallType
-}
+  id: string;
+  callType: CallType;
+};
 
-export type CallType = 
-    "top-level"  | "local" | "foreign" 
-      | "constructor" | "debug" | "operator"
-
-
+export type CallType =
+  | "top-level"
+  | "local"
+  | "foreign"
+  | "constructor"
+  | "debug"
+  | "operator";
 
 // Explanation
 
-export type Fact = {
-  module: Module,
-  name: string,
-  type: string
-} | { union : Union } | { alias: Alias }
-
+export type Fact =
+  | {
+      module: Module;
+      name: string;
+      type: string;
+    }
+  | { union: Union }
+  | { alias: Alias }
+  | { definition: Definition };
 
 export type Module = {
-  pkg: string
-  module: string
-}
-
+  pkg: string;
+  module: string;
+};
 
 export type Union = {
-  name: string
-  args: Arg[]
-  cases: [string, ElmType][]
-}
-
+  name: string;
+  args: Arg[];
+  comment: string | null;
+  cases: [string, ElmType][];
+};
 
 export type Alias = {
-  name: string
-  args: Arg[]
-  type: ElmType
-}
+  name: string;
+  args: Arg[];
+  comment: string | null;
+  type: ElmType;
+};
 
+export type Definition = {
+  comment: string;
+  type: ElmType | null;
+};
 
 export type Arg = {
-  name: string
-  type: ElmType
-}
+  name: string;
+  type: ElmType;
+};
 
-type ElmType = any
+type ElmType = any;
 
 // Focus clicked:
 //     like when a type error is clicked
@@ -203,23 +216,34 @@ function prepareRanges(ranges: readonly Code.Range[]): Range[] {
   return prepared;
 }
 
-
 export function status(details: ProjectStatus[]): ToProjectPanel {
-  return { msg: "Status", details: details }
+  return { msg: "Status", details: details };
 }
 
-export function warnings(details: { warnings: Question.Warning[]; filepath: string }): ToProjectPanel {
-  return { msg: "Warnings", details: details }
+export function warnings(details: {
+  warnings: Question.Warning[];
+  filepath: string;
+}): ToProjectPanel {
+  return { msg: "Warnings", details: details };
 }
 
-export function visibility(details: { active: EditorVisibility | null; visible: EditorVisibility[] }): ToProjectPanel {
-  return { msg: "EditorVisibilityChanged", details: details }
+export function visibility(details: {
+  active: EditorVisibility | null;
+  visible: EditorVisibility[];
+}): ToProjectPanel {
+  return { msg: "EditorVisibilityChanged", details: details };
 }
 
-export function callgraph(details: { filepath: string; callgraph: CallGraphNode[]; }): ToProjectPanel {
-  return { msg: "CallGraph", details: details }
+export function callgraph(details: {
+  filepath: string;
+  callgraph: CallGraphNode[];
+}): ToProjectPanel {
+  return { msg: "CallGraph", details: details };
 }
 
-export function explanation(details: { filepath: string; explanation: Explanation; }): ToProjectPanel {
-  return { msg: "Explanation", details: details }
+export function explanation(details: {
+  filepath: string;
+  explanation: Explanation;
+}): ToProjectPanel {
+  return { msg: "Explanation", details: details };
 }

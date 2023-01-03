@@ -73,12 +73,38 @@ data Source
     deriving (Eq, Ord, Show)
   
 
-getTypeLookups found (ValueReference _ _ type_) =
-   getExternalTypeFragments type_ found
+
+toLookupCollection :: ReferenceCollection -> LookupCollection
+toLookupCollection (ReferenceCollection refMap types usedMods) =
+    let
+        refs = Map.elems refMap 
+
+        lookup =
+            List.foldl (flip getExternalTypeFragments) emptyLookup types
+    in
+    refs
+        & List.foldl getTypeLookups lookup
+
+getTypeLookups :: LookupCollection -> Reference -> LookupCollection
+getTypeLookups found ref =
+   case ref of
+      ValueReference source name type_ ->
+            case source of
+                External canModName ->
+                    found
+                        & addFragment (Definition canModName name type_)
+                        & getExternalTypeFragments type_ 
+
+                LetValue ->
+                    getExternalTypeFragments type_ found
+      
+      TypeReference fragment lookup ->
+            found
 
 data TypeFragment
     = TypeFragment ModuleName.Canonical Name [ Can.Type ]
     | AliasFragment ModuleName.Canonical Name [(Name, Can.Type)] Can.AliasType
+    | Definition  ModuleName.Canonical Name Can.Type
     deriving (Eq, Show)
 
 getFragmentCanonicalName :: TypeFragment -> ModuleName.Canonical 
@@ -88,6 +114,9 @@ getFragmentCanonicalName frag =
             can
 
         AliasFragment can name vars aliasType ->
+            can
+
+        Definition can name type_ ->
             can
 
 
@@ -100,20 +129,25 @@ getFragmentName frag =
         AliasFragment can name vars aliasType ->
             name
 
+        Definition can name type_ ->
+            name
 
-data FragmentCollection =
-    FragmentCollection
+
+data LookupCollection =
+    LookupCollection
         { _fragments :: Map.Map ModuleName.Canonical (Map.Map Name TypeFragment)
         }
         deriving (Eq, Show)
 
-emptyFragments :: FragmentCollection
-emptyFragments =
-    FragmentCollection (Map.empty)
 
-addFragment :: TypeFragment -> FragmentCollection -> FragmentCollection
-addFragment fragment (FragmentCollection fragments) =
-    FragmentCollection 
+emptyLookup :: LookupCollection
+emptyLookup =
+    LookupCollection (Map.empty)
+
+
+addFragment :: TypeFragment -> LookupCollection -> LookupCollection
+addFragment fragment (LookupCollection fragments) =
+    LookupCollection 
         (Map.alter 
             (\maybeValue ->
                 case maybeValue of
@@ -127,7 +161,7 @@ addFragment fragment (FragmentCollection fragments) =
             fragments
         )
 
-getExternalTypeFragments :: Can.Type -> FragmentCollection -> FragmentCollection
+getExternalTypeFragments :: Can.Type -> LookupCollection -> LookupCollection
 getExternalTypeFragments canType collection =
     case canType of
         Can.TLambda one two ->
@@ -169,8 +203,8 @@ getExternalTypeFragments canType collection =
                 collection
 
 
-lookUpTypesByFragments :: String -> FragmentCollection -> IO [ Reference ]
-lookUpTypesByFragments root (FragmentCollection fragments) =
+lookUpTypesByFragments :: String -> LookupCollection -> IO [ Reference ]
+lookUpTypesByFragments root (LookupCollection fragments) =
     List.concat <$> Monad.mapM (findFragment root) (Map.toList fragments)
     
 
@@ -181,11 +215,7 @@ findFragment root (canMod, fragmentMap) =
 
     else
         do 
-            Ext.Log.log Ext.Log.Misc root
-            Ext.Log.log Ext.Log.Misc (show canMod)
-            Ext.Log.log Ext.Log.Misc (show (Map.keys fragmentMap))
             definitions <- Ext.Dev.Lookup.lookupMany root canMod (Map.keys fragmentMap)
-            Ext.Log.log Ext.Log.Misc (show (Map.keys definitions))
             pure 
                 (List.foldl 
                     (\gathered (fragname, frag) ->
@@ -231,13 +261,10 @@ explain root location@(Watchtower.Editor.PointLocation path _) = do
 
                 Just (Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val)) -> 
                     do
-                        let (ReferenceCollection refMap usedTypes usedModules) = getFoundDefTypes def emptyRefCollection
-                        let refs = Map.elems refMap
-
-                        let typeFragments = List.foldl getTypeLookups emptyFragments refs
-
-
-                        foundTypeRefs <- lookUpTypesByFragments root typeFragments
+                        let (refCollection@(ReferenceCollection refMap usedTypes usedModules)) = getFoundDefTypes def emptyRefCollection
+                        let refs = Map.elems refMap 
+                        foundTypeRefs <- lookUpTypesByFragments root 
+                                            (toLookupCollection refCollection)
 
                         Ext.Log.log Ext.Log.Misc (show (List.length foundTypeRefs))
             
@@ -247,7 +274,7 @@ explain root location@(Watchtower.Editor.PointLocation path _) = do
                                 (Explanation
                                     localizer
                                     (getDeclarationMetadata pos def)
-                                    (Map.elems refMap <> foundTypeRefs)
+                                    (refs <> foundTypeRefs)
                                 )
                             )
                 
@@ -288,20 +315,29 @@ getCanDeclarationMetadata pos def recursive =
 data ReferenceCollection =
     ReferenceCollection 
         { _refs :: Map.Map (Source, Name) Reference
-        , _usedTypes :: Set.Set (ModuleName.Canonical, Name)
-        , _usedModules :: Map.Map ModuleName.Canonical (Set.Set Name)
+        , _types :: [ Can.Type ]
+        , _used :: Set.Set (ModuleName.Canonical, Name)
         }
 
 
 emptyRefCollection :: ReferenceCollection
 emptyRefCollection =
-    ReferenceCollection Map.empty Set.empty Map.empty
+    ReferenceCollection Map.empty [] Set.empty
+
 
 addRef :: Reference -> ReferenceCollection -> ReferenceCollection
 addRef (ref@(ValueReference mod name type_)) (ReferenceCollection refs usedTypes usedModules) =
     ReferenceCollection 
         (Map.insert (mod, name) ref refs)
         usedTypes
+        usedModules
+
+
+addType :: Can.Type -> ReferenceCollection -> ReferenceCollection
+addType type_ (ReferenceCollection refs usedTypes usedModules) =
+    ReferenceCollection 
+        refs
+        (type_ : usedTypes)
         usedModules
 
 
@@ -331,8 +367,14 @@ getDefTypes foundDef collec =
                 & getExprTypes expr
 
         Can.TypedDef (A.At namePos name) freeVars patterns expr type_ ->
-            (fmap fst patterns)
-                & List.foldl (flip getPatternTypes) collec 
+            patterns
+                & List.foldl 
+                    (\innerCollec (pattern, patternType) ->  
+                        innerCollec
+                            & addType patternType
+                            & getPatternTypes pattern
+                    ) 
+                    collec
                 & getExprTypes expr
                 & addRef (ValueReference LetValue name type_)
 
@@ -496,8 +538,6 @@ getExprTypes expr collec =
                 branches 
                 & getExprTypes inner
                  
-                
-
         Can.Accessor name -> 
             collec
 
@@ -598,18 +638,36 @@ encodeReference localizer ref =
         TypeReference fragment (Ext.Dev.Lookup.Def comment) ->
             Json.Encode.object 
                 [ "definition" ==> 
-                    encodeComment comment
+                    encodeDefinition localizer fragment comment
                 ]
+
 
 encodeComment (Src.Comment docComment) =
     Json.Encode.string 
         (Json.String.fromComment docComment)
+
 
 encodeMaybe encoder maybe =
     case maybe of
         Nothing -> Json.Encode.null
         Just val ->
             encoder val
+
+
+encodeDefinition :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment ->  Src.Comment -> Json.Encode.Value
+encodeDefinition localizer fragment comment  =
+    Json.Encode.object 
+        [ "name" ==> Json.Encode.name (getFragmentName fragment)
+        , "type" ==> (case fragment of
+                            Definition canName name type_ ->
+                                encodeCanType localizer type_
+                            _ -> 
+                                Json.Encode.null
+                    )
+        , "comment" ==> encodeComment comment
+        ] 
+
+
 
 encodeAlias :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment ->  Maybe Src.Comment -> Can.Alias -> Json.Encode.Value
 encodeAlias localizer fragment maybeComment (Can.Alias vars type_) =
