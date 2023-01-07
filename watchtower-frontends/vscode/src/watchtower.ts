@@ -5,11 +5,13 @@ import * as Question from "./watchtower/question";
 import { ElmProjectPane } from "./panel/panel";
 import * as ChildProcess from "child_process";
 import * as Interactive from "./interactive";
+
 import * as PanelMsg from "./panel/messages";
 import * as path from "path";
 import * as EditorCoords from "./utils/editorCoords";
 import * as feature from "./watchtower/feature";
 import * as SignatureCodeLens from "./watchtower/codelensProvider";
+import * as ElmDevDiagnostics from "./watchtower/diagnostics";
 
 var WebSocketClient = require("websocket").client;
 
@@ -105,7 +107,7 @@ export class Watchtower {
 
   // Providers and diagnostics
   public codelensProvider: SignatureCodeLens.SignatureCodeLensProvider;
-  public diagnostics: vscode.DiagnosticCollection;
+  public diagnostics: ElmDevDiagnostics.WatchTowerDiagnostics;
   public definitionsProvider: vscode.DefinitionProvider;
   public statusbar: vscode.StatusBarItem;
 
@@ -128,7 +130,7 @@ export class Watchtower {
     self.trackEditsSinceSave = false;
     self.codelensProvider = new SignatureCodeLens.SignatureCodeLensProvider();
     self.definitionsProvider = new ElmDefinitionProvider();
-    self.diagnostics = vscode.languages.createDiagnosticCollection("elmDev");
+    self.diagnostics = new ElmDevDiagnostics.WatchTowerDiagnostics();
 
     self.statusbar = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Right,
@@ -565,29 +567,6 @@ const formatMessage = (items: any): string => {
   }
 
   return message;
-};
-
-const extractSource = /^\d*[|](.*)$/;
-
-const formatSource = (items: any): string => {
-  let source = "";
-  for (const item of items) {
-    if (typeof item === "string") {
-      const lines = item.split("\n");
-      for (const line of lines) {
-        if (line.match(/^\d/)) {
-          // starts with a number, then it's a code snippet
-          const matched = line.match(extractSource);
-          if (matched) {
-            source += matched[1];
-          }
-          source += "\n";
-        }
-      }
-    }
-  }
-
-  return source;
 };
 
 /*   Asking questions!  */
