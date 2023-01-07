@@ -6,7 +6,7 @@ module Model exposing
 
 import Dict exposing (Dict)
 import Editor
-import Elm
+import Elm.ProjectStatus
 import Http
 import Json.Decode as Decode
 import Json.Encode
@@ -22,7 +22,7 @@ type alias Model =
     -- editor
     , active : Maybe Editor.Editor
     , visible : List Editor.Editor
-    , projects : List Elm.Status
+    , projects : List Elm.ProjectStatus.Status
     , projectsVersion : Int
 
     -- local UI state
@@ -33,7 +33,7 @@ type alias Model =
     -- per-file information
     , warnings : Dict FilePath (List Ports.Warning)
     , errorMenuVisible : Bool
-    , errorCodeExpanded : Set Elm.CodeReferenceKey
+    , errorCodeExpanded : Set Elm.ProjectStatus.CodeReferenceKey
     , callgraph : Dict FilePath (List Ports.CallGraphNode)
     , facts : Dict FilePath (List Ports.Fact)
     }
@@ -60,5 +60,5 @@ type Msg
     | EditorFillTypeSignatures FilePath
       --
     | ErrorMenuUpdated Bool
-    | ErrorCodeToggled Elm.CodeReferenceKey Bool
+    | ErrorCodeToggled Elm.ProjectStatus.CodeReferenceKey Bool
     | CurrentTime Time.Posix

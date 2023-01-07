@@ -5911,37 +5911,37 @@ var $author$project$Ports$decodeFact = $elm$json$Json$Decode$oneOf(
 				A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
 				A2($elm$json$Json$Decode$field, 'type', $author$project$Ports$decodeType)))
 		]));
-var $author$project$Elm$Project = F3(
+var $author$project$Elm$ProjectStatus$Project = F3(
 	function (root, entrypoints, status) {
 		return {entrypoints: entrypoints, root: root, status: status};
 	});
-var $author$project$Elm$CompilerError = function (a) {
+var $author$project$Elm$ProjectStatus$CompilerError = function (a) {
 	return {$: 'CompilerError', a: a};
 };
-var $author$project$Elm$GlobalError = function (a) {
+var $author$project$Elm$ProjectStatus$GlobalError = function (a) {
 	return {$: 'GlobalError', a: a};
 };
-var $author$project$Elm$GlobalErrorDetails = F2(
+var $author$project$Elm$ProjectStatus$GlobalErrorDetails = F2(
 	function (path, problem) {
 		return {path: path, problem: problem};
 	});
-var $author$project$Elm$Success = {$: 'Success'};
-var $author$project$Elm$Many = {$: 'Many'};
-var $author$project$Elm$Single = {$: 'Single'};
-var $author$project$Elm$decodeErrorType = A2(
+var $author$project$Elm$ProjectStatus$Success = {$: 'Success'};
+var $author$project$Elm$ProjectStatus$Many = {$: 'Many'};
+var $author$project$Elm$ProjectStatus$Single = {$: 'Single'};
+var $author$project$Elm$ProjectStatus$decodeErrorType = A2(
 	$elm$json$Json$Decode$andThen,
 	function (str) {
 		switch (str) {
 			case 'error':
-				return $elm$json$Json$Decode$succeed($author$project$Elm$Single);
+				return $elm$json$Json$Decode$succeed($author$project$Elm$ProjectStatus$Single);
 			case 'compile-errors':
-				return $elm$json$Json$Decode$succeed($author$project$Elm$Many);
+				return $elm$json$Json$Decode$succeed($author$project$Elm$ProjectStatus$Many);
 			default:
 				return $elm$json$Json$Decode$fail('Unsupported error type: ' + str);
 		}
 	},
 	$elm$json$Json$Decode$string);
-var $author$project$Elm$File = F3(
+var $author$project$Elm$ProjectStatus$File = F3(
 	function (path, name, problem) {
 		return {name: name, path: path, problem: problem};
 	});
@@ -5950,33 +5950,33 @@ var $elm$core$Basics$composeR = F3(
 		return g(
 			f(x));
 	});
-var $author$project$Elm$Problem = F3(
+var $author$project$Elm$ProjectStatus$Problem = F3(
 	function (title, message, region) {
 		return {message: message, region: region, title: title};
 	});
-var $author$project$Elm$NoCapture = {$: 'NoCapture'};
-var $author$project$Elm$CodeQuote = F2(
+var $author$project$Elm$ProjectStatus$NoCapture = {$: 'NoCapture'};
+var $author$project$Elm$ProjectStatus$CodeQuote = F2(
 	function (a, b) {
 		return {$: 'CodeQuote', a: a, b: b};
 	});
-var $author$project$Elm$CodeSection = F2(
+var $author$project$Elm$ProjectStatus$CodeSection = F2(
 	function (a, b) {
 		return {$: 'CodeSection', a: a, b: b};
 	});
-var $author$project$Elm$Plain = function (a) {
+var $author$project$Elm$ProjectStatus$Plain = function (a) {
 	return {$: 'Plain', a: a};
 };
-var $author$project$Elm$Styled = F2(
+var $author$project$Elm$ProjectStatus$Styled = F2(
 	function (a, b) {
 		return {$: 'Styled', a: a, b: b};
 	});
-var $author$project$Elm$Quote = function (a) {
+var $author$project$Elm$ProjectStatus$Quote = function (a) {
 	return {$: 'Quote', a: a};
 };
-var $author$project$Elm$Reference = function (a) {
+var $author$project$Elm$ProjectStatus$Reference = function (a) {
 	return {$: 'Reference', a: a};
 };
-var $author$project$Elm$reverseAndCountHelper = F2(
+var $author$project$Elm$ProjectStatus$reverseAndCountHelper = F2(
 	function (items, _v0) {
 		reverseAndCountHelper:
 		while (true) {
@@ -5997,13 +5997,13 @@ var $author$project$Elm$reverseAndCountHelper = F2(
 			}
 		}
 	});
-var $author$project$Elm$reverseAndCount = function (items) {
+var $author$project$Elm$ProjectStatus$reverseAndCount = function (items) {
 	return A2(
-		$author$project$Elm$reverseAndCountHelper,
+		$author$project$Elm$ProjectStatus$reverseAndCountHelper,
 		items,
 		_Utils_Tuple2(_List_Nil, 0));
 };
-var $author$project$Elm$startsWithNum = function (str) {
+var $author$project$Elm$ProjectStatus$startsWithNum = function (str) {
 	var _v0 = $elm$core$String$uncons(
 		A2($elm$core$String$left, 1, str));
 	if (_v0.$ === 'Nothing') {
@@ -6014,7 +6014,7 @@ var $author$project$Elm$startsWithNum = function (str) {
 		return $elm$core$Char$isDigit(top);
 	}
 };
-var $author$project$Elm$startsWithWs = function (str) {
+var $author$project$Elm$ProjectStatus$startsWithWs = function (str) {
 	var _v0 = $elm$core$String$uncons(
 		A2($elm$core$String$left, 1, str));
 	if (_v0.$ === 'Nothing') {
@@ -6027,7 +6027,7 @@ var $author$project$Elm$startsWithWs = function (str) {
 			_Utils_chr(' '));
 	}
 };
-var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
+var $author$project$Elm$ProjectStatus$gatherCodeSectionRecurseHelper = F5(
 	function (toText, lines, isFirst, capture, accum) {
 		gatherCodeSectionRecurseHelper:
 		while (true) {
@@ -6040,7 +6040,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 						switch (capture.$) {
 							case 'NoCapture':
 								return _Utils_Tuple2(
-									$author$project$Elm$NoCapture,
+									$author$project$Elm$ProjectStatus$NoCapture,
 									A2(
 										$elm$core$List$cons,
 										toText(last),
@@ -6048,7 +6048,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 							case 'Quote':
 								var reg = capture.a;
 								return _Utils_Tuple2(
-									$author$project$Elm$Quote(
+									$author$project$Elm$ProjectStatus$Quote(
 										A2(
 											$elm$core$List$cons,
 											toText(last),
@@ -6057,7 +6057,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 							default:
 								var reg = capture.a;
 								return _Utils_Tuple2(
-									$author$project$Elm$Reference(
+									$author$project$Elm$ProjectStatus$Reference(
 										A2(
 											$elm$core$List$cons,
 											toText(last),
@@ -6066,15 +6066,15 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 						}
 					} else {
 						var line = '\n' + last;
-						if ($author$project$Elm$startsWithNum(last) || $author$project$Elm$startsWithWs(last)) {
+						if ($author$project$Elm$ProjectStatus$startsWithNum(last) || $author$project$Elm$ProjectStatus$startsWithWs(last)) {
 							switch (capture.$) {
 								case 'NoCapture':
 									return _Utils_Tuple2(
-										$author$project$Elm$startsWithWs(last) ? $author$project$Elm$Reference(
+										$author$project$Elm$ProjectStatus$startsWithWs(last) ? $author$project$Elm$ProjectStatus$Reference(
 											_List_fromArray(
 												[
 													toText(last)
-												])) : $author$project$Elm$Quote(
+												])) : $author$project$Elm$ProjectStatus$Quote(
 											_List_fromArray(
 												[
 													toText(last)
@@ -6086,7 +6086,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 								case 'Quote':
 									var reg = capture.a;
 									return _Utils_Tuple2(
-										$author$project$Elm$Quote(
+										$author$project$Elm$ProjectStatus$Quote(
 											A2(
 												$elm$core$List$cons,
 												toText(line),
@@ -6095,7 +6095,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 								default:
 									var reg = capture.a;
 									return _Utils_Tuple2(
-										$author$project$Elm$Reference(
+										$author$project$Elm$ProjectStatus$Reference(
 											A2(
 												$elm$core$List$cons,
 												toText(line),
@@ -6106,38 +6106,38 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 							switch (capture.$) {
 								case 'NoCapture':
 									return _Utils_Tuple2(
-										$author$project$Elm$NoCapture,
+										$author$project$Elm$ProjectStatus$NoCapture,
 										A2(
 											$elm$core$List$cons,
 											toText(line),
 											accum));
 								case 'Quote':
 									var items = capture.a;
-									var _v4 = $author$project$Elm$reverseAndCount(items);
+									var _v4 = $author$project$Elm$ProjectStatus$reverseAndCount(items);
 									var reversed = _v4.a;
 									var lineCount = _v4.b;
 									return _Utils_Tuple2(
-										$author$project$Elm$NoCapture,
+										$author$project$Elm$ProjectStatus$NoCapture,
 										A2(
 											$elm$core$List$cons,
 											toText(line),
 											A2(
 												$elm$core$List$cons,
-												A2($author$project$Elm$CodeQuote, lineCount, reversed),
+												A2($author$project$Elm$ProjectStatus$CodeQuote, lineCount, reversed),
 												accum)));
 								default:
 									var items = capture.a;
-									var _v5 = $author$project$Elm$reverseAndCount(items);
+									var _v5 = $author$project$Elm$ProjectStatus$reverseAndCount(items);
 									var reversed = _v5.a;
 									var lineCount = _v5.b;
 									return _Utils_Tuple2(
-										$author$project$Elm$NoCapture,
+										$author$project$Elm$ProjectStatus$NoCapture,
 										A2(
 											$elm$core$List$cons,
 											toText(line),
 											A2(
 												$elm$core$List$cons,
-												A2($author$project$Elm$CodeSection, lineCount, reversed),
+												A2($author$project$Elm$ProjectStatus$CodeSection, lineCount, reversed),
 												accum)));
 							}
 						}
@@ -6151,7 +6151,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 								var $temp$toText = toText,
 									$temp$lines = remainingLines,
 									$temp$isFirst = false,
-									$temp$capture = $author$project$Elm$NoCapture,
+									$temp$capture = $author$project$Elm$ProjectStatus$NoCapture,
 									$temp$accum = A2(
 									$elm$core$List$cons,
 									toText(topLine),
@@ -6167,7 +6167,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 								var $temp$toText = toText,
 									$temp$lines = remainingLines,
 									$temp$isFirst = false,
-									$temp$capture = $author$project$Elm$Quote(
+									$temp$capture = $author$project$Elm$ProjectStatus$Quote(
 									A2(
 										$elm$core$List$cons,
 										toText(topLine),
@@ -6184,7 +6184,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 								var $temp$toText = toText,
 									$temp$lines = remainingLines,
 									$temp$isFirst = false,
-									$temp$capture = $author$project$Elm$Reference(
+									$temp$capture = $author$project$Elm$ProjectStatus$Reference(
 									A2(
 										$elm$core$List$cons,
 										toText(topLine),
@@ -6199,17 +6199,17 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 						}
 					} else {
 						var line = '\n' + topLine;
-						if ($author$project$Elm$startsWithNum(topLine) || $author$project$Elm$startsWithWs(topLine)) {
+						if ($author$project$Elm$ProjectStatus$startsWithNum(topLine) || $author$project$Elm$ProjectStatus$startsWithWs(topLine)) {
 							switch (capture.$) {
 								case 'NoCapture':
 									var $temp$toText = toText,
 										$temp$lines = remainingLines,
 										$temp$isFirst = false,
-										$temp$capture = $author$project$Elm$startsWithWs(topLine) ? $author$project$Elm$Reference(
+										$temp$capture = $author$project$Elm$ProjectStatus$startsWithWs(topLine) ? $author$project$Elm$ProjectStatus$Reference(
 										_List_fromArray(
 											[
 												toText(topLine)
-											])) : $author$project$Elm$Quote(
+											])) : $author$project$Elm$ProjectStatus$Quote(
 										_List_fromArray(
 											[
 												toText(topLine)
@@ -6229,7 +6229,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 									var $temp$toText = toText,
 										$temp$lines = remainingLines,
 										$temp$isFirst = false,
-										$temp$capture = $author$project$Elm$Quote(
+										$temp$capture = $author$project$Elm$ProjectStatus$Quote(
 										A2(
 											$elm$core$List$cons,
 											toText(line),
@@ -6246,7 +6246,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 									var $temp$toText = toText,
 										$temp$lines = remainingLines,
 										$temp$isFirst = false,
-										$temp$capture = $author$project$Elm$Reference(
+										$temp$capture = $author$project$Elm$ProjectStatus$Reference(
 										A2(
 											$elm$core$List$cons,
 											toText(line),
@@ -6265,7 +6265,7 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 									var $temp$toText = toText,
 										$temp$lines = remainingLines,
 										$temp$isFirst = false,
-										$temp$capture = $author$project$Elm$NoCapture,
+										$temp$capture = $author$project$Elm$ProjectStatus$NoCapture,
 										$temp$accum = A2(
 										$elm$core$List$cons,
 										toText(line),
@@ -6278,19 +6278,19 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 									continue gatherCodeSectionRecurseHelper;
 								case 'Quote':
 									var items = capture.a;
-									var _v9 = $author$project$Elm$reverseAndCount(items);
+									var _v9 = $author$project$Elm$ProjectStatus$reverseAndCount(items);
 									var reversed = _v9.a;
 									var lineCount = _v9.b;
 									var $temp$toText = toText,
 										$temp$lines = remainingLines,
 										$temp$isFirst = false,
-										$temp$capture = $author$project$Elm$NoCapture,
+										$temp$capture = $author$project$Elm$ProjectStatus$NoCapture,
 										$temp$accum = A2(
 										$elm$core$List$cons,
 										toText(line),
 										A2(
 											$elm$core$List$cons,
-											A2($author$project$Elm$CodeQuote, lineCount, reversed),
+											A2($author$project$Elm$ProjectStatus$CodeQuote, lineCount, reversed),
 											accum));
 									toText = $temp$toText;
 									lines = $temp$lines;
@@ -6300,19 +6300,19 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 									continue gatherCodeSectionRecurseHelper;
 								default:
 									var items = capture.a;
-									var _v10 = $author$project$Elm$reverseAndCount(items);
+									var _v10 = $author$project$Elm$ProjectStatus$reverseAndCount(items);
 									var reversed = _v10.a;
 									var lineCount = _v10.b;
 									var $temp$toText = toText,
 										$temp$lines = remainingLines,
 										$temp$isFirst = false,
-										$temp$capture = $author$project$Elm$NoCapture,
+										$temp$capture = $author$project$Elm$ProjectStatus$NoCapture,
 										$temp$accum = A2(
 										$elm$core$List$cons,
 										toText(line),
 										A2(
 											$elm$core$List$cons,
-											A2($author$project$Elm$CodeSection, lineCount, reversed),
+											A2($author$project$Elm$ProjectStatus$CodeSection, lineCount, reversed),
 											accum));
 									toText = $temp$toText;
 									lines = $temp$lines;
@@ -6328,17 +6328,17 @@ var $author$project$Elm$gatherCodeSectionRecurseHelper = F5(
 		}
 	});
 var $elm$core$String$lines = _String_lines;
-var $author$project$Elm$gatherCodeSectionRecurse = F4(
+var $author$project$Elm$ProjectStatus$gatherCodeSectionRecurse = F4(
 	function (toText, str, capture, accum) {
 		return A5(
-			$author$project$Elm$gatherCodeSectionRecurseHelper,
+			$author$project$Elm$ProjectStatus$gatherCodeSectionRecurseHelper,
 			toText,
 			$elm$core$String$lines(str),
 			true,
 			capture,
 			accum);
 	});
-var $author$project$Elm$nestCodingSectionsHelper = F3(
+var $author$project$Elm$ProjectStatus$nestCodingSectionsHelper = F3(
 	function (texts, gatheredCodeRegion, gathered) {
 		nestCodingSectionsHelper:
 		while (true) {
@@ -6348,23 +6348,23 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 						return $elm$core$List$reverse(gathered);
 					case 'Quote':
 						var codeRegion = gatheredCodeRegion.a;
-						var _v2 = $author$project$Elm$reverseAndCount(codeRegion);
+						var _v2 = $author$project$Elm$ProjectStatus$reverseAndCount(codeRegion);
 						var reversed = _v2.a;
 						var lineCount = _v2.b;
 						return $elm$core$List$reverse(
 							A2(
 								$elm$core$List$cons,
-								A2($author$project$Elm$CodeQuote, lineCount, reversed),
+								A2($author$project$Elm$ProjectStatus$CodeQuote, lineCount, reversed),
 								gathered));
 					default:
 						var codeRegion = gatheredCodeRegion.a;
-						var _v3 = $author$project$Elm$reverseAndCount(codeRegion);
+						var _v3 = $author$project$Elm$ProjectStatus$reverseAndCount(codeRegion);
 						var reversed = _v3.a;
 						var lineCount = _v3.b;
 						return $elm$core$List$reverse(
 							A2(
 								$elm$core$List$cons,
-								A2($author$project$Elm$CodeSection, lineCount, reversed),
+								A2($author$project$Elm$ProjectStatus$CodeSection, lineCount, reversed),
 								gathered));
 				}
 			} else {
@@ -6372,7 +6372,7 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 					case 'Plain':
 						var txt = texts.a.a;
 						var remaining = texts.b;
-						var _v4 = A4($author$project$Elm$gatherCodeSectionRecurse, $author$project$Elm$Plain, txt, gatheredCodeRegion, gathered);
+						var _v4 = A4($author$project$Elm$ProjectStatus$gatherCodeSectionRecurse, $author$project$Elm$ProjectStatus$Plain, txt, gatheredCodeRegion, gathered);
 						var newCodeRegion = _v4.a;
 						var newGathered = _v4.b;
 						var $temp$texts = remaining,
@@ -6388,8 +6388,8 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 						var txt = _v5.b;
 						var remaining = texts.b;
 						var _v6 = A4(
-							$author$project$Elm$gatherCodeSectionRecurse,
-							$author$project$Elm$Styled(style),
+							$author$project$Elm$ProjectStatus$gatherCodeSectionRecurse,
+							$author$project$Elm$ProjectStatus$Styled(style),
 							txt,
 							gatheredCodeRegion,
 							gathered);
@@ -6411,7 +6411,7 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 							$temp$gatheredCodeRegion = gatheredCodeRegion,
 							$temp$gathered = A2(
 							$elm$core$List$cons,
-							A2($author$project$Elm$CodeSection, lineCount, txt),
+							A2($author$project$Elm$ProjectStatus$CodeSection, lineCount, txt),
 							gathered);
 						texts = $temp$texts;
 						gatheredCodeRegion = $temp$gatheredCodeRegion;
@@ -6426,7 +6426,7 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 							$temp$gatheredCodeRegion = gatheredCodeRegion,
 							$temp$gathered = A2(
 							$elm$core$List$cons,
-							A2($author$project$Elm$CodeQuote, lineCount, txt),
+							A2($author$project$Elm$ProjectStatus$CodeQuote, lineCount, txt),
 							gathered);
 						texts = $temp$texts;
 						gatheredCodeRegion = $temp$gatheredCodeRegion;
@@ -6436,19 +6436,19 @@ var $author$project$Elm$nestCodingSectionsHelper = F3(
 			}
 		}
 	});
-var $author$project$Elm$nestCodingSections = function (texts) {
-	return A3($author$project$Elm$nestCodingSectionsHelper, texts, $author$project$Elm$NoCapture, _List_Nil);
+var $author$project$Elm$ProjectStatus$nestCodingSections = function (texts) {
+	return A3($author$project$Elm$ProjectStatus$nestCodingSectionsHelper, texts, $author$project$Elm$ProjectStatus$NoCapture, _List_Nil);
 };
-var $author$project$Elm$StyledText = F3(
+var $author$project$Elm$ProjectStatus$StyledText = F3(
 	function (color, underline, bold) {
 		return {bold: bold, color: color, underline: underline};
 	});
-var $author$project$Elm$Cyan = {$: 'Cyan'};
-var $author$project$Elm$Green = {$: 'Green'};
-var $author$project$Elm$Red = {$: 'Red'};
-var $author$project$Elm$Yellow = {$: 'Yellow'};
+var $author$project$Elm$ProjectStatus$Cyan = {$: 'Cyan'};
+var $author$project$Elm$ProjectStatus$Green = {$: 'Green'};
+var $author$project$Elm$ProjectStatus$Red = {$: 'Red'};
+var $author$project$Elm$ProjectStatus$Yellow = {$: 'Yellow'};
 var $elm$core$String$toUpper = _String_toUpper;
-var $author$project$Elm$maybeColor = $elm$json$Json$Decode$oneOf(
+var $author$project$Elm$ProjectStatus$maybeColor = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
 		[
 			A2(
@@ -6458,16 +6458,16 @@ var $author$project$Elm$maybeColor = $elm$json$Json$Decode$oneOf(
 				switch (_v0) {
 					case 'YELLOW':
 						return $elm$json$Json$Decode$succeed(
-							$elm$core$Maybe$Just($author$project$Elm$Yellow));
+							$elm$core$Maybe$Just($author$project$Elm$ProjectStatus$Yellow));
 					case 'RED':
 						return $elm$json$Json$Decode$succeed(
-							$elm$core$Maybe$Just($author$project$Elm$Red));
+							$elm$core$Maybe$Just($author$project$Elm$ProjectStatus$Red));
 					case 'CYAN':
 						return $elm$json$Json$Decode$succeed(
-							$elm$core$Maybe$Just($author$project$Elm$Cyan));
+							$elm$core$Maybe$Just($author$project$Elm$ProjectStatus$Cyan));
 					case 'GREEN':
 						return $elm$json$Json$Decode$succeed(
-							$elm$core$Maybe$Just($author$project$Elm$Green));
+							$elm$core$Maybe$Just($author$project$Elm$ProjectStatus$Green));
 					case '':
 						return $elm$json$Json$Decode$succeed($elm$core$Maybe$Nothing);
 					default:
@@ -6477,38 +6477,38 @@ var $author$project$Elm$maybeColor = $elm$json$Json$Decode$oneOf(
 			$elm$json$Json$Decode$string),
 			$elm$json$Json$Decode$null($elm$core$Maybe$Nothing)
 		]));
-var $author$project$Elm$styledText = A4(
+var $author$project$Elm$ProjectStatus$styledText = A4(
 	$elm$json$Json$Decode$map3,
-	$author$project$Elm$StyledText,
-	A2($elm$json$Json$Decode$field, 'color', $author$project$Elm$maybeColor),
+	$author$project$Elm$ProjectStatus$StyledText,
+	A2($elm$json$Json$Decode$field, 'color', $author$project$Elm$ProjectStatus$maybeColor),
 	A2($elm$json$Json$Decode$field, 'underline', $elm$json$Json$Decode$bool),
 	A2($elm$json$Json$Decode$field, 'bold', $elm$json$Json$Decode$bool));
-var $author$project$Elm$text = $elm$json$Json$Decode$oneOf(
+var $author$project$Elm$ProjectStatus$text = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
 		[
-			A2($elm$json$Json$Decode$map, $author$project$Elm$Plain, $elm$json$Json$Decode$string),
+			A2($elm$json$Json$Decode$map, $author$project$Elm$ProjectStatus$Plain, $elm$json$Json$Decode$string),
 			A3(
 			$elm$json$Json$Decode$map2,
-			$author$project$Elm$Styled,
-			$author$project$Elm$styledText,
+			$author$project$Elm$ProjectStatus$Styled,
+			$author$project$Elm$ProjectStatus$styledText,
 			A2($elm$json$Json$Decode$field, 'string', $elm$json$Json$Decode$string))
 		]));
-var $author$project$Elm$decodeProblem = A4(
+var $author$project$Elm$ProjectStatus$decodeProblem = A4(
 	$elm$json$Json$Decode$map3,
-	$author$project$Elm$Problem,
+	$author$project$Elm$ProjectStatus$Problem,
 	A2($elm$json$Json$Decode$field, 'title', $elm$json$Json$Decode$string),
 	A2(
 		$elm$json$Json$Decode$field,
 		'message',
 		A2(
 			$elm$json$Json$Decode$map,
-			$author$project$Elm$nestCodingSections,
-			$elm$json$Json$Decode$list($author$project$Elm$text))),
+			$author$project$Elm$ProjectStatus$nestCodingSections,
+			$elm$json$Json$Decode$list($author$project$Elm$ProjectStatus$text))),
 	A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion));
 var $elm$core$List$sortBy = _List_sortBy;
-var $author$project$Elm$fileError = A4(
+var $author$project$Elm$ProjectStatus$fileError = A4(
 	$elm$json$Json$Decode$map3,
-	$author$project$Elm$File,
+	$author$project$Elm$ProjectStatus$File,
 	A2($elm$json$Json$Decode$field, 'path', $elm$json$Json$Decode$string),
 	A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
 	A2(
@@ -6530,14 +6530,14 @@ var $author$project$Elm$fileError = A4(
 						function ($) {
 							return $.row;
 						}))),
-			$elm$json$Json$Decode$list($author$project$Elm$decodeProblem))));
-var $author$project$Elm$decodeStatus = $elm$json$Json$Decode$oneOf(
+			$elm$json$Json$Decode$list($author$project$Elm$ProjectStatus$decodeProblem))));
+var $author$project$Elm$ProjectStatus$decodeStatus = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
 		[
 			A2(
 			$elm$json$Json$Decode$map,
 			function (_v0) {
-				return $author$project$Elm$Success;
+				return $author$project$Elm$ProjectStatus$Success;
 			},
 			A2($elm$json$Json$Decode$field, 'compiled', $elm$json$Json$Decode$bool)),
 			A2(
@@ -6546,13 +6546,13 @@ var $author$project$Elm$decodeStatus = $elm$json$Json$Decode$oneOf(
 				if (errorType.$ === 'Single') {
 					return A2(
 						$elm$json$Json$Decode$map,
-						$author$project$Elm$GlobalError,
+						$author$project$Elm$ProjectStatus$GlobalError,
 						A4(
 							$elm$json$Json$Decode$map3,
 							F3(
 								function (path, title, message) {
 									return A2(
-										$author$project$Elm$GlobalErrorDetails,
+										$author$project$Elm$ProjectStatus$GlobalErrorDetails,
 										path,
 										{message: message, title: title});
 								}),
@@ -6564,28 +6564,28 @@ var $author$project$Elm$decodeStatus = $elm$json$Json$Decode$oneOf(
 							A2(
 								$elm$json$Json$Decode$field,
 								'message',
-								$elm$json$Json$Decode$list($author$project$Elm$text))));
+								$elm$json$Json$Decode$list($author$project$Elm$ProjectStatus$text))));
 				} else {
 					return A2(
 						$elm$json$Json$Decode$map,
 						function (err) {
-							return $author$project$Elm$CompilerError(
+							return $author$project$Elm$ProjectStatus$CompilerError(
 								{errors: err});
 						},
 						A2(
 							$elm$json$Json$Decode$field,
 							'errors',
-							$elm$json$Json$Decode$list($author$project$Elm$fileError)));
+							$elm$json$Json$Decode$list($author$project$Elm$ProjectStatus$fileError)));
 				}
 			},
-			A2($elm$json$Json$Decode$field, 'type', $author$project$Elm$decodeErrorType))
+			A2($elm$json$Json$Decode$field, 'type', $author$project$Elm$ProjectStatus$decodeErrorType))
 		]));
-var $author$project$Elm$decodeProject = A4(
+var $author$project$Elm$ProjectStatus$decodeProject = A4(
 	$elm$json$Json$Decode$map3,
-	$author$project$Elm$Project,
+	$author$project$Elm$ProjectStatus$Project,
 	A2($elm$json$Json$Decode$field, 'root', $elm$json$Json$Decode$string),
 	$elm$json$Json$Decode$succeed(_List_Nil),
-	A2($elm$json$Json$Decode$field, 'status', $author$project$Elm$decodeStatus));
+	A2($elm$json$Json$Decode$field, 'status', $author$project$Elm$ProjectStatus$decodeStatus));
 var $author$project$Ports$MissingAnnotation = function (a) {
 	return {$: 'MissingAnnotation', a: a};
 };
@@ -6654,7 +6654,7 @@ var $author$project$Ports$incomingDecoder = A2(
 								function ($) {
 									return $.status;
 								},
-								$author$project$Elm$decodeProject))));
+								$author$project$Elm$ProjectStatus$decodeProject))));
 			case 'EditorVisibilityChanged':
 				return A2(
 					$elm$json$Json$Decode$field,
@@ -7264,7 +7264,7 @@ var $elm$core$List$all = F2(
 			A2($elm$core$Basics$composeL, $elm$core$Basics$not, isOkay),
 			list);
 	});
-var $author$project$Elm$successful = function (statuses) {
+var $author$project$Elm$ProjectStatus$successful = function (statuses) {
 	return A2(
 		$elm$core$List$all,
 		function (status) {
@@ -7302,7 +7302,7 @@ var $author$project$Main$update = F2(
 								$elm$core$Platform$Cmd$none);
 						case 'ProjectsStatusUpdated':
 							var statuses = editorMsg.a;
-							var success = $author$project$Elm$successful(statuses);
+							var success = $author$project$Elm$ProjectStatus$successful(statuses);
 							var _v4 = $author$project$Main$panelLog('ProjectsStatusUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -7310,8 +7310,8 @@ var $author$project$Main$update = F2(
 									{errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, lastUpdated: model.now, projects: statuses, projectsVersion: model.projectsVersion + 1}),
 								$elm$core$Platform$Cmd$none);
 						case 'WarningsUpdated':
-							var warnings = editorMsg.a.warnings;
 							var filepath = editorMsg.a.filepath;
+							var warnings = editorMsg.a.warnings;
 							var _v5 = $author$project$Main$panelLog('WarningsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -7322,8 +7322,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'CallGraphReceived':
-							var callgraph = editorMsg.a.callgraph;
 							var filepath = editorMsg.a.filepath;
+							var callgraph = editorMsg.a.callgraph;
 							var _v6 = $author$project$Main$panelLog('Callgraph received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -7334,8 +7334,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'ExplanationReceived':
-							var facts = editorMsg.a.facts;
 							var filepath = editorMsg.a.filepath;
+							var facts = editorMsg.a.facts;
 							var _v7 = $author$project$Main$panelLog('Facts received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -13756,7 +13756,7 @@ var $author$project$Main$colorAttribute = function (maybeColor) {
 var $author$project$Editor$regionToString = function (region) {
 	return $elm$core$String$fromInt(region.start.row) + (':' + $elm$core$String$fromInt(region.end.row));
 };
-var $author$project$Elm$fileKey = F3(
+var $author$project$Elm$ProjectStatus$fileKey = F3(
 	function (file, problem, index) {
 		return file.path + (':' + ($author$project$Editor$regionToString(problem.region) + $elm$core$String$fromInt(index)));
 	});
@@ -13774,7 +13774,7 @@ var $author$project$Main$viewSection = F6(
 					A3($author$project$Main$viewText, file, problem, errorCodeExpanded),
 					section));
 		} else {
-			var currentKey = A3($author$project$Elm$fileKey, file, problem, index);
+			var currentKey = A3($author$project$Elm$ProjectStatus$fileKey, file, problem, index);
 			var expanded = A2($elm$core$Set$member, currentKey, errorCodeExpanded);
 			return A2(
 				$mdgriffith$elm_ui$Element$column,
@@ -14488,8 +14488,8 @@ var $author$project$Main$viewOverview = function (model) {
 		$elm$core$List$foldl,
 		F2(
 			function (project, gathered) {
-				var errs = gathered.errs;
 				var globals = gathered.globals;
+				var errs = gathered.errs;
 				switch (project.$) {
 					case 'NoData':
 						return gathered;

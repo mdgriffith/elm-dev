@@ -38,7 +38,10 @@ viewFact fact =
                 , Ui.width (Ui.px 500)
                 ]
                 [ viewModuleName value.source
-                , Ui.text (prefixModule value.source value.name ++ " : " ++ value.type_)
+                , Ui.row []
+                    [ Ui.text (prefixModule value.source value.name ++ " : ")
+                    , viewType value.type_
+                    ]
                 ]
 
         Ports.Union union ->
@@ -71,7 +74,7 @@ viewFact fact =
                 , Ui.width (Ui.px 500)
                 ]
                 [ Ui.el [] (Ui.text ("type alias " ++ alias_.name ++ " ="))
-                , Ui.el [ Ui.pad.md ] (Ui.text alias_.type_)
+                , Ui.el [ Ui.pad.md ] (viewType alias_.type_)
                 , viewMaybe alias_.comment <|
                     \comment ->
                         Ui.el [ Ui.pad.md ] (Ui.text comment)
@@ -87,8 +90,7 @@ viewFact fact =
                 ]
                 [ Ui.el [] (Ui.text def.name)
                 , viewMaybe def.type_ <|
-                    \type_ ->
-                        Ui.el [] (Ui.text type_)
+                    viewType
                 , Ui.el [ Ui.pad.md ] (Ui.text def.comment)
                 ]
 
@@ -102,6 +104,11 @@ viewMaybe maybe viewer =
             viewer val
 
 
+viewType : Ports.Type -> Ui.Element msg
+viewType type_ =
+    Ui.el [] (Ui.text type_.string)
+
+
 viewUnionCase variant =
     Ui.row
         []
@@ -109,7 +116,7 @@ viewUnionCase variant =
         , Ui.text variant.name
         , Ui.text " "
         , Ui.row [ Ui.space.md ]
-            (List.map Ui.text variant.types_)
+            (List.map viewType variant.types_)
         ]
 
 

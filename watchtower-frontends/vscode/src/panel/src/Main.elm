@@ -8,7 +8,7 @@ import Element.Border as Border
 import Element.Events as Events
 import Element.Font as Font
 import Element.Keyed as Keyed
-import Elm
+import Elm.ProjectStatus
 import Explainer
 import Html
 import Html.Attributes
@@ -93,7 +93,7 @@ update msg model =
                 Ports.ProjectsStatusUpdated statuses ->
                     let
                         success =
-                            Elm.successful statuses
+                            Elm.ProjectStatus.successful statuses
 
                         _ =
                             panelLog "ProjectsStatusUpdated"
@@ -259,18 +259,18 @@ viewOverview model =
             List.foldl
                 (\project ({ globals, errs } as gathered) ->
                     case project of
-                        Elm.NoData ->
+                        Elm.ProjectStatus.NoData ->
                             gathered
 
-                        Elm.Success ->
+                        Elm.ProjectStatus.Success ->
                             gathered
 
-                        Elm.GlobalError globe ->
+                        Elm.ProjectStatus.GlobalError globe ->
                             { globals = globe :: globals
                             , errs = errs
                             }
 
-                        Elm.CompilerError { errors } ->
+                        Elm.ProjectStatus.CompilerError { errors } ->
                             { globals = globals
                             , errs = errors ++ errs
                             }
@@ -698,7 +698,7 @@ viewMetric name viewer vals =
                 (List.map viewer vals)
 
 
-isEditorVisible : Elm.File -> List Editor.Editor -> Bool
+isEditorVisible : Elm.ProjectStatus.File -> List Editor.Editor -> Bool
 isEditorVisible file visible =
     List.any
         (\e ->
@@ -741,7 +741,7 @@ viewFileSummary model file =
                 ]
 
 
-viewFileErrorDetails : Model -> Elm.File -> Ui.Element Msg
+viewFileErrorDetails : Model -> Elm.ProjectStatus.File -> Ui.Element Msg
 viewFileErrorDetails model file =
     Ui.column [ Ui.space.md, Ui.width Ui.fill ]
         (List.map
@@ -900,22 +900,22 @@ fillToEighty str =
     str ++ fill
 
 
-viewText : Elm.File -> Elm.Problem -> Set Elm.CodeReferenceKey -> Int -> Elm.Text -> Ui.Element Msg
+viewText : Elm.ProjectStatus.File -> Elm.ProjectStatus.Problem -> Set Elm.ProjectStatus.CodeReferenceKey -> Int -> Elm.ProjectStatus.Text -> Ui.Element Msg
 viewText file problem errorCodeExpanded index txt =
     case txt of
-        Elm.Plain str ->
+        Elm.ProjectStatus.Plain str ->
             Ui.text str
 
-        Elm.Styled styled str ->
+        Elm.ProjectStatus.Styled styled str ->
             Ui.el
                 [ Ui.htmlAttribute (colorAttribute styled.color)
                 ]
                 (Ui.text str)
 
-        Elm.CodeSection lineCount section ->
+        Elm.ProjectStatus.CodeSection lineCount section ->
             viewSection file problem errorCodeExpanded index lineCount section
 
-        Elm.CodeQuote lineCount section ->
+        Elm.ProjectStatus.CodeQuote lineCount section ->
             viewSection file problem errorCodeExpanded index lineCount section
 
 
@@ -929,7 +929,7 @@ viewSection file problem errorCodeExpanded index lineCount section =
     else
         let
             currentKey =
-                Elm.fileKey file problem index
+                Elm.ProjectStatus.fileKey file problem index
 
             expanded =
                 Set.member currentKey errorCodeExpanded
@@ -970,32 +970,32 @@ viewSection file problem errorCodeExpanded index lineCount section =
             ]
 
 
-viewExpandedText : Elm.Text -> Ui.Element msg
+viewExpandedText : Elm.ProjectStatus.Text -> Ui.Element msg
 viewExpandedText txt =
     case txt of
-        Elm.Plain str ->
+        Elm.ProjectStatus.Plain str ->
             Ui.text str
 
-        Elm.Styled styled str ->
+        Elm.ProjectStatus.Styled styled str ->
             Ui.el
                 [ Ui.htmlAttribute (colorAttribute styled.color)
                 ]
                 (Ui.text str)
 
-        Elm.CodeSection lineCount section ->
+        Elm.ProjectStatus.CodeSection lineCount section ->
             Ui.paragraph
                 [ Ui.width Ui.fill
                 ]
                 (List.map viewExpandedText section)
 
-        Elm.CodeQuote lineCount section ->
+        Elm.ProjectStatus.CodeQuote lineCount section ->
             Ui.paragraph
                 [ Ui.width Ui.fill
                 ]
                 (List.map viewExpandedText section)
 
 
-colorAttribute : Maybe Elm.Color -> Html.Attribute msg
+colorAttribute : Maybe Elm.ProjectStatus.Color -> Html.Attribute msg
 colorAttribute maybeColor =
     case maybeColor of
         Nothing ->
@@ -1003,14 +1003,14 @@ colorAttribute maybeColor =
 
         Just clr ->
             case clr of
-                Elm.Yellow ->
+                Elm.ProjectStatus.Yellow ->
                     Html.Attributes.class "warning"
 
-                Elm.Red ->
+                Elm.ProjectStatus.Red ->
                     Html.Attributes.class "danger"
 
-                Elm.Cyan ->
+                Elm.ProjectStatus.Cyan ->
                     Html.Attributes.class "info"
 
-                Elm.Green ->
+                Elm.ProjectStatus.Green ->
                     Html.Attributes.class "success"

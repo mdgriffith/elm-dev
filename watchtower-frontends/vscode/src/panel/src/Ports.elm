@@ -2,7 +2,7 @@ port module Ports exposing
     ( Incoming(..), Outgoing(..), incoming, outgoing, Warning(..)
     , CallGraphNode, Call, CallType(..)
     , Fact(..), Module
-    , Source(..)
+    , Source(..), Type
     )
 
 {-|
@@ -17,7 +17,8 @@ port module Ports exposing
 
 import Dict exposing (Dict)
 import Editor
-import Elm
+import Elm.ProjectStatus
+import Elm.Type
 import Json.Decode as Decode
 import Json.Encode
 
@@ -43,7 +44,7 @@ type Incoming
         { active : Maybe Editor.Editor
         , visible : List Editor.Editor
         }
-    | ProjectsStatusUpdated (List Elm.Status)
+    | ProjectsStatusUpdated (List Elm.ProjectStatus.Status)
     | WarningsUpdated
         { filepath : String
         , warnings : List Warning
@@ -62,7 +63,7 @@ type Incoming
 
 type alias ExplainedDefinition =
     { name : String
-    , type_ : Maybe String
+    , type_ : Maybe Type
     , recursive : Bool
     , range : Editor.Region
     }
@@ -78,7 +79,13 @@ type Fact
 type alias ValueDetails =
     { source : Source
     , name : String
-    , type_ : String
+    , type_ : Type
+    }
+
+
+type alias Type =
+    { string : String
+    , value : Elm.Type.Type
     }
 
 
@@ -92,20 +99,20 @@ type alias UnionDetails =
 
 type alias Variant =
     { name : String
-    , types_ : List String
+    , types_ : List Type
     }
 
 
 type alias AliasDetails =
     { name : String
     , comment : Maybe String
-    , type_ : String
+    , type_ : Type
     }
 
 
 type alias DefDetails =
     { name : String
-    , type_ : Maybe String
+    , type_ : Maybe Type
     , comment : String
     }
 
@@ -166,10 +173,20 @@ decodeCase =
         (Decode.index 1 (Decode.list decodeType))
 
 
-decodeType : Decode.Decoder String
+decodeType : Decode.Decoder Type
 decodeType =
     Decode.list Decode.string
         |> Decode.map (String.join "")
+        |> Decode.andThen
+            (\str ->
+                Decode.map
+                    (\typeValue ->
+                        { string = str
+                        , value = typeValue
+                        }
+                    )
+                    Elm.Type.decoder
+            )
 
 
 decodeSource : Decode.Decoder Source
@@ -317,7 +334,7 @@ incomingDecoder =
                 case msg of
                     "Status" ->
                         Decode.map ProjectsStatusUpdated
-                            (Decode.field "details" (Decode.list (Decode.map .status Elm.decodeProject)))
+                            (Decode.field "details" (Decode.list (Decode.map .status Elm.ProjectStatus.decodeProject)))
 
                     "EditorVisibilityChanged" ->
                         Decode.field "details"
