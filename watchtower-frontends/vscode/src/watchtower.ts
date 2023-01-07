@@ -7,11 +7,11 @@ import * as ChildProcess from "child_process";
 import * as Interactive from "./interactive";
 import * as PanelMsg from "./panel/messages";
 import * as path from "path";
-import * as feature from "./watchtower/feature"
-
+import * as EditorCoords from "./utils/editorCoords";
+import * as feature from "./watchtower/feature";
+import * as SignatureCodeLens from "./watchtower/codelensProvider";
 
 var WebSocketClient = require("websocket").client;
-
 
 type Msg =
   | { msg: "Discover"; details: { root: String; watching: Watching[] } }
@@ -86,29 +86,39 @@ export class Watchtower {
   private trackEditsSinceSave: boolean;
   private retry;
 
-
   // The core model of our Elm project
-  private elmEditorVisibility: { active: PanelMsg.EditorVisibility | null; visible: PanelMsg.EditorVisibility[] };
+  private elmEditorVisibility: {
+    active: PanelMsg.EditorVisibility | null;
+    visible: PanelMsg.EditorVisibility[];
+  };
   private elmStatus: PanelMsg.ProjectStatus[];
   private elmWarninigs: { warnings: Question.Warning[]; filepath: string };
-  private elmCallGraph: { filepath: string; callgraph: PanelMsg.CallGraphNode[]; }
-  private elmExplanation: { filepath: string;  explanation: PanelMsg.Explanation; }
+  private elmCallGraph: {
+    filepath: string;
+    callgraph: PanelMsg.CallGraphNode[];
+  };
+  private elmExplanation: {
+    filepath: string;
+    explanation: PanelMsg.Explanation;
+  };
   private elmDocs;
 
-
   // Providers and diagnostics
-  public codelensProvider: SignatureCodeLensProvider;
+  public codelensProvider: SignatureCodeLens.SignatureCodeLensProvider;
   public diagnostics: vscode.DiagnosticCollection;
   public definitionsProvider: vscode.DefinitionProvider;
   public statusbar: vscode.StatusBarItem;
 
   private send(msg: Msg) {
+    const self = this;
     if (this.connection?.connected) {
       log.obj("SENDING", msg);
       this.connection.sendUTF(JSON.stringify(msg));
     } else {
       log.obj("SKIPPING (not connected)", msg);
-      this.connect()
+      self.diagnostics.clear();
+      self.codelensProvider.clear();
+      this.connect();
     }
   }
 
@@ -116,7 +126,7 @@ export class Watchtower {
     let self = this;
     self.editsSinceSave = [];
     self.trackEditsSinceSave = false;
-    self.codelensProvider = new SignatureCodeLensProvider();
+    self.codelensProvider = new SignatureCodeLens.SignatureCodeLensProvider();
     self.definitionsProvider = new ElmDefinitionProvider();
     self.diagnostics = vscode.languages.createDiagnosticCollection("elmDev");
 
@@ -126,8 +136,8 @@ export class Watchtower {
     );
 
     self.statusbar.command = "elm.projectPanel";
-    
-    self.connect()
+
+    self.connect();
 
     vscode.workspace.onDidSaveTextDocument((document: vscode.TextDocument) => {
       self.editsSinceSave = [];
@@ -147,7 +157,7 @@ export class Watchtower {
 
           // Adjust the lines of the code lenses so they stay in sync
           for (const change of docChange.contentChanges) {
-            const lineCountChange = lineCountDelta(change);
+            const lineCountChange = EditorCoords.lineCountDelta(change);
             self.codelensProvider.lineAdjustment(
               docChange.document,
               docChange.document.uri.fsPath,
@@ -159,7 +169,6 @@ export class Watchtower {
       }
     );
 
-
     /*  Send editor visibility msgs to the Panel
         And sometimes to the watchtower
     */
@@ -168,38 +177,43 @@ export class Watchtower {
       if (vscode.window.activeTextEditor && feature.callgraph) {
         self.askCallGraph(vscode.window.activeTextEditor.document.fileName);
       }
-     
     });
 
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
     });
-  
+
     vscode.window.onDidChangeTextEditorSelection((selection) => {
-      
-      if (feature.explain && selection.selections.length == 1 && selection.selections[0].isEmpty && selection.textEditor.document.fileName.endsWith(".elm")){
-        const point = selection.selections[0].anchor
-        self.askExplanation(selection.textEditor.document.fileName, point.line - 1, point.character - 1);
+      if (
+        feature.explain &&
+        selection.selections.length == 1 &&
+        selection.selections[0].isEmpty &&
+        selection.textEditor.document.fileName.endsWith(".elm")
+      ) {
+        const point = selection.selections[0].anchor;
+        self.askExplanation(
+          selection.textEditor.document.fileName,
+          point.line - 1,
+          point.character - 1
+        );
       }
-      
+
       self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
     });
-  
+
     vscode.window.onDidChangeTextEditorVisibleRanges((visibleRanges) => {
       self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
     });
 
     self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
-
   }
 
-
- private connect(){ 
-    const self = this
+  private connect() {
+    const self = this;
     if (this.connection?.connected) {
-      return
+      return;
     }
-    this.statusDanger("Elm Dev connecting...")
+    this.statusDanger("Elm Dev connecting...");
     self.startServer();
     socketConnect({
       url: Question.urls.websocket,
@@ -214,8 +228,7 @@ export class Watchtower {
         self.receive(msg);
       },
     });
- }
-
+  }
 
   private statusFromErrorCount(errorCount) {
     if (errorCount < 1) {
@@ -330,30 +343,30 @@ export class Watchtower {
   }
 
   private askExplanation(filepath: string, line: number, char: number) {
-    const self = this
+    const self = this;
     Question.ask(
       Question.questions.explain(filepath, line, char),
       (resp) => {
-        log.log(JSON.stringify(resp))
-        self.elmExplanation = { filepath: filepath, explanation: resp}
-        ElmProjectPane.send(PanelMsg.explanation(self.elmExplanation))
+        log.log(JSON.stringify(resp));
+        self.elmExplanation = { filepath: filepath, explanation: resp };
+        ElmProjectPane.send(PanelMsg.explanation(self.elmExplanation));
       },
       (err) => {
-        log.log("Issue retrieving callgraph")
+        log.log("Issue retrieving callgraph");
       }
     );
   }
- 
+
   private askCallGraph(filepath: string) {
-    const self = this
+    const self = this;
     Question.ask(
       Question.questions.callgraph(filepath),
       (resp) => {
-        self.elmCallGraph = { filepath: filepath, callgraph: resp}
-        ElmProjectPane.send(PanelMsg.callgraph(self.elmCallGraph))
+        self.elmCallGraph = { filepath: filepath, callgraph: resp };
+        ElmProjectPane.send(PanelMsg.callgraph(self.elmCallGraph));
       },
       (err) => {
-        log.log("Issue retrieving callgraph")
+        log.log("Issue retrieving callgraph");
       }
     );
   }
@@ -411,7 +424,7 @@ export class Watchtower {
     log.log("Received: " + msg["msg"]);
     switch (msg["msg"]) {
       case "Status": {
-        self.elmStatus = msg.details
+        self.elmStatus = msg.details;
         self.diagnostics.clear();
         for (const project of msg["details"]) {
           if ("errors" in project.status) {
@@ -423,7 +436,7 @@ export class Watchtower {
                 problems.push({
                   code: "elm-compiler",
                   message: formatMessage(prob["message"]),
-                  range: regionToRange(prob["region"], {
+                  range: EditorCoords.regionToRange(prob["region"], {
                     uri: uri,
                     edits: self.editsSinceSave,
                   }),
@@ -449,7 +462,7 @@ export class Watchtower {
         break;
       }
       case "Warnings": {
-        self.elmWarninigs = msg.details
+        self.elmWarninigs = msg.details;
 
         self.statusFromWarningCount(msg.details.warnings.length);
         self.codelensProvider.setSignaturesFromWarnings(
@@ -464,7 +477,7 @@ export class Watchtower {
         log.log(msg.details.filepath);
         log.log(msg.details.docs[0].name);
 
-        self.elmDocs = msg.details.docs
+        self.elmDocs = msg.details.docs;
 
         // Turn off the interactive stuff while we get everything working smoothly
         // Interactive.generate(msg.details.docs, (interactiveJs) => {
@@ -487,35 +500,32 @@ export class Watchtower {
 
   // Panel Management
   showPanel(extensionPath) {
-    const self = this
-    const msgs = []
+    const self = this;
+    const msgs = [];
     if (self.elmStatus) {
-      msgs.push(PanelMsg.status(self.elmStatus))
+      msgs.push(PanelMsg.status(self.elmStatus));
     }
     if (self.elmWarninigs) {
-      msgs.push(PanelMsg.warnings(self.elmWarninigs))
+      msgs.push(PanelMsg.warnings(self.elmWarninigs));
     }
     if (self.elmEditorVisibility) {
-      msgs.push(PanelMsg.visibility(self.elmEditorVisibility))
+      msgs.push(PanelMsg.visibility(self.elmEditorVisibility));
     }
     if (self.elmCallGraph) {
-      msgs.push(PanelMsg.callgraph(self.elmCallGraph))
+      msgs.push(PanelMsg.callgraph(self.elmCallGraph));
     }
     if (self.elmExplanation) {
-      msgs.push(PanelMsg.explanation(self.elmExplanation))
+      msgs.push(PanelMsg.explanation(self.elmExplanation));
     }
 
     ElmProjectPane.createOrShow(extensionPath, msgs);
-
   }
 
   editorVisibilityUpdated(visibility) {
-    const self = this
-    self.elmEditorVisibility = visibility.details
-    ElmProjectPane.send(visibility)
+    const self = this;
+    self.elmEditorVisibility = visibility.details;
+    ElmProjectPane.send(visibility);
   }
-
-
 
   setup() {
     // log.log("Setting up! (which means doing nothing right now.");
@@ -605,7 +615,10 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
           } else {
             const uri = vscode.Uri.file(resp.definition.path);
 
-            const region = regionToRange(resp.definition.region, null);
+            const region = EditorCoords.regionToRange(
+              resp.definition.region,
+              null
+            );
 
             resolve(new vscode.Location(uri, region));
           }
@@ -613,341 +626,5 @@ export class ElmDefinitionProvider implements vscode.DefinitionProvider {
         reject
       );
     });
-  }
-}
-
-/* Codelens Provider! */
-
-type SignatureAction = {
-  signature: Question.MissingSignature;
-  filepath: string;
-};
-
-type SignatureFileCache = {
-  signatures: MissingSignature[];
-};
-
-type MissingSignature = {
-  missing: Question.MissingSignature;
-  lens: vscode.CodeLens;
-};
-
-function getDocumentMatching(uri: vscode.Uri): vscode.TextDocument | null {
-  const editor = vscode.window.activeTextEditor;
-
-  if (editor) {
-    if (editor.document.uri.toString() == uri.toString()) {
-      return editor.document;
-    }
-  }
-
-  return null;
-}
-
-function getEditorMatching(uri: vscode.Uri): vscode.TextEditor | null {
-  const editor = vscode.window.activeTextEditor;
-
-  if (editor) {
-    if (editor.document.uri.toString() == uri.toString()) {
-      return editor;
-    }
-  }
-
-  return null;
-}
-
-function lineCountDelta(edit) {
-  const oldLineCount = edit.range.end.line - edit.range.start.line;
-  const newLineCount = (edit.text.match(/\n/g) || "").length;
-  return newLineCount - oldLineCount;
-}
-
-/* Note: If this ever gets an invalid region, e.g. a line or column of 0,
- * then this will eventually hang forever. and cause regions to not display.
- */
-function regionToRange(
-  region,
-  maybeEditsSinceSave: {
-    uri: vscode.Uri;
-    edits: vscode.TextDocumentChangeEvent[];
-  } | null
-): vscode.Range {
-  let lineOffset = 0;
-  if (maybeEditsSinceSave != null) {
-    const uri = maybeEditsSinceSave.uri;
-
-    for (const edit of maybeEditsSinceSave.edits) {
-      if (edit.document.uri.fsPath == uri.fsPath) {
-        for (const change of edit.contentChanges) {
-          if (change.range.start.line < region.start.line) {
-            lineOffset += lineCountDelta(change);
-          }
-        }
-      }
-    }
-  }
-
-  return new vscode.Range(
-    Math.max(0, region.start.line - 1 + lineOffset),
-    Math.max(0, region.start.column - 1),
-    Math.max(0, region.end.line - 1 + lineOffset),
-    Math.max(0, region.end.column - 1)
-  );
-}
-
-function signatureToLens(
-  document: vscode.TextDocument,
-  signature: Question.MissingSignature,
-  onClick: any,
-  editsSinceSave: null | vscode.TextDocumentChangeEvent[]
-): vscode.CodeLens {
-  let edits = {
-    uri: document.uri,
-    edits: editsSinceSave,
-  };
-  if (editsSinceSave == null) {
-    edits = null;
-  }
-  const range = regionToRange(signature.region, edits);
-
-  let newLens = new vscode.CodeLens(range);
-
-  newLens.command = {
-    title: signature.name + " : " + signature.signature,
-    tooltip: "Add type signature",
-    command: "elm-dev.addTypeSignature",
-    arguments: [document, signature, onClick],
-  };
-  return newLens;
-}
-
-/**   DECORATIONS   **/
-
-const unusedValueDecorationType = vscode.window.createTextEditorDecorationType({
-  opacity: "0.5",
-  // overviewRulerColor: "#ff00ff",
-  // isWholeLine: true,
-  // overviewRulerLane: vscode.OverviewRulerLane.Full,
-});
-
-/**
- * CodelensProvider
- */
-export class SignatureCodeLensProvider implements vscode.CodeLensProvider {
-  private signatures: { [key: string]: SignatureFileCache } = {};
-  private actions: SignatureAction[] = [];
-  private _onDidChangeCodeLenses: vscode.EventEmitter<void> =
-    new vscode.EventEmitter<void>();
-  public readonly onDidChangeCodeLenses: vscode.Event<void> =
-    this._onDidChangeCodeLenses.event;
-
-  constructor() {
-    /*
-      vscode.workspace.onDidChangeConfiguration((_) => {
-          this._onDidChangeCodeLenses.fire();
-      });
-      */
-  }
-
-  // editsSinceSave is the dumb correction we need to make until
-  // the server is fast enough to return before edits can come in.
-  public setSignaturesFromWarnings(
-    filepath: string,
-    warnings: Question.Warning[],
-    editsSinceSave: vscode.TextDocumentChangeEvent[]
-  ) {
-    const self = this;
-    const uri = vscode.Uri.file(filepath);
-    const decorations: any[] = [];
-    const document = getDocumentMatching(uri);
-
-    // TODO! destroy existing codelenses
-    const signatures: any[] = [];
-    for (const warn of warnings) {
-      if (warn.warning == "MissingAnnotation") {
-        if (document != null) {
-          const sig: Question.MissingSignature = {
-            filepath: filepath,
-            name: warn.name,
-            region: warn.region,
-            signature: warn.signature,
-          };
-          const onClick = () => {
-            self.queueAction({
-              signature: sig,
-              filepath: document.uri.fsPath,
-            });
-          };
-          const lens = signatureToLens(document, sig, onClick, editsSinceSave);
-          signatures.push({ missing: sig, lens: lens });
-        }
-      } else if (warn.warning == "UnusedVariable") {
-        const dec = {
-          range: regionToRange(warn.region, {
-            uri: uri,
-            edits: editsSinceSave,
-          }),
-          hoverMessage: "This is unused.",
-        };
-        decorations.push(dec);
-      } else if (warn.warning == "UnusedImport") {
-        const range = regionToRange(warn.region, {
-          uri: uri,
-          edits: editsSinceSave,
-        });
-        // We do this so that the whole line is highlighted
-        // instead of just the import name
-        const line = document.lineAt(range.start.line);
-
-        const dec = {
-          range: line.range,
-          hoverMessage: "This is unused.",
-        };
-        decorations.push(dec);
-      }
-    }
-
-    const editor = getEditorMatching(vscode.Uri.file(filepath));
-    if (editor != null) {
-      editor.setDecorations(unusedValueDecorationType, decorations);
-    }
-
-    this.signatures[filepath] = {
-      signatures: signatures,
-    };
-    this._onDidChangeCodeLenses.fire();
-  }
-
-  public queueAction(action: SignatureAction) {
-    this.actions.push(action);
-    this._onDidChangeCodeLenses.fire();
-  }
-
-  private getSignaturesFor(filepath: string): MissingSignature[] {
-    if (filepath in this.signatures) {
-      return this.signatures[filepath].signatures;
-    } else {
-      return [];
-    }
-  }
-
-  public lineAdjustment(
-    document: vscode.TextDocument,
-    filepath: string,
-    affectedRange: vscode.Range,
-    lineCountChange: number
-  ) {
-    const self = this;
-    if (lineCountChange == 0) {
-      return;
-    }
-
-    if (filepath in self.signatures) {
-      // All signatures passed the affected range will be pushed or pulled.
-      if (filepath in self.signatures) {
-        for (const sig of this.signatures[filepath].signatures) {
-          if (affectedRange.start.line < sig.missing.region.start.line) {
-            // adjust signature
-            sig.missing.region.start.line += lineCountChange;
-            sig.missing.region.end.line += lineCountChange;
-
-            // adjust codelens
-            const onClick = () => {
-              self.queueAction({
-                signature: sig.missing,
-                filepath: document.uri.fsPath,
-              });
-            };
-            sig.lens = signatureToLens(document, sig.missing, onClick, null);
-          }
-        }
-      }
-    }
-  }
-
-  private runActions(document: vscode.TextDocument) {
-    const self = this;
-    for (const action of self.actions) {
-      const editor = vscode.window.activeTextEditor;
-
-      if (editor) {
-        const position = new vscode.Position(
-          action.signature.region.start.line - 1,
-          action.signature.region.start.column - 1
-        );
-        const newSignature =
-          action.signature.name + " : " + action.signature.signature + "\n";
-        editor.edit((editBuilder) => {
-          editBuilder.insert(position, newSignature);
-        });
-      }
-
-      // remove the signature from the list
-      if (document.uri.fsPath in self.signatures) {
-        const newSignatures: any[] = [];
-        for (const sig of self.getSignaturesFor(document.uri.fsPath)) {
-          if (action.signature.name !== sig.missing.name) {
-            newSignatures.push(sig);
-          }
-        }
-
-        // We don't need to call `setSignatures` because we're already in a render loop.
-        let existing = self.signatures[document.uri.fsPath];
-        existing.signatures = newSignatures;
-      }
-    }
-    self.actions = [];
-  }
-
-  /*
-    A Note on the Action thing here!
-
-
-    It's slightly non-ideal. So, if your spidey sense is tingling, here's why.
-
-    When a codelens is clicked, we want to
-      1. First, remove the codelens
-      2. Afterwards, insert the new type signature.
-
-    If we don't do this carefully, then we have a flash where
-    both the codelens and the new typesignature are present
-    before the codelens is deleted
-    and it looks janky.
-
-
-  */
-  public provideCodeLenses(
-    document: vscode.TextDocument,
-    token: vscode.CancellationToken
-  ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
-    const self = this;
-
-    // provide all code lenses as quickly as possible
-
-    if (document.uri.fsPath in self.signatures) {
-      const cache = self.signatures[document.uri.fsPath];
-      const lenses: any[] = [];
-      for (const sig of cache.signatures) {
-        lenses.push(sig.lens);
-      }
-
-      if (self.actions.length > 0) {
-        self.runActions(document);
-      }
-      return lenses;
-    }
-
-    // we don't have any type signatures
-    return [];
-  }
-
-  public resolveCodeLens(
-    codeLens: vscode.CodeLens,
-    token: vscode.CancellationToken
-  ) {
-    const self = this;
-    // This function will be called for each visible code lens, usually when scrolling and after calls to compute-lenses.
-    // It's for when codelenses are expensive to create
-    return codeLens;
   }
 }
