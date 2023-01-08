@@ -63,9 +63,7 @@ data Reference
         , _name :: Name
         , _type :: Can.Type
         }
-    | TypeReference 
-        TypeFragment
-        Ext.Dev.Lookup.LookupResult
+    | TypeReference TypeUsage Ext.Dev.Lookup.LookupResult
 
 data Source 
     = External ModuleName.Canonical
@@ -75,14 +73,26 @@ data Source
 
 
 toLookupCollection :: ReferenceCollection -> LookupCollection
-toLookupCollection (ReferenceCollection refMap types usedMods) =
+toLookupCollection (ReferenceCollection refMap types refUnions usedMods) =
     let
-        refs = Map.elems refMap 
+        -- This needs to come first because we want other instances 
+        -- to overwrite it if available
+        -- This is because UnionVariantUsage does not have type variable defs
+        lookupCollectionWithUnions = 
+            Map.foldrWithKey
+                (\(canMod, unionName) (unionDef, usages) found -> 
+                    let
+                        new = UnionVariantUsage canMod unionName usages
+                    in
+                    addFragment new found
+                )
+                emptyLookup
+                refUnions
 
         lookup =
-            List.foldl (flip getExternalTypeFragments) emptyLookup types
+            List.foldl (flip getExternalTypeUsages) lookupCollectionWithUnions types
     in
-    refs
+    Map.elems refMap
         & List.foldl getTypeLookups lookup
 
 getTypeLookups :: LookupCollection -> Reference -> LookupCollection
@@ -93,49 +103,56 @@ getTypeLookups found ref =
                 External canModName ->
                     found
                         & addFragment (Definition canModName name type_)
-                        & getExternalTypeFragments type_ 
+                        & getExternalTypeUsages type_ 
 
                 LetValue ->
-                    getExternalTypeFragments type_ found
+                    getExternalTypeUsages type_ found
       
       TypeReference fragment lookup ->
             found
 
-data TypeFragment
-    = TypeFragment ModuleName.Canonical Name [ Can.Type ]
-    | AliasFragment ModuleName.Canonical Name [(Name, Can.Type)] Can.AliasType
+data TypeUsage
+    = TypeUsage ModuleName.Canonical Name [ Can.Type ]
+    | AliasUsage ModuleName.Canonical Name [(Name, Can.Type)] Can.AliasType
     | Definition  ModuleName.Canonical Name Can.Type
+    | UnionVariantUsage ModuleName.Canonical Name (Set.Set Name)
     deriving (Eq, Show)
 
-getFragmentCanonicalName :: TypeFragment -> ModuleName.Canonical 
+getFragmentCanonicalName :: TypeUsage -> ModuleName.Canonical 
 getFragmentCanonicalName frag =
     case frag of
-        TypeFragment can name types ->
+        TypeUsage can name types ->
             can
 
-        AliasFragment can name vars aliasType ->
+        AliasUsage can name vars aliasType ->
             can
 
         Definition can name type_ ->
             can
+        
+        UnionVariantUsage can name usagse ->
+            can
 
 
-getFragmentName :: TypeFragment -> Name
+getFragmentName :: TypeUsage -> Name
 getFragmentName frag =
     case frag of
-        TypeFragment can name types ->
+        TypeUsage can name types ->
             name
 
-        AliasFragment can name vars aliasType ->
+        AliasUsage can name vars aliasType ->
             name
 
         Definition can name type_ ->
+            name
+
+        UnionVariantUsage can name usages ->
             name
 
 
 data LookupCollection =
     LookupCollection
-        { _fragments :: Map.Map ModuleName.Canonical (Map.Map Name TypeFragment)
+        { _fragments :: Map.Map ModuleName.Canonical (Map.Map Name TypeUsage)
         }
         deriving (Eq, Show)
 
@@ -145,7 +162,7 @@ emptyLookup =
     LookupCollection (Map.empty)
 
 
-addFragment :: TypeFragment -> LookupCollection -> LookupCollection
+addFragment :: TypeUsage -> LookupCollection -> LookupCollection
 addFragment fragment (LookupCollection fragments) =
     LookupCollection 
         (Map.alter 
@@ -161,25 +178,25 @@ addFragment fragment (LookupCollection fragments) =
             fragments
         )
 
-getExternalTypeFragments :: Can.Type -> LookupCollection -> LookupCollection
-getExternalTypeFragments canType collection =
+getExternalTypeUsages :: Can.Type -> LookupCollection -> LookupCollection
+getExternalTypeUsages canType collection =
     case canType of
         Can.TLambda one two ->
             collection
-                & getExternalTypeFragments one
-                & getExternalTypeFragments two
+                & getExternalTypeUsages one
+                & getExternalTypeUsages two
 
         Can.TVar name ->
             collection
 
         Can.TType canMod name varTypes ->
-            addFragment (TypeFragment canMod name varTypes)
+            addFragment (TypeUsage canMod name varTypes)
                 collection
 
         Can.TRecord fields extensibleName ->
             Map.foldl 
                 (\innerCollection (Can.FieldType _ fieldType) -> 
-                    getExternalTypeFragments fieldType innerCollection
+                    getExternalTypeUsages fieldType innerCollection
                 )
                 collection
                 fields
@@ -189,17 +206,17 @@ getExternalTypeFragments canType collection =
 
         Can.TTuple one two Nothing ->
               collection 
-                & getExternalTypeFragments one 
-                & getExternalTypeFragments two
+                & getExternalTypeUsages one 
+                & getExternalTypeUsages two
 
         Can.TTuple one two (Just three) ->
             collection
-                & getExternalTypeFragments one 
-                & getExternalTypeFragments two 
-                & getExternalTypeFragments three
+                & getExternalTypeUsages one 
+                & getExternalTypeUsages two 
+                & getExternalTypeUsages three
         
         Can.TAlias canMod name varTypes aliasType ->
-            addFragment (AliasFragment canMod name varTypes aliasType)
+            addFragment (AliasUsage canMod name varTypes aliasType)
                 collection
 
 
@@ -208,7 +225,7 @@ lookUpTypesByFragments root (LookupCollection fragments) =
     List.concat <$> Monad.mapM (findFragment root) (Map.toList fragments)
     
 
-        
+findFragment :: String -> ( ModuleName.Canonical, Map.Map Name TypeUsage) -> IO [ Reference ]      
 findFragment root (canMod, fragmentMap) =
     if isSkippable canMod then 
         pure []
@@ -245,9 +262,6 @@ isSkippable (ModuleName.Canonical (Package.Name author project) modName) =
            )
     
 
-
-
-
 explain :: String -> Watchtower.Editor.PointLocation -> IO (Maybe Explanation)
 explain root location@(Watchtower.Editor.PointLocation path _) = do
     (Ext.CompileProxy.Single source warnings canonical compiled) <- Ext.CompileProxy.loadSingle root path
@@ -261,14 +275,16 @@ explain root location@(Watchtower.Editor.PointLocation path _) = do
 
                 Just (Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val)) -> 
                     do
-                        let (refCollection@(ReferenceCollection refMap usedTypes usedModules)) = getFoundDefTypes def emptyRefCollection
-                        let refs = Map.elems refMap 
+                        let (refCollection@(ReferenceCollection refMap usedTypes refUnions usedModules)) = getFoundDefTypes def emptyRefCollection
+                        
+                       
                         foundTypeRefs <- lookUpTypesByFragments root 
                                             (toLookupCollection refCollection)
 
                         Ext.Log.log Ext.Log.Misc (show (List.length foundTypeRefs))
             
-                    
+                        let refs = Map.elems refMap 
+
                         pure 
                             (Just 
                                 (Explanation
@@ -289,6 +305,7 @@ explain root location@(Watchtower.Editor.PointLocation path _) = do
 
         (_, _) ->
              pure Nothing
+
 
 
 
@@ -316,29 +333,54 @@ data ReferenceCollection =
     ReferenceCollection 
         { _refs :: Map.Map (Source, Name) Reference
         , _types :: [ Can.Type ]
+        , _unionRef ::  Map.Map (ModuleName.Canonical, Name) (Can.Union, Set.Set Name)
         , _used :: Set.Set (ModuleName.Canonical, Name)
         }
 
 
 emptyRefCollection :: ReferenceCollection
 emptyRefCollection =
-    ReferenceCollection Map.empty [] Set.empty
+    ReferenceCollection Map.empty [] Map.empty Set.empty
 
 
 addRef :: Reference -> ReferenceCollection -> ReferenceCollection
-addRef (ref@(ValueReference mod name type_)) (ReferenceCollection refs usedTypes usedModules) =
+addRef (ref@(ValueReference mod name type_)) (ReferenceCollection refs usedTypes unions usedModules) =
     ReferenceCollection 
         (Map.insert (mod, name) ref refs)
         usedTypes
+        unions
         usedModules
 
 
 addType :: Can.Type -> ReferenceCollection -> ReferenceCollection
-addType type_ (ReferenceCollection refs usedTypes usedModules) =
+addType type_ (ReferenceCollection refs usedTypes unions usedModules) =
     ReferenceCollection 
         refs
         (type_ : usedTypes)
+        unions
         usedModules
+
+
+addUnion :: ModuleName.Canonical -> Name -> Can.Union -> Name -> ReferenceCollection -> ReferenceCollection
+addUnion canName typeName unionDef variantName (ReferenceCollection refs usedTypes unions usedModules) =
+    ReferenceCollection 
+        refs
+        usedTypes
+        (Map.alter 
+            (\maybeValue -> 
+             case maybeValue of
+                    Nothing ->
+                        Just (unionDef, Set.singleton variantName)
+                    
+                    Just (existingUnionDef, set) ->
+                        Just (existingUnionDef, Set.insert variantName set)
+                
+            )
+            (canName, typeName)
+            unions
+        )
+        usedModules
+
 
 
 
@@ -442,6 +484,7 @@ getPatternTypes pattern collec =
         Can.PCtor canName typeName union name index args ->
             -- We may want to return `Union` from ctor!
             collec
+                & addUnion canName typeName union name
 
 
 
@@ -664,7 +707,7 @@ encodeMaybe encoder maybe =
             encoder val
 
 
-encodeDefinition :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment ->  Src.Comment -> Json.Encode.Value
+encodeDefinition :: Reporting.Render.Type.Localizer.Localizer -> TypeUsage ->  Src.Comment -> Json.Encode.Value
 encodeDefinition localizer fragment comment  =
     Json.Encode.object 
         [ "name" ==> Json.Encode.name (getFragmentName fragment)
@@ -679,7 +722,7 @@ encodeDefinition localizer fragment comment  =
 
 
 
-encodeAlias :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment ->  Maybe Src.Comment -> Can.Alias -> Json.Encode.Value
+encodeAlias :: Reporting.Render.Type.Localizer.Localizer -> TypeUsage ->  Maybe Src.Comment -> Can.Alias -> Json.Encode.Value
 encodeAlias localizer fragment maybeComment (Can.Alias vars type_) =
     Json.Encode.object 
         [ "name" ==> Json.Encode.name (getFragmentName fragment)
@@ -697,7 +740,7 @@ encodeCanName (ModuleName.Canonical pkgName modName) =
         , "module" ==>  Json.Encode.chars (Name.toChars modName)
         ]   
 
-encodeCanUnion :: Reporting.Render.Type.Localizer.Localizer -> TypeFragment -> Maybe Src.Comment -> Can.Union -> Json.Encode.Value
+encodeCanUnion :: Reporting.Render.Type.Localizer.Localizer -> TypeUsage -> Maybe Src.Comment -> Can.Union -> Json.Encode.Value
 encodeCanUnion localizer fragment maybeComment (Can.Union vars ctors i opts) =
     Json.Encode.object 
         [ "name" ==> Json.Encode.name (getFragmentName fragment)
@@ -708,21 +751,24 @@ encodeCanUnion localizer fragment maybeComment (Can.Union vars ctors i opts) =
         ] 
 
 
-encodeVarList :: Reporting.Render.Type.Localizer.Localizer -> [ Name ] -> TypeFragment -> Json.Encode.Value
+encodeVarList :: Reporting.Render.Type.Localizer.Localizer -> [ Name ] -> TypeUsage -> Json.Encode.Value
 encodeVarList localizer varNames fragment =
     case fragment of
-        TypeFragment canName name varTypes ->
+        TypeUsage canName name varTypes ->
             Json.Encode.list
                 (encodeVar localizer)
                 (List.zip varNames varTypes)
 
-        AliasFragment canName name varNameTypes aliasType ->
+        AliasUsage canName name varNameTypes aliasType ->
             let 
                 varTypes = fmap snd varNameTypes
             in
             Json.Encode.list
                 (encodeVar localizer)
                 (List.zip varNames varTypes)
+
+        UnionVariantUsage canName name usages ->
+            Json.Encode.list id []
 
 
 
