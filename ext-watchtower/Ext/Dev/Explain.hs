@@ -348,7 +348,7 @@ addType type_ (ReferenceCollection refs usedTypes usedModules) =
 
 
 
-getFoundDefTypes :: Ext.Dev.Find.Source.Def -> ReferenceCollection  ->  ReferenceCollection
+getFoundDefTypes :: Ext.Dev.Find.Source.Def -> ReferenceCollection -> ReferenceCollection
 getFoundDefTypes foundDef collec =
     case foundDef of
         Ext.Dev.Find.Source.Def def ->
@@ -376,8 +376,18 @@ getDefTypes foundDef collec =
                     ) 
                     collec
                 & getExprTypes expr
-                & addRef (ValueReference LetValue name type_)
+                & addRef (ValueReference LetValue name (gatherFunctionType patterns type_))
 
+
+gatherFunctionType :: [ (Can.Pattern, Can.Type) ] -> Can.Type -> Can.Type
+gatherFunctionType patterns resultType  =
+    case patterns of
+        [] -> resultType
+
+        (pattern, type_) : remain ->
+            Can.TLambda type_ 
+                (gatherFunctionType remain resultType)
+            
 
 getPatternTypes :: Can.Pattern -> ReferenceCollection -> ReferenceCollection
 getPatternTypes pattern collec =
@@ -735,7 +745,9 @@ encodeUnionVariant localizer (Can.Ctor name _ _ args) =
 
 encodeCanType :: Reporting.Render.Type.Localizer.Localizer -> Can.Type -> Json.Encode.Value
 encodeCanType localizer type_ =
-    Reporting.Doc.encode
-        (Reporting.Render.Type.canToDoc localizer Reporting.Render.Type.None type_)
+    Json.Encode.chars
+        (Reporting.Doc.toLine
+            (Reporting.Render.Type.canToDoc localizer Reporting.Render.Type.None type_)
+        )
     
     
