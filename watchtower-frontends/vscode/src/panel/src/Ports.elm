@@ -175,8 +175,7 @@ decodeCase =
 
 decodeType : Decode.Decoder Type
 decodeType =
-    Decode.list Decode.string
-        |> Decode.map (String.join "")
+    Decode.string
         |> Decode.andThen
             (\str ->
                 Decode.map
@@ -417,7 +416,16 @@ incomingDecoder =
                             _ =
                                 Debug.log "UNRECOGNIZED INCOMING MSG" msg
                         in
-                        Decode.fail "UNRECOGNIZED INCOMING MSG"
+                        Decode.value
+                            |> Decode.andThen
+                                (\val ->
+                                    -- let
+                                    --     _ =
+                                    --         Debug.log "    "
+                                    --             (Json.Encode.encode 4 val)
+                                    -- in
+                                    Decode.fail "UNRECOGNIZED INCOMING MSG"
+                                )
             )
 
 
