@@ -23,6 +23,7 @@ import Set exposing (Set)
 import Time
 import Time.Distance
 import Ui
+import Ui.Card
 
 
 main : Program () Model Msg
@@ -784,87 +785,59 @@ isCursorPresent editors path region =
 
 
 viewIssueDetails errorCodeExpanded expanded cursorPresent file issue =
-    Ui.row
-        [ Ui.width Ui.fill
-        , Ui.space.md
-        , Ui.pad.xl
-        , Ui.rounded.md
-        , Ui.background.dark
-        , if cursorPresent then
-            Ui.border.dark.light
+    Ui.Card.view
+        { title = String.trim issue.title
+        , hint =
+            Just <|
+                if issue.region.start.row == issue.region.end.row then
+                    "line " ++ String.fromInt issue.region.start.row
 
-          else
-            Ui.border.dark.medium
-        , Border.width 1
-        ]
-        [ Ui.column
-            [ if expanded then
-                Ui.htmlAttribute (Html.Attributes.class "")
+                else
+                    "lines "
+                        ++ String.fromInt issue.region.start.row
+                        ++ "–"
+                        ++ String.fromInt issue.region.end.row
+        , highlight = cursorPresent
+        , onClick =
+            if expanded then
+                Nothing
 
-              else
-                Events.onClick (EditorGoTo file.path issue.region)
+            else
+                Just (EditorGoTo file.path issue.region)
+        }
+        [ Ui.el
+            [ Ui.width Ui.fill
             , if expanded then
-                Ui.htmlAttribute (Html.Attributes.class "")
+                Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 280ms, opacity 150ms")
 
               else
-                Ui.pointer
-            , Ui.width Ui.fill
-            ]
-            [ Ui.row [ Ui.space.md, Ui.width Ui.fill ]
-                [ Ui.el []
-                    (Ui.text (String.trim issue.title))
-                , if issue.region.start.row == issue.region.end.row then
-                    Ui.el
-                        [ Ui.font.dark.light
-                        , Ui.alignRight
-                        ]
-                        (Ui.text ("line " ++ String.fromInt issue.region.start.row))
+                Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 200ms, opacity 150ms")
+            , if expanded then
+                Ui.htmlAttribute (Html.Attributes.style "overflow" "visible")
 
-                  else
-                    Ui.row
-                        [ Ui.font.dark.light
-                        , Ui.alignRight
-                        ]
-                        [ Ui.text "lines "
-                        , Ui.text (String.fromInt issue.region.start.row)
-                        , Ui.text "–"
-                        , Ui.text (String.fromInt issue.region.end.row)
-                        ]
-                ]
-            , Ui.el
-                [ Ui.width Ui.fill
-                , if expanded then
-                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 280ms, opacity 150ms")
+              else
+                Ui.htmlAttribute (Html.Attributes.style "overflow" "hidden")
+            , if expanded then
+                Ui.alpha 1
 
-                  else
-                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 200ms, opacity 150ms")
-                , if expanded then
-                    Ui.htmlAttribute (Html.Attributes.style "overflow" "visible")
+              else
+                Ui.alpha 0
+            , Ui.htmlAttribute
+                (Html.Attributes.style "max-height"
+                    (if expanded then
+                        "1500px"
 
-                  else
-                    Ui.htmlAttribute (Html.Attributes.style "overflow" "hidden")
-                , if expanded then
-                    Ui.alpha 1
-
-                  else
-                    Ui.alpha 0
-                , Ui.htmlAttribute
-                    (Html.Attributes.style "max-height"
-                        (if expanded then
-                            "1500px"
-
-                         else
-                            "0px"
-                        )
+                     else
+                        "0px"
                     )
-                ]
-                (Ui.paragraph
-                    [ Ui.pad.xy.zero.lg
-                    , Ui.precise
-                    ]
-                    (List.indexedMap (viewText file issue errorCodeExpanded) issue.message)
                 )
             ]
+            (Ui.paragraph
+                [ Ui.pad.xy.zero.lg
+                , Ui.precise
+                ]
+                (List.indexedMap (viewText file issue errorCodeExpanded) issue.message)
+            )
         ]
 
 

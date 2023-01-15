@@ -1,7 +1,7 @@
 port module Ports exposing
     ( Incoming(..), Outgoing(..), incoming, outgoing, Warning(..)
     , CallGraphNode, Call, CallType(..)
-    , Fact(..), Module
+    , Fact(..), FactDetails(..), Module
     , Source(..), Type
     )
 
@@ -11,7 +11,7 @@ port module Ports exposing
 
 @docs CallGraphNode, Call, CallType
 
-@docs Fact, Module
+@docs Fact, FactDetails, Module
 
 -}
 
@@ -54,7 +54,8 @@ type Incoming
         , callgraph : List CallGraphNode
         }
     | ExplanationReceived
-        { filepath : String
+        { modulename : String
+        , filepath : String
         , definition : ExplainedDefinition
         , facts : List Fact
         }
@@ -70,6 +71,14 @@ type alias ExplainedDefinition =
 
 
 type Fact
+    = Fact
+        { source : Source
+        , name : String
+        , details : FactDetails
+        }
+
+
+type FactDetails
     = Value ValueDetails
     | Union UnionDetails
     | Alias AliasDetails
@@ -77,9 +86,7 @@ type Fact
 
 
 type alias ValueDetails =
-    { source : Source
-    , name : String
-    , type_ : Type
+    { type_ : Type
     }
 
 
@@ -111,14 +118,14 @@ type alias AliasDetails =
 
 
 type alias DefDetails =
-    { name : String
-    , type_ : Maybe Type
+    { type_ : Maybe Type
     , comment : String
     }
 
 
 type Source
-    = LocalSource
+    = SourceLet
+    | SourceDeclaration
     | External Module
 
 
@@ -130,6 +137,17 @@ type alias Module =
 
 decodeFact : Decode.Decoder Fact
 decodeFact =
+    Decode.map3
+        (\source name details ->
+            Fact { source = source, name = name, details = details }
+        )
+        (Decode.field "source" decodeSource)
+        (Decode.field "name" Decode.string)
+        decodeFactDetails
+
+
+decodeFactDetails : Decode.Decoder FactDetails
+decodeFactDetails =
     Decode.oneOf
         [ Decode.map Union
             (Decode.field "union"
@@ -152,15 +170,12 @@ decodeFact =
             )
         , Decode.map Def
             (Decode.field "definition"
-                (Decode.map3 DefDetails
-                    (Decode.field "name" Decode.string)
+                (Decode.map2 DefDetails
                     (Decode.field "type" (Decode.nullable decodeType))
                     (Decode.field "comment" Decode.string)
                 )
             )
-        , Decode.map3 ValueDetails
-            (Decode.field "source" decodeSource)
-            (Decode.field "name" Decode.string)
+        , Decode.map ValueDetails
             (Decode.field "type" decodeType)
             |> Decode.map Value
         ]
@@ -194,11 +209,15 @@ decodeSource =
         [ Decode.string
             |> Decode.andThen
                 (\str ->
-                    if str == "local" then
-                        Decode.succeed LocalSource
+                    case str of
+                        "let" ->
+                            Decode.succeed SourceLet
 
-                    else
-                        Decode.fail "Data source is not local"
+                        "declaration" ->
+                            Decode.succeed SourceDeclaration
+
+                        _ ->
+                            Decode.fail "Data source is not local"
                 )
         , Decode.map External decodeModule
         ]
@@ -388,13 +407,17 @@ incomingDecoder =
 
                     "Explanation" ->
                         Decode.field "details"
-                            (Decode.map3
-                                (\filepath definition facts ->
+                            (Decode.map4
+                                (\modName filepath definition facts ->
                                     ExplanationReceived
-                                        { filepath = filepath
+                                        { modulename = modName
+                                        , filepath = filepath
                                         , definition = definition
                                         , facts = facts
                                         }
+                                )
+                                (Decode.field "explanation"
+                                    (Decode.field "moduleName" Decode.string)
                                 )
                                 (Decode.field "filepath"
                                     Decode.string

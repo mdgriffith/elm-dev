@@ -2,8 +2,9 @@ module Ui exposing
     ( anim
     , space, pad
     , background, border, font
-    , when, whenJust, precise, rounded
+    , when, whenJust, precise, rounded, noAttr
     , overrides
+    , maybeAttr
     , header, showLive, transition
     )
 
@@ -14,9 +15,11 @@ module Ui exposing
 
 @docs background, border, font
 
-@docs when, whenJust, precise, rounded
+@docs when, whenJust, precise, rounded, noAttr
 
 @docs overrides
+
+@docs noAttr, maybeAttr
 
 -}
 
@@ -329,3 +332,18 @@ whenJust maybe fn =
 
         Just a ->
             fn a
+
+
+noAttr : Attribute msg
+noAttr =
+    Ui.htmlAttribute (Attr.class "")
+
+
+maybeAttr : Maybe (Attribute msg) -> Attribute msg
+maybeAttr maybe =
+    case maybe of
+        Nothing ->
+            noAttr
+
+        Just attr ->
+            attr
