@@ -55,7 +55,7 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Helpful tulity to generate a stylesheet with all the vscode colors
+  // Helpful utility to generate a stylesheet with all the vscode colors
   // const styleString = await vscode.workspace.openTextDocument(
   //   vscode.Uri.parse("vscode://schemas/workbench-colors")
   // );

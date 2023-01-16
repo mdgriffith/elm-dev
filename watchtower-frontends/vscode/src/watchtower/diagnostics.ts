@@ -16,10 +16,10 @@ export class WatchTowerDiagnostics {
       // opacity: "0.5",
       overviewRulerColor: "#ff00ff",
       isWholeLine: true,
-      borderWidth: "0 0 0 2px",
-      borderColor: new vscode.ThemeColor("errorForeground"),
+      borderWidth: "0px 0px 3px 3px",
+      borderColor: new vscode.ThemeColor("inputValidation.errorBackground"),
       borderStyle: "solid",
-      backgroundColor: new vscode.ThemeColor("inputValidation.errorBackground"),
+      // backgroundColor: new vscode.ThemeColor("inputValidation.errorBackground"),
       // overviewRulerLane: vscode.OverviewRulerLane.Full,
     });
   }
