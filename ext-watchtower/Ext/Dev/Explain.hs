@@ -44,6 +44,7 @@ import qualified Ext.Log
 data Explanation =
     Explanation
         { _localizer :: Reporting.Render.Type.Localizer.Localizer
+        , _modulename :: Name
         , _declaration :: DeclarationMetadata
         , _references :: [ Reference ]
         }
@@ -67,6 +68,7 @@ data Reference
 
 data Source 
     = External ModuleName.Canonical
+    | TopLevelDeclaration
     | LetValue
     deriving (Eq, Ord, Show)
   
@@ -106,6 +108,9 @@ getTypeLookups found ref =
                         & getExternalTypeUsages type_ 
 
                 LetValue ->
+                    getExternalTypeUsages type_ found
+
+                TopLevelDeclaration ->
                     getExternalTypeUsages type_ found
       
       TypeReference fragment lookup ->
@@ -289,6 +294,7 @@ explain root location@(Watchtower.Editor.PointLocation path _) = do
                             (Just 
                                 (Explanation
                                     localizer
+                                    (Src.getName srcModule)
                                     (getDeclarationMetadata pos def)
                                     (refs <> foundTypeRefs)
                                 )
@@ -394,14 +400,14 @@ getFoundDefTypes :: Ext.Dev.Find.Source.Def -> ReferenceCollection -> ReferenceC
 getFoundDefTypes foundDef collec =
     case foundDef of
         Ext.Dev.Find.Source.Def def ->
-            getDefTypes def collec
+            getDefTypes True def collec
 
         Ext.Dev.Find.Source.DefRecursive def otherDefs ->
-            getDefTypes def collec
+            getDefTypes True def collec
 
 
-getDefTypes :: Can.Def ->  ReferenceCollection ->  ReferenceCollection
-getDefTypes foundDef collec =
+getDefTypes :: Bool -> Can.Def ->  ReferenceCollection ->  ReferenceCollection
+getDefTypes isTopLevel foundDef collec =
     case foundDef of
         Can.Def locatedName patterns expr ->
             patterns
@@ -418,7 +424,7 @@ getDefTypes foundDef collec =
                     ) 
                     collec
                 & getExprTypes expr
-                & addRef (ValueReference LetValue name (gatherFunctionType patterns type_))
+                & addRef (ValueReference (if isTopLevel then TopLevelDeclaration else LetValue) name (gatherFunctionType patterns type_))
 
 
 gatherFunctionType :: [ (Can.Pattern, Can.Type) ] -> Can.Type -> Can.Type
@@ -561,14 +567,14 @@ getExprTypes expr collec =
 
         Can.Let innerDef inner -> 
             collec 
-                & getDefTypes innerDef
+                & getDefTypes False innerDef
                 & getExprTypes inner
 
         Can.LetRec innerDefs inner -> 
             List.foldl 
                 (\innerCollec letDef -> 
                     innerCollec
-                        & getDefTypes letDef
+                        & getDefTypes False letDef
                 )
                 collec
                 innerDefs
@@ -637,16 +643,17 @@ annotationToType modName name (Can.Forall vars type_) collec =
 {- JSON ENCODING -}
 
 encode :: Explanation -> Json.Encode.Value
-encode (Explanation localizer def references) =
+encode (Explanation localizer moduleName def references) =
     Json.Encode.object
-        [ "definition" ==> encodeDefinitionMetadata localizer def
+        [ "moduleName" ==> Json.Encode.name moduleName
+        , "definition" ==> encodeDefinitionMetadata localizer def
         , "facts" ==>
             Json.Encode.list
-                (encodeReference localizer)
+                (encodeFact localizer)
                 references
         ]
     
-encodeDefinitionMetadata ::  Reporting.Render.Type.Localizer.Localizer ->  DeclarationMetadata -> Json.Encode.Value
+encodeDefinitionMetadata :: Reporting.Render.Type.Localizer.Localizer ->  DeclarationMetadata -> Json.Encode.Value
 encodeDefinitionMetadata localizer (DeclarationMetadata name maybeType region recursive) =
     Json.Encode.object 
         [ "name" ==> Json.Encode.chars (Name.toChars name)
@@ -660,8 +667,8 @@ encodeDefinitionMetadata localizer (DeclarationMetadata name maybeType region re
         ]   
 
 
-encodeReference :: Reporting.Render.Type.Localizer.Localizer -> Reference -> Json.Encode.Value
-encodeReference localizer ref =
+encodeFact :: Reporting.Render.Type.Localizer.Localizer -> Reference -> Json.Encode.Value
+encodeFact localizer ref =
     case ref of
         ValueReference source name canType ->
             Json.Encode.object 
@@ -671,26 +678,38 @@ encodeReference localizer ref =
                             encodeCanName modName
 
                         LetValue ->
-                            Json.Encode.chars "local"
+                            Json.Encode.chars "let"
+
+                        TopLevelDeclaration ->
+                            Json.Encode.chars "declaration"
                 , "name" ==> Json.Encode.chars (Name.toChars name)
                 , "type" ==> encodeCanType localizer canType
                 ]
 
         TypeReference fragment (Ext.Dev.Lookup.Union maybeComment canUnion) ->
             Json.Encode.object 
-                [ "union" ==> 
+                [ "source" ==> 
+                    encodeCanName (getFragmentCanonicalName fragment)
+                , "name" ==> Json.Encode.name (getFragmentName fragment)
+                , "union" ==> 
                     encodeCanUnion localizer fragment maybeComment canUnion
                 ]
         
         TypeReference fragment (Ext.Dev.Lookup.Alias maybeComment alias) ->
             Json.Encode.object 
-                [ "alias" ==> 
+                [ "source" ==> 
+                    encodeCanName (getFragmentCanonicalName fragment)
+                , "name" ==> Json.Encode.name (getFragmentName fragment)
+                , "alias" ==> 
                     encodeAlias localizer fragment maybeComment alias
                 ]
 
         TypeReference fragment (Ext.Dev.Lookup.Def comment) ->
             Json.Encode.object 
-                [ "definition" ==> 
+                [ "source" ==> 
+                    encodeCanName (getFragmentCanonicalName fragment)
+                , "name" ==> Json.Encode.name (getFragmentName fragment)
+                , "definition" ==> 
                     encodeDefinition localizer fragment comment
                 ]
 
@@ -710,8 +729,7 @@ encodeMaybe encoder maybe =
 encodeDefinition :: Reporting.Render.Type.Localizer.Localizer -> TypeUsage ->  Src.Comment -> Json.Encode.Value
 encodeDefinition localizer fragment comment  =
     Json.Encode.object 
-        [ "name" ==> Json.Encode.name (getFragmentName fragment)
-        , "type" ==> (case fragment of
+        [ "type" ==> (case fragment of
                             Definition canName name type_ ->
                                 encodeCanType localizer type_
                             _ -> 
