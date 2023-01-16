@@ -84,7 +84,10 @@ export class ElmProjectPane {
     return false;
   }
 
-  public static createOrShow(extensionPath: string, msgs:  Message.ToProjectPanel[]) {
+  public static createOrShow(
+    extensionPath: string,
+    msgs: Message.ToProjectPanel[]
+  ) {
     // If we already have a panel, show it.
     if (ElmProjectPane.currentPanel) {
       ElmProjectPane.currentPanel._panel.reveal(vscode.ViewColumn.Two);
@@ -115,7 +118,6 @@ export class ElmProjectPane {
     for (const msg of msgs) {
       ElmProjectPane.currentPanel._panel.webview.postMessage(msg);
     }
-    
   }
 
   public static revive(panel: vscode.WebviewPanel, extensionPath: string) {
@@ -179,8 +181,8 @@ export class ElmProjectPane {
                   <title>Elm Live Project</title>
               </head>
               <body>
-                  <div style="position:fixed; left:0; top:0; width: 100vw;height:100vw;">
-                    <div id="main" style="width: 100vw;height:100vw;"></div>
+                  <div style="position:fixed; left:0; top:0; width: 100vw;height:100vh;">
+                    <div id="main" style="width: 100vw;height:100vh;"></div>
                   </div>
                   <!-- The second div is our interactive App, which can be reloaded arbitrarily -->
                   <div id="live" style="display:none; position:fixed; left:0; top:0; width: 100vw;height:100vw;">
