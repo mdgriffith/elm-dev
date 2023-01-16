@@ -29,6 +29,7 @@ import Element.Border as Border
 import Element.Font as Font
 import Html exposing (Html)
 import Html.Attributes as Attr
+import VSCode.Colors
 
 
 showLive =
@@ -45,7 +46,7 @@ live =
 
 
 overrides =
-    Html.node "style" [] [ Html.text stylesheet ]
+    Html.node "style" [] [ Html.text (stylesheet ++ VSCode.Colors.stylesheet) ]
 
 
 stylesheet =
@@ -73,7 +74,6 @@ body {
 .base {
     background-color: var(--vscode-editor-background) !important;
     color: var(--vscode-editor-foreground) !important;
-    /*font-family: "Fira Code" !important; */
     font-family: var(--vscode-editor-font-family) !important;
     font-weight: var(--vscode-editor-font-weight) !important;
     font-size: var(--vscode-editor-font-size) !important;

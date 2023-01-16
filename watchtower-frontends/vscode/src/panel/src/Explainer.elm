@@ -13,6 +13,8 @@ import Ports
 import Ui
 import Ui.Card
 import Ui.Type
+import VSCode.Colors
+import VSCode.SyntaxColors as Syntax
 
 
 view : List Ports.Fact -> Ui.Element msg
@@ -22,8 +24,10 @@ view facts =
         , Ui.space.lg
 
         --, Ui.height (Ui.px 1000)
-        , Ui.height Ui.fill
+        -- , Ui.height Ui.fill
+        , Ui.htmlAttribute (Html.Attributes.style "height" "100vh")
         , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
+        , Ui.htmlAttribute (Html.Attributes.style "padding-bottom" "200px")
         ]
         (facts
             |> List.sortBy moduleIdentity
@@ -101,23 +105,51 @@ viewFact (Ports.Fact fact) =
             else
                 Just <|
                     Ui.row []
-                        [ Ui.text (fact.name ++ " : ")
+                        [ Ui.row [ Ui.alignTop ]
+                            [ Ui.el [ Syntax.declaration ] (Ui.text fact.name)
+                            , Ui.el [ Syntax.keyword ] (Ui.text " : ")
+                            ]
                         , viewType value.type_
                         ]
 
         Ports.Union union ->
             Just <|
                 Ui.column
-                    []
-                    [ Ui.el [] (Ui.text ("type " ++ union.name ++ " ="))
-                    , Ui.column
-                        [ Ui.pad.md
-                        , Ui.space.sm
+                    [ Ui.space.sm ]
+                    [ Ui.row [ Ui.alignTop ]
+                        [ Ui.el [ Syntax.keyword ] (Ui.text "type ")
+                        , Ui.el [ Syntax.type_ ] (Ui.text union.name)
                         ]
-                        (List.map
-                            viewUnionCase
-                            union.cases
-                        )
+                    , Ui.row []
+                        [ Ui.text "   "
+                        , Ui.column
+                            [ Ui.space.sm
+                            ]
+                            (List.foldl
+                                (\variant ( isFirst, children ) ->
+                                    ( False
+                                    , Ui.row
+                                        []
+                                        [ Ui.el [ Syntax.keyword, Ui.alignTop ] <|
+                                            if isFirst then
+                                                Ui.text "= "
+
+                                            else
+                                                Ui.text "| "
+                                        , Ui.el [ Syntax.variant, Ui.alignTop ] (Ui.text variant.name)
+                                        , Ui.text " "
+                                        , Ui.row [ Ui.space.md ]
+                                            (List.map viewType variant.types_)
+                                        ]
+                                        :: children
+                                    )
+                                )
+                                ( True, [] )
+                                union.cases
+                                |> Tuple.second
+                                |> List.reverse
+                            )
+                        ]
                     , Ui.whenJust union.comment <|
                         \comment ->
                             Ui.el [ Ui.pad.md ] (Ui.text comment)
@@ -126,9 +158,16 @@ viewFact (Ports.Fact fact) =
         Ports.Alias alias_ ->
             Just <|
                 Ui.column
-                    []
-                    [ Ui.el [] (Ui.text ("type alias " ++ alias_.name ++ " ="))
-                    , Ui.el [ Ui.pad.md ] (viewType alias_.type_)
+                    [ Ui.space.sm ]
+                    [ Ui.row []
+                        [ Ui.el [ Syntax.keyword ] (Ui.text "type alias ")
+                        , Ui.el [ Syntax.type_ ] (Ui.text alias_.name)
+                        , Ui.el [ Syntax.keyword ] (Ui.text " =")
+                        ]
+                    , Ui.row []
+                        [ Ui.text "    "
+                        , viewType alias_.type_
+                        ]
                     , Ui.whenJust alias_.comment <|
                         \comment ->
                             Ui.el [ Ui.pad.md ] (Ui.text comment)
@@ -138,7 +177,7 @@ viewFact (Ports.Fact fact) =
             Just <|
                 Ui.column
                     []
-                    [ Ui.el [] (Ui.text fact.name)
+                    [ Ui.el [ Ui.alignTop, Syntax.declaration ] (Ui.text fact.name)
                     , Ui.whenJust def.type_ <|
                         viewType
                     , Ui.el [ Ui.pad.md ] (Ui.text def.comment)

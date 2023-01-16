@@ -7,15 +7,17 @@ import Element.Font as Font
 import Element.Keyed as Keyed
 import Elm.Type
 import Ui
+import VSCode.SyntaxColors as Syntax
 
 
 view : Elm.Type.Type -> Ui.Element msg
 view tipe =
-    if linearWidth tipe > 50 then
-        viewMultiline 4 tipe
-
-    else
-        viewSingleLine tipe
+    -- if linearWidth tipe > 50 then
+    --     viewMultiline 4 tipe
+    -- else
+    --     viewSingleLine tipe
+    viewNew (linearWidth tipe > 50) 0 tipe
+        |> .content
 
 
 linearWidth : Elm.Type.Type -> Int
@@ -40,8 +42,8 @@ linearWidth tipe =
         Elm.Type.Record fields Nothing ->
             recordWidth
                 + sumWith
-                    (\( fieldName, fieldType ) ->
-                        4 + String.length fieldName + linearWidth fieldType
+                    (\( name, fieldType ) ->
+                        4 + String.length name + linearWidth fieldType
                     )
                     fields
                 + spacingWidth 2 fields
@@ -50,8 +52,8 @@ linearWidth tipe =
             String.length extensibleName
                 + recordWidth
                 + sumWith
-                    (\( fieldName, fieldType ) ->
-                        3 + String.length fieldName + linearWidth fieldType
+                    (\( name, fieldType ) ->
+                        3 + String.length name + linearWidth fieldType
                     )
                     fields
                 + spacingWidth 2 fields
@@ -88,149 +90,346 @@ recordWidth =
     4
 
 
-viewSingleLine : Elm.Type.Type -> Ui.Element msg
-viewSingleLine tipe =
-    case tipe of
-        Elm.Type.Var var ->
-            Ui.text var
-
-        Elm.Type.Lambda one two ->
-            Ui.row []
-                [ viewSingleLine one
-                , Ui.text " -> "
-                , viewSingleLine two
-                ]
-
-        Elm.Type.Tuple vals ->
-            Ui.row []
-                [ Ui.text "( "
-                , Ui.row []
-                    (List.map viewSingleLine vals
-                        |> List.intersperse (Ui.text ", ")
-                    )
-                , Ui.text " )"
-                ]
-
-        Elm.Type.Type typename [] ->
-            Ui.text typename
-
-        Elm.Type.Type typename varTypes ->
-            Ui.row []
-                [ Ui.text typename
-                , Ui.text " "
-                , Ui.row []
-                    (List.map viewSingleLine varTypes
-                        |> List.intersperse (Ui.text " ")
-                    )
-                ]
-
-        Elm.Type.Record fields Nothing ->
-            Ui.row []
-                [ Ui.text "{ "
-                , Ui.row []
-                    (List.map viewSingleLineField fields
-                        |> List.intersperse (Ui.text ", ")
-                    )
-                , Ui.text " }"
-                ]
-
-        Elm.Type.Record fields (Just extensibleName) ->
-            Ui.row []
-                [ Ui.text ("{ " ++ extensibleName ++ " | ")
-                , Ui.row []
-                    (List.map viewSingleLineField fields
-                        |> List.intersperse (Ui.text ", ")
-                    )
-                , Ui.text " }"
-                ]
-
-
-viewSingleLineField ( name, type_ ) =
-    Ui.row []
-        [ Ui.text name
-        , Ui.text " : "
-        , viewSingleLine type_
-        ]
-
-
-viewMultiline : Int -> Elm.Type.Type -> Ui.Element msg
-viewMultiline indent tipe =
-    case tipe of
-        Elm.Type.Var var ->
-            Ui.text var
-
-        Elm.Type.Lambda one two ->
-            Ui.column []
-                [ viewMultiline indent one
-                , Ui.row [] [ Ui.text " -> ", viewMultiline indent two ]
-                ]
-
-        Elm.Type.Tuple vals ->
-            Ui.row []
-                [ Ui.text "( "
-                , Ui.row []
-                    (List.map (viewMultiline indent) vals
-                        |> List.intersperse (Ui.text ", ")
-                    )
-                , Ui.text " )"
-                ]
-
-        Elm.Type.Type typename [] ->
-            Ui.text typename
-
-        Elm.Type.Type typename varTypes ->
-            Ui.row []
-                [ Ui.text typename
-                , Ui.text " "
-                , Ui.row []
-                    (List.map (viewMultiline indent) varTypes
-                        |> List.intersperse (Ui.text " ")
-                    )
-                ]
-
-        Elm.Type.Record fields Nothing ->
-            Ui.column [ indentPadding indent, Ui.space.sm ]
-                (List.foldl
-                    (\field ( isFirst, gathered ) ->
-                        ( False, viewField isFirst indent field :: gathered )
-                    )
-                    ( True, [] )
-                    fields
-                    |> Tuple.second
-                    |> (::) (Ui.text "}")
-                    |> List.reverse
-                )
-
-        Elm.Type.Record fields (Just extensibleName) ->
-            Ui.column [ indentPadding indent, Ui.space.sm ]
-                (List.foldl
-                    (\field ( isFirst, gathered ) ->
-                        ( False, viewField isFirst indent field :: gathered )
-                    )
-                    ( True, [] )
-                    fields
-                    |> Tuple.second
-                    |> (::) (Ui.text "}")
-                    |> List.reverse
-                )
-
-
+indentPadding : Int -> Ui.Attribute msg
 indentPadding indent =
     Ui.paddingXY
         (indent * 8)
         0
 
 
-viewField isFirst indent ( name, type_ ) =
+parens : Ui.Element msg -> Ui.Element msg
+parens content =
     Ui.row []
-        [ Ui.text
-            (if isFirst then
-                "{ "
-
-             else
-                ", "
-            )
-        , Ui.text name
-        , Ui.text " : "
-        , viewSingleLine type_
+        [ punctuation "("
+        , content
+        , punctuation ")"
         ]
+
+
+addParens : Elm.Type.Type -> Ui.Element msg -> Ui.Element msg
+addParens tipe elem =
+    case tipe of
+        Elm.Type.Lambda _ _ ->
+            parens elem
+
+        Elm.Type.Type _ [] ->
+            elem
+
+        Elm.Type.Type _ _ ->
+            parens elem
+
+        _ ->
+            elem
+
+
+addParensInFunction : Elm.Type.Type -> Ui.Element msg -> Ui.Element msg
+addParensInFunction tipe elem =
+    case tipe of
+        Elm.Type.Lambda _ _ ->
+            parens elem
+
+        _ ->
+            elem
+
+
+viewNew :
+    Bool
+    -> Int
+    -> Elm.Type.Type
+    ->
+        { content : Ui.Element msg
+        , multiline : Bool
+        }
+viewNew forceMultiline indent tipe =
+    case tipe of
+        Elm.Type.Var var ->
+            { multiline = forceMultiline
+            , content = Ui.el [ Syntax.typevar, Ui.alignTop ] (Ui.text var)
+            }
+
+        Elm.Type.Lambda one two ->
+            let
+                oneRendered =
+                    viewNew forceMultiline indent one
+
+                twoRendered =
+                    viewFnArgs forceMultiline indent two
+
+                multiline =
+                    forceMultiline || oneRendered.multiline || twoRendered.multiline
+
+                realMultiline =
+                    if multiline then
+                        multiline
+
+                    else
+                        linearWidth tipe > 50
+            in
+            { multiline = realMultiline
+            , content =
+                columnIf realMultiline
+                    []
+                    (addParensInFunction one oneRendered.content
+                        :: twoRendered.items
+                    )
+            }
+
+        Elm.Type.Tuple vals ->
+            let
+                renderedItems =
+                    viewList forceMultiline
+                        indent
+                        (viewNew forceMultiline (indent + 4))
+                        vals
+                        { rowSpacer = Ui.el [ Syntax.punctuation ] (Ui.text ", ")
+                        , columnSpacer = Ui.el [ Syntax.punctuation ] (Ui.text ", ")
+                        }
+            in
+            { multiline = forceMultiline || renderedItems.multiline
+            , content =
+                renderedItems.content
+                    |> parens
+            }
+
+        Elm.Type.Type typename [] ->
+            { multiline = forceMultiline
+            , content = Ui.el [ Syntax.type_, Ui.alignTop ] (Ui.text typename)
+            }
+
+        Elm.Type.Type typename varTypes ->
+            let
+                renderedItems =
+                    viewList forceMultiline
+                        indent
+                        (\var ->
+                            let
+                                rendered =
+                                    viewNew forceMultiline (indent + 4) var
+                            in
+                            { content =
+                                addParens
+                                    var
+                                    rendered.content
+                            , multiline = rendered.multiline
+                            }
+                        )
+                        varTypes
+                        { rowSpacer = Ui.text " "
+                        , columnSpacer = Ui.none
+                        }
+            in
+            { multiline = forceMultiline || renderedItems.multiline
+            , content =
+                columnIf (forceMultiline || renderedItems.multiline)
+                    []
+                    [ Ui.row [ Ui.alignTop ]
+                        [ Ui.el [ Ui.alignTop, Syntax.type_ ] (Ui.text typename)
+                        , Ui.text " "
+                        ]
+                    , if forceMultiline || renderedItems.multiline then
+                        Ui.row []
+                            [ Ui.text "    "
+                            , renderedItems.content
+                            ]
+
+                      else
+                        renderedItems.content
+                    ]
+            }
+
+        Elm.Type.Record fields maybeExtensibleName ->
+            List.foldl
+                (\( name, type_ ) cursor ->
+                    let
+                        fieldContent =
+                            viewNew False (indent + 4) type_
+                    in
+                    { isFirst = False
+                    , content =
+                        columnIf fieldContent.multiline
+                            []
+                            [ Ui.row [ Ui.alignTop, Syntax.field ]
+                                [ if cursor.isFirst then
+                                    Ui.row []
+                                        [ punctuation "{ "
+                                        , case maybeExtensibleName of
+                                            Nothing ->
+                                                Ui.none
+
+                                            Just recordName ->
+                                                fieldName recordName
+                                        , case maybeExtensibleName of
+                                            Nothing ->
+                                                Ui.none
+
+                                            Just recordName ->
+                                                punctuation " | "
+                                        ]
+
+                                  else
+                                    punctuation ", "
+                                , fieldName name
+                                , keyword " : "
+                                ]
+                            , if fieldContent.multiline then
+                                Ui.row []
+                                    [ Ui.text "    "
+                                    , fieldContent.content
+                                    ]
+
+                              else
+                                fieldContent.content
+                            ]
+                            :: cursor.content
+                    , multiline = cursor.multiline || fieldContent.multiline
+                    }
+                )
+                { isFirst = True
+                , content = []
+                , multiline = True --List.length fields > 1
+                }
+                fields
+                |> (\result ->
+                        { multiline = result.multiline
+                        , content =
+                            Ui.column [ Ui.space.sm ]
+                                ((punctuation "}" :: result.content)
+                                    |> List.reverse
+                                )
+                        }
+                   )
+
+
+keyword str =
+    Ui.el [ Syntax.keyword ] (Ui.text str)
+
+
+fieldName str =
+    Ui.el [ Syntax.field ] (Ui.text str)
+
+
+punctuation str =
+    Ui.el [ Syntax.punctuation ] (Ui.text str)
+
+
+viewList :
+    Bool
+    -> Int
+    ->
+        (Elm.Type.Type
+         ->
+            { content : Ui.Element msg
+            , multiline : Bool
+            }
+        )
+    -> List Elm.Type.Type
+    ->
+        { rowSpacer : Ui.Element msg
+        , columnSpacer : Ui.Element msg
+        }
+    ->
+        { content : Ui.Element msg
+        , multiline : Bool
+        }
+viewList forceMultiline indent viewItem items spacer =
+    List.foldl
+        (\type_ cursor ->
+            let
+                fieldContent =
+                    viewItem type_
+            in
+            { isFirst = False
+            , content =
+                columnIf (forceMultiline || fieldContent.multiline)
+                    []
+                    [ Ui.row []
+                        [ if cursor.isFirst then
+                            Ui.none
+
+                          else if forceMultiline || fieldContent.multiline then
+                            spacer.columnSpacer
+
+                          else
+                            spacer.rowSpacer
+                        , fieldContent.content
+                        ]
+                    ]
+                    :: cursor.content
+            , multiline = cursor.multiline || fieldContent.multiline
+            }
+        )
+        { isFirst = True
+        , content = []
+        , multiline = False
+        }
+        items
+        |> (\result ->
+                { multiline = result.multiline
+                , content =
+                    columnIf result.multiline
+                        []
+                        (result.content
+                            |> List.reverse
+                        )
+                }
+           )
+
+
+viewFnArgs :
+    Bool
+    -> Int
+    -> Elm.Type.Type
+    ->
+        { items : List (Ui.Element msg)
+        , multiline : Bool
+        }
+viewFnArgs forceMultiline indent tipe =
+    case tipe of
+        Elm.Type.Lambda one two ->
+            let
+                new =
+                    viewNew False indent one
+
+                args =
+                    viewFnArgs forceMultiline indent two
+            in
+            { multiline = args.multiline
+            , items =
+                Ui.row [ Ui.alignTop ]
+                    [ arrowRight (forceMultiline || args.multiline)
+                    , new.content
+                    ]
+                    :: args.items
+            }
+
+        everythingElse ->
+            let
+                new =
+                    viewNew False indent everythingElse
+            in
+            { multiline = new.multiline
+            , items =
+                [ Ui.row [ Ui.alignTop ]
+                    [ arrowRight (forceMultiline || new.multiline)
+                    , new.content
+                    ]
+                ]
+            }
+
+
+columnIf : Bool -> List (Ui.Attribute msg) -> List (Ui.Element msg) -> Ui.Element msg
+columnIf on attrs children =
+    if on then
+        Ui.column (Ui.space.sm :: attrs) children
+
+    else
+        Ui.row attrs children
+
+
+arrowRight : Bool -> Ui.Element msg
+arrowRight multiline =
+    if multiline then
+        Ui.el [ Ui.alignTop, Syntax.keyword ] (Ui.text "-> ")
+
+    else
+        Ui.el [ Ui.alignTop, Syntax.keyword ] (Ui.text " -> ")

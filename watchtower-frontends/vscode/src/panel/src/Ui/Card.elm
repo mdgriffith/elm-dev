@@ -21,7 +21,7 @@ view :
 view options content =
     Ui.column
         [ Ui.width Ui.fill
-        , Ui.space.md
+        , Ui.space.lg
         , Ui.pad.xl
         , Ui.rounded.md
         , Ui.background.dark

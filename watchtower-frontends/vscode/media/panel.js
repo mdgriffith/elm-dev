@@ -4359,6 +4359,136 @@ function _Time_getZoneName()
 
 
 
+
+// STRINGS
+
+
+var _Parser_isSubString = F5(function(smallString, offset, row, col, bigString)
+{
+	var smallLength = smallString.length;
+	var isGood = offset + smallLength <= bigString.length;
+
+	for (var i = 0; isGood && i < smallLength; )
+	{
+		var code = bigString.charCodeAt(offset);
+		isGood =
+			smallString[i++] === bigString[offset++]
+			&& (
+				code === 0x000A /* \n */
+					? ( row++, col=1 )
+					: ( col++, (code & 0xF800) === 0xD800 ? smallString[i++] === bigString[offset++] : 1 )
+			)
+	}
+
+	return _Utils_Tuple3(isGood ? offset : -1, row, col);
+});
+
+
+
+// CHARS
+
+
+var _Parser_isSubChar = F3(function(predicate, offset, string)
+{
+	return (
+		string.length <= offset
+			? -1
+			:
+		(string.charCodeAt(offset) & 0xF800) === 0xD800
+			? (predicate(_Utils_chr(string.substr(offset, 2))) ? offset + 2 : -1)
+			:
+		(predicate(_Utils_chr(string[offset]))
+			? ((string[offset] === '\n') ? -2 : (offset + 1))
+			: -1
+		)
+	);
+});
+
+
+var _Parser_isAsciiCode = F3(function(code, offset, string)
+{
+	return string.charCodeAt(offset) === code;
+});
+
+
+
+// NUMBERS
+
+
+var _Parser_chompBase10 = F2(function(offset, string)
+{
+	for (; offset < string.length; offset++)
+	{
+		var code = string.charCodeAt(offset);
+		if (code < 0x30 || 0x39 < code)
+		{
+			return offset;
+		}
+	}
+	return offset;
+});
+
+
+var _Parser_consumeBase = F3(function(base, offset, string)
+{
+	for (var total = 0; offset < string.length; offset++)
+	{
+		var digit = string.charCodeAt(offset) - 0x30;
+		if (digit < 0 || base <= digit) break;
+		total = base * total + digit;
+	}
+	return _Utils_Tuple2(offset, total);
+});
+
+
+var _Parser_consumeBase16 = F2(function(offset, string)
+{
+	for (var total = 0; offset < string.length; offset++)
+	{
+		var code = string.charCodeAt(offset);
+		if (0x30 <= code && code <= 0x39)
+		{
+			total = 16 * total + code - 0x30;
+		}
+		else if (0x41 <= code && code <= 0x46)
+		{
+			total = 16 * total + code - 55;
+		}
+		else if (0x61 <= code && code <= 0x66)
+		{
+			total = 16 * total + code - 87;
+		}
+		else
+		{
+			break;
+		}
+	}
+	return _Utils_Tuple2(offset, total);
+});
+
+
+
+// FIND STRING
+
+
+var _Parser_findSubString = F5(function(smallString, offset, row, col, bigString)
+{
+	var newOffset = bigString.indexOf(smallString, offset);
+	var target = newOffset < 0 ? bigString.length : newOffset + smallString.length;
+
+	while (offset < target)
+	{
+		var code = bigString.charCodeAt(offset++);
+		code === 0x000A /* \n */
+			? ( col=1, row++ )
+			: ( col++, (code & 0xF800) === 0xD800 && offset++ )
+	}
+
+	return _Utils_Tuple3(newOffset, row, col);
+});
+
+
+
 var _Bitwise_and = F2(function(a, b)
 {
 	return a & b;
@@ -5752,10 +5882,1089 @@ var $author$project$Ports$ExplainedDefinition = F4(
 	function (name, type_, recursive, range) {
 		return {name: name, range: range, recursive: recursive, type_: type_};
 	});
+var $elm$parser$Parser$DeadEnd = F3(
+	function (row, col, problem) {
+		return {col: col, problem: problem, row: row};
+	});
+var $elm$parser$Parser$problemToDeadEnd = function (p) {
+	return A3($elm$parser$Parser$DeadEnd, p.row, p.col, p.problem);
+};
+var $elm$parser$Parser$Advanced$bagToList = F2(
+	function (bag, list) {
+		bagToList:
+		while (true) {
+			switch (bag.$) {
+				case 'Empty':
+					return list;
+				case 'AddRight':
+					var bag1 = bag.a;
+					var x = bag.b;
+					var $temp$bag = bag1,
+						$temp$list = A2($elm$core$List$cons, x, list);
+					bag = $temp$bag;
+					list = $temp$list;
+					continue bagToList;
+				default:
+					var bag1 = bag.a;
+					var bag2 = bag.b;
+					var $temp$bag = bag1,
+						$temp$list = A2($elm$parser$Parser$Advanced$bagToList, bag2, list);
+					bag = $temp$bag;
+					list = $temp$list;
+					continue bagToList;
+			}
+		}
+	});
+var $elm$parser$Parser$Advanced$run = F2(
+	function (_v0, src) {
+		var parse = _v0.a;
+		var _v1 = parse(
+			{col: 1, context: _List_Nil, indent: 1, offset: 0, row: 1, src: src});
+		if (_v1.$ === 'Good') {
+			var value = _v1.b;
+			return $elm$core$Result$Ok(value);
+		} else {
+			var bag = _v1.b;
+			return $elm$core$Result$Err(
+				A2($elm$parser$Parser$Advanced$bagToList, bag, _List_Nil));
+		}
+	});
+var $elm$parser$Parser$run = F2(
+	function (parser, source) {
+		var _v0 = A2($elm$parser$Parser$Advanced$run, parser, source);
+		if (_v0.$ === 'Ok') {
+			var a = _v0.a;
+			return $elm$core$Result$Ok(a);
+		} else {
+			var problems = _v0.a;
+			return $elm$core$Result$Err(
+				A2($elm$core$List$map, $elm$parser$Parser$problemToDeadEnd, problems));
+		}
+	});
+var $elm$parser$Parser$Done = function (a) {
+	return {$: 'Done', a: a};
+};
+var $elm$parser$Parser$Forbidden = {$: 'Forbidden'};
+var $elm$project_metadata_utils$Elm$Type$Lambda = F2(
+	function (a, b) {
+		return {$: 'Lambda', a: a, b: b};
+	});
+var $elm$parser$Parser$Loop = function (a) {
+	return {$: 'Loop', a: a};
+};
+var $elm$project_metadata_utils$Elm$Type$Record = F2(
+	function (a, b) {
+		return {$: 'Record', a: a, b: b};
+	});
+var $elm$project_metadata_utils$Elm$Type$Type = F2(
+	function (a, b) {
+		return {$: 'Type', a: a, b: b};
+	});
+var $elm$project_metadata_utils$Elm$Type$Var = function (a) {
+	return {$: 'Var', a: a};
+};
+var $elm$parser$Parser$Advanced$Bad = F2(
+	function (a, b) {
+		return {$: 'Bad', a: a, b: b};
+	});
+var $elm$parser$Parser$Advanced$Good = F3(
+	function (a, b, c) {
+		return {$: 'Good', a: a, b: b, c: c};
+	});
+var $elm$parser$Parser$Advanced$Parser = function (a) {
+	return {$: 'Parser', a: a};
+};
+var $elm$parser$Parser$Advanced$andThen = F2(
+	function (callback, _v0) {
+		var parseA = _v0.a;
+		return $elm$parser$Parser$Advanced$Parser(
+			function (s0) {
+				var _v1 = parseA(s0);
+				if (_v1.$ === 'Bad') {
+					var p = _v1.a;
+					var x = _v1.b;
+					return A2($elm$parser$Parser$Advanced$Bad, p, x);
+				} else {
+					var p1 = _v1.a;
+					var a = _v1.b;
+					var s1 = _v1.c;
+					var _v2 = callback(a);
+					var parseB = _v2.a;
+					var _v3 = parseB(s1);
+					if (_v3.$ === 'Bad') {
+						var p2 = _v3.a;
+						var x = _v3.b;
+						return A2($elm$parser$Parser$Advanced$Bad, p1 || p2, x);
+					} else {
+						var p2 = _v3.a;
+						var b = _v3.b;
+						var s2 = _v3.c;
+						return A3($elm$parser$Parser$Advanced$Good, p1 || p2, b, s2);
+					}
+				}
+			});
+	});
+var $elm$parser$Parser$andThen = $elm$parser$Parser$Advanced$andThen;
+var $elm$parser$Parser$ExpectingSymbol = function (a) {
+	return {$: 'ExpectingSymbol', a: a};
+};
+var $elm$parser$Parser$Advanced$Token = F2(
+	function (a, b) {
+		return {$: 'Token', a: a, b: b};
+	});
+var $elm$parser$Parser$Advanced$AddRight = F2(
+	function (a, b) {
+		return {$: 'AddRight', a: a, b: b};
+	});
+var $elm$parser$Parser$Advanced$DeadEnd = F4(
+	function (row, col, problem, contextStack) {
+		return {col: col, contextStack: contextStack, problem: problem, row: row};
+	});
+var $elm$parser$Parser$Advanced$Empty = {$: 'Empty'};
+var $elm$parser$Parser$Advanced$fromState = F2(
+	function (s, x) {
+		return A2(
+			$elm$parser$Parser$Advanced$AddRight,
+			$elm$parser$Parser$Advanced$Empty,
+			A4($elm$parser$Parser$Advanced$DeadEnd, s.row, s.col, x, s.context));
+	});
+var $elm$parser$Parser$Advanced$isSubString = _Parser_isSubString;
+var $elm$core$Basics$negate = function (n) {
+	return -n;
+};
+var $elm$core$Basics$not = _Basics_not;
+var $elm$parser$Parser$Advanced$token = function (_v0) {
+	var str = _v0.a;
+	var expecting = _v0.b;
+	var progress = !$elm$core$String$isEmpty(str);
+	return $elm$parser$Parser$Advanced$Parser(
+		function (s) {
+			var _v1 = A5($elm$parser$Parser$Advanced$isSubString, str, s.offset, s.row, s.col, s.src);
+			var newOffset = _v1.a;
+			var newRow = _v1.b;
+			var newCol = _v1.c;
+			return _Utils_eq(newOffset, -1) ? A2(
+				$elm$parser$Parser$Advanced$Bad,
+				false,
+				A2($elm$parser$Parser$Advanced$fromState, s, expecting)) : A3(
+				$elm$parser$Parser$Advanced$Good,
+				progress,
+				_Utils_Tuple0,
+				{col: newCol, context: s.context, indent: s.indent, offset: newOffset, row: newRow, src: s.src});
+		});
+};
+var $elm$parser$Parser$Advanced$symbol = $elm$parser$Parser$Advanced$token;
+var $elm$parser$Parser$symbol = function (str) {
+	return $elm$parser$Parser$Advanced$symbol(
+		A2(
+			$elm$parser$Parser$Advanced$Token,
+			str,
+			$elm$parser$Parser$ExpectingSymbol(str)));
+};
+var $elm$project_metadata_utils$Elm$Type$arrow = $elm$parser$Parser$symbol('->');
+var $elm$parser$Parser$Advanced$backtrackable = function (_v0) {
+	var parse = _v0.a;
+	return $elm$parser$Parser$Advanced$Parser(
+		function (s0) {
+			var _v1 = parse(s0);
+			if (_v1.$ === 'Bad') {
+				var x = _v1.b;
+				return A2($elm$parser$Parser$Advanced$Bad, false, x);
+			} else {
+				var a = _v1.b;
+				var s1 = _v1.c;
+				return A3($elm$parser$Parser$Advanced$Good, false, a, s1);
+			}
+		});
+};
+var $elm$parser$Parser$backtrackable = $elm$parser$Parser$Advanced$backtrackable;
+var $elm$project_metadata_utils$Elm$Type$comma = $elm$parser$Parser$symbol(',');
+var $elm$core$Basics$always = F2(
+	function (a, _v0) {
+		return a;
+	});
+var $elm$parser$Parser$Advanced$map2 = F3(
+	function (func, _v0, _v1) {
+		var parseA = _v0.a;
+		var parseB = _v1.a;
+		return $elm$parser$Parser$Advanced$Parser(
+			function (s0) {
+				var _v2 = parseA(s0);
+				if (_v2.$ === 'Bad') {
+					var p = _v2.a;
+					var x = _v2.b;
+					return A2($elm$parser$Parser$Advanced$Bad, p, x);
+				} else {
+					var p1 = _v2.a;
+					var a = _v2.b;
+					var s1 = _v2.c;
+					var _v3 = parseB(s1);
+					if (_v3.$ === 'Bad') {
+						var p2 = _v3.a;
+						var x = _v3.b;
+						return A2($elm$parser$Parser$Advanced$Bad, p1 || p2, x);
+					} else {
+						var p2 = _v3.a;
+						var b = _v3.b;
+						var s2 = _v3.c;
+						return A3(
+							$elm$parser$Parser$Advanced$Good,
+							p1 || p2,
+							A2(func, a, b),
+							s2);
+					}
+				}
+			});
+	});
+var $elm$parser$Parser$Advanced$ignorer = F2(
+	function (keepParser, ignoreParser) {
+		return A3($elm$parser$Parser$Advanced$map2, $elm$core$Basics$always, keepParser, ignoreParser);
+	});
+var $elm$parser$Parser$ignorer = $elm$parser$Parser$Advanced$ignorer;
+var $elm$parser$Parser$Advanced$keeper = F2(
+	function (parseFunc, parseArg) {
+		return A3($elm$parser$Parser$Advanced$map2, $elm$core$Basics$apL, parseFunc, parseArg);
+	});
+var $elm$parser$Parser$keeper = $elm$parser$Parser$Advanced$keeper;
+var $elm$core$Set$Set_elm_builtin = function (a) {
+	return {$: 'Set_elm_builtin', a: a};
+};
+var $elm$core$Set$empty = $elm$core$Set$Set_elm_builtin($elm$core$Dict$empty);
+var $elm$project_metadata_utils$Elm$Type$isInnerVarChar = function (_char) {
+	return $elm$core$Char$isAlphaNum(_char) || _Utils_eq(
+		_char,
+		_Utils_chr('_'));
+};
+var $elm$parser$Parser$ExpectingVariable = {$: 'ExpectingVariable'};
+var $elm$parser$Parser$Advanced$isSubChar = _Parser_isSubChar;
+var $elm$core$Dict$member = F2(
+	function (key, dict) {
+		var _v0 = A2($elm$core$Dict$get, key, dict);
+		if (_v0.$ === 'Just') {
+			return true;
+		} else {
+			return false;
+		}
+	});
+var $elm$core$Set$member = F2(
+	function (key, _v0) {
+		var dict = _v0.a;
+		return A2($elm$core$Dict$member, key, dict);
+	});
+var $elm$parser$Parser$Advanced$varHelp = F7(
+	function (isGood, offset, row, col, src, indent, context) {
+		varHelp:
+		while (true) {
+			var newOffset = A3($elm$parser$Parser$Advanced$isSubChar, isGood, offset, src);
+			if (_Utils_eq(newOffset, -1)) {
+				return {col: col, context: context, indent: indent, offset: offset, row: row, src: src};
+			} else {
+				if (_Utils_eq(newOffset, -2)) {
+					var $temp$isGood = isGood,
+						$temp$offset = offset + 1,
+						$temp$row = row + 1,
+						$temp$col = 1,
+						$temp$src = src,
+						$temp$indent = indent,
+						$temp$context = context;
+					isGood = $temp$isGood;
+					offset = $temp$offset;
+					row = $temp$row;
+					col = $temp$col;
+					src = $temp$src;
+					indent = $temp$indent;
+					context = $temp$context;
+					continue varHelp;
+				} else {
+					var $temp$isGood = isGood,
+						$temp$offset = newOffset,
+						$temp$row = row,
+						$temp$col = col + 1,
+						$temp$src = src,
+						$temp$indent = indent,
+						$temp$context = context;
+					isGood = $temp$isGood;
+					offset = $temp$offset;
+					row = $temp$row;
+					col = $temp$col;
+					src = $temp$src;
+					indent = $temp$indent;
+					context = $temp$context;
+					continue varHelp;
+				}
+			}
+		}
+	});
+var $elm$parser$Parser$Advanced$variable = function (i) {
+	return $elm$parser$Parser$Advanced$Parser(
+		function (s) {
+			var firstOffset = A3($elm$parser$Parser$Advanced$isSubChar, i.start, s.offset, s.src);
+			if (_Utils_eq(firstOffset, -1)) {
+				return A2(
+					$elm$parser$Parser$Advanced$Bad,
+					false,
+					A2($elm$parser$Parser$Advanced$fromState, s, i.expecting));
+			} else {
+				var s1 = _Utils_eq(firstOffset, -2) ? A7($elm$parser$Parser$Advanced$varHelp, i.inner, s.offset + 1, s.row + 1, 1, s.src, s.indent, s.context) : A7($elm$parser$Parser$Advanced$varHelp, i.inner, firstOffset, s.row, s.col + 1, s.src, s.indent, s.context);
+				var name = A3($elm$core$String$slice, s.offset, s1.offset, s.src);
+				return A2($elm$core$Set$member, name, i.reserved) ? A2(
+					$elm$parser$Parser$Advanced$Bad,
+					false,
+					A2($elm$parser$Parser$Advanced$fromState, s, i.expecting)) : A3($elm$parser$Parser$Advanced$Good, true, name, s1);
+			}
+		});
+};
+var $elm$parser$Parser$variable = function (i) {
+	return $elm$parser$Parser$Advanced$variable(
+		{expecting: $elm$parser$Parser$ExpectingVariable, inner: i.inner, reserved: i.reserved, start: i.start});
+};
+var $elm$project_metadata_utils$Elm$Type$var = function (isFirst) {
+	return $elm$parser$Parser$variable(
+		{inner: $elm$project_metadata_utils$Elm$Type$isInnerVarChar, reserved: $elm$core$Set$empty, start: isFirst});
+};
+var $elm$project_metadata_utils$Elm$Type$lowVar = $elm$project_metadata_utils$Elm$Type$var($elm$core$Char$isLower);
+var $elm$parser$Parser$Advanced$Append = F2(
+	function (a, b) {
+		return {$: 'Append', a: a, b: b};
+	});
+var $elm$parser$Parser$Advanced$oneOfHelp = F3(
+	function (s0, bag, parsers) {
+		oneOfHelp:
+		while (true) {
+			if (!parsers.b) {
+				return A2($elm$parser$Parser$Advanced$Bad, false, bag);
+			} else {
+				var parse = parsers.a.a;
+				var remainingParsers = parsers.b;
+				var _v1 = parse(s0);
+				if (_v1.$ === 'Good') {
+					var step = _v1;
+					return step;
+				} else {
+					var step = _v1;
+					var p = step.a;
+					var x = step.b;
+					if (p) {
+						return step;
+					} else {
+						var $temp$s0 = s0,
+							$temp$bag = A2($elm$parser$Parser$Advanced$Append, bag, x),
+							$temp$parsers = remainingParsers;
+						s0 = $temp$s0;
+						bag = $temp$bag;
+						parsers = $temp$parsers;
+						continue oneOfHelp;
+					}
+				}
+			}
+		}
+	});
+var $elm$parser$Parser$Advanced$oneOf = function (parsers) {
+	return $elm$parser$Parser$Advanced$Parser(
+		function (s) {
+			return A3($elm$parser$Parser$Advanced$oneOfHelp, s, $elm$parser$Parser$Advanced$Empty, parsers);
+		});
+};
+var $elm$parser$Parser$oneOf = $elm$parser$Parser$Advanced$oneOf;
+var $elm$parser$Parser$Advanced$chompWhileHelp = F5(
+	function (isGood, offset, row, col, s0) {
+		chompWhileHelp:
+		while (true) {
+			var newOffset = A3($elm$parser$Parser$Advanced$isSubChar, isGood, offset, s0.src);
+			if (_Utils_eq(newOffset, -1)) {
+				return A3(
+					$elm$parser$Parser$Advanced$Good,
+					_Utils_cmp(s0.offset, offset) < 0,
+					_Utils_Tuple0,
+					{col: col, context: s0.context, indent: s0.indent, offset: offset, row: row, src: s0.src});
+			} else {
+				if (_Utils_eq(newOffset, -2)) {
+					var $temp$isGood = isGood,
+						$temp$offset = offset + 1,
+						$temp$row = row + 1,
+						$temp$col = 1,
+						$temp$s0 = s0;
+					isGood = $temp$isGood;
+					offset = $temp$offset;
+					row = $temp$row;
+					col = $temp$col;
+					s0 = $temp$s0;
+					continue chompWhileHelp;
+				} else {
+					var $temp$isGood = isGood,
+						$temp$offset = newOffset,
+						$temp$row = row,
+						$temp$col = col + 1,
+						$temp$s0 = s0;
+					isGood = $temp$isGood;
+					offset = $temp$offset;
+					row = $temp$row;
+					col = $temp$col;
+					s0 = $temp$s0;
+					continue chompWhileHelp;
+				}
+			}
+		}
+	});
+var $elm$parser$Parser$Advanced$chompWhile = function (isGood) {
+	return $elm$parser$Parser$Advanced$Parser(
+		function (s) {
+			return A5($elm$parser$Parser$Advanced$chompWhileHelp, isGood, s.offset, s.row, s.col, s);
+		});
+};
+var $elm$parser$Parser$chompWhile = $elm$parser$Parser$Advanced$chompWhile;
+var $elm$project_metadata_utils$Elm$Type$spaces = $elm$parser$Parser$chompWhile(
+	function (_char) {
+		return _Utils_eq(
+			_char,
+			_Utils_chr(' '));
+	});
+var $elm$parser$Parser$Advanced$succeed = function (a) {
+	return $elm$parser$Parser$Advanced$Parser(
+		function (s) {
+			return A3($elm$parser$Parser$Advanced$Good, false, a, s);
+		});
+};
+var $elm$parser$Parser$succeed = $elm$parser$Parser$Advanced$succeed;
+var $elm$project_metadata_utils$Elm$Type$extension = $elm$parser$Parser$oneOf(
+	_List_fromArray(
+		[
+			A2(
+			$elm$parser$Parser$keeper,
+			$elm$parser$Parser$succeed($elm$core$Maybe$Just),
+			A2(
+				$elm$parser$Parser$ignorer,
+				A2(
+					$elm$parser$Parser$ignorer,
+					A2(
+						$elm$parser$Parser$ignorer,
+						$elm$parser$Parser$backtrackable($elm$project_metadata_utils$Elm$Type$lowVar),
+						$elm$parser$Parser$backtrackable($elm$project_metadata_utils$Elm$Type$spaces)),
+					$elm$parser$Parser$symbol('|')),
+				$elm$project_metadata_utils$Elm$Type$spaces)),
+			$elm$parser$Parser$succeed($elm$core$Maybe$Nothing)
+		]));
+var $elm$parser$Parser$Advanced$lazy = function (thunk) {
+	return $elm$parser$Parser$Advanced$Parser(
+		function (s) {
+			var _v0 = thunk(_Utils_Tuple0);
+			var parse = _v0.a;
+			return parse(s);
+		});
+};
+var $elm$parser$Parser$lazy = $elm$parser$Parser$Advanced$lazy;
+var $elm$parser$Parser$Advanced$loopHelp = F4(
+	function (p, state, callback, s0) {
+		loopHelp:
+		while (true) {
+			var _v0 = callback(state);
+			var parse = _v0.a;
+			var _v1 = parse(s0);
+			if (_v1.$ === 'Good') {
+				var p1 = _v1.a;
+				var step = _v1.b;
+				var s1 = _v1.c;
+				if (step.$ === 'Loop') {
+					var newState = step.a;
+					var $temp$p = p || p1,
+						$temp$state = newState,
+						$temp$callback = callback,
+						$temp$s0 = s1;
+					p = $temp$p;
+					state = $temp$state;
+					callback = $temp$callback;
+					s0 = $temp$s0;
+					continue loopHelp;
+				} else {
+					var result = step.a;
+					return A3($elm$parser$Parser$Advanced$Good, p || p1, result, s1);
+				}
+			} else {
+				var p1 = _v1.a;
+				var x = _v1.b;
+				return A2($elm$parser$Parser$Advanced$Bad, p || p1, x);
+			}
+		}
+	});
+var $elm$parser$Parser$Advanced$loop = F2(
+	function (state, callback) {
+		return $elm$parser$Parser$Advanced$Parser(
+			function (s) {
+				return A4($elm$parser$Parser$Advanced$loopHelp, false, state, callback, s);
+			});
+	});
+var $elm$parser$Parser$Advanced$map = F2(
+	function (func, _v0) {
+		var parse = _v0.a;
+		return $elm$parser$Parser$Advanced$Parser(
+			function (s0) {
+				var _v1 = parse(s0);
+				if (_v1.$ === 'Good') {
+					var p = _v1.a;
+					var a = _v1.b;
+					var s1 = _v1.c;
+					return A3(
+						$elm$parser$Parser$Advanced$Good,
+						p,
+						func(a),
+						s1);
+				} else {
+					var p = _v1.a;
+					var x = _v1.b;
+					return A2($elm$parser$Parser$Advanced$Bad, p, x);
+				}
+			});
+	});
+var $elm$parser$Parser$map = $elm$parser$Parser$Advanced$map;
+var $elm$parser$Parser$Advanced$Done = function (a) {
+	return {$: 'Done', a: a};
+};
+var $elm$parser$Parser$Advanced$Loop = function (a) {
+	return {$: 'Loop', a: a};
+};
+var $elm$parser$Parser$toAdvancedStep = function (step) {
+	if (step.$ === 'Loop') {
+		var s = step.a;
+		return $elm$parser$Parser$Advanced$Loop(s);
+	} else {
+		var a = step.a;
+		return $elm$parser$Parser$Advanced$Done(a);
+	}
+};
+var $elm$parser$Parser$loop = F2(
+	function (state, callback) {
+		return A2(
+			$elm$parser$Parser$Advanced$loop,
+			state,
+			function (s) {
+				return A2(
+					$elm$parser$Parser$map,
+					$elm$parser$Parser$toAdvancedStep,
+					callback(s));
+			});
+	});
+var $elm$project_metadata_utils$Elm$Type$capVar = $elm$project_metadata_utils$Elm$Type$var($elm$core$Char$isUpper);
+var $elm$parser$Parser$Advanced$mapChompedString = F2(
+	function (func, _v0) {
+		var parse = _v0.a;
+		return $elm$parser$Parser$Advanced$Parser(
+			function (s0) {
+				var _v1 = parse(s0);
+				if (_v1.$ === 'Bad') {
+					var p = _v1.a;
+					var x = _v1.b;
+					return A2($elm$parser$Parser$Advanced$Bad, p, x);
+				} else {
+					var p = _v1.a;
+					var a = _v1.b;
+					var s1 = _v1.c;
+					return A3(
+						$elm$parser$Parser$Advanced$Good,
+						p,
+						A2(
+							func,
+							A3($elm$core$String$slice, s0.offset, s1.offset, s0.src),
+							a),
+						s1);
+				}
+			});
+	});
+var $elm$parser$Parser$Advanced$getChompedString = function (parser) {
+	return A2($elm$parser$Parser$Advanced$mapChompedString, $elm$core$Basics$always, parser);
+};
+var $elm$parser$Parser$getChompedString = $elm$parser$Parser$Advanced$getChompedString;
+var $elm$project_metadata_utils$Elm$Type$qualifiedCapVarHelp = function (_v0) {
+	return $elm$parser$Parser$oneOf(
+		_List_fromArray(
+			[
+				A2(
+				$elm$parser$Parser$ignorer,
+				A2(
+					$elm$parser$Parser$ignorer,
+					$elm$parser$Parser$succeed(
+						$elm$parser$Parser$Loop(_Utils_Tuple0)),
+					$elm$parser$Parser$symbol('.')),
+				$elm$project_metadata_utils$Elm$Type$capVar),
+				$elm$parser$Parser$succeed(
+				$elm$parser$Parser$Done(_Utils_Tuple0))
+			]));
+};
+var $elm$project_metadata_utils$Elm$Type$qualifiedCapVar = $elm$parser$Parser$getChompedString(
+	A2(
+		$elm$parser$Parser$ignorer,
+		$elm$project_metadata_utils$Elm$Type$capVar,
+		A2($elm$parser$Parser$loop, _Utils_Tuple0, $elm$project_metadata_utils$Elm$Type$qualifiedCapVarHelp)));
+var $elm$parser$Parser$Advanced$revAlways = F2(
+	function (_v0, b) {
+		return b;
+	});
+var $elm$parser$Parser$Advanced$skip = F2(
+	function (iParser, kParser) {
+		return A3($elm$parser$Parser$Advanced$map2, $elm$parser$Parser$Advanced$revAlways, iParser, kParser);
+	});
+var $elm$parser$Parser$Advanced$sequenceEndForbidden = F5(
+	function (ender, ws, parseItem, sep, revItems) {
+		var chompRest = function (item) {
+			return A5(
+				$elm$parser$Parser$Advanced$sequenceEndForbidden,
+				ender,
+				ws,
+				parseItem,
+				sep,
+				A2($elm$core$List$cons, item, revItems));
+		};
+		return A2(
+			$elm$parser$Parser$Advanced$skip,
+			ws,
+			$elm$parser$Parser$Advanced$oneOf(
+				_List_fromArray(
+					[
+						A2(
+						$elm$parser$Parser$Advanced$skip,
+						sep,
+						A2(
+							$elm$parser$Parser$Advanced$skip,
+							ws,
+							A2(
+								$elm$parser$Parser$Advanced$map,
+								function (item) {
+									return $elm$parser$Parser$Advanced$Loop(
+										A2($elm$core$List$cons, item, revItems));
+								},
+								parseItem))),
+						A2(
+						$elm$parser$Parser$Advanced$map,
+						function (_v0) {
+							return $elm$parser$Parser$Advanced$Done(
+								$elm$core$List$reverse(revItems));
+						},
+						ender)
+					])));
+	});
+var $elm$parser$Parser$Advanced$sequenceEndMandatory = F4(
+	function (ws, parseItem, sep, revItems) {
+		return $elm$parser$Parser$Advanced$oneOf(
+			_List_fromArray(
+				[
+					A2(
+					$elm$parser$Parser$Advanced$map,
+					function (item) {
+						return $elm$parser$Parser$Advanced$Loop(
+							A2($elm$core$List$cons, item, revItems));
+					},
+					A2(
+						$elm$parser$Parser$Advanced$ignorer,
+						parseItem,
+						A2(
+							$elm$parser$Parser$Advanced$ignorer,
+							ws,
+							A2($elm$parser$Parser$Advanced$ignorer, sep, ws)))),
+					A2(
+					$elm$parser$Parser$Advanced$map,
+					function (_v0) {
+						return $elm$parser$Parser$Advanced$Done(
+							$elm$core$List$reverse(revItems));
+					},
+					$elm$parser$Parser$Advanced$succeed(_Utils_Tuple0))
+				]));
+	});
+var $elm$parser$Parser$Advanced$sequenceEndOptional = F5(
+	function (ender, ws, parseItem, sep, revItems) {
+		var parseEnd = A2(
+			$elm$parser$Parser$Advanced$map,
+			function (_v0) {
+				return $elm$parser$Parser$Advanced$Done(
+					$elm$core$List$reverse(revItems));
+			},
+			ender);
+		return A2(
+			$elm$parser$Parser$Advanced$skip,
+			ws,
+			$elm$parser$Parser$Advanced$oneOf(
+				_List_fromArray(
+					[
+						A2(
+						$elm$parser$Parser$Advanced$skip,
+						sep,
+						A2(
+							$elm$parser$Parser$Advanced$skip,
+							ws,
+							$elm$parser$Parser$Advanced$oneOf(
+								_List_fromArray(
+									[
+										A2(
+										$elm$parser$Parser$Advanced$map,
+										function (item) {
+											return $elm$parser$Parser$Advanced$Loop(
+												A2($elm$core$List$cons, item, revItems));
+										},
+										parseItem),
+										parseEnd
+									])))),
+						parseEnd
+					])));
+	});
+var $elm$parser$Parser$Advanced$sequenceEnd = F5(
+	function (ender, ws, parseItem, sep, trailing) {
+		var chompRest = function (item) {
+			switch (trailing.$) {
+				case 'Forbidden':
+					return A2(
+						$elm$parser$Parser$Advanced$loop,
+						_List_fromArray(
+							[item]),
+						A4($elm$parser$Parser$Advanced$sequenceEndForbidden, ender, ws, parseItem, sep));
+				case 'Optional':
+					return A2(
+						$elm$parser$Parser$Advanced$loop,
+						_List_fromArray(
+							[item]),
+						A4($elm$parser$Parser$Advanced$sequenceEndOptional, ender, ws, parseItem, sep));
+				default:
+					return A2(
+						$elm$parser$Parser$Advanced$ignorer,
+						A2(
+							$elm$parser$Parser$Advanced$skip,
+							ws,
+							A2(
+								$elm$parser$Parser$Advanced$skip,
+								sep,
+								A2(
+									$elm$parser$Parser$Advanced$skip,
+									ws,
+									A2(
+										$elm$parser$Parser$Advanced$loop,
+										_List_fromArray(
+											[item]),
+										A3($elm$parser$Parser$Advanced$sequenceEndMandatory, ws, parseItem, sep))))),
+						ender);
+			}
+		};
+		return $elm$parser$Parser$Advanced$oneOf(
+			_List_fromArray(
+				[
+					A2($elm$parser$Parser$Advanced$andThen, chompRest, parseItem),
+					A2(
+					$elm$parser$Parser$Advanced$map,
+					function (_v0) {
+						return _List_Nil;
+					},
+					ender)
+				]));
+	});
+var $elm$parser$Parser$Advanced$sequence = function (i) {
+	return A2(
+		$elm$parser$Parser$Advanced$skip,
+		$elm$parser$Parser$Advanced$token(i.start),
+		A2(
+			$elm$parser$Parser$Advanced$skip,
+			i.spaces,
+			A5(
+				$elm$parser$Parser$Advanced$sequenceEnd,
+				$elm$parser$Parser$Advanced$token(i.end),
+				i.spaces,
+				i.item,
+				$elm$parser$Parser$Advanced$token(i.separator),
+				i.trailing)));
+};
+var $elm$parser$Parser$Advanced$Forbidden = {$: 'Forbidden'};
+var $elm$parser$Parser$Advanced$Mandatory = {$: 'Mandatory'};
+var $elm$parser$Parser$Advanced$Optional = {$: 'Optional'};
+var $elm$parser$Parser$toAdvancedTrailing = function (trailing) {
+	switch (trailing.$) {
+		case 'Forbidden':
+			return $elm$parser$Parser$Advanced$Forbidden;
+		case 'Optional':
+			return $elm$parser$Parser$Advanced$Optional;
+		default:
+			return $elm$parser$Parser$Advanced$Mandatory;
+	}
+};
+var $elm$parser$Parser$Expecting = function (a) {
+	return {$: 'Expecting', a: a};
+};
+var $elm$parser$Parser$toToken = function (str) {
+	return A2(
+		$elm$parser$Parser$Advanced$Token,
+		str,
+		$elm$parser$Parser$Expecting(str));
+};
+var $elm$parser$Parser$sequence = function (i) {
+	return $elm$parser$Parser$Advanced$sequence(
+		{
+			end: $elm$parser$Parser$toToken(i.end),
+			item: i.item,
+			separator: $elm$parser$Parser$toToken(i.separator),
+			spaces: i.spaces,
+			start: $elm$parser$Parser$toToken(i.start),
+			trailing: $elm$parser$Parser$toAdvancedTrailing(i.trailing)
+		});
+};
+var $elm$project_metadata_utils$Elm$Type$Tuple = function (a) {
+	return {$: 'Tuple', a: a};
+};
+var $elm$project_metadata_utils$Elm$Type$tuplize = function (args) {
+	if (args.b && (!args.b.b)) {
+		var arg = args.a;
+		return arg;
+	} else {
+		return $elm$project_metadata_utils$Elm$Type$Tuple(args);
+	}
+};
+var $elm$project_metadata_utils$Elm$Type$chompArgs = function (revArgs) {
+	return $elm$parser$Parser$oneOf(
+		_List_fromArray(
+			[
+				A2(
+				$elm$parser$Parser$map,
+				function (arg) {
+					return $elm$parser$Parser$Loop(
+						A2($elm$core$List$cons, arg, revArgs));
+				},
+				A2(
+					$elm$parser$Parser$keeper,
+					A2(
+						$elm$parser$Parser$ignorer,
+						$elm$parser$Parser$succeed($elm$core$Basics$identity),
+						$elm$parser$Parser$backtrackable($elm$project_metadata_utils$Elm$Type$spaces)),
+					$elm$project_metadata_utils$Elm$Type$cyclic$term())),
+				A2(
+				$elm$parser$Parser$map,
+				function (_v2) {
+					return $elm$parser$Parser$Done(
+						$elm$core$List$reverse(revArgs));
+				},
+				$elm$parser$Parser$succeed(_Utils_Tuple0))
+			]));
+};
+var $elm$project_metadata_utils$Elm$Type$recordEndHelp = function (revFields) {
+	return $elm$parser$Parser$oneOf(
+		_List_fromArray(
+			[
+				A2(
+				$elm$parser$Parser$keeper,
+				A2(
+					$elm$parser$Parser$ignorer,
+					A2(
+						$elm$parser$Parser$ignorer,
+						$elm$parser$Parser$succeed(
+							function (f) {
+								return $elm$parser$Parser$Loop(
+									A2($elm$core$List$cons, f, revFields));
+							}),
+						$elm$project_metadata_utils$Elm$Type$comma),
+					$elm$project_metadata_utils$Elm$Type$spaces),
+				A2(
+					$elm$parser$Parser$ignorer,
+					$elm$project_metadata_utils$Elm$Type$cyclic$field(),
+					$elm$project_metadata_utils$Elm$Type$spaces)),
+				A2(
+				$elm$parser$Parser$keeper,
+				$elm$parser$Parser$succeed(
+					function (_v1) {
+						return $elm$parser$Parser$Done(
+							$elm$core$List$reverse(revFields));
+					}),
+				$elm$parser$Parser$symbol('}'))
+			]));
+};
+var $elm$project_metadata_utils$Elm$Type$tipeHelp = function (t) {
+	return $elm$parser$Parser$oneOf(
+		_List_fromArray(
+			[
+				A2(
+				$elm$parser$Parser$map,
+				$elm$project_metadata_utils$Elm$Type$Lambda(t),
+				$elm$project_metadata_utils$Elm$Type$cyclic$arrowAndType()),
+				$elm$parser$Parser$succeed(t)
+			]));
+};
+function $elm$project_metadata_utils$Elm$Type$cyclic$arrowAndType() {
+	return A2(
+		$elm$parser$Parser$keeper,
+		A2(
+			$elm$parser$Parser$ignorer,
+			A2(
+				$elm$parser$Parser$ignorer,
+				A2(
+					$elm$parser$Parser$ignorer,
+					$elm$parser$Parser$succeed($elm$core$Basics$identity),
+					$elm$parser$Parser$backtrackable($elm$project_metadata_utils$Elm$Type$spaces)),
+				$elm$project_metadata_utils$Elm$Type$arrow),
+			$elm$project_metadata_utils$Elm$Type$spaces),
+		$elm$project_metadata_utils$Elm$Type$cyclic$tipe());
+}
+function $elm$project_metadata_utils$Elm$Type$cyclic$tipeTerm() {
+	return $elm$parser$Parser$oneOf(
+		_List_fromArray(
+			[
+				A2($elm$parser$Parser$map, $elm$project_metadata_utils$Elm$Type$Var, $elm$project_metadata_utils$Elm$Type$lowVar),
+				A2(
+				$elm$parser$Parser$keeper,
+				A2(
+					$elm$parser$Parser$keeper,
+					$elm$parser$Parser$succeed($elm$project_metadata_utils$Elm$Type$Type),
+					$elm$project_metadata_utils$Elm$Type$qualifiedCapVar),
+				A2($elm$parser$Parser$loop, _List_Nil, $elm$project_metadata_utils$Elm$Type$chompArgs)),
+				$elm$project_metadata_utils$Elm$Type$cyclic$record(),
+				$elm$project_metadata_utils$Elm$Type$cyclic$tuple()
+			]));
+}
+function $elm$project_metadata_utils$Elm$Type$cyclic$term() {
+	return $elm$parser$Parser$oneOf(
+		_List_fromArray(
+			[
+				A2($elm$parser$Parser$map, $elm$project_metadata_utils$Elm$Type$Var, $elm$project_metadata_utils$Elm$Type$lowVar),
+				A2(
+				$elm$parser$Parser$map,
+				function (name) {
+					return A2($elm$project_metadata_utils$Elm$Type$Type, name, _List_Nil);
+				},
+				$elm$project_metadata_utils$Elm$Type$qualifiedCapVar),
+				$elm$project_metadata_utils$Elm$Type$cyclic$record(),
+				$elm$project_metadata_utils$Elm$Type$cyclic$tuple()
+			]));
+}
+function $elm$project_metadata_utils$Elm$Type$cyclic$record() {
+	return A2(
+		$elm$parser$Parser$keeper,
+		A2(
+			$elm$parser$Parser$keeper,
+			A2(
+				$elm$parser$Parser$ignorer,
+				A2(
+					$elm$parser$Parser$ignorer,
+					$elm$parser$Parser$succeed(
+						F2(
+							function (ext, fs) {
+								return A2($elm$project_metadata_utils$Elm$Type$Record, fs, ext);
+							})),
+					$elm$parser$Parser$symbol('{')),
+				$elm$project_metadata_utils$Elm$Type$spaces),
+			$elm$project_metadata_utils$Elm$Type$extension),
+		$elm$project_metadata_utils$Elm$Type$cyclic$recordEnd());
+}
+function $elm$project_metadata_utils$Elm$Type$cyclic$recordEnd() {
+	return $elm$parser$Parser$oneOf(
+		_List_fromArray(
+			[
+				A2(
+				$elm$parser$Parser$andThen,
+				function (f) {
+					return A2(
+						$elm$parser$Parser$loop,
+						_List_fromArray(
+							[f]),
+						$elm$project_metadata_utils$Elm$Type$recordEndHelp);
+				},
+				A2(
+					$elm$parser$Parser$ignorer,
+					$elm$project_metadata_utils$Elm$Type$cyclic$field(),
+					$elm$project_metadata_utils$Elm$Type$spaces)),
+				A2(
+				$elm$parser$Parser$ignorer,
+				$elm$parser$Parser$succeed(_List_Nil),
+				$elm$parser$Parser$symbol('}'))
+			]));
+}
+function $elm$project_metadata_utils$Elm$Type$cyclic$field() {
+	return A2(
+		$elm$parser$Parser$keeper,
+		A2(
+			$elm$parser$Parser$keeper,
+			$elm$parser$Parser$succeed($elm$core$Tuple$pair),
+			A2(
+				$elm$parser$Parser$ignorer,
+				A2(
+					$elm$parser$Parser$ignorer,
+					A2($elm$parser$Parser$ignorer, $elm$project_metadata_utils$Elm$Type$lowVar, $elm$project_metadata_utils$Elm$Type$spaces),
+					$elm$parser$Parser$symbol(':')),
+				$elm$project_metadata_utils$Elm$Type$spaces)),
+		$elm$project_metadata_utils$Elm$Type$cyclic$tipe());
+}
+function $elm$project_metadata_utils$Elm$Type$cyclic$tuple() {
+	return A2(
+		$elm$parser$Parser$map,
+		$elm$project_metadata_utils$Elm$Type$tuplize,
+		$elm$parser$Parser$sequence(
+			{
+				end: ')',
+				item: $elm$project_metadata_utils$Elm$Type$cyclic$tipe(),
+				separator: ',',
+				spaces: $elm$project_metadata_utils$Elm$Type$spaces,
+				start: '(',
+				trailing: $elm$parser$Parser$Forbidden
+			}));
+}
+function $elm$project_metadata_utils$Elm$Type$cyclic$tipe() {
+	return $elm$parser$Parser$lazy(
+		function (_v0) {
+			return A2(
+				$elm$parser$Parser$andThen,
+				$elm$project_metadata_utils$Elm$Type$tipeHelp,
+				$elm$project_metadata_utils$Elm$Type$cyclic$tipeTerm());
+		});
+}
+try {
+	var $elm$project_metadata_utils$Elm$Type$arrowAndType = $elm$project_metadata_utils$Elm$Type$cyclic$arrowAndType();
+	$elm$project_metadata_utils$Elm$Type$cyclic$arrowAndType = function () {
+		return $elm$project_metadata_utils$Elm$Type$arrowAndType;
+	};
+	var $elm$project_metadata_utils$Elm$Type$tipeTerm = $elm$project_metadata_utils$Elm$Type$cyclic$tipeTerm();
+	$elm$project_metadata_utils$Elm$Type$cyclic$tipeTerm = function () {
+		return $elm$project_metadata_utils$Elm$Type$tipeTerm;
+	};
+	var $elm$project_metadata_utils$Elm$Type$term = $elm$project_metadata_utils$Elm$Type$cyclic$term();
+	$elm$project_metadata_utils$Elm$Type$cyclic$term = function () {
+		return $elm$project_metadata_utils$Elm$Type$term;
+	};
+	var $elm$project_metadata_utils$Elm$Type$record = $elm$project_metadata_utils$Elm$Type$cyclic$record();
+	$elm$project_metadata_utils$Elm$Type$cyclic$record = function () {
+		return $elm$project_metadata_utils$Elm$Type$record;
+	};
+	var $elm$project_metadata_utils$Elm$Type$recordEnd = $elm$project_metadata_utils$Elm$Type$cyclic$recordEnd();
+	$elm$project_metadata_utils$Elm$Type$cyclic$recordEnd = function () {
+		return $elm$project_metadata_utils$Elm$Type$recordEnd;
+	};
+	var $elm$project_metadata_utils$Elm$Type$field = $elm$project_metadata_utils$Elm$Type$cyclic$field();
+	$elm$project_metadata_utils$Elm$Type$cyclic$field = function () {
+		return $elm$project_metadata_utils$Elm$Type$field;
+	};
+	var $elm$project_metadata_utils$Elm$Type$tuple = $elm$project_metadata_utils$Elm$Type$cyclic$tuple();
+	$elm$project_metadata_utils$Elm$Type$cyclic$tuple = function () {
+		return $elm$project_metadata_utils$Elm$Type$tuple;
+	};
+	var $elm$project_metadata_utils$Elm$Type$tipe = $elm$project_metadata_utils$Elm$Type$cyclic$tipe();
+	$elm$project_metadata_utils$Elm$Type$cyclic$tipe = function () {
+		return $elm$project_metadata_utils$Elm$Type$tipe;
+	};
+} catch ($) {
+	throw 'Some top-level definitions from `Elm.Type` are causing infinite recursion:\n\n  ┌─────┐\n  │    arrowAndType\n  │     ↓\n  │    tipeTerm\n  │     ↓\n  │    chompArgs\n  │     ↓\n  │    term\n  │     ↓\n  │    record\n  │     ↓\n  │    recordEnd\n  │     ↓\n  │    field\n  │     ↓\n  │    recordEndHelp\n  │     ↓\n  │    tuple\n  │     ↓\n  │    tipe\n  │     ↓\n  │    tipeHelp\n  └─────┘\n\nThese errors are very tricky, so read https://elm-lang.org/0.19.1/bad-recursion to learn how to fix it!';}
+var $elm$project_metadata_utils$Elm$Type$parse = function (source) {
+	return A2($elm$parser$Parser$run, $elm$project_metadata_utils$Elm$Type$tipe, source);
+};
+var $elm$project_metadata_utils$Elm$Type$decoderHelp = function (string) {
+	var _v0 = $elm$project_metadata_utils$Elm$Type$parse(string);
+	if (_v0.$ === 'Err') {
+		var error = _v0.a;
+		return $elm$json$Json$Decode$fail('TODO');
+	} else {
+		var actualType = _v0.a;
+		return $elm$json$Json$Decode$succeed(actualType);
+	}
+};
+var $elm$project_metadata_utils$Elm$Type$decoder = A2($elm$json$Json$Decode$andThen, $elm$project_metadata_utils$Elm$Type$decoderHelp, $elm$json$Json$Decode$string);
 var $author$project$Ports$decodeType = A2(
-	$elm$json$Json$Decode$map,
-	$elm$core$String$join(''),
-	$elm$json$Json$Decode$list($elm$json$Json$Decode$string));
+	$elm$json$Json$Decode$andThen,
+	function (str) {
+		return A2(
+			$elm$json$Json$Decode$map,
+			function (typeValue) {
+				return {string: str, value: typeValue};
+			},
+			$elm$project_metadata_utils$Elm$Type$decoder);
+	},
+	$elm$json$Json$Decode$string);
 var $elm$json$Json$Decode$null = _Json_decodeNull;
 var $author$project$Ports$decodeExplanationDefinition = A5(
 	$elm$json$Json$Decode$map4,
@@ -5772,6 +6981,9 @@ var $author$project$Ports$decodeExplanationDefinition = A5(
 				]))),
 	A2($elm$json$Json$Decode$field, 'recursive', $elm$json$Json$Decode$bool),
 	A2($elm$json$Json$Decode$field, 'region', $author$project$Editor$decodeRegion));
+var $author$project$Ports$Fact = function (a) {
+	return {$: 'Fact', a: a};
+};
 var $author$project$Ports$Alias = function (a) {
 	return {$: 'Alias', a: a};
 };
@@ -5782,9 +6994,9 @@ var $author$project$Ports$AliasDetails = F3(
 var $author$project$Ports$Def = function (a) {
 	return {$: 'Def', a: a};
 };
-var $author$project$Ports$DefDetails = F3(
-	function (name, type_, comment) {
-		return {comment: comment, name: name, type_: type_};
+var $author$project$Ports$DefDetails = F2(
+	function (type_, comment) {
+		return {comment: comment, type_: type_};
 	});
 var $author$project$Ports$Union = function (a) {
 	return {$: 'Union', a: a};
@@ -5796,10 +7008,9 @@ var $author$project$Ports$UnionDetails = F4(
 var $author$project$Ports$Value = function (a) {
 	return {$: 'Value', a: a};
 };
-var $author$project$Ports$ValueDetails = F3(
-	function (source, name, type_) {
-		return {name: name, source: source, type_: type_};
-	});
+var $author$project$Ports$ValueDetails = function (type_) {
+	return {type_: type_};
+};
 var $author$project$Ports$Variant = F2(
 	function (name, types_) {
 		return {name: name, types_: types_};
@@ -5813,30 +7024,6 @@ var $author$project$Ports$decodeCase = A3(
 		$elm$json$Json$Decode$index,
 		1,
 		$elm$json$Json$Decode$list($author$project$Ports$decodeType)));
-var $author$project$Ports$External = function (a) {
-	return {$: 'External', a: a};
-};
-var $author$project$Ports$LocalSource = {$: 'LocalSource'};
-var $author$project$Ports$Module = F2(
-	function (pkg, name) {
-		return {name: name, pkg: pkg};
-	});
-var $author$project$Ports$decodeModule = A3(
-	$elm$json$Json$Decode$map2,
-	$author$project$Ports$Module,
-	A2($elm$json$Json$Decode$field, 'pkg', $elm$json$Json$Decode$string),
-	A2($elm$json$Json$Decode$field, 'module', $elm$json$Json$Decode$string));
-var $author$project$Ports$decodeSource = $elm$json$Json$Decode$oneOf(
-	_List_fromArray(
-		[
-			A2(
-			$elm$json$Json$Decode$andThen,
-			function (str) {
-				return (str === 'local') ? $elm$json$Json$Decode$succeed($author$project$Ports$LocalSource) : $elm$json$Json$Decode$fail('Data source is not local');
-			},
-			$elm$json$Json$Decode$string),
-			A2($elm$json$Json$Decode$map, $author$project$Ports$External, $author$project$Ports$decodeModule)
-		]));
 var $elm$json$Json$Decode$map3 = _Json_map3;
 var $elm$json$Json$Decode$nullable = function (decoder) {
 	return $elm$json$Json$Decode$oneOf(
@@ -5846,7 +7033,7 @@ var $elm$json$Json$Decode$nullable = function (decoder) {
 				A2($elm$json$Json$Decode$map, $elm$core$Maybe$Just, decoder)
 			]));
 };
-var $author$project$Ports$decodeFact = $elm$json$Json$Decode$oneOf(
+var $author$project$Ports$decodeFactDetails = $elm$json$Json$Decode$oneOf(
 	_List_fromArray(
 		[
 			A2(
@@ -5892,10 +7079,9 @@ var $author$project$Ports$decodeFact = $elm$json$Json$Decode$oneOf(
 			A2(
 				$elm$json$Json$Decode$field,
 				'definition',
-				A4(
-					$elm$json$Json$Decode$map3,
+				A3(
+					$elm$json$Json$Decode$map2,
 					$author$project$Ports$DefDetails,
-					A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
 					A2(
 						$elm$json$Json$Decode$field,
 						'type',
@@ -5904,13 +7090,53 @@ var $author$project$Ports$decodeFact = $elm$json$Json$Decode$oneOf(
 			A2(
 			$elm$json$Json$Decode$map,
 			$author$project$Ports$Value,
-			A4(
-				$elm$json$Json$Decode$map3,
+			A2(
+				$elm$json$Json$Decode$map,
 				$author$project$Ports$ValueDetails,
-				A2($elm$json$Json$Decode$field, 'source', $author$project$Ports$decodeSource),
-				A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
 				A2($elm$json$Json$Decode$field, 'type', $author$project$Ports$decodeType)))
 		]));
+var $author$project$Ports$External = function (a) {
+	return {$: 'External', a: a};
+};
+var $author$project$Ports$SourceDeclaration = {$: 'SourceDeclaration'};
+var $author$project$Ports$SourceLet = {$: 'SourceLet'};
+var $author$project$Ports$Module = F2(
+	function (pkg, name) {
+		return {name: name, pkg: pkg};
+	});
+var $author$project$Ports$decodeModule = A3(
+	$elm$json$Json$Decode$map2,
+	$author$project$Ports$Module,
+	A2($elm$json$Json$Decode$field, 'pkg', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'module', $elm$json$Json$Decode$string));
+var $author$project$Ports$decodeSource = $elm$json$Json$Decode$oneOf(
+	_List_fromArray(
+		[
+			A2(
+			$elm$json$Json$Decode$andThen,
+			function (str) {
+				switch (str) {
+					case 'let':
+						return $elm$json$Json$Decode$succeed($author$project$Ports$SourceLet);
+					case 'declaration':
+						return $elm$json$Json$Decode$succeed($author$project$Ports$SourceDeclaration);
+					default:
+						return $elm$json$Json$Decode$fail('Data source is not local');
+				}
+			},
+			$elm$json$Json$Decode$string),
+			A2($elm$json$Json$Decode$map, $author$project$Ports$External, $author$project$Ports$decodeModule)
+		]));
+var $author$project$Ports$decodeFact = A4(
+	$elm$json$Json$Decode$map3,
+	F3(
+		function (source, name, details) {
+			return $author$project$Ports$Fact(
+				{details: details, name: name, source: source});
+		}),
+	A2($elm$json$Json$Decode$field, 'source', $author$project$Ports$decodeSource),
+	A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
+	$author$project$Ports$decodeFactDetails);
 var $author$project$Elm$ProjectStatus$Project = F3(
 	function (root, entrypoints, status) {
 		return {entrypoints: entrypoints, root: root, status: status};
@@ -6637,6 +7863,7 @@ var $author$project$Ports$decodeWarning = A2(
 	},
 	A2($elm$json$Json$Decode$field, 'warning', $elm$json$Json$Decode$string));
 var $elm$core$Debug$log = _Debug_log;
+var $elm$json$Json$Decode$value = _Json_decodeValue;
 var $author$project$Ports$incomingDecoder = A2(
 	$elm$json$Json$Decode$andThen,
 	function (msg) {
@@ -6710,13 +7937,17 @@ var $author$project$Ports$incomingDecoder = A2(
 				return A2(
 					$elm$json$Json$Decode$field,
 					'details',
-					A4(
-						$elm$json$Json$Decode$map3,
-						F3(
-							function (filepath, definition, facts) {
+					A5(
+						$elm$json$Json$Decode$map4,
+						F4(
+							function (modName, filepath, definition, facts) {
 								return $author$project$Ports$ExplanationReceived(
-									{definition: definition, facts: facts, filepath: filepath});
+									{definition: definition, facts: facts, filepath: filepath, modulename: modName});
 							}),
+						A2(
+							$elm$json$Json$Decode$field,
+							'explanation',
+							A2($elm$json$Json$Decode$field, 'moduleName', $elm$json$Json$Decode$string)),
 						A2($elm$json$Json$Decode$field, 'filepath', $elm$json$Json$Decode$string),
 						A2(
 							$elm$json$Json$Decode$field,
@@ -6731,11 +7962,15 @@ var $author$project$Ports$incomingDecoder = A2(
 								$elm$json$Json$Decode$list($author$project$Ports$decodeFact)))));
 			default:
 				var _v1 = A2($elm$core$Debug$log, 'UNRECOGNIZED INCOMING MSG', msg);
-				return $elm$json$Json$Decode$fail('UNRECOGNIZED INCOMING MSG');
+				return A2(
+					$elm$json$Json$Decode$andThen,
+					function (val) {
+						return $elm$json$Json$Decode$fail('UNRECOGNIZED INCOMING MSG');
+					},
+					$elm$json$Json$Decode$value);
 		}
 	},
 	A2($elm$json$Json$Decode$field, 'msg', $elm$json$Json$Decode$string));
-var $elm$json$Json$Decode$value = _Json_decodeValue;
 var $author$project$Ports$toElm = _Platform_incomingPort('toElm', $elm$json$Json$Decode$value);
 var $author$project$Ports$incoming = function (toMsg) {
 	return $author$project$Ports$toElm(
@@ -6745,10 +7980,6 @@ var $author$project$Ports$incoming = function (toMsg) {
 			$elm$json$Json$Decode$decodeValue($author$project$Ports$incomingDecoder)));
 };
 var $author$project$Model$Overview = {$: 'Overview'};
-var $elm$core$Set$Set_elm_builtin = function (a) {
-	return {$: 'Set_elm_builtin', a: a};
-};
-var $elm$core$Set$empty = $elm$core$Set$Set_elm_builtin($elm$core$Dict$empty);
 var $elm$core$Platform$Cmd$batch = _Platform_batch;
 var $elm$core$Platform$Cmd$none = $elm$core$Platform$Cmd$batch(_List_Nil);
 var $author$project$Main$init = _Utils_Tuple2(
@@ -7256,7 +8487,6 @@ var $elm$core$List$any = F2(
 			}
 		}
 	});
-var $elm$core$Basics$not = _Basics_not;
 var $elm$core$List$all = F2(
 	function (isOkay, list) {
 		return !A2(
@@ -7310,8 +8540,8 @@ var $author$project$Main$update = F2(
 									{errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, lastUpdated: model.now, projects: statuses, projectsVersion: model.projectsVersion + 1}),
 								$elm$core$Platform$Cmd$none);
 						case 'WarningsUpdated':
-							var filepath = editorMsg.a.filepath;
 							var warnings = editorMsg.a.warnings;
+							var filepath = editorMsg.a.filepath;
 							var _v5 = $author$project$Main$panelLog('WarningsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -7322,8 +8552,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'CallGraphReceived':
-							var filepath = editorMsg.a.filepath;
 							var callgraph = editorMsg.a.callgraph;
+							var filepath = editorMsg.a.filepath;
 							var _v6 = $author$project$Main$panelLog('Callgraph received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -7334,8 +8564,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'ExplanationReceived':
-							var filepath = editorMsg.a.filepath;
 							var facts = editorMsg.a.facts;
+							var filepath = editorMsg.a.filepath;
 							var _v7 = $author$project$Main$panelLog('Facts received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -7726,20 +8956,6 @@ var $mdgriffith$elm_ui$Internal$Model$getStyleName = function (style) {
 				$mdgriffith$elm_ui$Internal$Model$transformClass(x));
 	}
 };
-var $elm$core$Dict$member = F2(
-	function (key, dict) {
-		var _v0 = A2($elm$core$Dict$get, key, dict);
-		if (_v0.$ === 'Just') {
-			return true;
-		} else {
-			return false;
-		}
-	});
-var $elm$core$Set$member = F2(
-	function (key, _v0) {
-		var dict = _v0.a;
-		return A2($elm$core$Dict$member, key, dict);
-	});
 var $mdgriffith$elm_ui$Internal$Model$reduceStyles = F2(
 	function (style, nevermind) {
 		var cache = nevermind.a;
@@ -9831,9 +11047,6 @@ var $elm$core$Basics$min = F2(
 	function (x, y) {
 		return (_Utils_cmp(x, y) < 0) ? x : y;
 	});
-var $elm$core$Basics$negate = function (n) {
-	return -n;
-};
 var $mdgriffith$elm_ui$Internal$Model$renderProps = F3(
 	function (force, _v0, existing) {
 		var key = _v0.a;
@@ -12854,14 +14067,16 @@ var $mdgriffith$elm_ui$Element$layoutWith = F3(
 var $mdgriffith$elm_ui$Element$layout = $mdgriffith$elm_ui$Element$layoutWith(
 	{options: _List_Nil});
 var $elm$html$Html$node = $elm$virtual_dom$VirtualDom$node;
-var $author$project$Ui$stylesheet = '\n\n\nhtml {\n    min-height:100%;\n}\nbody {\n    background-color: var(--vscode-editor-background);\n    color: var(--vscode-editor-foreground);\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family);\n    font-weight: var(--vscode-editor-font-weight);\n    font-size: var(--vscode-editor-font-size);\n    margin: 0;\n    padding: 0 20px;\n    min-height: 100vh;\n    display:flex;\n    flex-direction: column;\n    justify-content: center;\n    align-items: flex-start;\n}\n.base {\n    background-color: var(--vscode-editor-background) !important;\n    color: var(--vscode-editor-foreground) !important;\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family) !important;\n    font-weight: var(--vscode-editor-font-weight) !important;\n    font-size: var(--vscode-editor-font-size) !important;\n}\n\n@keyframes blink {\n  from {opacity: 1;}\n  50%  {opacity: 0.2;}\n  100% {opacity: 1;}\n}\n\n\n.info {\n    color: var(--vscode-editorInfo-foreground) !important;\n}\n\n.warning {\n    color: var(--vscode-editorWarning-foreground) !important;\n}\n\n.danger {\n    color: var(--vscode-editorError-foreground) !important;\n}\n\n.success {\n    color: var(--vscode-testing-iconPassed) !important;\n}\n\n.blink {\n    opacity:1;\n    animation: blink 250ms linear;\n}\n\n.precise {\n    white-space: pre !important;\n}\n.precise * {\n    white-space: pre !important;\n}\n\n.elmsh {\n    color: #f8f8f2;\n    margin: 0;\n    white-space: pre-wrap !important;\n    /* background: #23241f; */\n}\n.elmsh-hl {\n    background: #343434;\n}\n.elmsh-add {\n    background: #003800;\n}\n.elmsh-del {\n    background: #380000;\n}\n.elmsh-comm {\n    color: #75715e;\n}\n.elmsh1 {\n    color: #ae81ff;\n}\n.elmsh2 {\n    color: #e6db74;\n}\n.elmsh3 {\n    color: #f92672;\n}\n.elmsh4 {\n    color: #66d9ef;\n}\n.elmsh5 {\n    color: #a6e22e;\n}\n.elmsh6 {\n    color: #ae81ff;\n}\n.elmsh7 {\n    color: #fd971f;\n}\n.elmsh-elm-ts,\n.elmsh-js-dk,\n.elmsh-css-p {\n    font-style: italic;\n    color: #66d9ef;\n}\n.elmsh-js-ce {\n    font-style: italic;\n    color: #a6e22e;\n}\n.elmsh-css-ar-i {\n    font-weight: bold;\n    color: #f92672;\n}\n\n\n\n';
+var $author$project$Ui$stylesheet = '\n\n\nhtml {\n    min-height:100%;\n}\nbody {\n    background-color: var(--vscode-editor-background);\n    color: var(--vscode-editor-foreground);\n    /*font-family: "Fira Code" !important; */\n    font-family: var(--vscode-editor-font-family);\n    font-weight: var(--vscode-editor-font-weight);\n    font-size: var(--vscode-editor-font-size);\n    margin: 0;\n    padding: 0 20px;\n    min-height: 100vh;\n    display:flex;\n    flex-direction: column;\n    justify-content: center;\n    align-items: flex-start;\n}\n.base {\n    background-color: var(--vscode-editor-background) !important;\n    color: var(--vscode-editor-foreground) !important;\n    font-family: var(--vscode-editor-font-family) !important;\n    font-weight: var(--vscode-editor-font-weight) !important;\n    font-size: var(--vscode-editor-font-size) !important;\n}\n\n@keyframes blink {\n  from {opacity: 1;}\n  50%  {opacity: 0.2;}\n  100% {opacity: 1;}\n}\n\n\n.info {\n    color: var(--vscode-editorInfo-foreground) !important;\n}\n\n.warning {\n    color: var(--vscode-editorWarning-foreground) !important;\n}\n\n.danger {\n    color: var(--vscode-editorError-foreground) !important;\n}\n\n.success {\n    color: var(--vscode-testing-iconPassed) !important;\n}\n\n.blink {\n    opacity:1;\n    animation: blink 250ms linear;\n}\n\n.precise {\n    white-space: pre !important;\n}\n.precise * {\n    white-space: pre !important;\n}\n\n.elmsh {\n    color: #f8f8f2;\n    margin: 0;\n    white-space: pre-wrap !important;\n    /* background: #23241f; */\n}\n.elmsh-hl {\n    background: #343434;\n}\n.elmsh-add {\n    background: #003800;\n}\n.elmsh-del {\n    background: #380000;\n}\n.elmsh-comm {\n    color: #75715e;\n}\n.elmsh1 {\n    color: #ae81ff;\n}\n.elmsh2 {\n    color: #e6db74;\n}\n.elmsh3 {\n    color: #f92672;\n}\n.elmsh4 {\n    color: #66d9ef;\n}\n.elmsh5 {\n    color: #a6e22e;\n}\n.elmsh6 {\n    color: #ae81ff;\n}\n.elmsh7 {\n    color: #fd971f;\n}\n.elmsh-elm-ts,\n.elmsh-js-dk,\n.elmsh-css-p {\n    font-style: italic;\n    color: #66d9ef;\n}\n.elmsh-js-ce {\n    font-style: italic;\n    color: #a6e22e;\n}\n.elmsh-css-ar-i {\n    font-weight: bold;\n    color: #f92672;\n}\n\n\n\n';
+var $author$project$VSCode$Colors$stylesheet = '.foreground { color: var(--vscode-foreground) !important; }.disabledForeground { color: var(--vscode-disabledForeground) !important; }.errorForeground { color: var(--vscode-errorForeground) !important; }.descriptionForeground { color: var(--vscode-descriptionForeground) !important; }.icon-foreground { color: var(--vscode-icon-foreground) !important; }.focusBorder { border-color:  var(--vscode-focusBorder) !important; }.contrastBorder { border-color:  var(--vscode-contrastBorder) !important; }.contrastActiveBorder { border-color:  var(--vscode-contrastActiveBorder) !important; }.selection-background { background-color:  var(--vscode-selection-background) !important; }.textSeparator-foreground { color: var(--vscode-textSeparator-foreground) !important; }.textLink-foreground { color: var(--vscode-textLink-foreground) !important; }.textLink-activeForeground { color: var(--vscode-textLink-activeForeground) !important; }.textPreformat-foreground { color: var(--vscode-textPreformat-foreground) !important; }.textBlockQuote-background { background-color:  var(--vscode-textBlockQuote-background) !important; }.textBlockQuote-border { border-color:  var(--vscode-textBlockQuote-border) !important; }.textCodeBlock-background { background-color:  var(--vscode-textCodeBlock-background) !important; }.input-background { background-color:  var(--vscode-input-background) !important; }.input-foreground { color: var(--vscode-input-foreground) !important; }.input-border { border-color:  var(--vscode-input-border) !important; }.inputOption-activeBorder { border-color:  var(--vscode-inputOption-activeBorder) !important; }.inputOption-hoverBackground { background-color:  var(--vscode-inputOption-hoverBackground) !important; }.inputOption-activeBackground { background-color:  var(--vscode-inputOption-activeBackground) !important; }.inputOption-activeForeground { color: var(--vscode-inputOption-activeForeground) !important; }.input-placeholderForeground { color: var(--vscode-input-placeholderForeground) !important; }.inputValidation-infoBackground { background-color:  var(--vscode-inputValidation-infoBackground) !important; }.inputValidation-infoForeground { color: var(--vscode-inputValidation-infoForeground) !important; }.inputValidation-infoBorder { border-color:  var(--vscode-inputValidation-infoBorder) !important; }.inputValidation-warningBackground { background-color:  var(--vscode-inputValidation-warningBackground) !important; }.inputValidation-warningForeground { color: var(--vscode-inputValidation-warningForeground) !important; }.inputValidation-warningBorder { border-color:  var(--vscode-inputValidation-warningBorder) !important; }.inputValidation-errorBackground { background-color:  var(--vscode-inputValidation-errorBackground) !important; }.inputValidation-errorForeground { color: var(--vscode-inputValidation-errorForeground) !important; }.inputValidation-errorBorder { border-color:  var(--vscode-inputValidation-errorBorder) !important; }.dropdown-background { background-color:  var(--vscode-dropdown-background) !important; }.dropdown-listBackground { background-color:  var(--vscode-dropdown-listBackground) !important; }.dropdown-foreground { color: var(--vscode-dropdown-foreground) !important; }.dropdown-border { border-color:  var(--vscode-dropdown-border) !important; }.button-foreground { color: var(--vscode-button-foreground) !important; }.button-background { background-color:  var(--vscode-button-background) !important; }.button-hoverBackground { background-color:  var(--vscode-button-hoverBackground) !important; }.button-border { border-color:  var(--vscode-button-border) !important; }.button-secondaryForeground { color: var(--vscode-button-secondaryForeground) !important; }.button-secondaryBackground { background-color:  var(--vscode-button-secondaryBackground) !important; }.button-secondaryHoverBackground { background-color:  var(--vscode-button-secondaryHoverBackground) !important; }.badge-background { background-color:  var(--vscode-badge-background) !important; }.badge-foreground { color: var(--vscode-badge-foreground) !important; }.scrollbarSlider-background { background-color:  var(--vscode-scrollbarSlider-background) !important; }.scrollbarSlider-hoverBackground { background-color:  var(--vscode-scrollbarSlider-hoverBackground) !important; }.scrollbarSlider-activeBackground { background-color:  var(--vscode-scrollbarSlider-activeBackground) !important; }.progressBar-background { background-color:  var(--vscode-progressBar-background) !important; }.editorError-background { background-color:  var(--vscode-editorError-background) !important; }.editorError-foreground { color: var(--vscode-editorError-foreground) !important; }.editorError-border { border-color:  var(--vscode-editorError-border) !important; }.editorWarning-background { background-color:  var(--vscode-editorWarning-background) !important; }.editorWarning-foreground { color: var(--vscode-editorWarning-foreground) !important; }.editorWarning-border { border-color:  var(--vscode-editorWarning-border) !important; }.editorInfo-background { background-color:  var(--vscode-editorInfo-background) !important; }.editorInfo-foreground { color: var(--vscode-editorInfo-foreground) !important; }.editorInfo-border { border-color:  var(--vscode-editorInfo-border) !important; }.editorHint-foreground { color: var(--vscode-editorHint-foreground) !important; }.editorHint-border { border-color:  var(--vscode-editorHint-border) !important; }.sash-hoverBorder { border-color:  var(--vscode-sash-hoverBorder) !important; }.editor-background { background-color:  var(--vscode-editor-background) !important; }.editor-foreground { color: var(--vscode-editor-foreground) !important; }.editorStickyScroll-background { background-color:  var(--vscode-editorStickyScroll-background) !important; }.editorStickyScrollHover-background { background-color:  var(--vscode-editorStickyScrollHover-background) !important; }.editorWidget-background { background-color:  var(--vscode-editorWidget-background) !important; }.editorWidget-foreground { color: var(--vscode-editorWidget-foreground) !important; }.editorWidget-border { border-color:  var(--vscode-editorWidget-border) !important; }.editorWidget-resizeBorder { border-color:  var(--vscode-editorWidget-resizeBorder) !important; }.quickInput-background { background-color:  var(--vscode-quickInput-background) !important; }.quickInput-foreground { color: var(--vscode-quickInput-foreground) !important; }.quickInputTitle-background { background-color:  var(--vscode-quickInputTitle-background) !important; }.pickerGroup-foreground { color: var(--vscode-pickerGroup-foreground) !important; }.pickerGroup-border { border-color:  var(--vscode-pickerGroup-border) !important; }.keybindingLabel-background { background-color:  var(--vscode-keybindingLabel-background) !important; }.keybindingLabel-foreground { color: var(--vscode-keybindingLabel-foreground) !important; }.keybindingLabel-border { border-color:  var(--vscode-keybindingLabel-border) !important; }.keybindingLabel-bottomBorder { border-color:  var(--vscode-keybindingLabel-bottomBorder) !important; }.editor-selectionBackground { background-color:  var(--vscode-editor-selectionBackground) !important; }.editor-selectionForeground { color: var(--vscode-editor-selectionForeground) !important; }.editor-inactiveSelectionBackground { background-color:  var(--vscode-editor-inactiveSelectionBackground) !important; }.editor-selectionHighlightBackground { background-color:  var(--vscode-editor-selectionHighlightBackground) !important; }.editor-selectionHighlightBorder { border-color:  var(--vscode-editor-selectionHighlightBorder) !important; }.editor-findMatchBackground { background-color:  var(--vscode-editor-findMatchBackground) !important; }.editor-findMatchHighlightBackground { background-color:  var(--vscode-editor-findMatchHighlightBackground) !important; }.editor-findRangeHighlightBackground { background-color:  var(--vscode-editor-findRangeHighlightBackground) !important; }.editor-findMatchBorder { border-color:  var(--vscode-editor-findMatchBorder) !important; }.editor-findMatchHighlightBorder { border-color:  var(--vscode-editor-findMatchHighlightBorder) !important; }.editor-findRangeHighlightBorder { border-color:  var(--vscode-editor-findRangeHighlightBorder) !important; }.searchEditor-findMatchBackground { background-color:  var(--vscode-searchEditor-findMatchBackground) !important; }.searchEditor-findMatchBorder { border-color:  var(--vscode-searchEditor-findMatchBorder) !important; }.editor-hoverHighlightBackground { background-color:  var(--vscode-editor-hoverHighlightBackground) !important; }.editorHoverWidget-background { background-color:  var(--vscode-editorHoverWidget-background) !important; }.editorHoverWidget-foreground { color: var(--vscode-editorHoverWidget-foreground) !important; }.editorHoverWidget-border { border-color:  var(--vscode-editorHoverWidget-border) !important; }.editorHoverWidget-statusBarBackground { background-color:  var(--vscode-editorHoverWidget-statusBarBackground) !important; }.editorLink-activeForeground { color: var(--vscode-editorLink-activeForeground) !important; }.editorInlayHint-foreground { color: var(--vscode-editorInlayHint-foreground) !important; }.editorInlayHint-background { background-color:  var(--vscode-editorInlayHint-background) !important; }.editorInlayHint-typeForeground { color: var(--vscode-editorInlayHint-typeForeground) !important; }.editorInlayHint-typeBackground { background-color:  var(--vscode-editorInlayHint-typeBackground) !important; }.editorInlayHint-parameterForeground { color: var(--vscode-editorInlayHint-parameterForeground) !important; }.editorInlayHint-parameterBackground { background-color:  var(--vscode-editorInlayHint-parameterBackground) !important; }.editorLightBulb-foreground { color: var(--vscode-editorLightBulb-foreground) !important; }.editorLightBulbAutoFix-foreground { color: var(--vscode-editorLightBulbAutoFix-foreground) !important; }.diffEditor-insertedTextBackground { background-color:  var(--vscode-diffEditor-insertedTextBackground) !important; }.diffEditor-removedTextBackground { background-color:  var(--vscode-diffEditor-removedTextBackground) !important; }.diffEditor-insertedLineBackground { background-color:  var(--vscode-diffEditor-insertedLineBackground) !important; }.diffEditor-removedLineBackground { background-color:  var(--vscode-diffEditor-removedLineBackground) !important; }.diffEditorGutter-insertedLineBackground { background-color:  var(--vscode-diffEditorGutter-insertedLineBackground) !important; }.diffEditorGutter-removedLineBackground { background-color:  var(--vscode-diffEditorGutter-removedLineBackground) !important; }.diffEditorOverview-insertedForeground { color: var(--vscode-diffEditorOverview-insertedForeground) !important; }.diffEditorOverview-removedForeground { color: var(--vscode-diffEditorOverview-removedForeground) !important; }.diffEditor-insertedTextBorder { border-color:  var(--vscode-diffEditor-insertedTextBorder) !important; }.diffEditor-removedTextBorder { border-color:  var(--vscode-diffEditor-removedTextBorder) !important; }.diffEditor-border { border-color:  var(--vscode-diffEditor-border) !important; }.list-focusBackground { background-color:  var(--vscode-list-focusBackground) !important; }.list-focusForeground { color: var(--vscode-list-focusForeground) !important; }.list-activeSelectionBackground { background-color:  var(--vscode-list-activeSelectionBackground) !important; }.list-activeSelectionForeground { color: var(--vscode-list-activeSelectionForeground) !important; }.list-activeSelectionIconForeground { color: var(--vscode-list-activeSelectionIconForeground) !important; }.list-inactiveSelectionBackground { background-color:  var(--vscode-list-inactiveSelectionBackground) !important; }.list-inactiveSelectionForeground { color: var(--vscode-list-inactiveSelectionForeground) !important; }.list-inactiveSelectionIconForeground { color: var(--vscode-list-inactiveSelectionIconForeground) !important; }.list-inactiveFocusBackground { background-color:  var(--vscode-list-inactiveFocusBackground) !important; }.list-hoverBackground { background-color:  var(--vscode-list-hoverBackground) !important; }.list-hoverForeground { color: var(--vscode-list-hoverForeground) !important; }.list-dropBackground { background-color:  var(--vscode-list-dropBackground) !important; }.list-highlightForeground { color: var(--vscode-list-highlightForeground) !important; }.list-focusHighlightForeground { color: var(--vscode-list-focusHighlightForeground) !important; }.list-invalidItemForeground { color: var(--vscode-list-invalidItemForeground) !important; }.list-errorForeground { color: var(--vscode-list-errorForeground) !important; }.list-warningForeground { color: var(--vscode-list-warningForeground) !important; }.listFilterWidget-background { background-color:  var(--vscode-listFilterWidget-background) !important; }.list-filterMatchBackground { background-color:  var(--vscode-list-filterMatchBackground) !important; }.list-filterMatchBorder { border-color:  var(--vscode-list-filterMatchBorder) !important; }.tree-tableColumnsBorder { border-color:  var(--vscode-tree-tableColumnsBorder) !important; }.tree-tableOddRowsBackground { background-color:  var(--vscode-tree-tableOddRowsBackground) !important; }.list-deemphasizedForeground { color: var(--vscode-list-deemphasizedForeground) !important; }.checkbox-background { background-color:  var(--vscode-checkbox-background) !important; }.checkbox-selectBackground { background-color:  var(--vscode-checkbox-selectBackground) !important; }.checkbox-foreground { color: var(--vscode-checkbox-foreground) !important; }.checkbox-border { border-color:  var(--vscode-checkbox-border) !important; }.checkbox-selectBorder { border-color:  var(--vscode-checkbox-selectBorder) !important; }.quickInput-list-focusBackground { background-color:  var(--vscode-quickInput-list-focusBackground) !important; }.quickInputList-focusForeground { color: var(--vscode-quickInputList-focusForeground) !important; }.quickInputList-focusIconForeground { color: var(--vscode-quickInputList-focusIconForeground) !important; }.quickInputList-focusBackground { background-color:  var(--vscode-quickInputList-focusBackground) !important; }.menu-border { border-color:  var(--vscode-menu-border) !important; }.menu-foreground { color: var(--vscode-menu-foreground) !important; }.menu-background { background-color:  var(--vscode-menu-background) !important; }.menu-selectionForeground { color: var(--vscode-menu-selectionForeground) !important; }.menu-selectionBackground { background-color:  var(--vscode-menu-selectionBackground) !important; }.menu-selectionBorder { border-color:  var(--vscode-menu-selectionBorder) !important; }.menu-separatorBackground { background-color:  var(--vscode-menu-separatorBackground) !important; }.toolbar-hoverBackground { background-color:  var(--vscode-toolbar-hoverBackground) !important; }.toolbar-activeBackground { background-color:  var(--vscode-toolbar-activeBackground) !important; }.editor-snippetTabstopHighlightBackground { background-color:  var(--vscode-editor-snippetTabstopHighlightBackground) !important; }.editor-snippetTabstopHighlightBorder { border-color:  var(--vscode-editor-snippetTabstopHighlightBorder) !important; }.editor-snippetFinalTabstopHighlightBackground { background-color:  var(--vscode-editor-snippetFinalTabstopHighlightBackground) !important; }.editor-snippetFinalTabstopHighlightBorder { border-color:  var(--vscode-editor-snippetFinalTabstopHighlightBorder) !important; }.breadcrumb-foreground { color: var(--vscode-breadcrumb-foreground) !important; }.breadcrumb-background { background-color:  var(--vscode-breadcrumb-background) !important; }.breadcrumb-focusForeground { color: var(--vscode-breadcrumb-focusForeground) !important; }.breadcrumb-activeSelectionForeground { color: var(--vscode-breadcrumb-activeSelectionForeground) !important; }.breadcrumbPicker-background { background-color:  var(--vscode-breadcrumbPicker-background) !important; }.merge-currentHeaderBackground { background-color:  var(--vscode-merge-currentHeaderBackground) !important; }.merge-currentContentBackground { background-color:  var(--vscode-merge-currentContentBackground) !important; }.merge-incomingHeaderBackground { background-color:  var(--vscode-merge-incomingHeaderBackground) !important; }.merge-incomingContentBackground { background-color:  var(--vscode-merge-incomingContentBackground) !important; }.merge-commonHeaderBackground { background-color:  var(--vscode-merge-commonHeaderBackground) !important; }.merge-commonContentBackground { background-color:  var(--vscode-merge-commonContentBackground) !important; }.merge-border { border-color:  var(--vscode-merge-border) !important; }.editorOverviewRuler-currentContentForeground { color: var(--vscode-editorOverviewRuler-currentContentForeground) !important; }.editorOverviewRuler-incomingContentForeground { color: var(--vscode-editorOverviewRuler-incomingContentForeground) !important; }.editorOverviewRuler-commonContentForeground { color: var(--vscode-editorOverviewRuler-commonContentForeground) !important; }.editorOverviewRuler-findMatchForeground { color: var(--vscode-editorOverviewRuler-findMatchForeground) !important; }.editorOverviewRuler-selectionHighlightForeground { color: var(--vscode-editorOverviewRuler-selectionHighlightForeground) !important; }.minimap-background { background-color:  var(--vscode-minimap-background) !important; }.minimap-foregroundOpacity { color: var(--vscode-minimap-foregroundOpacity) !important; }.minimapSlider-background { background-color:  var(--vscode-minimapSlider-background) !important; }.minimapSlider-hoverBackground { background-color:  var(--vscode-minimapSlider-hoverBackground) !important; }.minimapSlider-activeBackground { background-color:  var(--vscode-minimapSlider-activeBackground) !important; }.problemsErrorIcon-foreground { color: var(--vscode-problemsErrorIcon-foreground) !important; }.problemsWarningIcon-foreground { color: var(--vscode-problemsWarningIcon-foreground) !important; }.problemsInfoIcon-foreground { color: var(--vscode-problemsInfoIcon-foreground) !important; }.charts-foreground { color: var(--vscode-charts-foreground) !important; }.symbolIcon-arrayForeground { color: var(--vscode-symbolIcon-arrayForeground) !important; }.symbolIcon-booleanForeground { color: var(--vscode-symbolIcon-booleanForeground) !important; }.symbolIcon-classForeground { color: var(--vscode-symbolIcon-classForeground) !important; }.symbolIcon-colorForeground { color: var(--vscode-symbolIcon-colorForeground) !important; }.symbolIcon-constantForeground { color: var(--vscode-symbolIcon-constantForeground) !important; }.symbolIcon-constructorForeground { color: var(--vscode-symbolIcon-constructorForeground) !important; }.symbolIcon-enumeratorForeground { color: var(--vscode-symbolIcon-enumeratorForeground) !important; }.symbolIcon-enumeratorMemberForeground { color: var(--vscode-symbolIcon-enumeratorMemberForeground) !important; }.symbolIcon-eventForeground { color: var(--vscode-symbolIcon-eventForeground) !important; }.symbolIcon-fieldForeground { color: var(--vscode-symbolIcon-fieldForeground) !important; }.symbolIcon-fileForeground { color: var(--vscode-symbolIcon-fileForeground) !important; }.symbolIcon-folderForeground { color: var(--vscode-symbolIcon-folderForeground) !important; }.symbolIcon-functionForeground { color: var(--vscode-symbolIcon-functionForeground) !important; }.symbolIcon-interfaceForeground { color: var(--vscode-symbolIcon-interfaceForeground) !important; }.symbolIcon-keyForeground { color: var(--vscode-symbolIcon-keyForeground) !important; }.symbolIcon-keywordForeground { color: var(--vscode-symbolIcon-keywordForeground) !important; }.symbolIcon-methodForeground { color: var(--vscode-symbolIcon-methodForeground) !important; }.symbolIcon-moduleForeground { color: var(--vscode-symbolIcon-moduleForeground) !important; }.symbolIcon-namespaceForeground { color: var(--vscode-symbolIcon-namespaceForeground) !important; }.symbolIcon-nullForeground { color: var(--vscode-symbolIcon-nullForeground) !important; }.symbolIcon-numberForeground { color: var(--vscode-symbolIcon-numberForeground) !important; }.symbolIcon-objectForeground { color: var(--vscode-symbolIcon-objectForeground) !important; }.symbolIcon-operatorForeground { color: var(--vscode-symbolIcon-operatorForeground) !important; }.symbolIcon-packageForeground { color: var(--vscode-symbolIcon-packageForeground) !important; }.symbolIcon-propertyForeground { color: var(--vscode-symbolIcon-propertyForeground) !important; }.symbolIcon-referenceForeground { color: var(--vscode-symbolIcon-referenceForeground) !important; }.symbolIcon-snippetForeground { color: var(--vscode-symbolIcon-snippetForeground) !important; }.symbolIcon-stringForeground { color: var(--vscode-symbolIcon-stringForeground) !important; }.symbolIcon-structForeground { color: var(--vscode-symbolIcon-structForeground) !important; }.symbolIcon-textForeground { color: var(--vscode-symbolIcon-textForeground) !important; }.symbolIcon-typeParameterForeground { color: var(--vscode-symbolIcon-typeParameterForeground) !important; }.symbolIcon-unitForeground { color: var(--vscode-symbolIcon-unitForeground) !important; }.symbolIcon-variableForeground { color: var(--vscode-symbolIcon-variableForeground) !important; }.editor-lineHighlightBackground { background-color:  var(--vscode-editor-lineHighlightBackground) !important; }.editor-lineHighlightBorder { border-color:  var(--vscode-editor-lineHighlightBorder) !important; }.editor-rangeHighlightBackground { background-color:  var(--vscode-editor-rangeHighlightBackground) !important; }.editor-rangeHighlightBorder { border-color:  var(--vscode-editor-rangeHighlightBorder) !important; }.editor-symbolHighlightBackground { background-color:  var(--vscode-editor-symbolHighlightBackground) !important; }.editor-symbolHighlightBorder { border-color:  var(--vscode-editor-symbolHighlightBorder) !important; }.editorCursor-foreground { color: var(--vscode-editorCursor-foreground) !important; }.editorCursor-background { background-color:  var(--vscode-editorCursor-background) !important; }.editorWhitespace-foreground { color: var(--vscode-editorWhitespace-foreground) !important; }.editorIndentGuide-background { background-color:  var(--vscode-editorIndentGuide-background) !important; }.editorIndentGuide-activeBackground { background-color:  var(--vscode-editorIndentGuide-activeBackground) !important; }.editorLineNumber-foreground { color: var(--vscode-editorLineNumber-foreground) !important; }.editorActiveLineNumber-foreground { color: var(--vscode-editorActiveLineNumber-foreground) !important; }.editorLineNumber-activeForeground { color: var(--vscode-editorLineNumber-activeForeground) !important; }.editorRuler-foreground { color: var(--vscode-editorRuler-foreground) !important; }.editorCodeLens-foreground { color: var(--vscode-editorCodeLens-foreground) !important; }.editorBracketMatch-background { background-color:  var(--vscode-editorBracketMatch-background) !important; }.editorBracketMatch-border { border-color:  var(--vscode-editorBracketMatch-border) !important; }.editorOverviewRuler-border { border-color:  var(--vscode-editorOverviewRuler-border) !important; }.editorOverviewRuler-background { background-color:  var(--vscode-editorOverviewRuler-background) !important; }.editorGutter-background { background-color:  var(--vscode-editorGutter-background) !important; }.editorUnnecessaryCode-border { border-color:  var(--vscode-editorUnnecessaryCode-border) !important; }.editorGhostText-border { border-color:  var(--vscode-editorGhostText-border) !important; }.editorGhostText-foreground { color: var(--vscode-editorGhostText-foreground) !important; }.editorGhostText-background { background-color:  var(--vscode-editorGhostText-background) !important; }.editorOverviewRuler-rangeHighlightForeground { color: var(--vscode-editorOverviewRuler-rangeHighlightForeground) !important; }.editorOverviewRuler-errorForeground { color: var(--vscode-editorOverviewRuler-errorForeground) !important; }.editorOverviewRuler-warningForeground { color: var(--vscode-editorOverviewRuler-warningForeground) !important; }.editorOverviewRuler-infoForeground { color: var(--vscode-editorOverviewRuler-infoForeground) !important; }.editorBracketHighlight-foreground1 { color: var(--vscode-editorBracketHighlight-foreground1) !important; }.editorBracketHighlight-foreground2 { color: var(--vscode-editorBracketHighlight-foreground2) !important; }.editorBracketHighlight-foreground3 { color: var(--vscode-editorBracketHighlight-foreground3) !important; }.editorBracketHighlight-foreground4 { color: var(--vscode-editorBracketHighlight-foreground4) !important; }.editorBracketHighlight-foreground5 { color: var(--vscode-editorBracketHighlight-foreground5) !important; }.editorBracketHighlight-foreground6 { color: var(--vscode-editorBracketHighlight-foreground6) !important; }.editorBracketHighlight-unexpectedBracket-foreground { color: var(--vscode-editorBracketHighlight-unexpectedBracket-foreground) !important; }.editorBracketPairGuide-background1 { background-color:  var(--vscode-editorBracketPairGuide-background1) !important; }.editorBracketPairGuide-background2 { background-color:  var(--vscode-editorBracketPairGuide-background2) !important; }.editorBracketPairGuide-background3 { background-color:  var(--vscode-editorBracketPairGuide-background3) !important; }.editorBracketPairGuide-background4 { background-color:  var(--vscode-editorBracketPairGuide-background4) !important; }.editorBracketPairGuide-background5 { background-color:  var(--vscode-editorBracketPairGuide-background5) !important; }.editorBracketPairGuide-background6 { background-color:  var(--vscode-editorBracketPairGuide-background6) !important; }.editorBracketPairGuide-activeBackground1 { background-color:  var(--vscode-editorBracketPairGuide-activeBackground1) !important; }.editorBracketPairGuide-activeBackground2 { background-color:  var(--vscode-editorBracketPairGuide-activeBackground2) !important; }.editorBracketPairGuide-activeBackground3 { background-color:  var(--vscode-editorBracketPairGuide-activeBackground3) !important; }.editorBracketPairGuide-activeBackground4 { background-color:  var(--vscode-editorBracketPairGuide-activeBackground4) !important; }.editorBracketPairGuide-activeBackground5 { background-color:  var(--vscode-editorBracketPairGuide-activeBackground5) !important; }.editorBracketPairGuide-activeBackground6 { background-color:  var(--vscode-editorBracketPairGuide-activeBackground6) !important; }.editorUnicodeHighlight-border { border-color:  var(--vscode-editorUnicodeHighlight-border) !important; }.editorUnicodeHighlight-background { background-color:  var(--vscode-editorUnicodeHighlight-background) !important; }.editorHoverWidget-highlightForeground { color: var(--vscode-editorHoverWidget-highlightForeground) !important; }.editorOverviewRuler-bracketMatchForeground { color: var(--vscode-editorOverviewRuler-bracketMatchForeground) !important; }.editor-foldBackground { background-color:  var(--vscode-editor-foldBackground) !important; }.editorGutter-foldingControlForeground { color: var(--vscode-editorGutter-foldingControlForeground) !important; }.editor-linkedEditingBackground { background-color:  var(--vscode-editor-linkedEditingBackground) !important; }.editor-wordHighlightBackground { background-color:  var(--vscode-editor-wordHighlightBackground) !important; }.editor-wordHighlightStrongBackground { background-color:  var(--vscode-editor-wordHighlightStrongBackground) !important; }.editor-wordHighlightBorder { border-color:  var(--vscode-editor-wordHighlightBorder) !important; }.editor-wordHighlightStrongBorder { border-color:  var(--vscode-editor-wordHighlightStrongBorder) !important; }.editorOverviewRuler-wordHighlightForeground { color: var(--vscode-editorOverviewRuler-wordHighlightForeground) !important; }.editorOverviewRuler-wordHighlightStrongForeground { color: var(--vscode-editorOverviewRuler-wordHighlightStrongForeground) !important; }.peekViewTitle-background { background-color:  var(--vscode-peekViewTitle-background) !important; }.peekViewTitleLabel-foreground { color: var(--vscode-peekViewTitleLabel-foreground) !important; }.peekViewTitleDescription-foreground { color: var(--vscode-peekViewTitleDescription-foreground) !important; }.peekView-border { border-color:  var(--vscode-peekView-border) !important; }.peekViewResult-background { background-color:  var(--vscode-peekViewResult-background) !important; }.peekViewResult-lineForeground { color: var(--vscode-peekViewResult-lineForeground) !important; }.peekViewResult-fileForeground { color: var(--vscode-peekViewResult-fileForeground) !important; }.peekViewResult-selectionBackground { background-color:  var(--vscode-peekViewResult-selectionBackground) !important; }.peekViewResult-selectionForeground { color: var(--vscode-peekViewResult-selectionForeground) !important; }.peekViewEditor-background { background-color:  var(--vscode-peekViewEditor-background) !important; }.peekViewEditorGutter-background { background-color:  var(--vscode-peekViewEditorGutter-background) !important; }.peekViewResult-matchHighlightBackground { background-color:  var(--vscode-peekViewResult-matchHighlightBackground) !important; }.peekViewEditor-matchHighlightBackground { background-color:  var(--vscode-peekViewEditor-matchHighlightBackground) !important; }.peekViewEditor-matchHighlightBorder { border-color:  var(--vscode-peekViewEditor-matchHighlightBorder) !important; }.editorMarkerNavigationError-background { background-color:  var(--vscode-editorMarkerNavigationError-background) !important; }.editorMarkerNavigationError-headerBackground { background-color:  var(--vscode-editorMarkerNavigationError-headerBackground) !important; }.editorMarkerNavigationWarning-background { background-color:  var(--vscode-editorMarkerNavigationWarning-background) !important; }.editorMarkerNavigationWarning-headerBackground { background-color:  var(--vscode-editorMarkerNavigationWarning-headerBackground) !important; }.editorMarkerNavigationInfo-background { background-color:  var(--vscode-editorMarkerNavigationInfo-background) !important; }.editorMarkerNavigationInfo-headerBackground { background-color:  var(--vscode-editorMarkerNavigationInfo-headerBackground) !important; }.editorMarkerNavigation-background { background-color:  var(--vscode-editorMarkerNavigation-background) !important; }.editorSuggestWidget-background { background-color:  var(--vscode-editorSuggestWidget-background) !important; }.editorSuggestWidget-border { border-color:  var(--vscode-editorSuggestWidget-border) !important; }.editorSuggestWidget-foreground { color: var(--vscode-editorSuggestWidget-foreground) !important; }.editorSuggestWidget-selectedForeground { color: var(--vscode-editorSuggestWidget-selectedForeground) !important; }.editorSuggestWidget-selectedIconForeground { color: var(--vscode-editorSuggestWidget-selectedIconForeground) !important; }.editorSuggestWidget-selectedBackground { background-color:  var(--vscode-editorSuggestWidget-selectedBackground) !important; }.editorSuggestWidget-highlightForeground { color: var(--vscode-editorSuggestWidget-highlightForeground) !important; }.editorSuggestWidget-focusHighlightForeground { color: var(--vscode-editorSuggestWidget-focusHighlightForeground) !important; }.editorSuggestWidgetStatus-foreground { color: var(--vscode-editorSuggestWidgetStatus-foreground) !important; }.tab-activeBackground { background-color:  var(--vscode-tab-activeBackground) !important; }.tab-unfocusedActiveBackground { background-color:  var(--vscode-tab-unfocusedActiveBackground) !important; }.tab-inactiveBackground { background-color:  var(--vscode-tab-inactiveBackground) !important; }.tab-unfocusedInactiveBackground { background-color:  var(--vscode-tab-unfocusedInactiveBackground) !important; }.tab-activeForeground { color: var(--vscode-tab-activeForeground) !important; }.tab-inactiveForeground { color: var(--vscode-tab-inactiveForeground) !important; }.tab-unfocusedActiveForeground { color: var(--vscode-tab-unfocusedActiveForeground) !important; }.tab-unfocusedInactiveForeground { color: var(--vscode-tab-unfocusedInactiveForeground) !important; }.tab-hoverBackground { background-color:  var(--vscode-tab-hoverBackground) !important; }.tab-unfocusedHoverBackground { background-color:  var(--vscode-tab-unfocusedHoverBackground) !important; }.tab-hoverForeground { color: var(--vscode-tab-hoverForeground) !important; }.tab-unfocusedHoverForeground { color: var(--vscode-tab-unfocusedHoverForeground) !important; }.tab-border { border-color:  var(--vscode-tab-border) !important; }.tab-lastPinnedBorder { border-color:  var(--vscode-tab-lastPinnedBorder) !important; }.tab-activeBorder { border-color:  var(--vscode-tab-activeBorder) !important; }.tab-unfocusedActiveBorder { border-color:  var(--vscode-tab-unfocusedActiveBorder) !important; }.tab-activeBorderTop { border-color:  var(--vscode-tab-activeBorderTop) !important; }.tab-unfocusedActiveBorderTop { border-color:  var(--vscode-tab-unfocusedActiveBorderTop) !important; }.tab-hoverBorder { border-color:  var(--vscode-tab-hoverBorder) !important; }.tab-unfocusedHoverBorder { border-color:  var(--vscode-tab-unfocusedHoverBorder) !important; }.tab-activeModifiedBorder { border-color:  var(--vscode-tab-activeModifiedBorder) !important; }.tab-inactiveModifiedBorder { border-color:  var(--vscode-tab-inactiveModifiedBorder) !important; }.tab-unfocusedActiveModifiedBorder { border-color:  var(--vscode-tab-unfocusedActiveModifiedBorder) !important; }.tab-unfocusedInactiveModifiedBorder { border-color:  var(--vscode-tab-unfocusedInactiveModifiedBorder) !important; }.editorPane-background { background-color:  var(--vscode-editorPane-background) !important; }.editorGroup-emptyBackground { background-color:  var(--vscode-editorGroup-emptyBackground) !important; }.editorGroup-focusedEmptyBorder { border-color:  var(--vscode-editorGroup-focusedEmptyBorder) !important; }.editorGroupHeader-tabsBackground { background-color:  var(--vscode-editorGroupHeader-tabsBackground) !important; }.editorGroupHeader-tabsBorder { border-color:  var(--vscode-editorGroupHeader-tabsBorder) !important; }.editorGroupHeader-noTabsBackground { background-color:  var(--vscode-editorGroupHeader-noTabsBackground) !important; }.editorGroupHeader-border { border-color:  var(--vscode-editorGroupHeader-border) !important; }.editorGroup-border { border-color:  var(--vscode-editorGroup-border) !important; }.editorGroup-dropBackground { background-color:  var(--vscode-editorGroup-dropBackground) !important; }.editorGroup-dropIntoPromptForeground { color: var(--vscode-editorGroup-dropIntoPromptForeground) !important; }.editorGroup-dropIntoPromptBackground { background-color:  var(--vscode-editorGroup-dropIntoPromptBackground) !important; }.editorGroup-dropIntoPromptBorder { border-color:  var(--vscode-editorGroup-dropIntoPromptBorder) !important; }.sideBySideEditor-horizontalBorder { border-color:  var(--vscode-sideBySideEditor-horizontalBorder) !important; }.sideBySideEditor-verticalBorder { border-color:  var(--vscode-sideBySideEditor-verticalBorder) !important; }.panel-background { background-color:  var(--vscode-panel-background) !important; }.panel-border { border-color:  var(--vscode-panel-border) !important; }.panelTitle-activeForeground { color: var(--vscode-panelTitle-activeForeground) !important; }.panelTitle-inactiveForeground { color: var(--vscode-panelTitle-inactiveForeground) !important; }.panelTitle-activeBorder { border-color:  var(--vscode-panelTitle-activeBorder) !important; }.panelInput-border { border-color:  var(--vscode-panelInput-border) !important; }.panel-dropBorder { border-color:  var(--vscode-panel-dropBorder) !important; }.panelSection-dropBackground { background-color:  var(--vscode-panelSection-dropBackground) !important; }.panelSectionHeader-background { background-color:  var(--vscode-panelSectionHeader-background) !important; }.panelSectionHeader-foreground { color: var(--vscode-panelSectionHeader-foreground) !important; }.panelSectionHeader-border { border-color:  var(--vscode-panelSectionHeader-border) !important; }.panelSection-border { border-color:  var(--vscode-panelSection-border) !important; }.banner-background { background-color:  var(--vscode-banner-background) !important; }.banner-foreground { color: var(--vscode-banner-foreground) !important; }.banner-iconForeground { color: var(--vscode-banner-iconForeground) !important; }.statusBar-foreground { color: var(--vscode-statusBar-foreground) !important; }.statusBar-noFolderForeground { color: var(--vscode-statusBar-noFolderForeground) !important; }.statusBar-background { background-color:  var(--vscode-statusBar-background) !important; }.statusBar-noFolderBackground { background-color:  var(--vscode-statusBar-noFolderBackground) !important; }.statusBar-border { border-color:  var(--vscode-statusBar-border) !important; }.statusBar-focusBorder { border-color:  var(--vscode-statusBar-focusBorder) !important; }.statusBar-noFolderBorder { border-color:  var(--vscode-statusBar-noFolderBorder) !important; }.statusBarItem-activeBackground { background-color:  var(--vscode-statusBarItem-activeBackground) !important; }.statusBarItem-focusBorder { border-color:  var(--vscode-statusBarItem-focusBorder) !important; }.statusBarItem-hoverBackground { background-color:  var(--vscode-statusBarItem-hoverBackground) !important; }.statusBarItem-compactHoverBackground { background-color:  var(--vscode-statusBarItem-compactHoverBackground) !important; }.statusBarItem-prominentForeground { color: var(--vscode-statusBarItem-prominentForeground) !important; }.statusBarItem-prominentBackground { background-color:  var(--vscode-statusBarItem-prominentBackground) !important; }.statusBarItem-prominentHoverBackground { background-color:  var(--vscode-statusBarItem-prominentHoverBackground) !important; }.statusBarItem-errorBackground { background-color:  var(--vscode-statusBarItem-errorBackground) !important; }.statusBarItem-errorForeground { color: var(--vscode-statusBarItem-errorForeground) !important; }.statusBarItem-warningBackground { background-color:  var(--vscode-statusBarItem-warningBackground) !important; }.statusBarItem-warningForeground { color: var(--vscode-statusBarItem-warningForeground) !important; }.activityBar-background { background-color:  var(--vscode-activityBar-background) !important; }.activityBar-foreground { color: var(--vscode-activityBar-foreground) !important; }.activityBar-inactiveForeground { color: var(--vscode-activityBar-inactiveForeground) !important; }.activityBar-border { border-color:  var(--vscode-activityBar-border) !important; }.activityBar-activeBorder { border-color:  var(--vscode-activityBar-activeBorder) !important; }.activityBar-activeFocusBorder { border-color:  var(--vscode-activityBar-activeFocusBorder) !important; }.activityBar-activeBackground { background-color:  var(--vscode-activityBar-activeBackground) !important; }.activityBar-dropBorder { border-color:  var(--vscode-activityBar-dropBorder) !important; }.activityBarBadge-background { background-color:  var(--vscode-activityBarBadge-background) !important; }.activityBarBadge-foreground { color: var(--vscode-activityBarBadge-foreground) !important; }.activityBarItem-profilesForeground { color: var(--vscode-activityBarItem-profilesForeground) !important; }.activityBarItem-profilesHoverForeground { color: var(--vscode-activityBarItem-profilesHoverForeground) !important; }.activityBarItem-profilesBackground { background-color:  var(--vscode-activityBarItem-profilesBackground) !important; }.statusBarItem-remoteBackground { background-color:  var(--vscode-statusBarItem-remoteBackground) !important; }.statusBarItem-remoteForeground { color: var(--vscode-statusBarItem-remoteForeground) !important; }.extensionBadge-remoteBackground { background-color:  var(--vscode-extensionBadge-remoteBackground) !important; }.extensionBadge-remoteForeground { color: var(--vscode-extensionBadge-remoteForeground) !important; }.sideBar-background { background-color:  var(--vscode-sideBar-background) !important; }.sideBar-foreground { color: var(--vscode-sideBar-foreground) !important; }.sideBar-border { border-color:  var(--vscode-sideBar-border) !important; }.sideBarTitle-foreground { color: var(--vscode-sideBarTitle-foreground) !important; }.sideBar-dropBackground { background-color:  var(--vscode-sideBar-dropBackground) !important; }.sideBarSectionHeader-background { background-color:  var(--vscode-sideBarSectionHeader-background) !important; }.sideBarSectionHeader-foreground { color: var(--vscode-sideBarSectionHeader-foreground) !important; }.sideBarSectionHeader-border { border-color:  var(--vscode-sideBarSectionHeader-border) !important; }.titleBar-activeForeground { color: var(--vscode-titleBar-activeForeground) !important; }.titleBar-inactiveForeground { color: var(--vscode-titleBar-inactiveForeground) !important; }.titleBar-activeBackground { background-color:  var(--vscode-titleBar-activeBackground) !important; }.titleBar-inactiveBackground { background-color:  var(--vscode-titleBar-inactiveBackground) !important; }.titleBar-border { border-color:  var(--vscode-titleBar-border) !important; }.menubar-selectionForeground { color: var(--vscode-menubar-selectionForeground) !important; }.menubar-selectionBackground { background-color:  var(--vscode-menubar-selectionBackground) !important; }.menubar-selectionBorder { border-color:  var(--vscode-menubar-selectionBorder) !important; }.notificationCenter-border { border-color:  var(--vscode-notificationCenter-border) !important; }.notificationToast-border { border-color:  var(--vscode-notificationToast-border) !important; }.notifications-foreground { color: var(--vscode-notifications-foreground) !important; }.notifications-background { background-color:  var(--vscode-notifications-background) !important; }.notificationLink-foreground { color: var(--vscode-notificationLink-foreground) !important; }.notificationCenterHeader-foreground { color: var(--vscode-notificationCenterHeader-foreground) !important; }.notificationCenterHeader-background { background-color:  var(--vscode-notificationCenterHeader-background) !important; }.notifications-border { border-color:  var(--vscode-notifications-border) !important; }.notificationsErrorIcon-foreground { color: var(--vscode-notificationsErrorIcon-foreground) !important; }.notificationsWarningIcon-foreground { color: var(--vscode-notificationsWarningIcon-foreground) !important; }.notificationsInfoIcon-foreground { color: var(--vscode-notificationsInfoIcon-foreground) !important; }.window-activeBorder { border-color:  var(--vscode-window-activeBorder) !important; }.window-inactiveBorder { border-color:  var(--vscode-window-inactiveBorder) !important; }.commandCenter-foreground { color: var(--vscode-commandCenter-foreground) !important; }.commandCenter-activeForeground { color: var(--vscode-commandCenter-activeForeground) !important; }.commandCenter-inactiveForeground { color: var(--vscode-commandCenter-inactiveForeground) !important; }.commandCenter-background { background-color:  var(--vscode-commandCenter-background) !important; }.commandCenter-activeBackground { background-color:  var(--vscode-commandCenter-activeBackground) !important; }.commandCenter-border { border-color:  var(--vscode-commandCenter-border) !important; }.commandCenter-activeBorder { border-color:  var(--vscode-commandCenter-activeBorder) !important; }.commandCenter-inactiveBorder { border-color:  var(--vscode-commandCenter-inactiveBorder) !important; }.editorCommentsWidget-resolvedBorder { border-color:  var(--vscode-editorCommentsWidget-resolvedBorder) !important; }.editorCommentsWidget-unresolvedBorder { border-color:  var(--vscode-editorCommentsWidget-unresolvedBorder) !important; }.editorCommentsWidget-rangeBackground { background-color:  var(--vscode-editorCommentsWidget-rangeBackground) !important; }.editorCommentsWidget-rangeBorder { border-color:  var(--vscode-editorCommentsWidget-rangeBorder) !important; }.editorCommentsWidget-rangeActiveBackground { background-color:  var(--vscode-editorCommentsWidget-rangeActiveBackground) !important; }.editorCommentsWidget-rangeActiveBorder { border-color:  var(--vscode-editorCommentsWidget-rangeActiveBorder) !important; }.editorGutter-commentRangeForeground { color: var(--vscode-editorGutter-commentRangeForeground) !important; }.debugToolBar-background { background-color:  var(--vscode-debugToolBar-background) !important; }.debugToolBar-border { border-color:  var(--vscode-debugToolBar-border) !important; }.debugIcon-startForeground { color: var(--vscode-debugIcon-startForeground) !important; }.editor-stackFrameHighlightBackground { background-color:  var(--vscode-editor-stackFrameHighlightBackground) !important; }.editor-focusedStackFrameHighlightBackground { background-color:  var(--vscode-editor-focusedStackFrameHighlightBackground) !important; }.mergeEditor-change-background { background-color:  var(--vscode-mergeEditor-change-background) !important; }.mergeEditor-change-word-background { background-color:  var(--vscode-mergeEditor-change-word-background) !important; }.mergeEditor-changeBase-background { background-color:  var(--vscode-mergeEditor-changeBase-background) !important; }.mergeEditor-changeBase-word-background { background-color:  var(--vscode-mergeEditor-changeBase-word-background) !important; }.mergeEditor-conflict-unhandledUnfocused-border { border-color:  var(--vscode-mergeEditor-conflict-unhandledUnfocused-border) !important; }.mergeEditor-conflict-unhandledFocused-border { border-color:  var(--vscode-mergeEditor-conflict-unhandledFocused-border) !important; }.mergeEditor-conflict-handledUnfocused-border { border-color:  var(--vscode-mergeEditor-conflict-handledUnfocused-border) !important; }.mergeEditor-conflict-handledFocused-border { border-color:  var(--vscode-mergeEditor-conflict-handledFocused-border) !important; }.mergeEditor-conflictingLines-background { background-color:  var(--vscode-mergeEditor-conflictingLines-background) !important; }.mergeEditor-conflict-input1-background { background-color:  var(--vscode-mergeEditor-conflict-input1-background) !important; }.mergeEditor-conflict-input2-background { background-color:  var(--vscode-mergeEditor-conflict-input2-background) !important; }.settings-headerForeground { color: var(--vscode-settings-headerForeground) !important; }.settings-headerBorder { border-color:  var(--vscode-settings-headerBorder) !important; }.settings-sashBorder { border-color:  var(--vscode-settings-sashBorder) !important; }.settings-dropdownBackground { background-color:  var(--vscode-settings-dropdownBackground) !important; }.settings-dropdownForeground { color: var(--vscode-settings-dropdownForeground) !important; }.settings-dropdownBorder { border-color:  var(--vscode-settings-dropdownBorder) !important; }.settings-dropdownListBorder { border-color:  var(--vscode-settings-dropdownListBorder) !important; }.settings-checkboxBackground { background-color:  var(--vscode-settings-checkboxBackground) !important; }.settings-checkboxForeground { color: var(--vscode-settings-checkboxForeground) !important; }.settings-checkboxBorder { border-color:  var(--vscode-settings-checkboxBorder) !important; }.settings-textInputBackground { background-color:  var(--vscode-settings-textInputBackground) !important; }.settings-textInputForeground { color: var(--vscode-settings-textInputForeground) !important; }.settings-textInputBorder { border-color:  var(--vscode-settings-textInputBorder) !important; }.settings-numberInputBackground { background-color:  var(--vscode-settings-numberInputBackground) !important; }.settings-numberInputForeground { color: var(--vscode-settings-numberInputForeground) !important; }.settings-numberInputBorder { border-color:  var(--vscode-settings-numberInputBorder) !important; }.settings-focusedRowBackground { background-color:  var(--vscode-settings-focusedRowBackground) !important; }.settings-rowHoverBackground { background-color:  var(--vscode-settings-rowHoverBackground) !important; }.settings-focusedRowBorder { border-color:  var(--vscode-settings-focusedRowBorder) !important; }.terminal-background { background-color:  var(--vscode-terminal-background) !important; }.terminal-foreground { color: var(--vscode-terminal-foreground) !important; }.terminalCursor-foreground { color: var(--vscode-terminalCursor-foreground) !important; }.terminalCursor-background { background-color:  var(--vscode-terminalCursor-background) !important; }.terminal-selectionBackground { background-color:  var(--vscode-terminal-selectionBackground) !important; }.terminal-inactiveSelectionBackground { background-color:  var(--vscode-terminal-inactiveSelectionBackground) !important; }.terminal-selectionForeground { color: var(--vscode-terminal-selectionForeground) !important; }.terminalCommandDecoration-defaultBackground { background-color:  var(--vscode-terminalCommandDecoration-defaultBackground) !important; }.terminalCommandDecoration-successBackground { background-color:  var(--vscode-terminalCommandDecoration-successBackground) !important; }.terminalCommandDecoration-errorBackground { background-color:  var(--vscode-terminalCommandDecoration-errorBackground) !important; }.terminalOverviewRuler-cursorForeground { color: var(--vscode-terminalOverviewRuler-cursorForeground) !important; }.terminal-border { border-color:  var(--vscode-terminal-border) !important; }.terminal-findMatchBackground { background-color:  var(--vscode-terminal-findMatchBackground) !important; }.terminal-findMatchBorder { border-color:  var(--vscode-terminal-findMatchBorder) !important; }.terminal-findMatchHighlightBackground { background-color:  var(--vscode-terminal-findMatchHighlightBackground) !important; }.terminal-findMatchHighlightBorder { border-color:  var(--vscode-terminal-findMatchHighlightBorder) !important; }.terminalOverviewRuler-findMatchForeground { color: var(--vscode-terminalOverviewRuler-findMatchForeground) !important; }.terminal-dropBackground { background-color:  var(--vscode-terminal-dropBackground) !important; }.terminal-tab-activeBorder { border-color:  var(--vscode-terminal-tab-activeBorder) !important; }.testing-peekBorder { border-color:  var(--vscode-testing-peekBorder) !important; }.testing-peekHeaderBackground { background-color:  var(--vscode-testing-peekHeaderBackground) !important; }.testing-message-error-decorationForeground { color: var(--vscode-testing-message-error-decorationForeground) !important; }.testing-message-error-lineBackground { background-color:  var(--vscode-testing-message-error-lineBackground) !important; }.testing-message-info-decorationForeground { color: var(--vscode-testing-message-info-decorationForeground) !important; }.testing-message-info-lineBackground { background-color:  var(--vscode-testing-message-info-lineBackground) !important; }.welcomePage-background { background-color:  var(--vscode-welcomePage-background) !important; }.welcomePage-tileBackground { background-color:  var(--vscode-welcomePage-tileBackground) !important; }.welcomePage-tileHoverBackground { background-color:  var(--vscode-welcomePage-tileHoverBackground) !important; }.welcomePage-tileBorder { border-color:  var(--vscode-welcomePage-tileBorder) !important; }.welcomePage-progress-background { background-color:  var(--vscode-welcomePage-progress-background) !important; }.welcomePage-progress-foreground { color: var(--vscode-welcomePage-progress-foreground) !important; }.walkthrough-stepTitle-foreground { color: var(--vscode-walkthrough-stepTitle-foreground) !important; }.walkThrough-embeddedEditorBackground { background-color:  var(--vscode-walkThrough-embeddedEditorBackground) !important; }.debugExceptionWidget-border { border-color:  var(--vscode-debugExceptionWidget-border) !important; }.debugExceptionWidget-background { background-color:  var(--vscode-debugExceptionWidget-background) !important; }.ports-iconRunningProcessForeground { color: var(--vscode-ports-iconRunningProcessForeground) !important; }.statusBar-debuggingBackground { background-color:  var(--vscode-statusBar-debuggingBackground) !important; }.statusBar-debuggingForeground { color: var(--vscode-statusBar-debuggingForeground) !important; }.statusBar-debuggingBorder { border-color:  var(--vscode-statusBar-debuggingBorder) !important; }.editor-inlineValuesForeground { color: var(--vscode-editor-inlineValuesForeground) !important; }.editor-inlineValuesBackground { background-color:  var(--vscode-editor-inlineValuesBackground) !important; }.editorGutter-modifiedBackground { background-color:  var(--vscode-editorGutter-modifiedBackground) !important; }.editorGutter-addedBackground { background-color:  var(--vscode-editorGutter-addedBackground) !important; }.editorGutter-deletedBackground { background-color:  var(--vscode-editorGutter-deletedBackground) !important; }.minimapGutter-modifiedBackground { background-color:  var(--vscode-minimapGutter-modifiedBackground) !important; }.minimapGutter-addedBackground { background-color:  var(--vscode-minimapGutter-addedBackground) !important; }.minimapGutter-deletedBackground { background-color:  var(--vscode-minimapGutter-deletedBackground) !important; }.editorOverviewRuler-modifiedForeground { color: var(--vscode-editorOverviewRuler-modifiedForeground) !important; }.editorOverviewRuler-addedForeground { color: var(--vscode-editorOverviewRuler-addedForeground) !important; }.editorOverviewRuler-deletedForeground { color: var(--vscode-editorOverviewRuler-deletedForeground) !important; }.debugIcon-breakpointForeground { color: var(--vscode-debugIcon-breakpointForeground) !important; }.debugIcon-breakpointDisabledForeground { color: var(--vscode-debugIcon-breakpointDisabledForeground) !important; }.debugIcon-breakpointUnverifiedForeground { color: var(--vscode-debugIcon-breakpointUnverifiedForeground) !important; }.debugIcon-breakpointCurrentStackframeForeground { color: var(--vscode-debugIcon-breakpointCurrentStackframeForeground) !important; }.debugIcon-breakpointStackframeForeground { color: var(--vscode-debugIcon-breakpointStackframeForeground) !important; }.notebook-cellBorderColor { border-color:  var(--vscode-notebook-cellBorderColor) !important; }.notebook-focusedEditorBorder { border-color:  var(--vscode-notebook-focusedEditorBorder) !important; }.notebookStatusSuccessIcon-foreground { color: var(--vscode-notebookStatusSuccessIcon-foreground) !important; }.notebookStatusErrorIcon-foreground { color: var(--vscode-notebookStatusErrorIcon-foreground) !important; }.notebookStatusRunningIcon-foreground { color: var(--vscode-notebookStatusRunningIcon-foreground) !important; }.notebook-outputContainerBorderColor { border-color:  var(--vscode-notebook-outputContainerBorderColor) !important; }.notebook-outputContainerBackgroundColor { background-color:  var(--vscode-notebook-outputContainerBackgroundColor) !important; }.notebook-focusedCellBackground { background-color:  var(--vscode-notebook-focusedCellBackground) !important; }.notebook-selectedCellBackground { background-color:  var(--vscode-notebook-selectedCellBackground) !important; }.notebook-cellHoverBackground { background-color:  var(--vscode-notebook-cellHoverBackground) !important; }.notebook-selectedCellBorder { border-color:  var(--vscode-notebook-selectedCellBorder) !important; }.notebook-inactiveSelectedCellBorder { border-color:  var(--vscode-notebook-inactiveSelectedCellBorder) !important; }.notebook-focusedCellBorder { border-color:  var(--vscode-notebook-focusedCellBorder) !important; }.notebook-inactiveFocusedCellBorder { border-color:  var(--vscode-notebook-inactiveFocusedCellBorder) !important; }.notebook-cellStatusBarItemHoverBackground { background-color:  var(--vscode-notebook-cellStatusBarItemHoverBackground) !important; }.notebookScrollbarSlider-background { background-color:  var(--vscode-notebookScrollbarSlider-background) !important; }.notebookScrollbarSlider-hoverBackground { background-color:  var(--vscode-notebookScrollbarSlider-hoverBackground) !important; }.notebookScrollbarSlider-activeBackground { background-color:  var(--vscode-notebookScrollbarSlider-activeBackground) !important; }.notebook-symbolHighlightBackground { background-color:  var(--vscode-notebook-symbolHighlightBackground) !important; }.notebook-cellEditorBackground { background-color:  var(--vscode-notebook-cellEditorBackground) !important; }.notebook-editorBackground { background-color:  var(--vscode-notebook-editorBackground) !important; }.keybindingTable-headerBackground { background-color:  var(--vscode-keybindingTable-headerBackground) !important; }.keybindingTable-rowsBackground { background-color:  var(--vscode-keybindingTable-rowsBackground) !important; }.scm-providerBorder { border-color:  var(--vscode-scm-providerBorder) !important; }.searchEditor-textInputBorder { border-color:  var(--vscode-searchEditor-textInputBorder) !important; }.debugView-exceptionLabelForeground { color: var(--vscode-debugView-exceptionLabelForeground) !important; }.debugView-exceptionLabelBackground { background-color:  var(--vscode-debugView-exceptionLabelBackground) !important; }.debugView-stateLabelForeground { color: var(--vscode-debugView-stateLabelForeground) !important; }.debugView-stateLabelBackground { background-color:  var(--vscode-debugView-stateLabelBackground) !important; }.debugConsole-infoForeground { color: var(--vscode-debugConsole-infoForeground) !important; }.debugConsole-warningForeground { color: var(--vscode-debugConsole-warningForeground) !important; }.debugConsole-errorForeground { color: var(--vscode-debugConsole-errorForeground) !important; }.debugConsole-sourceForeground { color: var(--vscode-debugConsole-sourceForeground) !important; }.debugConsoleInputIcon-foreground { color: var(--vscode-debugConsoleInputIcon-foreground) !important; }.debugIcon-pauseForeground { color: var(--vscode-debugIcon-pauseForeground) !important; }.debugIcon-stopForeground { color: var(--vscode-debugIcon-stopForeground) !important; }.debugIcon-disconnectForeground { color: var(--vscode-debugIcon-disconnectForeground) !important; }.debugIcon-restartForeground { color: var(--vscode-debugIcon-restartForeground) !important; }.debugIcon-stepOverForeground { color: var(--vscode-debugIcon-stepOverForeground) !important; }.debugIcon-stepIntoForeground { color: var(--vscode-debugIcon-stepIntoForeground) !important; }.debugIcon-stepOutForeground { color: var(--vscode-debugIcon-stepOutForeground) !important; }.debugIcon-continueForeground { color: var(--vscode-debugIcon-continueForeground) !important; }.debugIcon-stepBackForeground { color: var(--vscode-debugIcon-stepBackForeground) !important; }.extensionButton-background { background-color:  var(--vscode-extensionButton-background) !important; }.extensionButton-foreground { color: var(--vscode-extensionButton-foreground) !important; }.extensionButton-hoverBackground { background-color:  var(--vscode-extensionButton-hoverBackground) !important; }.extensionButton-prominentBackground { background-color:  var(--vscode-extensionButton-prominentBackground) !important; }.extensionButton-prominentForeground { color: var(--vscode-extensionButton-prominentForeground) !important; }.extensionButton-prominentHoverBackground { background-color:  var(--vscode-extensionButton-prominentHoverBackground) !important; }.extensionIcon-starForeground { color: var(--vscode-extensionIcon-starForeground) !important; }.extensionIcon-verifiedForeground { color: var(--vscode-extensionIcon-verifiedForeground) !important; }.extensionIcon-preReleaseForeground { color: var(--vscode-extensionIcon-preReleaseForeground) !important; }.extensionIcon-sponsorForeground { color: var(--vscode-extensionIcon-sponsorForeground) !important; }.interactive-activeCodeBorder { border-color:  var(--vscode-interactive-activeCodeBorder) !important; }.interactive-inactiveCodeBorder { border-color:  var(--vscode-interactive-inactiveCodeBorder) !important; }.gitDecoration-addedResourceForeground { color: var(--vscode-gitDecoration-addedResourceForeground) !important; }.gitDecoration-modifiedResourceForeground { color: var(--vscode-gitDecoration-modifiedResourceForeground) !important; }.gitDecoration-deletedResourceForeground { color: var(--vscode-gitDecoration-deletedResourceForeground) !important; }.gitDecoration-renamedResourceForeground { color: var(--vscode-gitDecoration-renamedResourceForeground) !important; }.gitDecoration-untrackedResourceForeground { color: var(--vscode-gitDecoration-untrackedResourceForeground) !important; }.gitDecoration-ignoredResourceForeground { color: var(--vscode-gitDecoration-ignoredResourceForeground) !important; }.gitDecoration-stageModifiedResourceForeground { color: var(--vscode-gitDecoration-stageModifiedResourceForeground) !important; }.gitDecoration-stageDeletedResourceForeground { color: var(--vscode-gitDecoration-stageDeletedResourceForeground) !important; }.gitDecoration-conflictingResourceForeground { color: var(--vscode-gitDecoration-conflictingResourceForeground) !important; }.gitDecoration-submoduleResourceForeground { color: var(--vscode-gitDecoration-submoduleResourceForeground) !important; }.gitlens-gutterBackgroundColor { background-color:  var(--vscode-gitlens-gutterBackgroundColor) !important; }.gitlens-gutterForegroundColor { color: var(--vscode-gitlens-gutterForegroundColor) !important; }.gitlens-gutterUncommittedForegroundColor { color: var(--vscode-gitlens-gutterUncommittedForegroundColor) !important; }.gitlens-trailingLineBackgroundColor { background-color:  var(--vscode-gitlens-trailingLineBackgroundColor) !important; }.gitlens-trailingLineForegroundColor { color: var(--vscode-gitlens-trailingLineForegroundColor) !important; }.gitlens-lineHighlightBackgroundColor { background-color:  var(--vscode-gitlens-lineHighlightBackgroundColor) !important; }.gitlens-decorations-addedForegroundColor { color: var(--vscode-gitlens-decorations-addedForegroundColor) !important; }.gitlens-decorations-copiedForegroundColor { color: var(--vscode-gitlens-decorations-copiedForegroundColor) !important; }.gitlens-decorations-deletedForegroundColor { color: var(--vscode-gitlens-decorations-deletedForegroundColor) !important; }.gitlens-decorations-ignoredForegroundColor { color: var(--vscode-gitlens-decorations-ignoredForegroundColor) !important; }.gitlens-decorations-modifiedForegroundColor { color: var(--vscode-gitlens-decorations-modifiedForegroundColor) !important; }.gitlens-decorations-untrackedForegroundColor { color: var(--vscode-gitlens-decorations-untrackedForegroundColor) !important; }.gitlens-decorations-renamedForegroundColor { color: var(--vscode-gitlens-decorations-renamedForegroundColor) !important; }.gitlens-decorations-branchAheadForegroundColor { color: var(--vscode-gitlens-decorations-branchAheadForegroundColor) !important; }.gitlens-decorations-branchBehindForegroundColor { color: var(--vscode-gitlens-decorations-branchBehindForegroundColor) !important; }.gitlens-decorations-branchDivergedForegroundColor { color: var(--vscode-gitlens-decorations-branchDivergedForegroundColor) !important; }.gitlens-decorations-branchUpToDateForegroundColor { color: var(--vscode-gitlens-decorations-branchUpToDateForegroundColor) !important; }.gitlens-decorations-branchUnpublishedForegroundColor { color: var(--vscode-gitlens-decorations-branchUnpublishedForegroundColor) !important; }.gitlens-decorations-branchMissingUpstreamForegroundColor { color: var(--vscode-gitlens-decorations-branchMissingUpstreamForegroundColor) !important; }.gitlens-decorations-worktreeView-hasUncommittedChangesForegroundColor { color: var(--vscode-gitlens-decorations-worktreeView-hasUncommittedChangesForegroundColor) !important; }';
 var $author$project$Ui$overrides = A3(
 	$elm$html$Html$node,
 	'style',
 	_List_Nil,
 	_List_fromArray(
 		[
-			$elm$html$Html$text($author$project$Ui$stylesheet)
+			$elm$html$Html$text(
+			_Utils_ap($author$project$Ui$stylesheet, $author$project$VSCode$Colors$stylesheet))
 		]));
 var $elm$virtual_dom$VirtualDom$style = _VirtualDom_style;
 var $elm$html$Html$Attributes$style = $elm$virtual_dom$VirtualDom$style;
@@ -13431,174 +14646,842 @@ var $elm$core$Dict$values = function (dict) {
 		_List_Nil,
 		dict);
 };
-var $author$project$Explainer$prefixModule = F2(
-	function (source, name) {
-		if (source.$ === 'LocalSource') {
-			return name;
-		} else {
-			var mod = source.a;
-			return mod.name + ('.' + name);
-		}
+var $author$project$Explainer$groupWhile = F2(
+	function (isSameGroup, items) {
+		return A3(
+			$elm$core$List$foldr,
+			F2(
+				function (x, acc) {
+					if (!acc.b) {
+						return _List_fromArray(
+							[
+								_Utils_Tuple2(x, _List_Nil)
+							]);
+					} else {
+						var _v1 = acc.a;
+						var y = _v1.a;
+						var restOfGroup = _v1.b;
+						var groups = acc.b;
+						return A2(isSameGroup, x, y) ? A2(
+							$elm$core$List$cons,
+							_Utils_Tuple2(
+								x,
+								A2($elm$core$List$cons, y, restOfGroup)),
+							groups) : A2(
+							$elm$core$List$cons,
+							_Utils_Tuple2(x, _List_Nil),
+							acc);
+					}
+				}),
+			_List_Nil,
+			items);
 	});
-var $author$project$Explainer$viewMaybe = F2(
-	function (maybe, viewer) {
+var $author$project$Explainer$moduleIdentity = function (_v0) {
+	var fact = _v0.a;
+	var _v1 = fact.source;
+	switch (_v1.$) {
+		case 'SourceDeclaration':
+			return '00000';
+		case 'SourceLet':
+			return '00000';
+		default:
+			var mod = _v1.a;
+			return mod.pkg + ('$' + mod.name);
+	}
+};
+var $author$project$Ui$noAttr = $mdgriffith$elm_ui$Element$htmlAttribute(
+	$elm$html$Html$Attributes$class(''));
+var $author$project$Ui$maybeAttr = function (maybe) {
+	if (maybe.$ === 'Nothing') {
+		return $author$project$Ui$noAttr;
+	} else {
+		var attr = maybe.a;
+		return attr;
+	}
+};
+var $elm$core$String$trim = _String_trim;
+var $author$project$Ui$whenJust = F2(
+	function (maybe, fn) {
 		if (maybe.$ === 'Nothing') {
 			return $mdgriffith$elm_ui$Element$none;
 		} else {
-			var val = maybe.a;
-			return viewer(val);
+			var a = maybe.a;
+			return fn(a);
 		}
 	});
-var $author$project$Explainer$viewModuleName = function (source) {
-	if (source.$ === 'LocalSource') {
-		return $mdgriffith$elm_ui$Element$none;
-	} else {
-		var mod = source.a;
-		var _v1 = mod.pkg;
-		if (_v1 === 'author/project') {
-			return $mdgriffith$elm_ui$Element$none;
-		} else {
-			return A2(
+var $author$project$Ui$Card$viewHeader = function (options) {
+	return A2(
+		$mdgriffith$elm_ui$Element$row,
+		_List_fromArray(
+			[
+				$author$project$Ui$space.md,
+				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
+			]),
+		_List_fromArray(
+			[
+				A2(
 				$mdgriffith$elm_ui$Element$el,
 				_List_Nil,
-				$mdgriffith$elm_ui$Element$text(mod.pkg));
-		}
+				$mdgriffith$elm_ui$Element$text(
+					$elm$core$String$trim(options.title))),
+				A2(
+				$author$project$Ui$whenJust,
+				options.hint,
+				function (text) {
+					return A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_fromArray(
+							[$author$project$Ui$font.dark.light, $mdgriffith$elm_ui$Element$alignRight]),
+						$mdgriffith$elm_ui$Element$text(text));
+				})
+			]));
+};
+var $mdgriffith$elm_ui$Internal$Model$BorderWidth = F5(
+	function (a, b, c, d, e) {
+		return {$: 'BorderWidth', a: a, b: b, c: c, d: d, e: e};
+	});
+var $mdgriffith$elm_ui$Element$Border$width = function (v) {
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$borderWidth,
+		A5(
+			$mdgriffith$elm_ui$Internal$Model$BorderWidth,
+			'b-' + $elm$core$String$fromInt(v),
+			v,
+			v,
+			v,
+			v));
+};
+var $author$project$Ui$Card$view = F2(
+	function (options, content) {
+		return A2(
+			$mdgriffith$elm_ui$Element$column,
+			_List_fromArray(
+				[
+					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+					$author$project$Ui$space.lg,
+					$author$project$Ui$pad.xl,
+					$author$project$Ui$rounded.md,
+					$author$project$Ui$background.dark,
+					options.highlight ? $author$project$Ui$border.dark.light : $author$project$Ui$border.dark.medium,
+					$mdgriffith$elm_ui$Element$Border$width(1),
+					$author$project$Ui$maybeAttr(
+					A2($elm$core$Maybe$map, $mdgriffith$elm_ui$Element$Events$onClick, options.onClick)),
+					$author$project$Ui$maybeAttr(
+					A2(
+						$elm$core$Maybe$map,
+						function (_v0) {
+							return $mdgriffith$elm_ui$Element$pointer;
+						},
+						options.onClick))
+				]),
+			A2(
+				$elm$core$List$cons,
+				$author$project$Ui$Card$viewHeader(options),
+				content));
+	});
+var $mdgriffith$elm_ui$Internal$Model$Top = {$: 'Top'};
+var $mdgriffith$elm_ui$Element$alignTop = $mdgriffith$elm_ui$Internal$Model$AlignY($mdgriffith$elm_ui$Internal$Model$Top);
+var $author$project$VSCode$SyntaxColors$declaration = $mdgriffith$elm_ui$Element$htmlAttribute(
+	A2($elm$html$Html$Attributes$style, 'color', '#72aaca'));
+var $author$project$Explainer$isCapitalized = function (str) {
+	var _v0 = $elm$core$String$uncons(str);
+	if (_v0.$ === 'Nothing') {
+		return false;
+	} else {
+		var _v1 = _v0.a;
+		var _char = _v1.a;
+		var remain = _v1.b;
+		return $elm$core$Char$isUpper(_char);
 	}
 };
-var $author$project$Explainer$viewUnionCase = function (variant) {
+var $author$project$VSCode$SyntaxColors$keyword = $mdgriffith$elm_ui$Element$htmlAttribute(
+	A2($elm$html$Html$Attributes$style, 'color', '#fa9a4b'));
+var $author$project$VSCode$SyntaxColors$type_ = $mdgriffith$elm_ui$Element$htmlAttribute(
+	A2($elm$html$Html$Attributes$style, 'color', '#f6f080'));
+var $author$project$VSCode$SyntaxColors$variant = $mdgriffith$elm_ui$Element$htmlAttribute(
+	A2($elm$html$Html$Attributes$style, 'color', '#b8d977'));
+var $author$project$Ui$Type$recordWidth = 4;
+var $author$project$Ui$Type$spacingWidth = F2(
+	function (spacing, items) {
+		if (!items.b) {
+			return 0;
+		} else {
+			if (!items.b.b) {
+				return 0;
+			} else {
+				if (!items.b.b.b) {
+					var _v1 = items.b;
+					return spacing;
+				} else {
+					if (!items.b.b.b.b) {
+						var _v2 = items.b;
+						var _v3 = _v2.b;
+						return spacing + spacing;
+					} else {
+						return ($elm$core$List$length(items) - 1) * spacing;
+					}
+				}
+			}
+		}
+	});
+var $author$project$Ui$Type$sumWith = F2(
+	function (toSize, items) {
+		return A3(
+			$elm$core$List$foldl,
+			F2(
+				function (v, sum) {
+					return sum + toSize(v);
+				}),
+			0,
+			items);
+	});
+var $author$project$Ui$Type$linearWidth = function (tipe) {
+	switch (tipe.$) {
+		case 'Var':
+			var _var = tipe.a;
+			return $elm$core$String$length(_var);
+		case 'Lambda':
+			var one = tipe.a;
+			var two = tipe.b;
+			return ($author$project$Ui$Type$linearWidth(one) + $author$project$Ui$Type$linearWidth(two)) + 4;
+		case 'Tuple':
+			var vals = tipe.a;
+			return (4 + A2($author$project$Ui$Type$sumWith, $author$project$Ui$Type$linearWidth, vals)) + A2($author$project$Ui$Type$spacingWidth, 2, vals);
+		case 'Type':
+			var typename = tipe.a;
+			var varTypes = tipe.b;
+			return ($elm$core$String$length(typename) + A2($author$project$Ui$Type$sumWith, $author$project$Ui$Type$linearWidth, varTypes)) + A2($author$project$Ui$Type$spacingWidth, 1, varTypes);
+		default:
+			if (tipe.b.$ === 'Nothing') {
+				var fields = tipe.a;
+				var _v1 = tipe.b;
+				return ($author$project$Ui$Type$recordWidth + A2(
+					$author$project$Ui$Type$sumWith,
+					function (_v2) {
+						var name = _v2.a;
+						var fieldType = _v2.b;
+						return (4 + $elm$core$String$length(name)) + $author$project$Ui$Type$linearWidth(fieldType);
+					},
+					fields)) + A2($author$project$Ui$Type$spacingWidth, 2, fields);
+			} else {
+				var fields = tipe.a;
+				var extensibleName = tipe.b.a;
+				return (($elm$core$String$length(extensibleName) + $author$project$Ui$Type$recordWidth) + A2(
+					$author$project$Ui$Type$sumWith,
+					function (_v3) {
+						var name = _v3.a;
+						var fieldType = _v3.b;
+						return (3 + $elm$core$String$length(name)) + $author$project$Ui$Type$linearWidth(fieldType);
+					},
+					fields)) + A2($author$project$Ui$Type$spacingWidth, 2, fields);
+			}
+	}
+};
+var $author$project$VSCode$SyntaxColors$punctuation = $mdgriffith$elm_ui$Element$htmlAttribute(
+	A2($elm$html$Html$Attributes$style, 'color', '#798188'));
+var $author$project$Ui$Type$punctuation = function (str) {
+	return A2(
+		$mdgriffith$elm_ui$Element$el,
+		_List_fromArray(
+			[$author$project$VSCode$SyntaxColors$punctuation]),
+		$mdgriffith$elm_ui$Element$text(str));
+};
+var $author$project$Ui$Type$parens = function (content) {
 	return A2(
 		$mdgriffith$elm_ui$Element$row,
 		_List_Nil,
 		_List_fromArray(
 			[
-				$mdgriffith$elm_ui$Element$text('| '),
-				$mdgriffith$elm_ui$Element$text(variant.name),
-				$mdgriffith$elm_ui$Element$text(' '),
-				A2(
-				$mdgriffith$elm_ui$Element$row,
-				_List_fromArray(
-					[$author$project$Ui$space.md]),
-				A2($elm$core$List$map, $mdgriffith$elm_ui$Element$text, variant.types_))
+				$author$project$Ui$Type$punctuation('('),
+				content,
+				$author$project$Ui$Type$punctuation(')')
 			]));
 };
-var $author$project$Explainer$viewFact = function (fact) {
-	switch (fact.$) {
+var $author$project$Ui$Type$addParens = F2(
+	function (tipe, elem) {
+		switch (tipe.$) {
+			case 'Lambda':
+				return $author$project$Ui$Type$parens(elem);
+			case 'Type':
+				if (!tipe.b.b) {
+					return elem;
+				} else {
+					return $author$project$Ui$Type$parens(elem);
+				}
+			default:
+				return elem;
+		}
+	});
+var $author$project$Ui$Type$addParensInFunction = F2(
+	function (tipe, elem) {
+		if (tipe.$ === 'Lambda') {
+			return $author$project$Ui$Type$parens(elem);
+		} else {
+			return elem;
+		}
+	});
+var $author$project$Ui$Type$arrowRight = function (multiline) {
+	return multiline ? A2(
+		$mdgriffith$elm_ui$Element$el,
+		_List_fromArray(
+			[$mdgriffith$elm_ui$Element$alignTop, $author$project$VSCode$SyntaxColors$keyword]),
+		$mdgriffith$elm_ui$Element$text('-> ')) : A2(
+		$mdgriffith$elm_ui$Element$el,
+		_List_fromArray(
+			[$mdgriffith$elm_ui$Element$alignTop, $author$project$VSCode$SyntaxColors$keyword]),
+		$mdgriffith$elm_ui$Element$text(' -> '));
+};
+var $author$project$Ui$Type$columnIf = F3(
+	function (on, attrs, children) {
+		return on ? A2(
+			$mdgriffith$elm_ui$Element$column,
+			A2($elm$core$List$cons, $author$project$Ui$space.sm, attrs),
+			children) : A2($mdgriffith$elm_ui$Element$row, attrs, children);
+	});
+var $author$project$VSCode$SyntaxColors$field = $mdgriffith$elm_ui$Element$htmlAttribute(
+	A2($elm$html$Html$Attributes$style, 'color', '#72aaca'));
+var $author$project$Ui$Type$fieldName = function (str) {
+	return A2(
+		$mdgriffith$elm_ui$Element$el,
+		_List_fromArray(
+			[$author$project$VSCode$SyntaxColors$field]),
+		$mdgriffith$elm_ui$Element$text(str));
+};
+var $author$project$Ui$Type$keyword = function (str) {
+	return A2(
+		$mdgriffith$elm_ui$Element$el,
+		_List_fromArray(
+			[$author$project$VSCode$SyntaxColors$keyword]),
+		$mdgriffith$elm_ui$Element$text(str));
+};
+var $author$project$VSCode$SyntaxColors$typevar = $mdgriffith$elm_ui$Element$htmlAttribute(
+	A2($elm$html$Html$Attributes$style, 'color', '#fa9a4b'));
+var $author$project$Ui$Type$viewList = F5(
+	function (forceMultiline, indent, viewItem, items, spacer) {
+		return function (result) {
+			return {
+				content: A3(
+					$author$project$Ui$Type$columnIf,
+					result.multiline,
+					_List_Nil,
+					$elm$core$List$reverse(result.content)),
+				multiline: result.multiline
+			};
+		}(
+			A3(
+				$elm$core$List$foldl,
+				F2(
+					function (type_, cursor) {
+						var fieldContent = viewItem(type_);
+						return {
+							content: A2(
+								$elm$core$List$cons,
+								A3(
+									$author$project$Ui$Type$columnIf,
+									forceMultiline || fieldContent.multiline,
+									_List_Nil,
+									_List_fromArray(
+										[
+											A2(
+											$mdgriffith$elm_ui$Element$row,
+											_List_Nil,
+											_List_fromArray(
+												[
+													cursor.isFirst ? $mdgriffith$elm_ui$Element$none : ((forceMultiline || fieldContent.multiline) ? spacer.columnSpacer : spacer.rowSpacer),
+													fieldContent.content
+												]))
+										])),
+								cursor.content),
+							isFirst: false,
+							multiline: cursor.multiline || fieldContent.multiline
+						};
+					}),
+				{content: _List_Nil, isFirst: true, multiline: false},
+				items));
+	});
+var $author$project$Ui$Type$viewFnArgs = F3(
+	function (forceMultiline, indent, tipe) {
+		if (tipe.$ === 'Lambda') {
+			var one = tipe.a;
+			var two = tipe.b;
+			var _new = A3($author$project$Ui$Type$viewNew, false, indent, one);
+			var args = A3($author$project$Ui$Type$viewFnArgs, forceMultiline, indent, two);
+			return {
+				items: A2(
+					$elm$core$List$cons,
+					A2(
+						$mdgriffith$elm_ui$Element$row,
+						_List_fromArray(
+							[$mdgriffith$elm_ui$Element$alignTop]),
+						_List_fromArray(
+							[
+								$author$project$Ui$Type$arrowRight(forceMultiline || args.multiline),
+								_new.content
+							])),
+					args.items),
+				multiline: args.multiline
+			};
+		} else {
+			var everythingElse = tipe;
+			var _new = A3($author$project$Ui$Type$viewNew, false, indent, everythingElse);
+			return {
+				items: _List_fromArray(
+					[
+						A2(
+						$mdgriffith$elm_ui$Element$row,
+						_List_fromArray(
+							[$mdgriffith$elm_ui$Element$alignTop]),
+						_List_fromArray(
+							[
+								$author$project$Ui$Type$arrowRight(forceMultiline || _new.multiline),
+								_new.content
+							]))
+					]),
+				multiline: _new.multiline
+			};
+		}
+	});
+var $author$project$Ui$Type$viewNew = F3(
+	function (forceMultiline, indent, tipe) {
+		switch (tipe.$) {
+			case 'Var':
+				var _var = tipe.a;
+				return {
+					content: A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_fromArray(
+							[$author$project$VSCode$SyntaxColors$typevar, $mdgriffith$elm_ui$Element$alignTop]),
+						$mdgriffith$elm_ui$Element$text(_var)),
+					multiline: forceMultiline
+				};
+			case 'Lambda':
+				var one = tipe.a;
+				var two = tipe.b;
+				var twoRendered = A3($author$project$Ui$Type$viewFnArgs, forceMultiline, indent, two);
+				var oneRendered = A3($author$project$Ui$Type$viewNew, forceMultiline, indent, one);
+				var multiline = forceMultiline || (oneRendered.multiline || twoRendered.multiline);
+				var realMultiline = multiline ? multiline : ($author$project$Ui$Type$linearWidth(tipe) > 50);
+				return {
+					content: A3(
+						$author$project$Ui$Type$columnIf,
+						realMultiline,
+						_List_Nil,
+						A2(
+							$elm$core$List$cons,
+							A2($author$project$Ui$Type$addParensInFunction, one, oneRendered.content),
+							twoRendered.items)),
+					multiline: realMultiline
+				};
+			case 'Tuple':
+				var vals = tipe.a;
+				var renderedItems = A5(
+					$author$project$Ui$Type$viewList,
+					forceMultiline,
+					indent,
+					A2($author$project$Ui$Type$viewNew, forceMultiline, indent + 4),
+					vals,
+					{
+						columnSpacer: A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$author$project$VSCode$SyntaxColors$punctuation]),
+							$mdgriffith$elm_ui$Element$text(', ')),
+						rowSpacer: A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$author$project$VSCode$SyntaxColors$punctuation]),
+							$mdgriffith$elm_ui$Element$text(', '))
+					});
+				return {
+					content: $author$project$Ui$Type$parens(renderedItems.content),
+					multiline: forceMultiline || renderedItems.multiline
+				};
+			case 'Type':
+				if (!tipe.b.b) {
+					var typename = tipe.a;
+					return {
+						content: A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$author$project$VSCode$SyntaxColors$type_, $mdgriffith$elm_ui$Element$alignTop]),
+							$mdgriffith$elm_ui$Element$text(typename)),
+						multiline: forceMultiline
+					};
+				} else {
+					var typename = tipe.a;
+					var varTypes = tipe.b;
+					var renderedItems = A5(
+						$author$project$Ui$Type$viewList,
+						forceMultiline,
+						indent,
+						function (_var) {
+							var rendered = A3($author$project$Ui$Type$viewNew, forceMultiline, indent + 4, _var);
+							return {
+								content: A2($author$project$Ui$Type$addParens, _var, rendered.content),
+								multiline: rendered.multiline
+							};
+						},
+						varTypes,
+						{
+							columnSpacer: $mdgriffith$elm_ui$Element$none,
+							rowSpacer: $mdgriffith$elm_ui$Element$text(' ')
+						});
+					return {
+						content: A3(
+							$author$project$Ui$Type$columnIf,
+							forceMultiline || renderedItems.multiline,
+							_List_Nil,
+							_List_fromArray(
+								[
+									A2(
+									$mdgriffith$elm_ui$Element$row,
+									_List_fromArray(
+										[$mdgriffith$elm_ui$Element$alignTop]),
+									_List_fromArray(
+										[
+											A2(
+											$mdgriffith$elm_ui$Element$el,
+											_List_fromArray(
+												[$mdgriffith$elm_ui$Element$alignTop, $author$project$VSCode$SyntaxColors$type_]),
+											$mdgriffith$elm_ui$Element$text(typename)),
+											$mdgriffith$elm_ui$Element$text(' ')
+										])),
+									(forceMultiline || renderedItems.multiline) ? A2(
+									$mdgriffith$elm_ui$Element$row,
+									_List_Nil,
+									_List_fromArray(
+										[
+											$mdgriffith$elm_ui$Element$text('    '),
+											renderedItems.content
+										])) : renderedItems.content
+								])),
+						multiline: forceMultiline || renderedItems.multiline
+					};
+				}
+			default:
+				var fields = tipe.a;
+				var maybeExtensibleName = tipe.b;
+				return function (result) {
+					return {
+						content: A2(
+							$mdgriffith$elm_ui$Element$column,
+							_List_fromArray(
+								[$author$project$Ui$space.sm]),
+							$elm$core$List$reverse(
+								A2(
+									$elm$core$List$cons,
+									$author$project$Ui$Type$punctuation('}'),
+									result.content))),
+						multiline: result.multiline
+					};
+				}(
+					A3(
+						$elm$core$List$foldl,
+						F2(
+							function (_v1, cursor) {
+								var name = _v1.a;
+								var type_ = _v1.b;
+								var fieldContent = A3($author$project$Ui$Type$viewNew, false, indent + 4, type_);
+								return {
+									content: A2(
+										$elm$core$List$cons,
+										A3(
+											$author$project$Ui$Type$columnIf,
+											fieldContent.multiline,
+											_List_Nil,
+											_List_fromArray(
+												[
+													A2(
+													$mdgriffith$elm_ui$Element$row,
+													_List_fromArray(
+														[$mdgriffith$elm_ui$Element$alignTop, $author$project$VSCode$SyntaxColors$field]),
+													_List_fromArray(
+														[
+															cursor.isFirst ? A2(
+															$mdgriffith$elm_ui$Element$row,
+															_List_Nil,
+															_List_fromArray(
+																[
+																	$author$project$Ui$Type$punctuation('{ '),
+																	function () {
+																	if (maybeExtensibleName.$ === 'Nothing') {
+																		return $mdgriffith$elm_ui$Element$none;
+																	} else {
+																		var recordName = maybeExtensibleName.a;
+																		return $author$project$Ui$Type$fieldName(recordName);
+																	}
+																}(),
+																	function () {
+																	if (maybeExtensibleName.$ === 'Nothing') {
+																		return $mdgriffith$elm_ui$Element$none;
+																	} else {
+																		var recordName = maybeExtensibleName.a;
+																		return $author$project$Ui$Type$punctuation(' | ');
+																	}
+																}()
+																])) : $author$project$Ui$Type$punctuation(', '),
+															$author$project$Ui$Type$fieldName(name),
+															$author$project$Ui$Type$keyword(' : ')
+														])),
+													fieldContent.multiline ? A2(
+													$mdgriffith$elm_ui$Element$row,
+													_List_Nil,
+													_List_fromArray(
+														[
+															$mdgriffith$elm_ui$Element$text('    '),
+															fieldContent.content
+														])) : fieldContent.content
+												])),
+										cursor.content),
+									isFirst: false,
+									multiline: cursor.multiline || fieldContent.multiline
+								};
+							}),
+						{content: _List_Nil, isFirst: true, multiline: true},
+						fields));
+		}
+	});
+var $author$project$Ui$Type$view = function (tipe) {
+	return A3(
+		$author$project$Ui$Type$viewNew,
+		$author$project$Ui$Type$linearWidth(tipe) > 50,
+		0,
+		tipe).content;
+};
+var $author$project$Explainer$viewType = function (type_) {
+	return $author$project$Ui$Type$view(type_.value);
+};
+var $author$project$Explainer$viewFact = function (_v0) {
+	var fact = _v0.a;
+	var _v1 = fact.details;
+	switch (_v1.$) {
 		case 'Value':
-			var value = fact.a;
-			return A2(
-				$mdgriffith$elm_ui$Element$column,
-				_List_fromArray(
-					[
-						$author$project$Ui$pad.lg,
-						$author$project$Ui$font.dark.light,
-						$author$project$Ui$background.black,
-						$author$project$Ui$rounded.md,
-						$mdgriffith$elm_ui$Element$width(
-						$mdgriffith$elm_ui$Element$px(500))
-					]),
-				_List_fromArray(
-					[
-						$author$project$Explainer$viewModuleName(value.source),
-						$mdgriffith$elm_ui$Element$text(
-						A2($author$project$Explainer$prefixModule, value.source, value.name) + (' : ' + value.type_))
-					]));
+			var value = _v1.a;
+			return $author$project$Explainer$isCapitalized(fact.name) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
+				A2(
+					$mdgriffith$elm_ui$Element$row,
+					_List_Nil,
+					_List_fromArray(
+						[
+							A2(
+							$mdgriffith$elm_ui$Element$row,
+							_List_fromArray(
+								[$mdgriffith$elm_ui$Element$alignTop]),
+							_List_fromArray(
+								[
+									A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$VSCode$SyntaxColors$declaration]),
+									$mdgriffith$elm_ui$Element$text(fact.name)),
+									A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$VSCode$SyntaxColors$keyword]),
+									$mdgriffith$elm_ui$Element$text(' : '))
+								])),
+							$author$project$Explainer$viewType(value.type_)
+						])));
 		case 'Union':
-			var union = fact.a;
-			return A2(
-				$mdgriffith$elm_ui$Element$column,
-				_List_fromArray(
-					[$author$project$Ui$pad.lg, $author$project$Ui$font.info, $author$project$Ui$background.black, $author$project$Ui$rounded.md]),
-				_List_fromArray(
-					[
-						A2(
-						$mdgriffith$elm_ui$Element$el,
-						_List_Nil,
-						$mdgriffith$elm_ui$Element$text('type ' + (union.name + ' ='))),
-						A2(
-						$mdgriffith$elm_ui$Element$column,
-						_List_fromArray(
-							[$author$project$Ui$pad.md, $author$project$Ui$space.sm]),
-						A2($elm$core$List$map, $author$project$Explainer$viewUnionCase, union.cases)),
-						A2(
-						$author$project$Explainer$viewMaybe,
-						union.comment,
-						function (comment) {
-							return A2(
-								$mdgriffith$elm_ui$Element$el,
-								_List_fromArray(
-									[$author$project$Ui$pad.md]),
-								$mdgriffith$elm_ui$Element$text(comment));
-						})
-					]));
+			var union = _v1.a;
+			return $elm$core$Maybe$Just(
+				A2(
+					$mdgriffith$elm_ui$Element$column,
+					_List_fromArray(
+						[$author$project$Ui$space.sm]),
+					_List_fromArray(
+						[
+							A2(
+							$mdgriffith$elm_ui$Element$row,
+							_List_fromArray(
+								[$mdgriffith$elm_ui$Element$alignTop]),
+							_List_fromArray(
+								[
+									A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$VSCode$SyntaxColors$keyword]),
+									$mdgriffith$elm_ui$Element$text('type ')),
+									A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$VSCode$SyntaxColors$type_]),
+									$mdgriffith$elm_ui$Element$text(union.name))
+								])),
+							A2(
+							$mdgriffith$elm_ui$Element$row,
+							_List_Nil,
+							_List_fromArray(
+								[
+									$mdgriffith$elm_ui$Element$text('   '),
+									A2(
+									$mdgriffith$elm_ui$Element$column,
+									_List_fromArray(
+										[$author$project$Ui$space.sm]),
+									$elm$core$List$reverse(
+										A3(
+											$elm$core$List$foldl,
+											F2(
+												function (variant, _v2) {
+													var isFirst = _v2.a;
+													var children = _v2.b;
+													return _Utils_Tuple2(
+														false,
+														A2(
+															$elm$core$List$cons,
+															A2(
+																$mdgriffith$elm_ui$Element$row,
+																_List_Nil,
+																_List_fromArray(
+																	[
+																		A2(
+																		$mdgriffith$elm_ui$Element$el,
+																		_List_fromArray(
+																			[$author$project$VSCode$SyntaxColors$keyword, $mdgriffith$elm_ui$Element$alignTop]),
+																		isFirst ? $mdgriffith$elm_ui$Element$text('= ') : $mdgriffith$elm_ui$Element$text('| ')),
+																		A2(
+																		$mdgriffith$elm_ui$Element$el,
+																		_List_fromArray(
+																			[$author$project$VSCode$SyntaxColors$variant, $mdgriffith$elm_ui$Element$alignTop]),
+																		$mdgriffith$elm_ui$Element$text(variant.name)),
+																		$mdgriffith$elm_ui$Element$text(' '),
+																		A2(
+																		$mdgriffith$elm_ui$Element$row,
+																		_List_fromArray(
+																			[$author$project$Ui$space.md]),
+																		A2($elm$core$List$map, $author$project$Explainer$viewType, variant.types_))
+																	])),
+															children));
+												}),
+											_Utils_Tuple2(true, _List_Nil),
+											union.cases).b))
+								])),
+							A2(
+							$author$project$Ui$whenJust,
+							union.comment,
+							function (comment) {
+								return A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$Ui$pad.md]),
+									$mdgriffith$elm_ui$Element$text(comment));
+							})
+						])));
 		case 'Alias':
-			var alias_ = fact.a;
-			return A2(
-				$mdgriffith$elm_ui$Element$column,
-				_List_fromArray(
-					[
-						$author$project$Ui$pad.lg,
-						$author$project$Ui$font.dark.light,
-						$author$project$Ui$background.black,
-						$author$project$Ui$rounded.md,
-						$mdgriffith$elm_ui$Element$width(
-						$mdgriffith$elm_ui$Element$px(500))
-					]),
-				_List_fromArray(
-					[
-						A2(
-						$mdgriffith$elm_ui$Element$el,
-						_List_Nil,
-						$mdgriffith$elm_ui$Element$text('type alias ' + (alias_.name + ' ='))),
-						A2(
-						$mdgriffith$elm_ui$Element$el,
-						_List_fromArray(
-							[$author$project$Ui$pad.md]),
-						$mdgriffith$elm_ui$Element$text(alias_.type_)),
-						A2(
-						$author$project$Explainer$viewMaybe,
-						alias_.comment,
-						function (comment) {
-							return A2(
-								$mdgriffith$elm_ui$Element$el,
-								_List_fromArray(
-									[$author$project$Ui$pad.md]),
-								$mdgriffith$elm_ui$Element$text(comment));
-						})
-					]));
+			var alias_ = _v1.a;
+			return $elm$core$Maybe$Just(
+				A2(
+					$mdgriffith$elm_ui$Element$column,
+					_List_fromArray(
+						[$author$project$Ui$space.sm]),
+					_List_fromArray(
+						[
+							A2(
+							$mdgriffith$elm_ui$Element$row,
+							_List_Nil,
+							_List_fromArray(
+								[
+									A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$VSCode$SyntaxColors$keyword]),
+									$mdgriffith$elm_ui$Element$text('type alias ')),
+									A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$VSCode$SyntaxColors$type_]),
+									$mdgriffith$elm_ui$Element$text(alias_.name)),
+									A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$VSCode$SyntaxColors$keyword]),
+									$mdgriffith$elm_ui$Element$text(' ='))
+								])),
+							A2(
+							$mdgriffith$elm_ui$Element$row,
+							_List_Nil,
+							_List_fromArray(
+								[
+									$mdgriffith$elm_ui$Element$text('    '),
+									$author$project$Explainer$viewType(alias_.type_)
+								])),
+							A2(
+							$author$project$Ui$whenJust,
+							alias_.comment,
+							function (comment) {
+								return A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[$author$project$Ui$pad.md]),
+									$mdgriffith$elm_ui$Element$text(comment));
+							})
+						])));
 		default:
-			var def = fact.a;
-			return A2(
-				$mdgriffith$elm_ui$Element$column,
-				_List_fromArray(
-					[
-						$author$project$Ui$pad.lg,
-						$author$project$Ui$font.dark.light,
-						$author$project$Ui$background.black,
-						$author$project$Ui$rounded.md,
-						$mdgriffith$elm_ui$Element$width(
-						$mdgriffith$elm_ui$Element$px(500))
-					]),
-				_List_fromArray(
-					[
-						A2(
-						$mdgriffith$elm_ui$Element$el,
-						_List_Nil,
-						$mdgriffith$elm_ui$Element$text(def.name)),
-						A2(
-						$author$project$Explainer$viewMaybe,
-						def.type_,
-						function (type_) {
-							return A2(
-								$mdgriffith$elm_ui$Element$el,
-								_List_Nil,
-								$mdgriffith$elm_ui$Element$text(type_));
-						}),
-						A2(
-						$mdgriffith$elm_ui$Element$el,
-						_List_fromArray(
-							[$author$project$Ui$pad.md]),
-						$mdgriffith$elm_ui$Element$text(def.comment))
-					]));
+			var def = _v1.a;
+			return $elm$core$Maybe$Just(
+				A2(
+					$mdgriffith$elm_ui$Element$column,
+					_List_Nil,
+					_List_fromArray(
+						[
+							A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$mdgriffith$elm_ui$Element$alignTop, $author$project$VSCode$SyntaxColors$declaration]),
+							$mdgriffith$elm_ui$Element$text(fact.name)),
+							A2($author$project$Ui$whenJust, def.type_, $author$project$Explainer$viewType),
+							A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$author$project$Ui$pad.md]),
+							$mdgriffith$elm_ui$Element$text(def.comment))
+						])));
+	}
+};
+var $author$project$Explainer$viewFactGroup = function (_v0) {
+	var fact = _v0.a;
+	var topFact = fact.a;
+	var remainingFacts = _v0.b;
+	var renderedFacts = A2(
+		$elm$core$List$filterMap,
+		$author$project$Explainer$viewFact,
+		A2($elm$core$List$cons, fact, remainingFacts));
+	if (!renderedFacts.b) {
+		return $elm$core$Maybe$Nothing;
+	} else {
+		return $elm$core$Maybe$Just(
+			A2(
+				$author$project$Ui$Card$view,
+				{
+					highlight: true,
+					hint: function () {
+						var _v2 = topFact.source;
+						switch (_v2.$) {
+							case 'SourceLet':
+								return $elm$core$Maybe$Nothing;
+							case 'SourceDeclaration':
+								return $elm$core$Maybe$Nothing;
+							default:
+								var mod = _v2.a;
+								return (mod.pkg === 'author/project') ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(mod.pkg);
+						}
+					}(),
+					onClick: $elm$core$Maybe$Nothing,
+					title: function () {
+						var _v3 = topFact.source;
+						switch (_v3.$) {
+							case 'SourceLet':
+								return 'Let';
+							case 'SourceDeclaration':
+								return 'Declaration';
+							default:
+								var mod = _v3.a;
+								return mod.name;
+						}
+					}()
+				},
+				renderedFacts));
 	}
 };
 var $author$project$Explainer$view = function (facts) {
@@ -13607,15 +15490,26 @@ var $author$project$Explainer$view = function (facts) {
 		_List_fromArray(
 			[
 				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-				$mdgriffith$elm_ui$Element$height(
-				$mdgriffith$elm_ui$Element$px(1000)),
+				$author$project$Ui$space.lg,
 				$mdgriffith$elm_ui$Element$htmlAttribute(
-				A2($elm$html$Html$Attributes$style, 'overflow', 'auto'))
+				A2($elm$html$Html$Attributes$style, 'height', '100vh')),
+				$mdgriffith$elm_ui$Element$htmlAttribute(
+				A2($elm$html$Html$Attributes$style, 'overflow', 'auto')),
+				$mdgriffith$elm_ui$Element$htmlAttribute(
+				A2($elm$html$Html$Attributes$style, 'padding-bottom', '200px'))
 			]),
 		A2(
-			$elm$core$List$map,
-			$author$project$Explainer$viewFact,
-			$elm$core$List$reverse(facts)));
+			$elm$core$List$filterMap,
+			$author$project$Explainer$viewFactGroup,
+			A2(
+				$author$project$Explainer$groupWhile,
+				F2(
+					function (one, two) {
+						return _Utils_eq(
+							$author$project$Explainer$moduleIdentity(one),
+							$author$project$Explainer$moduleIdentity(two));
+					}),
+				A2($elm$core$List$sortBy, $author$project$Explainer$moduleIdentity, facts))));
 };
 var $elm$core$List$member = F2(
 	function (x, xs) {
@@ -13731,7 +15625,6 @@ var $mdgriffith$elm_ui$Element$paragraph = F2(
 						attrs))),
 			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
 	});
-var $elm$core$String$trim = _String_trim;
 var $author$project$Model$ErrorCodeToggled = F2(
 	function (a, b) {
 		return {$: 'ErrorCodeToggled', a: a, b: b};
@@ -13868,111 +15761,46 @@ var $author$project$Main$viewText = F5(
 				return A6($author$project$Main$viewSection, file, problem, errorCodeExpanded, index, lineCount, section);
 		}
 	});
-var $mdgriffith$elm_ui$Internal$Model$BorderWidth = F5(
-	function (a, b, c, d, e) {
-		return {$: 'BorderWidth', a: a, b: b, c: c, d: d, e: e};
-	});
-var $mdgriffith$elm_ui$Element$Border$width = function (v) {
-	return A2(
-		$mdgriffith$elm_ui$Internal$Model$StyleClass,
-		$mdgriffith$elm_ui$Internal$Flag$borderWidth,
-		A5(
-			$mdgriffith$elm_ui$Internal$Model$BorderWidth,
-			'b-' + $elm$core$String$fromInt(v),
-			v,
-			v,
-			v,
-			v));
-};
 var $author$project$Main$viewIssueDetails = F5(
 	function (errorCodeExpanded, expanded, cursorPresent, file, issue) {
 		return A2(
-			$mdgriffith$elm_ui$Element$row,
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-					$author$project$Ui$space.md,
-					$author$project$Ui$pad.xl,
-					$author$project$Ui$rounded.md,
-					$author$project$Ui$background.dark,
-					cursorPresent ? $author$project$Ui$border.dark.light : $author$project$Ui$border.dark.medium,
-					$mdgriffith$elm_ui$Element$Border$width(1)
-				]),
+			$author$project$Ui$Card$view,
+			{
+				highlight: cursorPresent,
+				hint: $elm$core$Maybe$Just(
+					_Utils_eq(issue.region.start.row, issue.region.end.row) ? ('line ' + $elm$core$String$fromInt(issue.region.start.row)) : ('lines ' + ($elm$core$String$fromInt(issue.region.start.row) + ('–' + $elm$core$String$fromInt(issue.region.end.row))))),
+				onClick: expanded ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
+					A2($author$project$Model$EditorGoTo, file.path, issue.region)),
+				title: $elm$core$String$trim(issue.title)
+			},
 			_List_fromArray(
 				[
 					A2(
-					$mdgriffith$elm_ui$Element$column,
+					$mdgriffith$elm_ui$Element$el,
 					_List_fromArray(
 						[
+							$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
 							expanded ? $mdgriffith$elm_ui$Element$htmlAttribute(
-							$elm$html$Html$Attributes$class('')) : $mdgriffith$elm_ui$Element$Events$onClick(
-							A2($author$project$Model$EditorGoTo, file.path, issue.region)),
+							A2($elm$html$Html$Attributes$style, 'transition', 'max-height 280ms, opacity 150ms')) : $mdgriffith$elm_ui$Element$htmlAttribute(
+							A2($elm$html$Html$Attributes$style, 'transition', 'max-height 200ms, opacity 150ms')),
 							expanded ? $mdgriffith$elm_ui$Element$htmlAttribute(
-							$elm$html$Html$Attributes$class('')) : $mdgriffith$elm_ui$Element$pointer,
-							$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
+							A2($elm$html$Html$Attributes$style, 'overflow', 'visible')) : $mdgriffith$elm_ui$Element$htmlAttribute(
+							A2($elm$html$Html$Attributes$style, 'overflow', 'hidden')),
+							expanded ? $mdgriffith$elm_ui$Element$alpha(1) : $mdgriffith$elm_ui$Element$alpha(0),
+							$mdgriffith$elm_ui$Element$htmlAttribute(
+							A2(
+								$elm$html$Html$Attributes$style,
+								'max-height',
+								expanded ? '1500px' : '0px'))
 						]),
-					_List_fromArray(
-						[
-							A2(
-							$mdgriffith$elm_ui$Element$row,
-							_List_fromArray(
-								[
-									$author$project$Ui$space.md,
-									$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill)
-								]),
-							_List_fromArray(
-								[
-									A2(
-									$mdgriffith$elm_ui$Element$el,
-									_List_Nil,
-									$mdgriffith$elm_ui$Element$text(
-										$elm$core$String$trim(issue.title))),
-									_Utils_eq(issue.region.start.row, issue.region.end.row) ? A2(
-									$mdgriffith$elm_ui$Element$el,
-									_List_fromArray(
-										[$author$project$Ui$font.dark.light, $mdgriffith$elm_ui$Element$alignRight]),
-									$mdgriffith$elm_ui$Element$text(
-										'line ' + $elm$core$String$fromInt(issue.region.start.row))) : A2(
-									$mdgriffith$elm_ui$Element$row,
-									_List_fromArray(
-										[$author$project$Ui$font.dark.light, $mdgriffith$elm_ui$Element$alignRight]),
-									_List_fromArray(
-										[
-											$mdgriffith$elm_ui$Element$text('lines '),
-											$mdgriffith$elm_ui$Element$text(
-											$elm$core$String$fromInt(issue.region.start.row)),
-											$mdgriffith$elm_ui$Element$text('–'),
-											$mdgriffith$elm_ui$Element$text(
-											$elm$core$String$fromInt(issue.region.end.row))
-										]))
-								])),
-							A2(
-							$mdgriffith$elm_ui$Element$el,
-							_List_fromArray(
-								[
-									$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-									expanded ? $mdgriffith$elm_ui$Element$htmlAttribute(
-									A2($elm$html$Html$Attributes$style, 'transition', 'max-height 280ms, opacity 150ms')) : $mdgriffith$elm_ui$Element$htmlAttribute(
-									A2($elm$html$Html$Attributes$style, 'transition', 'max-height 200ms, opacity 150ms')),
-									expanded ? $mdgriffith$elm_ui$Element$htmlAttribute(
-									A2($elm$html$Html$Attributes$style, 'overflow', 'visible')) : $mdgriffith$elm_ui$Element$htmlAttribute(
-									A2($elm$html$Html$Attributes$style, 'overflow', 'hidden')),
-									expanded ? $mdgriffith$elm_ui$Element$alpha(1) : $mdgriffith$elm_ui$Element$alpha(0),
-									$mdgriffith$elm_ui$Element$htmlAttribute(
-									A2(
-										$elm$html$Html$Attributes$style,
-										'max-height',
-										expanded ? '1500px' : '0px'))
-								]),
-							A2(
-								$mdgriffith$elm_ui$Element$paragraph,
-								_List_fromArray(
-									[$author$project$Ui$pad.xy.zero.lg, $author$project$Ui$precise]),
-								A2(
-									$elm$core$List$indexedMap,
-									A3($author$project$Main$viewText, file, issue, errorCodeExpanded),
-									issue.message)))
-						]))
+					A2(
+						$mdgriffith$elm_ui$Element$paragraph,
+						_List_fromArray(
+							[$author$project$Ui$pad.xy.zero.lg, $author$project$Ui$precise]),
+						A2(
+							$elm$core$List$indexedMap,
+							A3($author$project$Main$viewText, file, issue, errorCodeExpanded),
+							issue.message)))
 				]));
 	});
 var $author$project$Main$viewFileErrorDetails = F2(
@@ -14488,8 +16316,8 @@ var $author$project$Main$viewOverview = function (model) {
 		$elm$core$List$foldl,
 		F2(
 			function (project, gathered) {
-				var globals = gathered.globals;
 				var errs = gathered.errs;
+				var globals = gathered.globals;
 				switch (project.$) {
 					case 'NoData':
 						return gathered;
