@@ -435,13 +435,16 @@ export class Watchtower {
               const uri = vscode.Uri.file(error["path"]);
               let problems: any[] = [];
               for (const prob of error["problems"]) {
+                const fullRange = EditorCoords.regionToRange(prob["region"], {
+                  uri: uri,
+                  edits: self.editsSinceSave,
+                });
                 problems.push({
                   code: "elm-compiler",
-                  message: formatMessage(prob["message"]),
-                  range: EditorCoords.regionToRange(prob["region"], {
-                    uri: uri,
-                    edits: self.editsSinceSave,
-                  }),
+                  title: prob["title"],
+                  message: prob["title"], // formatMessage(prob["message"]),
+                  fullRange: fullRange,
+                  range: toSingleLine(fullRange),
                   severity: vscode.DiagnosticSeverity.Error,
                   source: "",
                   relatedInformation: [],
@@ -476,8 +479,8 @@ export class Watchtower {
       }
       case "Docs": {
         log.log("New docs received!");
-        log.log(msg.details.filepath);
-        log.log(msg.details.docs[0].name);
+        // log.log(msg.details.filepath);
+        // log.log(msg.details.docs[0].name);
 
         self.elmDocs = msg.details.docs;
 
@@ -568,6 +571,14 @@ const formatMessage = (items: any): string => {
 
   return message;
 };
+
+function toSingleLine(range) {
+  if (range.start.line == range.end.line) {
+    return range;
+  } else {
+    return new vscode.Range(range.start.line, 0, range.start.line, 80);
+  }
+}
 
 /*   Asking questions!  */
 
