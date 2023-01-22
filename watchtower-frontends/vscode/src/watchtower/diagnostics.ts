@@ -16,10 +16,10 @@ export class WatchTowerDiagnostics {
   private createDecorationStyle() {
     const self = this;
     self.errorHighlight = vscode.window.createTextEditorDecorationType({
-      overviewRulerColor: "#ff00ff",
+      overviewRulerColor: new vscode.ThemeColor("minimap.errorHighlight"),
       isWholeLine: true,
       borderWidth: "0px 0px 0px 3px",
-      borderColor: new vscode.ThemeColor("inputValidation.errorBackground"),
+      borderColor: new vscode.ThemeColor("inputValidation.errorBorder"),
       borderStyle: "solid",
     });
   }
