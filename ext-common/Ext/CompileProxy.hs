@@ -263,7 +263,7 @@ loadSingle root path =
                       (Single 
                         (Right srcModule)
                         (Just canWarnings)
-                        (Just localIfaces)
+                        (Just ifaces)
                         Nothing
                         (Just (Left (Reporting.Error.BadNames errs)))
                       ) 
@@ -275,7 +275,7 @@ loadSingle root path =
                               (Single 
                                 (Right srcModule)
                                 (Just canWarnings)
-                                (Just localIfaces)
+                                (Just ifaces)
                                 (Just canModule)
                                 (Just (Left (Reporting.Error.BadTypes (Localizer.fromModule srcModule) typeErrors)))
                               ) 
@@ -291,7 +291,7 @@ loadSingle root path =
                                   (Single 
                                     (Right srcModule)
                                     (Just (canWarnings <> optWarnings))
-                                    (Just localIfaces)
+                                    (Just ifaces)
                                     (Just canModule)
                                     (Just (Left (Reporting.Error.BadMains (Localizer.fromModule srcModule) errs)))
                                   ) 
@@ -301,7 +301,7 @@ loadSingle root path =
                                   (Single 
                                     (Right srcModule)
                                     (Just (canWarnings <> optWarnings))
-                                    (Just localIfaces)
+                                    (Just ifaces)
                                     (Just canModule)
                                     (Just 
                                       (case nitpicks of 
