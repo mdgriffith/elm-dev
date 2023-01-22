@@ -43,6 +43,7 @@ import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Find
 import qualified Ext.Dev.Explain
 import qualified Ext.Dev.CallGraph
+import qualified Ext.Dev.InScope
 
 import qualified Ext.CompileProxy
 import qualified Ext.Log
@@ -56,6 +57,8 @@ data Question
   | Docs DocsType
   | Discover FilePath
   | CallGraph FilePath
+  | InScopeFile FilePath
+  | InScopeProject FilePath
   | Status
   | Warnings FilePath
   | TimingParse FilePath
@@ -184,6 +187,24 @@ actionHandler state =
               writeBS "Needs a file parameter"
             Just file -> do
               questionHandler state (CallGraph (Data.ByteString.Char8.unpack file))
+      
+      Just "scope" ->
+        do
+          maybeFile <- getQueryParam "file"
+          case maybeFile of
+            Nothing ->
+              writeBS "Needs a file parameter"
+            Just file -> do
+              questionHandler state (InScopeFile (Data.ByteString.Char8.unpack file))
+      
+      Just "project" ->
+        do
+          maybeFile <- getQueryParam "file"
+          case maybeFile of
+            Nothing ->
+              writeBS "Needs a file parameter"
+            Just file -> do
+              questionHandler state (InScopeProject (Data.ByteString.Char8.unpack file))
 
       Just "definition" ->
         do
@@ -320,6 +341,31 @@ ask state question =
                   Json.Encode.encodeUgly (Json.Encode.chars "Parser error")
 
         pure jsonResult
+
+    InScopeProject file ->
+      do
+        Ext.Log.log Ext.Log.Questions $ "Scope: " ++ show file
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot file state)
+        maybeScope <- Ext.Dev.InScope.project root file
+        case maybeScope of
+            Nothing ->
+                pure (Json.Encode.encodeUgly (Json.Encode.chars "No scope"))
+
+            Just scope ->
+                pure (Json.Encode.encodeUgly (Ext.Dev.InScope.encodeProjectScope scope))
+
+    InScopeFile file ->
+      do
+        Ext.Log.log Ext.Log.Questions $ "Scope: " ++ show file
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot file state)
+        maybeScope <- Ext.Dev.InScope.file root file
+        case maybeScope of
+            Nothing ->
+                pure (Json.Encode.encodeUgly (Json.Encode.chars "No scope"))
+
+            Just scope ->
+                pure (Json.Encode.encodeUgly (Ext.Dev.InScope.encodeFileScope scope))
+
 
     CallGraph file ->
       do

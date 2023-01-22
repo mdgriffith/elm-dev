@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Ext.Dev.InScope
-  ( inScope, encode
+  ( file, encodeFileScope
+  , project, encodeProjectScope
   )
 where
 
@@ -35,8 +36,8 @@ import qualified Json.String
 import Json.Encode ((==>))
 
 
-data Scope =
-    Scope
+data FileScope =
+    FileScope
         { _imported         :: [ Src.Import ]
         , _topLevelValues   :: [ Declaration ]
         , _interfaces       :: Map.Map Elm.ModuleName.Raw Elm.Interface.Interface
@@ -46,11 +47,35 @@ data Scope =
 data Declaration =
     Declaration Name (Maybe Can.Type)
 
+
+
+data ProjectScope =
+    ProjectScope
+        { _projectInterfaces :: Map.Map Elm.ModuleName.Raw Elm.Interface.Interface
+        , _projectLocalizer  :: Reporting.Render.Type.Localizer.Localizer
+        }
+
+
 {-| All values that are in scope for a specific file.
 
 -}
-inScope :: String -> String -> IO (Maybe Scope)
-inScope root path = do
+project :: String -> String -> IO (Maybe ProjectScope)
+project root path = do
+    (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root path
+    case (source, interfaces) of
+        (Right srcModule, Just faces) -> do
+            let localizer = Reporting.Render.Type.Localizer.fromModule srcModule
+            pure (Just (ProjectScope faces localizer))
+
+        _ ->
+             pure Nothing
+
+
+{-| All values that are in scope for a specific file.
+
+-}
+file :: String -> String -> IO (Maybe FileScope)
+file root path = do
     (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root path
     case (source, canonical, interfaces) of
         (Right srcModule, Just canMod, Just faces) -> do
@@ -60,9 +85,14 @@ inScope root path = do
         _ ->
              pure Nothing
 
-captureScope :: Src.Module -> Can.Module ->  Reporting.Render.Type.Localizer.Localizer -> Map.Map Elm.ModuleName.Raw Elm.Interface.Interface -> Scope
+captureScope ::
+    Src.Module 
+        -> Can.Module 
+        -> Reporting.Render.Type.Localizer.Localizer 
+        -> Map.Map Elm.ModuleName.Raw Elm.Interface.Interface
+        -> FileScope
 captureScope srcModule canModule@(Can.Module name exports docs decls unions aliases binops effects) localizer interfaces = 
-    Scope 
+    FileScope 
         (getImports srcModule)
         (getDeclarations decls)
         interfaces
@@ -100,24 +130,27 @@ getDefName def =
 
 {- ENCODING -}
 
-encode :: Scope -> Json.Encode.Value
-encode (Scope imported topLevels interfaces localizer) =
-    -- Json.Encode.dict
-    --     (Json.String.fromChars . ModuleName.toChars)
-    --     encodeInterface
-    --     interfaces
-    Json.Encode.list id (Maybe.catMaybes (fmap (encodeImport localizer interfaces) imported))
+encodeProjectScope :: ProjectScope -> Json.Encode.Value
+encodeProjectScope (ProjectScope interfaces localizer) =
+    Json.Encode.dict
+        (Json.String.fromChars . ModuleName.toChars)
+        encodeInterface
+        interfaces
 
 
 encodeInterface :: Elm.Interface.Interface -> Json.Encode.Value
 encodeInterface (Elm.Interface.Interface pkgName values unions aliases binops) =
     Json.Encode.object 
         [ "package" ==> Package.encode pkgName
-        , "values"  ==> Json.Encode.list Json.Encode.name (Map.keys values)
-        , "unions"  ==> Json.Encode.list Json.Encode.name (Map.keys unions)
-        , "aliases" ==> Json.Encode.list Json.Encode.name (Map.keys aliases)
-        , "binops"  ==> Json.Encode.list Json.Encode.name (Map.keys binops)
         ]
+
+
+
+
+encodeFileScope :: FileScope -> Json.Encode.Value
+encodeFileScope (FileScope imported topLevels interfaces localizer) =
+    Json.Encode.list id (Maybe.catMaybes (fmap (encodeImport localizer interfaces) imported))
+
 
 encodeImport :: 
     Reporting.Render.Type.Localizer.Localizer 
