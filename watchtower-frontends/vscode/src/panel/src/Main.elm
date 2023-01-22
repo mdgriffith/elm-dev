@@ -805,39 +805,43 @@ viewIssueDetails errorCodeExpanded expanded cursorPresent file issue =
             else
                 Just (EditorGoTo file.path issue.region)
         }
-        [ Ui.el
-            [ Ui.width Ui.fill
-            , if expanded then
-                Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 280ms, opacity 150ms")
+        [ if expanded then
+            Ui.el
+                [ Ui.width Ui.fill
+                , if expanded then
+                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 280ms, opacity 150ms")
 
-              else
-                Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 200ms, opacity 150ms")
-            , if expanded then
-                Ui.htmlAttribute (Html.Attributes.style "overflow" "visible")
+                  else
+                    Ui.htmlAttribute (Html.Attributes.style "transition" "max-height 200ms, opacity 150ms")
+                , if expanded then
+                    Ui.htmlAttribute (Html.Attributes.style "overflow" "visible")
 
-              else
-                Ui.htmlAttribute (Html.Attributes.style "overflow" "hidden")
-            , if expanded then
-                Ui.alpha 1
+                  else
+                    Ui.htmlAttribute (Html.Attributes.style "overflow" "hidden")
+                , if expanded then
+                    Ui.alpha 1
 
-              else
-                Ui.alpha 0
-            , Ui.htmlAttribute
-                (Html.Attributes.style "max-height"
-                    (if expanded then
-                        "1500px"
+                  else
+                    Ui.alpha 0
+                , Ui.htmlAttribute
+                    (Html.Attributes.style "max-height"
+                        (if expanded then
+                            "1500px"
 
-                     else
-                        "0px"
+                         else
+                            "0px"
+                        )
                     )
-                )
-            ]
-            (Ui.paragraph
-                [ Ui.pad.xy.zero.lg
-                , Ui.precise
                 ]
-                (List.indexedMap (viewText file issue errorCodeExpanded) issue.message)
-            )
+                (Ui.paragraph
+                    [ Ui.pad.xy.zero.lg
+                    , Ui.precise
+                    ]
+                    (List.indexedMap (viewText file issue errorCodeExpanded) issue.message)
+                )
+
+          else
+            Ui.none
         ]
 
 
