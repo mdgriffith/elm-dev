@@ -139,11 +139,76 @@ decodeFact : Decode.Decoder Fact
 decodeFact =
     Decode.map3
         (\source name details ->
-            Fact { source = source, name = name, details = details }
+            Fact
+                { source = source
+                , name = convertSpecialName source name
+                , details = details
+                }
         )
         (Decode.field "source" decodeSource)
         (Decode.field "name" Decode.string)
         decodeFactDetails
+
+
+convertSpecialName : Source -> String -> String
+convertSpecialName source name =
+    case source of
+        External mod ->
+            if mod.pkg == "elm/core" then
+                case name of
+                    "apL" ->
+                        "<|"
+
+                    "apR" ->
+                        "|>"
+
+                    "composeR" ->
+                        ">>"
+
+                    "composeL" ->
+                        "<<"
+
+                    "cons" ->
+                        "::"
+
+                    "fdiv" ->
+                        "/"
+
+                    "idiv" ->
+                        "//"
+
+                    "mul" ->
+                        "*"
+
+                    "sub" ->
+                        "-"
+
+                    "pos" ->
+                        "^"
+
+                    "lt" ->
+                        "<"
+
+                    "lte" ->
+                        "<="
+
+                    "gt" ->
+                        ">"
+
+                    "gte" ->
+                        ">="
+
+                    "eq" ->
+                        "=="
+
+                    _ ->
+                        name
+
+            else
+                name
+
+        _ ->
+            name
 
 
 decodeFactDetails : Decode.Decoder FactDetails

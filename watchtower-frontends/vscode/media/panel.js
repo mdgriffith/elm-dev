@@ -6984,6 +6984,52 @@ var $author$project$Ports$decodeExplanationDefinition = A5(
 var $author$project$Ports$Fact = function (a) {
 	return {$: 'Fact', a: a};
 };
+var $author$project$Ports$convertSpecialName = F2(
+	function (source, name) {
+		if (source.$ === 'External') {
+			var mod = source.a;
+			if (mod.pkg === 'elm/core') {
+				switch (name) {
+					case 'apL':
+						return '<|';
+					case 'apR':
+						return '|>';
+					case 'composeR':
+						return '>>';
+					case 'composeL':
+						return '<<';
+					case 'cons':
+						return '::';
+					case 'fdiv':
+						return '/';
+					case 'idiv':
+						return '//';
+					case 'mul':
+						return '*';
+					case 'sub':
+						return '-';
+					case 'pos':
+						return '^';
+					case 'lt':
+						return '<';
+					case 'lte':
+						return '<=';
+					case 'gt':
+						return '>';
+					case 'gte':
+						return '>=';
+					case 'eq':
+						return '==';
+					default:
+						return name;
+				}
+			} else {
+				return name;
+			}
+		} else {
+			return name;
+		}
+	});
 var $author$project$Ports$Alias = function (a) {
 	return {$: 'Alias', a: a};
 };
@@ -7132,7 +7178,11 @@ var $author$project$Ports$decodeFact = A4(
 	F3(
 		function (source, name, details) {
 			return $author$project$Ports$Fact(
-				{details: details, name: name, source: source});
+				{
+					details: details,
+					name: A2($author$project$Ports$convertSpecialName, source, name),
+					source: source
+				});
 		}),
 	A2($elm$json$Json$Decode$field, 'source', $author$project$Ports$decodeSource),
 	A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
