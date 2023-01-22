@@ -2,7 +2,7 @@ port module Ports exposing
     ( Incoming(..), Outgoing(..), incoming, outgoing, Warning(..)
     , CallGraphNode, Call, CallType(..)
     , Fact(..), FactDetails(..), Module
-    , Source(..), Type
+    , Source(..), Type, UnionDetails
     )
 
 {-|

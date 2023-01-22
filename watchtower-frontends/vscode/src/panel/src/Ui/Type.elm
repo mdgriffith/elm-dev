@@ -1,4 +1,4 @@
-module Ui.Type exposing (view)
+module Ui.Type exposing (view, viewUnion)
 
 import Element as Ui
 import Element.Border as Border
@@ -6,13 +6,89 @@ import Element.Events as Events
 import Element.Font as Font
 import Element.Keyed as Keyed
 import Elm.Type
+import Ports
 import Ui
 import VSCode.SyntaxColors as Syntax
 
 
+viewUnion : Ports.UnionDetails -> Ui.Element msg
+viewUnion union =
+    Ui.column [ Ui.space.sm ]
+        [ Ui.row [ Ui.alignTop ]
+            [ Ui.el [ Syntax.keyword ] (Ui.text "type ")
+            , Ui.el [ Syntax.type_ ] (Ui.text union.name)
+            ]
+        , Ui.row []
+            [ Ui.text "   "
+            , Ui.column
+                [ Ui.space.sm
+                ]
+                (List.foldl
+                    (\variant ( isFirst, children ) ->
+                        let
+                            payload =
+                                List.foldl
+                                    (\varType cursor ->
+                                        let
+                                            item =
+                                                viewNew (shouldBeMultiline varType.value) 0 varType.value
+                                        in
+                                        { items = item.content :: cursor.items
+                                        , multiline = cursor.multiline || item.multiline
+                                        }
+                                    )
+                                    { items = []
+                                    , multiline = False
+                                    }
+                                    variant.types_
+                        in
+                        ( False
+                        , Ui.row []
+                            [ Ui.el [ Syntax.keyword, Ui.alignTop ] <|
+                                if isFirst then
+                                    Ui.text "= "
+
+                                else
+                                    Ui.text "| "
+                            , if payload.multiline then
+                                Ui.column [ Ui.space.sm ]
+                                    [ Ui.el [ Syntax.variant, Ui.alignTop ] (Ui.text variant.name)
+                                    , Ui.column
+                                        [ Ui.space.sm, indentPadding 2 ]
+                                        (List.reverse payload.items)
+                                    ]
+
+                              else
+                                Ui.row []
+                                    [ Ui.el [ Syntax.variant, Ui.alignTop ] (Ui.text variant.name)
+                                    , Ui.text " "
+                                    , Ui.row
+                                        [ Ui.space.sm ]
+                                        (List.reverse payload.items)
+                                    ]
+                            ]
+                            :: children
+                        )
+                    )
+                    ( True, [] )
+                    union.cases
+                    |> Tuple.second
+                    |> List.reverse
+                )
+            ]
+        ]
+
+
+shouldBeMultiline : Elm.Type.Type -> Bool
+shouldBeMultiline tipe =
+    linearWidth tipe > 50
+
+
+{-| View a type definition
+-}
 view : Elm.Type.Type -> Ui.Element msg
 view tipe =
-    viewNew (linearWidth tipe > 50) 0 tipe
+    viewNew (shouldBeMultiline tipe) 0 tipe
         |> .content
 
 

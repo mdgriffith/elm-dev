@@ -8540,8 +8540,8 @@ var $author$project$Main$update = F2(
 									{errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, lastUpdated: model.now, projects: statuses, projectsVersion: model.projectsVersion + 1}),
 								$elm$core$Platform$Cmd$none);
 						case 'WarningsUpdated':
-							var warnings = editorMsg.a.warnings;
 							var filepath = editorMsg.a.filepath;
+							var warnings = editorMsg.a.warnings;
 							var _v5 = $author$project$Main$panelLog('WarningsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -8552,8 +8552,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'CallGraphReceived':
-							var callgraph = editorMsg.a.callgraph;
 							var filepath = editorMsg.a.filepath;
+							var callgraph = editorMsg.a.callgraph;
 							var _v6 = $author$project$Main$panelLog('Callgraph received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -8564,8 +8564,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'ExplanationReceived':
-							var facts = editorMsg.a.facts;
 							var filepath = editorMsg.a.filepath;
+							var facts = editorMsg.a.facts;
 							var _v7 = $author$project$Main$panelLog('Facts received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -14799,8 +14799,43 @@ var $author$project$VSCode$SyntaxColors$keyword = $mdgriffith$elm_ui$Element$htm
 	A2($elm$html$Html$Attributes$style, 'color', '#fa9a4b'));
 var $author$project$VSCode$SyntaxColors$type_ = $mdgriffith$elm_ui$Element$htmlAttribute(
 	A2($elm$html$Html$Attributes$style, 'color', '#f6f080'));
-var $author$project$VSCode$SyntaxColors$variant = $mdgriffith$elm_ui$Element$htmlAttribute(
-	A2($elm$html$Html$Attributes$style, 'color', '#b8d977'));
+var $mdgriffith$elm_ui$Internal$Model$Describe = function (a) {
+	return {$: 'Describe', a: a};
+};
+var $mdgriffith$elm_ui$Internal$Model$Paragraph = {$: 'Paragraph'};
+var $mdgriffith$elm_ui$Element$paragraph = F2(
+	function (attrs, children) {
+		return A4(
+			$mdgriffith$elm_ui$Internal$Model$element,
+			$mdgriffith$elm_ui$Internal$Model$asParagraph,
+			$mdgriffith$elm_ui$Internal$Model$div,
+			A2(
+				$elm$core$List$cons,
+				$mdgriffith$elm_ui$Internal$Model$Describe($mdgriffith$elm_ui$Internal$Model$Paragraph),
+				A2(
+					$elm$core$List$cons,
+					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+					A2(
+						$elm$core$List$cons,
+						$mdgriffith$elm_ui$Element$spacing(5),
+						attrs))),
+			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
+	});
+var $author$project$Explainer$viewComment = function (comment) {
+	return A2(
+		$mdgriffith$elm_ui$Element$paragraph,
+		_List_fromArray(
+			[
+				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+				$author$project$Ui$font.dark.light
+			]),
+		_List_fromArray(
+			[
+				$mdgriffith$elm_ui$Element$text('{-|'),
+				$mdgriffith$elm_ui$Element$text(comment),
+				$mdgriffith$elm_ui$Element$text('-}')
+			]));
+};
 var $author$project$Ui$Type$recordWidth = 4;
 var $author$project$Ui$Type$spacingWidth = F2(
 	function (spacing, items) {
@@ -14877,6 +14912,9 @@ var $author$project$Ui$Type$linearWidth = function (tipe) {
 					fields)) + A2($author$project$Ui$Type$spacingWidth, 2, fields);
 			}
 	}
+};
+var $author$project$Ui$Type$shouldBeMultiline = function (tipe) {
+	return $author$project$Ui$Type$linearWidth(tipe) > 50;
 };
 var $author$project$VSCode$SyntaxColors$punctuation = $mdgriffith$elm_ui$Element$htmlAttribute(
 	A2($elm$html$Html$Attributes$style, 'color', '#798188'));
@@ -15266,12 +15304,132 @@ var $author$project$Ui$Type$viewNew = F3(
 var $author$project$Ui$Type$view = function (tipe) {
 	return A3(
 		$author$project$Ui$Type$viewNew,
-		$author$project$Ui$Type$linearWidth(tipe) > 50,
+		$author$project$Ui$Type$shouldBeMultiline(tipe),
 		0,
 		tipe).content;
 };
 var $author$project$Explainer$viewType = function (type_) {
 	return $author$project$Ui$Type$view(type_.value);
+};
+var $author$project$Ui$Type$indentPadding = function (indent) {
+	return A2($mdgriffith$elm_ui$Element$paddingXY, indent * 8, 0);
+};
+var $author$project$VSCode$SyntaxColors$variant = $mdgriffith$elm_ui$Element$htmlAttribute(
+	A2($elm$html$Html$Attributes$style, 'color', '#b8d977'));
+var $author$project$Ui$Type$viewUnion = function (union) {
+	return A2(
+		$mdgriffith$elm_ui$Element$column,
+		_List_fromArray(
+			[$author$project$Ui$space.sm]),
+		_List_fromArray(
+			[
+				A2(
+				$mdgriffith$elm_ui$Element$row,
+				_List_fromArray(
+					[$mdgriffith$elm_ui$Element$alignTop]),
+				_List_fromArray(
+					[
+						A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_fromArray(
+							[$author$project$VSCode$SyntaxColors$keyword]),
+						$mdgriffith$elm_ui$Element$text('type ')),
+						A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_fromArray(
+							[$author$project$VSCode$SyntaxColors$type_]),
+						$mdgriffith$elm_ui$Element$text(union.name))
+					])),
+				A2(
+				$mdgriffith$elm_ui$Element$row,
+				_List_Nil,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$text('   '),
+						A2(
+						$mdgriffith$elm_ui$Element$column,
+						_List_fromArray(
+							[$author$project$Ui$space.sm]),
+						$elm$core$List$reverse(
+							A3(
+								$elm$core$List$foldl,
+								F2(
+									function (variant, _v0) {
+										var isFirst = _v0.a;
+										var children = _v0.b;
+										var payload = A3(
+											$elm$core$List$foldl,
+											F2(
+												function (varType, cursor) {
+													var item = A3(
+														$author$project$Ui$Type$viewNew,
+														$author$project$Ui$Type$shouldBeMultiline(varType.value),
+														0,
+														varType.value);
+													return {
+														items: A2($elm$core$List$cons, item.content, cursor.items),
+														multiline: cursor.multiline || item.multiline
+													};
+												}),
+											{items: _List_Nil, multiline: false},
+											variant.types_);
+										return _Utils_Tuple2(
+											false,
+											A2(
+												$elm$core$List$cons,
+												A2(
+													$mdgriffith$elm_ui$Element$row,
+													_List_Nil,
+													_List_fromArray(
+														[
+															A2(
+															$mdgriffith$elm_ui$Element$el,
+															_List_fromArray(
+																[$author$project$VSCode$SyntaxColors$keyword, $mdgriffith$elm_ui$Element$alignTop]),
+															isFirst ? $mdgriffith$elm_ui$Element$text('= ') : $mdgriffith$elm_ui$Element$text('| ')),
+															payload.multiline ? A2(
+															$mdgriffith$elm_ui$Element$column,
+															_List_fromArray(
+																[$author$project$Ui$space.sm]),
+															_List_fromArray(
+																[
+																	A2(
+																	$mdgriffith$elm_ui$Element$el,
+																	_List_fromArray(
+																		[$author$project$VSCode$SyntaxColors$variant, $mdgriffith$elm_ui$Element$alignTop]),
+																	$mdgriffith$elm_ui$Element$text(variant.name)),
+																	A2(
+																	$mdgriffith$elm_ui$Element$column,
+																	_List_fromArray(
+																		[
+																			$author$project$Ui$space.sm,
+																			$author$project$Ui$Type$indentPadding(2)
+																		]),
+																	$elm$core$List$reverse(payload.items))
+																])) : A2(
+															$mdgriffith$elm_ui$Element$row,
+															_List_Nil,
+															_List_fromArray(
+																[
+																	A2(
+																	$mdgriffith$elm_ui$Element$el,
+																	_List_fromArray(
+																		[$author$project$VSCode$SyntaxColors$variant, $mdgriffith$elm_ui$Element$alignTop]),
+																	$mdgriffith$elm_ui$Element$text(variant.name)),
+																	$mdgriffith$elm_ui$Element$text(' '),
+																	A2(
+																	$mdgriffith$elm_ui$Element$row,
+																	_List_fromArray(
+																		[$author$project$Ui$space.sm]),
+																	$elm$core$List$reverse(payload.items))
+																]))
+														])),
+												children));
+									}),
+								_Utils_Tuple2(true, _List_Nil),
+								union.cases).b))
+					]))
+			]));
 };
 var $author$project$Explainer$viewFact = function (_v0) {
 	var fact = _v0.a;
@@ -15313,81 +15471,8 @@ var $author$project$Explainer$viewFact = function (_v0) {
 						[$author$project$Ui$space.sm]),
 					_List_fromArray(
 						[
-							A2(
-							$mdgriffith$elm_ui$Element$row,
-							_List_fromArray(
-								[$mdgriffith$elm_ui$Element$alignTop]),
-							_List_fromArray(
-								[
-									A2(
-									$mdgriffith$elm_ui$Element$el,
-									_List_fromArray(
-										[$author$project$VSCode$SyntaxColors$keyword]),
-									$mdgriffith$elm_ui$Element$text('type ')),
-									A2(
-									$mdgriffith$elm_ui$Element$el,
-									_List_fromArray(
-										[$author$project$VSCode$SyntaxColors$type_]),
-									$mdgriffith$elm_ui$Element$text(union.name))
-								])),
-							A2(
-							$mdgriffith$elm_ui$Element$row,
-							_List_Nil,
-							_List_fromArray(
-								[
-									$mdgriffith$elm_ui$Element$text('   '),
-									A2(
-									$mdgriffith$elm_ui$Element$column,
-									_List_fromArray(
-										[$author$project$Ui$space.sm]),
-									$elm$core$List$reverse(
-										A3(
-											$elm$core$List$foldl,
-											F2(
-												function (variant, _v2) {
-													var isFirst = _v2.a;
-													var children = _v2.b;
-													return _Utils_Tuple2(
-														false,
-														A2(
-															$elm$core$List$cons,
-															A2(
-																$mdgriffith$elm_ui$Element$row,
-																_List_Nil,
-																_List_fromArray(
-																	[
-																		A2(
-																		$mdgriffith$elm_ui$Element$el,
-																		_List_fromArray(
-																			[$author$project$VSCode$SyntaxColors$keyword, $mdgriffith$elm_ui$Element$alignTop]),
-																		isFirst ? $mdgriffith$elm_ui$Element$text('= ') : $mdgriffith$elm_ui$Element$text('| ')),
-																		A2(
-																		$mdgriffith$elm_ui$Element$el,
-																		_List_fromArray(
-																			[$author$project$VSCode$SyntaxColors$variant, $mdgriffith$elm_ui$Element$alignTop]),
-																		$mdgriffith$elm_ui$Element$text(variant.name)),
-																		$mdgriffith$elm_ui$Element$text(' '),
-																		A2(
-																		$mdgriffith$elm_ui$Element$row,
-																		_List_fromArray(
-																			[$author$project$Ui$space.md]),
-																		A2($elm$core$List$map, $author$project$Explainer$viewType, variant.types_))
-																	])),
-															children));
-												}),
-											_Utils_Tuple2(true, _List_Nil),
-											union.cases).b))
-								])),
-							A2(
-							$author$project$Ui$whenJust,
-							union.comment,
-							function (comment) {
-								return A2(
-									$mdgriffith$elm_ui$Element$el,
-									_List_fromArray(
-										[$author$project$Ui$pad.md]),
-									$mdgriffith$elm_ui$Element$text(comment));
-							})
+							A2($author$project$Ui$whenJust, union.comment, $author$project$Explainer$viewComment),
+							$author$project$Ui$Type$viewUnion(union)
 						])));
 		case 'Alias':
 			var alias_ = _v1.a;
@@ -15398,6 +15483,7 @@ var $author$project$Explainer$viewFact = function (_v0) {
 						[$author$project$Ui$space.sm]),
 					_List_fromArray(
 						[
+							A2($author$project$Ui$whenJust, alias_.comment, $author$project$Explainer$viewComment),
 							A2(
 							$mdgriffith$elm_ui$Element$row,
 							_List_Nil,
@@ -15426,17 +15512,7 @@ var $author$project$Explainer$viewFact = function (_v0) {
 								[
 									$mdgriffith$elm_ui$Element$text('    '),
 									$author$project$Explainer$viewType(alias_.type_)
-								])),
-							A2(
-							$author$project$Ui$whenJust,
-							alias_.comment,
-							function (comment) {
-								return A2(
-									$mdgriffith$elm_ui$Element$el,
-									_List_fromArray(
-										[$author$project$Ui$pad.md]),
-									$mdgriffith$elm_ui$Element$text(comment));
-							})
+								]))
 						])));
 		default:
 			var def = _v1.a;
@@ -15446,17 +15522,13 @@ var $author$project$Explainer$viewFact = function (_v0) {
 					_List_Nil,
 					_List_fromArray(
 						[
+							$author$project$Explainer$viewComment(def.comment),
 							A2(
 							$mdgriffith$elm_ui$Element$el,
 							_List_fromArray(
 								[$mdgriffith$elm_ui$Element$alignTop, $author$project$VSCode$SyntaxColors$declaration]),
 							$mdgriffith$elm_ui$Element$text(fact.name)),
-							A2($author$project$Ui$whenJust, def.type_, $author$project$Explainer$viewType),
-							A2(
-							$mdgriffith$elm_ui$Element$el,
-							_List_fromArray(
-								[$author$project$Ui$pad.md]),
-							$mdgriffith$elm_ui$Element$text(def.comment))
+							A2($author$project$Ui$whenJust, def.type_, $author$project$Explainer$viewType)
 						])));
 	}
 };
@@ -15623,28 +15695,6 @@ var $author$project$Main$isRegionVisible = F3(
 				return _Utils_eq(e.fileName, path) ? A2($author$project$Editor$visible, region, e.ranges) : false;
 			},
 			editors);
-	});
-var $mdgriffith$elm_ui$Internal$Model$Describe = function (a) {
-	return {$: 'Describe', a: a};
-};
-var $mdgriffith$elm_ui$Internal$Model$Paragraph = {$: 'Paragraph'};
-var $mdgriffith$elm_ui$Element$paragraph = F2(
-	function (attrs, children) {
-		return A4(
-			$mdgriffith$elm_ui$Internal$Model$element,
-			$mdgriffith$elm_ui$Internal$Model$asParagraph,
-			$mdgriffith$elm_ui$Internal$Model$div,
-			A2(
-				$elm$core$List$cons,
-				$mdgriffith$elm_ui$Internal$Model$Describe($mdgriffith$elm_ui$Internal$Model$Paragraph),
-				A2(
-					$elm$core$List$cons,
-					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-					A2(
-						$elm$core$List$cons,
-						$mdgriffith$elm_ui$Element$spacing(5),
-						attrs))),
-			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
 	});
 var $author$project$Model$ErrorCodeToggled = F2(
 	function (a, b) {
@@ -16337,8 +16387,8 @@ var $author$project$Main$viewOverview = function (model) {
 		$elm$core$List$foldl,
 		F2(
 			function (project, gathered) {
-				var errs = gathered.errs;
 				var globals = gathered.globals;
+				var errs = gathered.errs;
 				switch (project.$) {
 					case 'NoData':
 						return gathered;
