@@ -23,7 +23,7 @@ import qualified Ext.Dev.Warnings
 warnings :: FilePath -> FilePath -> IO (Either () (Src.Module, [ Warning.Warning ]))
 warnings root path = do
     loaded <- Ext.CompileProxy.loadSingle root path
-    let (Ext.CompileProxy.Single source maybeWarnings canonical compiled) = Ext.Dev.Warnings.addUnusedImports loaded
+    let (Ext.CompileProxy.Single source maybeWarnings interfaces canonical compiled) = Ext.Dev.Warnings.addUnusedImports loaded
     case source of
         Right sourceMod ->
             pure (Right (sourceMod, Maybe.fromMaybe [] maybeWarnings))
@@ -40,7 +40,7 @@ data Info =
 info :: FilePath -> FilePath -> IO Info
 info root path = do
     loaded <- Ext.CompileProxy.loadSingle root path
-    let (Ext.CompileProxy.Single source maybeWarnings canonical compiled) = Ext.Dev.Warnings.addUnusedImports loaded
+    let (Ext.CompileProxy.Single source maybeWarnings interfaces canonical compiled) = Ext.Dev.Warnings.addUnusedImports loaded
     let docs = case compiled of
                     Just (Right artifacts) ->
                         case  Ext.Dev.Docs.fromArtifacts artifacts of
@@ -69,7 +69,7 @@ info root path = do
 
 docs :: FilePath -> FilePath -> IO (Maybe Elm.Docs.Module)
 docs root path = do
-    (Ext.CompileProxy.Single source warnings canonical compiled) <- Ext.CompileProxy.loadSingle root path
+    (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root path
     case compiled of
         Just (Right artifacts) ->
             case  Ext.Dev.Docs.fromArtifacts artifacts of

@@ -225,6 +225,7 @@ data SingleFileResult =
     Single 
       { _source :: Either Reporting.Error.Syntax.Error Src.Module
       , _warnings :: Maybe [ Warning.Warning ]
+      , _interfaces :: Maybe (Map.Map ModuleName.Raw I.Interface)
       , _canonical :: Maybe Can.Module
       , _compiled :: Maybe (Either Reporting.Error.Error Compile.Artifacts)
       }
@@ -250,6 +251,7 @@ loadSingle root path =
                   Nothing
                   Nothing
                   Nothing
+                  Nothing
                 )
 
             Right localIfaces -> do
@@ -261,6 +263,7 @@ loadSingle root path =
                       (Single 
                         (Right srcModule)
                         (Just canWarnings)
+                        (Just localIfaces)
                         Nothing
                         (Just (Left (Reporting.Error.BadNames errs)))
                       ) 
@@ -272,6 +275,7 @@ loadSingle root path =
                               (Single 
                                 (Right srcModule)
                                 (Just canWarnings)
+                                (Just localIfaces)
                                 (Just canModule)
                                 (Just (Left (Reporting.Error.BadTypes (Localizer.fromModule srcModule) typeErrors)))
                               ) 
@@ -287,6 +291,7 @@ loadSingle root path =
                                   (Single 
                                     (Right srcModule)
                                     (Just (canWarnings <> optWarnings))
+                                    (Just localIfaces)
                                     (Just canModule)
                                     (Just (Left (Reporting.Error.BadMains (Localizer.fromModule srcModule) errs)))
                                   ) 
@@ -296,6 +301,7 @@ loadSingle root path =
                                   (Single 
                                     (Right srcModule)
                                     (Just (canWarnings <> optWarnings))
+                                    (Just localIfaces)
                                     (Just canModule)
                                     (Just 
                                       (case nitpicks of 
@@ -313,6 +319,7 @@ loadSingle root path =
         pure
           (Single 
             (Left err)
+            Nothing
             Nothing
             Nothing
             Nothing

@@ -48,7 +48,7 @@ import qualified Ext.Dev.Find.Canonical
 
 definition :: FilePath -> Watchtower.Editor.PointLocation -> IO Json.Encode.Value
 definition root (Watchtower.Editor.PointLocation path point) = do
-  (Ext.CompileProxy.Single source warnings canonical compiled) <- Ext.CompileProxy.loadSingle root path
+  (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root path
   case source of
     Left _ ->
        pure Json.Encode.null
@@ -568,7 +568,7 @@ findFirstJust fn vals =
 -}
 usedModules :: FilePath -> FilePath -> IO (Maybe (Set.Set ModuleName.Canonical))
 usedModules root path = do
-    (Ext.CompileProxy.Single source warnings canonical compiled) <- Ext.CompileProxy.loadSingle root path
+    (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root path
     pure (fmap Ext.Dev.Find.Canonical.used canonical)
     
     

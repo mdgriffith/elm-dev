@@ -49,7 +49,7 @@ lookup root mod name =
                 pure Nothing
             
             Just path -> do
-                (Ext.CompileProxy.Single source warnings maybeCanonical compiled) <- Ext.CompileProxy.loadSingle root path
+                (Ext.CompileProxy.Single source warnings maybeInterfaces maybeCanonical compiled) <- Ext.CompileProxy.loadSingle root path
                 
                 case maybeCanonical of
                     Nothing -> pure Nothing
@@ -88,7 +88,7 @@ lookupMany root mod names =
                 pure Map.empty 
             
             Just path -> do
-                (Ext.CompileProxy.Single source warnings maybeCanonical compiled) <- Ext.CompileProxy.loadSingle root path
+                (Ext.CompileProxy.Single source warnings interfaces maybeCanonical compiled) <- Ext.CompileProxy.loadSingle root path
                 case maybeCanonical of
                     Nothing -> pure Map.empty 
 

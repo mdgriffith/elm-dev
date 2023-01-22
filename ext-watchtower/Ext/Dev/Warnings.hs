@@ -20,7 +20,7 @@ import qualified Reporting.Warning as Warning
 
 
 addUnusedImports :: Ext.CompileProxy.SingleFileResult -> Ext.CompileProxy.SingleFileResult 
-addUnusedImports untouched@(Ext.CompileProxy.Single source warnings canonical compiled) =
+addUnusedImports untouched@(Ext.CompileProxy.Single source warnings interfaces canonical compiled) =
     case source of
         Left _ -> untouched
 
@@ -36,7 +36,7 @@ addUnusedImports untouched@(Ext.CompileProxy.Single source warnings canonical co
                     let unusedImports = Set.difference importNames usedModuleNames
                     let unusedImportWarnings = importsToWarnings (Set.toList unusedImports) filteredImports
 
-                    Ext.CompileProxy.Single source (addUnused unusedImportWarnings warnings) canonical compiled
+                    Ext.CompileProxy.Single source (addUnused unusedImportWarnings warnings) interfaces canonical compiled
 
 canModuleName :: Elm.ModuleName.Canonical -> Name
 canModuleName (Elm.ModuleName.Canonical pkg modName) =

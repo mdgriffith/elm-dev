@@ -269,7 +269,7 @@ isSkippable (ModuleName.Canonical (Package.Name author project) modName) =
 
 explain :: String -> Watchtower.Editor.PointLocation -> IO (Maybe Explanation)
 explain root location@(Watchtower.Editor.PointLocation path _) = do
-    (Ext.CompileProxy.Single source warnings canonical compiled) <- Ext.CompileProxy.loadSingle root path
+    (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root path
     case (source, canonical) of
         (Right srcModule, Just canMod) -> do
             let localizer = Reporting.Render.Type.Localizer.fromModule srcModule

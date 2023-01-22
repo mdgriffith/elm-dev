@@ -123,7 +123,7 @@ encodeId (Id (ModuleName.Canonical pkgName modName) name) =
 
 callgraph :: String -> String -> IO (Maybe Calls)
 callgraph root path = do
-    (Ext.CompileProxy.Single source warnings canonical compiled) <- Ext.CompileProxy.loadSingle root path
+    (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root path
     case (source, canonical) of
         (Right srcModule, Just canMod) -> do
              pure (Just (calls canMod))
