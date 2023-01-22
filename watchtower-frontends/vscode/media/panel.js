@@ -14913,12 +14913,33 @@ var $author$project$Ui$Type$addParens = F2(
 				return elem;
 		}
 	});
+var $author$project$Ui$Type$verticalParens = function (content) {
+	return A2(
+		$mdgriffith$elm_ui$Element$column,
+		_List_Nil,
+		_List_fromArray(
+			[
+				A2(
+				$mdgriffith$elm_ui$Element$row,
+				_List_Nil,
+				_List_fromArray(
+					[
+						A2(
+						$mdgriffith$elm_ui$Element$el,
+						_List_fromArray(
+							[$mdgriffith$elm_ui$Element$alignTop, $author$project$VSCode$SyntaxColors$punctuation]),
+						$mdgriffith$elm_ui$Element$text('(')),
+						content
+					])),
+				$author$project$Ui$Type$punctuation(')')
+			]));
+};
 var $author$project$Ui$Type$addParensInFunction = F2(
 	function (tipe, elem) {
 		if (tipe.$ === 'Lambda') {
-			return $author$project$Ui$Type$parens(elem);
+			return elem.multiline ? $author$project$Ui$Type$verticalParens(elem.content) : $author$project$Ui$Type$parens(elem.content);
 		} else {
-			return elem;
+			return elem.content;
 		}
 	});
 var $author$project$Ui$Type$arrowRight = function (multiline) {
@@ -15069,7 +15090,7 @@ var $author$project$Ui$Type$viewNew = F3(
 						_List_Nil,
 						A2(
 							$elm$core$List$cons,
-							A2($author$project$Ui$Type$addParensInFunction, one, oneRendered.content),
+							A2($author$project$Ui$Type$addParensInFunction, one, oneRendered),
 							twoRendered.items)),
 					multiline: realMultiline
 				};

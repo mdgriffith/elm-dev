@@ -12,10 +12,6 @@ import VSCode.SyntaxColors as Syntax
 
 view : Elm.Type.Type -> Ui.Element msg
 view tipe =
-    -- if linearWidth tipe > 50 then
-    --     viewMultiline 4 tipe
-    -- else
-    --     viewSingleLine tipe
     viewNew (linearWidth tipe > 50) 0 tipe
         |> .content
 
@@ -106,6 +102,21 @@ parens content =
         ]
 
 
+verticalParens : Ui.Element msg -> Ui.Element msg
+verticalParens content =
+    Ui.column []
+        [ Ui.row []
+            [ Ui.el
+                [ Ui.alignTop
+                , Syntax.punctuation
+                ]
+                (Ui.text "(")
+            , content
+            ]
+        , punctuation ")"
+        ]
+
+
 addParens : Elm.Type.Type -> Ui.Element msg -> Ui.Element msg
 addParens tipe elem =
     case tipe of
@@ -122,14 +133,24 @@ addParens tipe elem =
             elem
 
 
-addParensInFunction : Elm.Type.Type -> Ui.Element msg -> Ui.Element msg
+addParensInFunction :
+    Elm.Type.Type
+    ->
+        { content : Ui.Element msg
+        , multiline : Bool
+        }
+    -> Ui.Element msg
 addParensInFunction tipe elem =
     case tipe of
         Elm.Type.Lambda _ _ ->
-            parens elem
+            if elem.multiline then
+                verticalParens elem.content
+
+            else
+                parens elem.content
 
         _ ->
-            elem
+            elem.content
 
 
 viewNew :
@@ -169,7 +190,7 @@ viewNew forceMultiline indent tipe =
             , content =
                 columnIf realMultiline
                     []
-                    (addParensInFunction one oneRendered.content
+                    (addParensInFunction one oneRendered
                         :: twoRendered.items
                     )
             }
