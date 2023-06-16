@@ -67,7 +67,19 @@ fromArtifacts (Compile.Artifacts modul@(Can.Module _ exports docs decls _ _ _ _)
 
 exposeAll :: Can.Module -> Map.Map Name.Name (A.Located Can.Export) 
 exposeAll modul@(Can.Module _ exports docs decls unions aliases binops effects) =
-    addPorts effects (exposeAllHelper modul decls Map.empty)
+    addAliases aliases $
+      addUnions unions $
+        addPorts effects 
+          (exposeAllHelper modul decls Map.empty)
+
+addAliases :: Map.Map Name.Name Can.Alias -> Map.Map Name.Name (A.Located Can.Export) -> Map.Map Name.Name (A.Located Can.Export)
+addAliases aliases gathered =
+    Map.foldrWithKey (\name alias acc -> Map.insert name (A.At A.zero Can.ExportAlias) acc) gathered aliases
+
+
+addUnions :: Map.Map Name.Name Can.Union -> Map.Map Name.Name (A.Located Can.Export) -> Map.Map Name.Name (A.Located Can.Export)
+addUnions unions gathered =
+    Map.foldrWithKey (\name union acc -> Map.insert name (A.At A.zero Can.ExportAlias) acc) gathered unions
 
 
 addPorts :: Can.Effects -> Map.Map Name.Name (A.Located Can.Export) -> Map.Map Name.Name (A.Located Can.Export) 
