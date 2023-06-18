@@ -13,6 +13,13 @@ module Build
   , getRootNames
   -- exposed
   , RootLocation(..)
+  , makeEnv
+  , crawlModule
+  , checkMidpoint , checkModule, checkDeps
+  , Env(..), Dependencies(..), Status(..), Result(..), ResultDict(..), DepsStatus(..), DocsNeed(..), CachedInterface(..)
+  , toDocs, loadInterfaces, compile, toImportErrors
+  , toDocsNeed, projectTypeToPkg
+  , fork, forkWithKey
   )
   where
 
