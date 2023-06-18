@@ -79,7 +79,7 @@ addAliases aliases gathered =
 
 addUnions :: Map.Map Name.Name Can.Union -> Map.Map Name.Name (A.Located Can.Export) -> Map.Map Name.Name (A.Located Can.Export)
 addUnions unions gathered =
-    Map.foldrWithKey (\name union acc -> Map.insert name (A.At A.zero Can.ExportAlias) acc) gathered unions
+    Map.foldrWithKey (\name union acc -> Map.insert name (A.At A.zero Can.ExportUnionOpen) acc) gathered unions
 
 
 addPorts :: Can.Effects -> Map.Map Name.Name (A.Located Can.Export) -> Map.Map Name.Name (A.Located Can.Export) 
@@ -143,7 +143,7 @@ data Export
 
 -}
 getExportType :: Can.Module -> Name.Name -> Can.Export
-getExportType mod@(Can.Module _ exports docs decls unions aliases binops _) name =
+getExportType mod@(Can.Module _ _exports _docs decls unions aliases binops _) name =
     if Map.member name unions then
         Can.ExportUnionOpen
 
@@ -194,7 +194,7 @@ checkExport info name (A.At region export) =
             m { Docs._values = Map.insert name (Docs.Value comment tipe) (Docs._values m) }
 
     Can.ExportBinop ->
-      do  let (Can.Binop_ assoc prec realName) = _iBinops info ! name
+      do  let (Can.Binop_ assoc prec realName) = _iBinops info Ext.Sanity.! name
           tipe <- getType realName info
           comment <- getComment region realName info
           Result.ok $ \m ->
