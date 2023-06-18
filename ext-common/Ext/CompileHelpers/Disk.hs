@@ -115,22 +115,7 @@ compileToDocs root paths =
             let allModuleNames = case getModuleNames details of
                                   [] ->  (NE.singleton (Name.fromChars "Main"))
                                   (top : rest) -> NE.List top rest
-                                    -- NE.List (Name.fromChars "Main") 
-                                    --   [ 
-                                    --     Name.fromChars "App.Effect"
-                                    --   , Name.fromChars "App.Engine"
-                                    --   --  Name.fromChars "App.State"
-                                    --   , Name.fromChars "App.Sub"
-                                    --   , Name.fromChars "App.View"
-                                    --   , Name.fromChars "Page.Home"
-                                    --   , Name.fromChars "Page.Markdown"
-                                    --   , Name.fromChars "Route"
-                                    --   ]
             
-            Task.io (
-              Ext.Log.withAllBut []
-                (Ext.Log.log Ext.Log.Misc (nameListToString (getModuleNames details)))
-              )
             docsResult <- Task.eio Exit.ReactorBadBuild $ 
                             docsFromExposed Reporting.silent root details Build.KeepDocs 
                               allModuleNames
