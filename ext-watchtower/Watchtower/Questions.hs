@@ -22,10 +22,12 @@ import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Reporting.Annotation
 import qualified System.FilePath as Path
+
 import qualified Reporting.Doc
 import qualified Reporting.Render.Type
 import qualified Reporting.Render.Type.Localizer
 import qualified Reporting.Warning as Warning
+import qualified Reporting.Exit as Exit
 
 import qualified Elm.Docs as Docs
 
@@ -67,6 +69,7 @@ data Question
 data DocsType 
     = FromFile FilePath
     | ForPackage PackageDetails
+    | ForProject FilePath
 
 data PackageDetails =
   PackageDetails 
@@ -142,12 +145,18 @@ actionHandler state =
       Just "docs" ->
         do
           maybeFiles <- getQueryParam "file"
-          case maybeFiles of
-            Nothing ->
-              writeBS "Needs a file parameter"
+          maybeEntryPoint <- getQueryParam "entrypoint"
+          case maybeEntryPoint of
+            Just entrypoint ->
+              questionHandler state (Docs (ForProject (Data.ByteString.Char8.unpack entrypoint)))
 
-            Just fileString -> do
-              questionHandler state (Docs (FromFile (Data.ByteString.Char8.unpack fileString)))
+            Nothing ->
+              case maybeFiles of
+                Nothing ->
+                  writeBS "Needs a file or an entrypoint parameter"
+
+                Just fileString -> do
+                  questionHandler state (Docs (FromFile (Data.ByteString.Char8.unpack fileString)))
 
       Just "health" ->
         questionHandler state ServerHealth
@@ -288,6 +297,18 @@ ask state question =
 
     Status ->
       allProjectStatuses state
+
+    
+    Docs (ForProject entrypoint) ->
+      do
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot entrypoint state)
+        maybeDocs <- Ext.Dev.docsForProject root entrypoint
+        case maybeDocs of
+          Left err ->
+            pure (Json.Encode.encodeUgly (Json.Encode.chars (Exit.toString (Exit.reactorToReport err))))
+
+          Right docs ->
+            pure (Json.Encode.encodeUgly (Docs.encode docs))
 
     Docs (FromFile path) ->
       do
