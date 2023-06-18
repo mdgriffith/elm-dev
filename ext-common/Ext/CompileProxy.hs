@@ -8,6 +8,7 @@ module Ext.CompileProxy
  , loadProject
  , parse
  , compileToJson
+ , compileToDocs
  )
  where
 
@@ -121,6 +122,13 @@ modeRunner identifier ioDisk ioMemory = do
 
 
 -- Interfaces
+
+{-| Needs memory mode!
+-}
+compileToDocs :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor Docs.Documentation)
+compileToDocs root paths =
+    (Ext.CompileHelpers.Disk.compileToDocs root paths)
+
 
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)

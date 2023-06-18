@@ -10,6 +10,7 @@ import qualified System.IO (hPutStrLn, stdout)
 import qualified System.FilePath as Path
 import qualified System.Directory as Dir
 
+import qualified Reporting.Exit as Exit
 import qualified Elm.Docs as Docs
 import qualified Json.Encode
 import qualified Ext.Dev
@@ -126,25 +127,46 @@ getDocs :: DocsArgs -> Watchtower.DocFlags -> IO ()
 getDocs arg (Watchtower.DocFlags maybeOutput) =
   case arg of
     DocsCwdProject ->
-        System.IO.hPutStrLn System.IO.stdout "CWD project!"
+      do
+          let path = "src/Main.elm"
+          maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
+          case maybeRoot of
+            Nothing ->
+              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+            
+            Just root -> do
+              maybeDocs <- Ext.Dev.docsForProject root path
+              case maybeDocs of
+                Left err ->
+                  System.IO.hPutStrLn System.IO.stdout 
+                      (Exit.toString (Exit.reactorToReport err))
+                
+                Right docs ->
+                  System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encodeUgly (Docs.encode docs)))
 
     DocsFile path ->
-      do
-        maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
-        case maybeRoot of
-          Nothing ->
-            System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
-          
-          Just root -> do
-            maybeDocs <- Ext.Dev.docs root path
-            case maybeDocs of
-              Nothing ->
-                System.IO.hPutStrLn System.IO.stdout "Docs are not available"
+      if Path.takeExtension path == ".elm" then
+        do
+          maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
+          case maybeRoot of
+            Nothing ->
+              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+            
+            Just root -> do
+              maybeDocs <- Ext.Dev.docs root path
+              case maybeDocs of
+                Nothing ->
+                  System.IO.hPutStrLn System.IO.stdout "Docs are not available"
 
-              Just docs ->
-                System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [ docs ]))))
+                Just docs ->
+                  System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [ docs ]))))
+      else
+        -- Produce docs as a project
+        System.IO.hPutStrLn System.IO.stdout "Given file does not have an .elm extension"
 
     DocsPackage packageName ->
+        -- Is there an `elm.json` file?  Read it for the exact version.
+        -- Otherwise use the latest version.
         System.IO.hPutStrLn System.IO.stdout "Package docs"
 
     DocsPackageVersion name packageVersion ->

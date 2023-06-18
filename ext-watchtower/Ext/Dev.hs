@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Ext.Dev 
-    ( docs
+    ( docs, docsForProject
     , info, Info(..)
     , warnings
     )
@@ -12,7 +12,7 @@ import qualified Data.Maybe as Maybe
 import qualified Elm.Docs
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Warning as Warning
-
+import qualified Data.NonEmptyList as NonEmpty
 import qualified AST.Source as Src
 
 import qualified Ext.CompileProxy
@@ -82,3 +82,10 @@ docs root path = do
         _ ->
             pure Nothing
 
+
+
+docsForProject :: FilePath -> FilePath -> IO (Either Exit.Reactor Elm.Docs.Documentation)
+docsForProject root path = do
+    Ext.CompileProxy.compileToDocs root (NonEmpty.singleton path)
+        
+   
