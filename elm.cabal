@@ -253,6 +253,13 @@ Executable elm-dev
         Ext.Dev.Canonicalize
         Ext.Dev.Find
         Ext.Dev.Find.Canonical
+        Ext.Dev.CallGraph
+        Ext.Dev.Explain
+        Ext.Dev.Find.Source
+        Ext.Dev.InScope
+        Ext.Dev.Lookup
+        Ext.Log
+        Ext.Sanity
         
 
         Util
