@@ -194,7 +194,7 @@ checkExport info name (A.At region export) =
             m { Docs._values = Map.insert name (Docs.Value comment tipe) (Docs._values m) }
 
     Can.ExportBinop ->
-      do  let (Can.Binop_ assoc prec realName) = _iBinops info Ext.Sanity.! name
+      do  let (Can.Binop_ assoc prec realName) = _iBinops info ! name
           tipe <- getType realName info
           comment <- getComment region realName info
           Result.ok $ \m ->
