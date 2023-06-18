@@ -13,6 +13,7 @@
     "install:system": "stack install",
     "install:vscode": "stack --local-bin-path ./watchtower-frontends/vscode/out install",
     "prepare:vscode": "yarn install:vscode ; (cd watchtower-frontends/vscode ; yarn package)",
-    "build": "stack build"
+    "build": "stack build",
+    "stack:run": "stack run --"
   }
 }
