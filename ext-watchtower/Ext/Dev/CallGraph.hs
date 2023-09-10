@@ -106,19 +106,6 @@ encodeId (Id (ModuleName.Canonical pkgName modName) name) =
         )
     
 
--- encodeId :: Id -> Json.Encode.Value
--- encodeId (Id can name) =
---      Json.Encode.object 
---         [ "module" ==> encodeCanName can
---         , "name" ==> Json.Encode.chars (Name.toChars name)
---         ]
-
--- encodeCanName :: ModuleName.Canonical -> Json.Encode.Value
--- encodeCanName (ModuleName.Canonical pkgName modName) =
---     Json.Encode.object 
---         [ "pkg" ==> Package.encode pkgName
---         , "module" ==>  Json.Encode.chars (Name.toChars modName)
---         ]   
 
 
 callgraph :: String -> String -> IO (Maybe Calls)

@@ -12,9 +12,7 @@ import Elm.ProjectStatus
 import Explainer
 import Html
 import Html.Attributes
-import Html.Events
 import Json.Decode as Decode
-import Json.Encode
 import Model exposing (..)
 import Navigator
 import Ports

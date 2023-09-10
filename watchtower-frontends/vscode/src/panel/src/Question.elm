@@ -9,10 +9,12 @@ import Url
 import Url.Builder
 
 
+watchtower : List String -> List Url.Builder.QueryParameter -> String
 watchtower =
     Url.Builder.crossOrigin "http://localhost:51213"
 
 
+ask : { missingTypesignatures : String -> Cmd (Result Http.Error Answer) }
 ask =
     { missingTypesignatures =
         \path ->

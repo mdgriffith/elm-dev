@@ -261,6 +261,7 @@ nestCodingSectionsHelper texts gatheredCodeRegion gathered =
             nestCodingSectionsHelper remaining gatheredCodeRegion (CodeQuote lineCount txt :: gathered)
 
 
+reverseAndCount : List a -> ( List a, number )
 reverseAndCount items =
     reverseAndCountHelper items ( [], 0 )
 
@@ -280,6 +281,7 @@ type Capture
     | Reference (List Text)
 
 
+gatherCodeSectionRecurse : (String -> Text) -> String -> Capture -> List Text -> ( Capture, List Text )
 gatherCodeSectionRecurse toText str capture accum =
     gatherCodeSectionRecurseHelper toText (String.lines str) True capture accum
 
