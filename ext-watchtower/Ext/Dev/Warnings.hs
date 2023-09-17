@@ -20,6 +20,7 @@ import qualified Reporting.Annotation as A
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Reporting.Warning as Warning
+import qualified Debug.Trace
 
 
 
@@ -50,47 +51,47 @@ addAliasesHelper canModule interfaces warning =
 
 addAliasesToType :: Can.Module -> Data.Map.Map Elm.ModuleName.Raw Elm.Interface.Interface -> Can.Type -> Can.Type
 addAliasesToType canModule interfaces canType =
-  case canType of 
-    Can.TLambda one two ->
-        Can.TLambda
-          (addAliasesToType canModule interfaces one)
-          (addAliasesToType canModule interfaces two)
+    case canType of 
+        Can.TLambda one two ->
+            Can.TLambda
+            (addAliasesToType canModule interfaces one)
+            (addAliasesToType canModule interfaces two)
 
-    Can.TVar _ ->
-        canType
+        Can.TVar _ ->
+            canType
 
-    Can.TType moduleName name children ->
-        Can.TType moduleName name
-          (fmap (addAliasesToType canModule interfaces) children)
+        Can.TType moduleName name children ->
+            Can.TType moduleName name
+            (fmap (addAliasesToType canModule interfaces) children)
 
-    Can.TRecord fieldMap maybeName ->
-        case getAliasForRecord fieldMap canModule interfaces of
-            Nothing ->
-                canType
-              
-            Just aliasFound ->
-                aliasFound
+        Can.TRecord fieldMap maybeName ->
+            case getAliasForRecord fieldMap canModule interfaces of
+                Nothing ->
+                    canType
+                
+                Just aliasFound ->
+                    aliasFound
 
-    Can.TUnit ->
-        canType
+        Can.TUnit ->
+            canType
 
-    Can.TTuple one two Nothing ->
-        Can.TTuple 
-          (addAliasesToType canModule interfaces one) 
-          (addAliasesToType canModule interfaces two)
-          Nothing
+        Can.TTuple one two Nothing ->
+            Can.TTuple 
+            (addAliasesToType canModule interfaces one) 
+            (addAliasesToType canModule interfaces two)
+            Nothing
 
-    Can.TTuple one two (Just three) ->
-        Can.TTuple 
-          (addAliasesToType canModule interfaces one) 
-          (addAliasesToType canModule interfaces two)
-          (Just ((addAliasesToType canModule interfaces three)))
+        Can.TTuple one two (Just three) ->
+            Can.TTuple 
+            (addAliasesToType canModule interfaces one) 
+            (addAliasesToType canModule interfaces two)
+            (Just ((addAliasesToType canModule interfaces three)))
 
-    Can.TAlias moduleName name vars (Can.Holey holeyType) ->
-        canType
-    
-    Can.TAlias moduleName name vars (Can.Filled holeyType) ->
-        canType
+        Can.TAlias moduleName name vars (Can.Holey holeyType) ->
+            canType
+        
+        Can.TAlias moduleName name vars (Can.Filled holeyType) ->
+            canType
 
 
 getAliasForRecord :: Data.Map.Map Name Can.FieldType -> Can.Module -> Data.Map.Map Elm.ModuleName.Raw Elm.Interface.Interface -> Maybe Can.Type
@@ -106,7 +107,8 @@ getAliasForRecord fields canModule interfaces =
                           
     in
     case matches of
-      [] -> Nothing 
+      [] ->
+        Nothing
 
       (top : _) ->
           Just top
@@ -118,7 +120,7 @@ getMatchingAliases canModule fields aliasName (Can.Alias vars aliasType) gathere
       Can.TRecord aliasFieldMap maybeName ->
           -- We only care about matching aliases for records
           -- Everything else can contribte to obfuscation
-          case unifySubrecord fields aliasFieldMap of
+          case fulfillAliasVars fields vars aliasFieldMap of
             Nothing -> gathered
 
             Just unifiedVars ->
@@ -154,12 +156,18 @@ getMatchingAliases canModule fields aliasName (Can.Alias vars aliasType) gathere
           gathered
 
 {-|
-  Make sure oneFields is a subrecord of twoFields
+  Make sure oneFields is a subrecord of twoFields.
+
+  And fill in what the vars should be for the alias.
 
 -}
-unifySubrecord :: Data.Map.Map Name Can.FieldType -> Data.Map.Map Name Can.FieldType -> Maybe [(Name, Can.Type)]
-unifySubrecord oneFields twoFields =
+fulfillAliasVars :: Data.Map.Map Name Can.FieldType -> [Name] -> Data.Map.Map Name Can.FieldType -> Maybe [(Name, Can.Type)]
+fulfillAliasVars oneFields aliasVars twoFields =
     let 
+
+        aliasVarMap =
+            Data.Map.fromList $ fmap (\name -> (name, Can.TVar name)) aliasVars
+
         unificationResult =
             Data.Map.foldrWithKey
                 (\key value maybeVars ->
@@ -188,30 +196,73 @@ unifySubrecord oneFields twoFields =
           Nothing
 
       Just varsResolved ->
-          Nothing
+          Just varsResolved
 
 
 unifyFieldType :: Can.FieldType -> Can.FieldType -> Maybe [(Name, Can.Type)]
 unifyFieldType (Can.FieldType _ one) (Can.FieldType _ two) =
     unifyType one two
 
-{-| This isn't really unification, but whatever
+
+
+
+
+
+{-| 
 
 -}
 unifyType :: Can.Type -> Can.Type -> Maybe [(Name, Can.Type)]
 unifyType one two =
     case (one, two) of 
-      (Can.TRecord aliasFieldMap maybeName, Can.TRecord twoAliasFieldMap twoMaybeName) ->
-          Nothing
+      (firstType, Can.TVar twoVarName) ->
+          Just [(twoVarName, firstType)]
+
+      (Can.TRecord oneFields maybeName, Can.TRecord twoFields twoMaybeName) ->
+            let 
+                (newVars, finalRemainingFields) =
+                    Data.Map.foldrWithKey
+                        (\key value (maybeVars, remainingTwoFields) ->
+                            case maybeVars of
+                                Nothing ->
+                                    -- something failed somewhere
+                                    ( Nothing
+                                    , remainingTwoFields
+                                    )
+
+                                Just vars ->
+                                    case Data.Map.lookup key remainingTwoFields of
+                                        Nothing ->
+                                            ( Nothing
+                                            , remainingTwoFields
+                                            )
+                                        
+                                        Just twoValue ->
+                                            case unifyFieldType value twoValue of 
+                                                Nothing ->
+                                                    ( Nothing 
+                                                    , Data.Map.delete key remainingTwoFields
+                                                    )
+                                                
+                                                Just unifiedVars ->
+                                                    ( Just (vars ++ unifiedVars)
+                                                    , Data.Map.delete key remainingTwoFields
+                                                    
+                                                    )
+                        )
+                        (Just [], twoFields)
+                        oneFields
+            in
+            if Data.Map.size finalRemainingFields > 0 then
+                Nothing
+            else
+                newVars
 
       (Can.TLambda oneOne oneTwo, Can.TLambda twoOne twoTwo) ->
           (++)  
             <$> unifyType oneOne twoOne
             <*> unifyType oneTwo twoTwo
 
-      (Can.TVar varName, Can.TVar twoVarName) ->
-          Nothing
-
+    
       (Can.TType oneModuleName oneName oneVars, Can.TType twoModuleName twoName twoVars) ->
           if oneModuleName == twoModuleName && oneName == twoName then 
               -- Wrong
@@ -237,7 +288,6 @@ unifyType one two =
 
       (Can.TAlias oneModuleName oneName oneVars _, Can.TAlias twoModuleName twoName twoVars _) ->
           if oneModuleName == twoModuleName && oneName == twoName then
-              -- Wrong
               Just oneVars
 
           else 
