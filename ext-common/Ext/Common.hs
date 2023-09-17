@@ -100,6 +100,10 @@ printLock :: MVar ()
 printLock = unsafePerformIO $ newMVar ()
 
 
+{- General debugger you can put anywhere -}
+debug label a =
+  Debug.Trace.trace (label ++ ": " ++ show a) a
+
 
 {- Print debugging in a concurrent setting can be painful sometimes due to output
 becoming interpolated. This `putStrLn` alternative uses an MVar to ensure all
