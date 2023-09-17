@@ -1,17 +1,33 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Ext.Dev.Package (getCurrentlyUsedOrLatestVersion) where
+module Ext.Dev.Package (getDocs, getCurrentlyUsedOrLatestVersion) where
 
 import qualified Data.Map as Map
 import Control.Applicative ((<|>))
-
+import Control.Concurrent (forkIO, newEmptyMVar, putMVar, readMVar)
 
 import qualified Elm.Package
 import qualified Elm.Version
 import qualified Elm.Outline
+import qualified Elm.Docs
 
 import qualified Stuff
+import qualified Deps.Diff
 import qualified Deps.Registry
 import qualified Ext.Common
+import qualified Http
+import qualified Reporting.Exit
+
+
+getDocs :: Elm.Package.Name -> Elm.Version.Version -> IO (Either Reporting.Exit.DocsProblem Elm.Docs.Documentation)
+getDocs packageName version = do
+    mvar  <- newEmptyMVar
+    _     <- forkIO $ putMVar mvar =<< Http.getManager
+    packageCache <- Stuff.getPackageCache
+    Stuff.withRegistryLock packageCache $ do
+        manager       <- readMVar mvar
+        Deps.Diff.getDocs packageCache manager packageName version
+
+    
 
 getCurrentlyUsedOrLatestVersion :: FilePath -> Elm.Package.Name -> IO (Maybe Elm.Version.Version)
 getCurrentlyUsedOrLatestVersion rootDir packageName = do

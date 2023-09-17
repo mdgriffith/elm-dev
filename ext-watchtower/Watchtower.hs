@@ -72,7 +72,7 @@ data DocFlags =
 
 data DocsArgs
     = DocsCwdProject
-    | DocsFile FilePath
+    | DocsPath FilePath
     | DocsPackage Pkg.Name
     | DocsPackageVersion Pkg.Name Elm.Version.Version 
     deriving (Show)
@@ -111,7 +111,7 @@ docs =
         [ require0 DocsCwdProject
         , require1 DocsPackage Terminal.Helpers.package
         , require2 DocsPackageVersion Terminal.Helpers.package Terminal.Helpers.version
-        , require1 DocsFile dir
+        , require1 DocsPath dir
         ]
   in
   Terminal.Command "docs" (Common summary) details example docsArgs docsFlags getDocs
@@ -213,7 +213,7 @@ getDocs arg (Watchtower.DocFlags maybeOutput) =
     DocsCwdProject ->
       do
           let path = "src/Main.elm"
-          maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
+          maybeRoot <- Stuff.findRoot
           case maybeRoot of
             Nothing ->
               System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
@@ -226,27 +226,40 @@ getDocs arg (Watchtower.DocFlags maybeOutput) =
                       (Exit.toString (Exit.reactorToReport err))
                 
                 Right docs ->
-                  System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode (Docs.encode docs)))
+                  outJson (Docs.encode docs)
 
-    DocsFile path ->
-      if Path.takeExtension path == ".elm" then
-        do
-          maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
-          case maybeRoot of
-            Nothing ->
-              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
-            
-            Just root -> do
-              maybeDocs <- Ext.Dev.docs root path
-              case maybeDocs of
-                Nothing ->
-                  System.IO.hPutStrLn System.IO.stdout "Docs are not available"
+    DocsPath path ->
+      if Path.takeExtension path == ".elm" then do
+        maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
+        case maybeRoot of
+          Nothing ->
+            System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+          
+          Just root -> do
+            maybeDocs <- Ext.Dev.docs root path
+            case maybeDocs of
+              Nothing ->
+                System.IO.hPutStrLn System.IO.stdout "Docs are not available"
 
-                Just docs ->
-                  System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode (Docs.encode (Docs.toDict [ docs ]))))
-      else
-        -- Produce docs as a project
-        System.IO.hPutStrLn System.IO.stdout "Given file does not have an .elm extension"
+              Just docs ->
+                outJson (Docs.encode (Docs.toDict [ docs ]))
+      else do
+        -- treat path as a directory path and produce docs as a project
+        maybeRoot <-  Dir.withCurrentDirectory path Stuff.findRoot
+        case maybeRoot of
+          Nothing ->
+            System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+          
+          Just root -> do
+            maybeDocs <- Ext.Dev.docsForProject root path
+            case maybeDocs of
+              Left err ->
+                System.IO.hPutStrLn System.IO.stdout 
+                    (Exit.toString (Exit.reactorToReport err))
+              
+              Right docs ->
+                outJson (Docs.encode docs)
+      
 
     DocsPackage packageName ->
       do
@@ -256,25 +269,29 @@ getDocs arg (Watchtower.DocFlags maybeOutput) =
           Nothing ->
             System.IO.hPutStrLn System.IO.stdout "No version found!"
 
-          Just packageVersion -> do
-            fileContents <- getDocsFromHome packageName packageVersion
-            System.IO.hPutStrLn System.IO.stdout (show fileContents)       
+          Just packageVersion -> do   
+            result <- Ext.Dev.Package.getDocs packageName packageVersion
+            case result of
+              Left err ->
+                System.IO.hPutStrLn System.IO.stdout (Exit.toString (Exit.toDocsProblemReport err ""))
+
+              Right docs ->
+                outJson (Docs.encode docs)
         
     DocsPackageVersion name packageVersion ->
       do
-        fileContents <- getDocsFromHome name packageVersion
-        System.IO.hPutStrLn System.IO.stdout (show fileContents)
+        result <- Ext.Dev.Package.getDocs name packageVersion
+        case result of
+          Left err ->
+            System.IO.hPutStrLn System.IO.stdout (Exit.toString (Exit.toDocsProblemReport err ""))
+
+          Right docs ->
+            outJson (Docs.encode docs)
 
 
-
-getDocsFromHome name packageVersion = do
-  elmHome <- Stuff.getElmHome
-  let filepath = 
-        elmHome Path.</> "0.19.1" Path.</> "packages" 
-          Path.</> (Pkg.toFilePath name)
-          Path.</> (Elm.Version.toChars packageVersion) Path.</> "docs.json"
-  
-  Data.ByteString.Builder.byteString <$> BS.readFile filepath
+outJson :: Json.Encode.Value -> IO ()
+outJson jsonValue =
+    System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode jsonValue))
 
 
  {-  Start Watchtower Server -}
