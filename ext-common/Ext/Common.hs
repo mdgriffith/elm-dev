@@ -7,6 +7,7 @@ module Ext.Common where
 import Control.Concurrent
 import Control.Concurrent.MVar
 
+import qualified Debug.Trace
 import qualified Data.List as List
 import Text.Read (readMaybe)
 import System.IO.Unsafe (unsafePerformIO)
@@ -101,7 +102,7 @@ printLock = unsafePerformIO $ newMVar ()
 
 
 {- General debugger you can put anywhere -}
-debug label a =
+debugLog label a =
   Debug.Trace.trace (label ++ ": " ++ show a) a
 
 
