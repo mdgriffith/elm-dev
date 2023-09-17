@@ -6,10 +6,13 @@ import Terminal
 import Text.Read (readMaybe)
 import qualified Text.PrettyPrint.ANSI.Leijen as P
 import qualified Watchtower.Server
+import qualified Watchtower.Live
 import qualified System.IO (hPutStrLn, stdout)
 import qualified System.FilePath as Path
 import qualified System.Directory as Dir
 
+
+import qualified Reporting.Render.Type.Localizer
 import qualified Reporting.Exit as Exit
 import qualified Elm.Docs as Docs
 import qualified Json.Encode
@@ -29,6 +32,7 @@ main =
   Terminal.app intro outro
     [ start
     , docs
+    , warnings
     ]
 
 
@@ -109,6 +113,81 @@ docs =
 
 
 
+data Warnings 
+    = WarningsFile FilePath
+
+  
+data WarningFlags =
+  WarningFlags
+    { _warningsOutput :: Maybe String
+    }
+
+{-|
+
+
+
+-}
+warnings :: Terminal.Command
+warnings =
+  let
+    summary =
+      "Report missing type annotations and unused code."
+
+    details =
+      "The `warnings` command reports missing type annotations and unused code."
+
+    example =
+      reflow
+        "After running that command, watchtower is listening at <http://localhost:51213>\
+        \ and ready to be connected to."
+
+    docsFlags =
+      flags WarningFlags
+        |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
+
+    warningArgs =
+      oneOf 
+        [ require1 WarningsFile dir
+        ]
+  in
+  Terminal.Command "warnings" (Common summary) details example warningArgs docsFlags getWarnings
+
+
+
+
+getWarnings :: Warnings -> Watchtower.WarningFlags -> IO ()
+getWarnings arg (Watchtower.WarningFlags maybeOutput) =
+  case arg of
+    WarningsFile path ->
+      if Path.takeExtension path == ".elm" then
+        do
+          maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
+          case maybeRoot of
+            Nothing ->
+              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+            
+            Just root -> do
+              eitherWarnings <- Ext.Dev.warnings root path
+              case eitherWarnings of
+                Left _ ->
+                  System.IO.hPutStrLn System.IO.stdout "No warnings!"
+
+                Right (mod, warningList) ->
+                  System.IO.hPutStrLn System.IO.stdout
+                      (show (Json.Encode.encode
+                          (Json.Encode.list
+                              (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                              warningList
+                          )
+                      ))
+
+      else
+        -- Produce docs as a project
+        System.IO.hPutStrLn System.IO.stdout "Given file does not have an .elm extension"
+
+
+
+
 
 output_ :: Parser String
 output_ =
@@ -142,7 +221,7 @@ getDocs arg (Watchtower.DocFlags maybeOutput) =
                       (Exit.toString (Exit.reactorToReport err))
                 
                 Right docs ->
-                  System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encodeUgly (Docs.encode docs)))
+                  System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode (Docs.encode docs)))
 
     DocsFile path ->
       if Path.takeExtension path == ".elm" then
@@ -159,7 +238,7 @@ getDocs arg (Watchtower.DocFlags maybeOutput) =
                   System.IO.hPutStrLn System.IO.stdout "Docs are not available"
 
                 Just docs ->
-                  System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [ docs ]))))
+                  System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode (Docs.encode (Docs.toDict [ docs ]))))
       else
         -- Produce docs as a project
         System.IO.hPutStrLn System.IO.stdout "Given file does not have an .elm extension"
