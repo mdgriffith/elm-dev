@@ -10,19 +10,23 @@ import qualified Watchtower.Live
 import qualified System.IO (hPutStrLn, stdout)
 import qualified System.FilePath as Path
 import qualified System.Directory as Dir
-
+import qualified Ext.Common
 
 import qualified Reporting.Render.Type.Localizer
 import qualified Reporting.Exit as Exit
 import qualified Elm.Docs as Docs
 import qualified Json.Encode
+import qualified Elm.Outline
 import qualified Ext.Dev
+import qualified Ext.Dev.Package
+
 import qualified Terminal.Helpers (package, version)
 import qualified Elm.Package as Pkg
-import qualified Elm.Version as V
+import qualified Elm.Version
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8
+import qualified Data.Map
 import qualified Stuff
 
 
@@ -70,7 +74,8 @@ data DocsArgs
     = DocsCwdProject
     | DocsFile FilePath
     | DocsPackage Pkg.Name
-    | DocsPackageVersion Pkg.Name V.Version 
+    | DocsPackageVersion Pkg.Name Elm.Version.Version 
+    deriving (Show)
 
 
 {-|
@@ -244,22 +249,32 @@ getDocs arg (Watchtower.DocFlags maybeOutput) =
         System.IO.hPutStrLn System.IO.stdout "Given file does not have an .elm extension"
 
     DocsPackage packageName ->
+      do
         -- Is there an `elm.json` file?  Read it for the exact version.
-        -- Otherwise use the latest version.
-        System.IO.hPutStrLn System.IO.stdout "Package docs"
+        maybeCurrentVersion <- Ext.Dev.Package.getCurrentlyUsedOrLatestVersion "." packageName
+        case maybeCurrentVersion of
+          Nothing ->
+            System.IO.hPutStrLn System.IO.stdout "No version found!"
 
+          Just packageVersion -> do
+            fileContents <- getDocsFromHome packageName packageVersion
+            System.IO.hPutStrLn System.IO.stdout (show fileContents)       
+        
     DocsPackageVersion name packageVersion ->
       do
-        elmHome <- Stuff.getElmHome
-        let filepath = 
-              elmHome Path.</> "0.19.1" Path.</> "packages" 
-                Path.</> (Pkg.toFilePath name)
-                Path.</> (V.toChars packageVersion) Path.</> "docs.json"
-        fileContents <- Data.ByteString.Builder.byteString <$> BS.readFile filepath
+        fileContents <- getDocsFromHome name packageVersion
         System.IO.hPutStrLn System.IO.stdout (show fileContents)
 
 
 
+getDocsFromHome name packageVersion = do
+  elmHome <- Stuff.getElmHome
+  let filepath = 
+        elmHome Path.</> "0.19.1" Path.</> "packages" 
+          Path.</> (Pkg.toFilePath name)
+          Path.</> (Elm.Version.toChars packageVersion) Path.</> "docs.json"
+  
+  Data.ByteString.Builder.byteString <$> BS.readFile filepath
 
 
  {-  Start Watchtower Server -}
