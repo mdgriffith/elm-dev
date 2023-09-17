@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Ext.Dev.Find.Canonical
-  ( used
+  ( usedModules
+  , usedValues
   )
 where
 
@@ -31,9 +32,167 @@ import StandaloneInstances
 
 
 
+usedValues :: Can.Module -> Set.Set (ModuleName.Canonical, Name)
+usedValues (Can.Module name exports docs decls unions aliases binops effects) = 
+   usedValueInDecls decls Set.empty
 
-used :: Can.Module -> Set.Set ModuleName.Canonical
-used (Can.Module name exports docs decls unions aliases binops effects) = 
+
+
+
+
+usedValueInDecls :: Can.Decls -> Set.Set (ModuleName.Canonical, Name) -> Set.Set (ModuleName.Canonical, Name)
+usedValueInDecls decls found =
+    case decls of
+        Can.Declare def moarDecls ->
+            (usedValueInDef def found)
+                & usedValueInDecls moarDecls
+        
+        Can.DeclareRec def defs moarDecls ->
+            List.foldl (flip usedValueInDef) found (def : defs)
+                & usedValueInDecls moarDecls
+
+        Can.SaveTheEnvironment ->
+            found
+            
+
+usedValueInDef :: Can.Def -> Set.Set (ModuleName.Canonical, Name) -> Set.Set (ModuleName.Canonical, Name)
+usedValueInDef def found =
+    case def of
+        Can.Def _ patterns expr ->
+            usedValueInExpr expr found
+        
+        Can.TypedDef _ _ patternTypes expr tipe ->
+            usedValueInExpr expr found
+
+
+
+
+usedValueInExpr :: Can.Expr -> Set.Set (ModuleName.Canonical, Name) -> Set.Set (ModuleName.Canonical, Name)
+usedValueInExpr (A.At pos expr) found =
+    case expr of
+        Can.VarLocal _ ->
+            found
+
+        Can.VarTopLevel canMod name ->
+            Set.insert (canMod, name) found
+            
+        Can.VarKernel _ _ ->
+            found
+
+        Can.VarForeign canMod name annotation ->
+            Set.insert (canMod, name) found
+
+        Can.VarCtor _ canMod name index annotation ->
+            Set.insert (canMod, name) found
+
+        Can.VarDebug canMod name annotation ->
+            Set.insert (canMod, name) found
+
+        Can.VarOperator _ canMod name annotation ->
+            Set.insert (canMod, name) found
+
+        Can.Chr _ ->
+            found
+
+        Can.Str _ ->
+            found
+
+        Can.Int _ ->
+            found
+
+        Can.Float _ ->
+            found
+
+        Can.List exprList ->
+            List.foldr usedValueInExpr found exprList
+
+        Can.Negate expr ->
+            usedValueInExpr expr found
+
+        Can.Binop _ canMod name annotation exprOne exprTwo ->
+            Set.insert (canMod, name) found
+                 & usedValueInExpr exprOne
+                 & usedValueInExpr exprTwo
+
+        Can.Lambda patternList expr ->
+            usedValueInExpr expr found
+
+        Can.Call expr exprList ->
+            List.foldr usedValueInExpr found exprList
+                & usedValueInExpr expr
+
+        Can.If listTuple expr ->
+            List.foldr 
+                (\(oneExpr, twoExpr) f ->
+                        usedValueInExpr oneExpr f 
+                            & usedValueInExpr twoExpr
+                ) 
+                found listTuple
+                & usedValueInExpr expr
+
+        Can.Let def expr ->
+            found
+                 & usedValueInDef def
+                 & usedValueInExpr expr
+
+        Can.LetRec defList expr ->
+             List.foldr usedValueInDef found defList
+                & usedValueInExpr expr
+
+        Can.LetDestruct pattern oneExpr twoExpr ->
+            found
+                 & usedValueInExpr oneExpr
+                 & usedValueInExpr twoExpr
+
+        Can.Case expr branches ->
+           branches
+                & List.foldr usedValuesInBranch
+                     (usedValueInExpr expr found)
+
+        Can.Accessor _ ->
+            found
+
+        Can.Access expr _ ->
+            usedValueInExpr expr found
+
+        Can.Update _ expr record ->
+            Map.elems record
+                & List.foldl (\innerFound (Can.FieldUpdate _ expr) -> usedValueInExpr expr innerFound) found
+                & usedValueInExpr expr
+
+        Can.Record record ->
+            Map.elems record
+                & List.foldl (flip usedValueInExpr) found
+        
+        Can.Unit ->
+            found
+
+        Can.Tuple one two Nothing ->
+            usedValueInExpr one found
+                & usedValueInExpr two
+
+        Can.Tuple one two (Just three) ->
+            usedValueInExpr one found
+                & usedValueInExpr two
+                & usedValueInExpr three
+
+        Can.Shader _ _ ->
+            found
+
+
+
+usedValuesInBranch :: Can.CaseBranch -> Set.Set (ModuleName.Canonical, Name) -> Set.Set (ModuleName.Canonical, Name)
+usedValuesInBranch (Can.CaseBranch pattern expr) found =
+    usedValueInExpr expr found
+
+
+
+
+{- Used Modules -}
+
+
+usedModules :: Can.Module -> Set.Set ModuleName.Canonical
+usedModules (Can.Module name exports docs decls unions aliases binops effects) = 
     Set.unions 
         [ usedInDecls decls Set.empty
         , Map.foldr (usedInUnion) Set.empty unions

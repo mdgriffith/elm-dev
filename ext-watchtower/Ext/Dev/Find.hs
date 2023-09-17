@@ -569,6 +569,6 @@ findFirstJust fn vals =
 usedModules :: FilePath -> FilePath -> IO (Maybe (Set.Set ModuleName.Canonical))
 usedModules root path = do
     (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root path
-    pure (fmap Ext.Dev.Find.Canonical.used canonical)
+    pure (fmap Ext.Dev.Find.Canonical.usedModules canonical)
     
     

@@ -3,6 +3,7 @@
 
 module Ext.Dev.Warnings
   ( addUnusedImports
+  , addUnusedDeclarations
   , addAliasOptionsToWarnings
   )
 where
@@ -204,13 +205,7 @@ unifyFieldType (Can.FieldType _ one) (Can.FieldType _ two) =
     unifyType one two
 
 
-
-
-
-
-{-| 
-
--}
+{-| -}
 unifyType :: Can.Type -> Can.Type -> Maybe [(Name, Can.Type)]
 unifyType one two =
     case (one, two) of 
@@ -298,13 +293,80 @@ unifyType one two =
 
 
 
+addUnusedDeclarations :: Ext.CompileProxy.SingleFileResult -> Ext.CompileProxy.SingleFileResult 
+addUnusedDeclarations untouched@(Ext.CompileProxy.Single source warnings interfaces canonical compiled) =
+    case canonical of
+        Nothing -> untouched
+
+        Just canModule -> 
+            let 
+                (Can.Module _ exports _ decls _ _ _ _) = canModule
+            in
+            case exports of
+                Can.ExportEverything _ ->
+                    untouched 
+
+                Can.Export exportMap -> do
+                    let usedValues = Ext.Dev.Find.Canonical.usedValues canModule 
+                    let (Can.Module _ _ _ decls _ _ _ _) = canModule
+                    let unusedDecls = filterOutUsedDecls (Can._name canModule) exportMap usedValues decls
+                    let unusedDeclWarnings = fmap declsToWarning unusedDecls
+                    Ext.CompileProxy.Single source (addUnused unusedDeclWarnings warnings) interfaces canonical compiled
+
+
+declsToWarning :: Can.Def -> Warning.Warning
+declsToWarning unusedDef =
+    case unusedDef of
+        Can.Def locatedName pattern expr ->
+            Warning.UnusedVariable (A.toRegion locatedName) Warning.Def (A.toValue locatedName)
+
+        Can.TypedDef locatedName frevars pattern expr type_ ->
+            Warning.UnusedVariable (A.toRegion locatedName) Warning.Def (A.toValue locatedName)
+
+
+getDefIdentifier :: Can.Def -> Name
+getDefIdentifier def =
+    case def of
+        Can.Def locatedName _ _ ->
+            (A.toValue locatedName)
+
+        Can.TypedDef locatedName _ _ _ _ ->
+            (A.toValue locatedName)
+
+filterOutUsedDecls :: Elm.ModuleName.Canonical -> Data.Map.Map Name (A.Located Can.Export) ->  Set.Set (Elm.ModuleName.Canonical, Name) -> Can.Decls -> [Can.Def]
+filterOutUsedDecls modName exportMap used decls =
+    case decls of 
+        Can.SaveTheEnvironment ->
+            []
+        
+        Can.Declare def moarDecls ->
+            let 
+                name = getDefIdentifier def
+                identifier = (modName, name)
+            in
+            if Set.member identifier used || Data.Map.member name exportMap then
+                filterOutUsedDecls modName exportMap used moarDecls
+            else
+                [def] <> filterOutUsedDecls modName exportMap used moarDecls
+        
+        Can.DeclareRec def defs moarDecls ->
+            let 
+                name = getDefIdentifier def
+                identifier = (modName, name)
+            in
+            if Set.member identifier used || Data.Map.member name exportMap then
+                filterOutUsedDecls modName exportMap used moarDecls
+            else
+                [def] <> filterOutUsedDecls modName exportMap used moarDecls
+
+
 addUnusedImports :: Ext.CompileProxy.SingleFileResult -> Ext.CompileProxy.SingleFileResult 
 addUnusedImports untouched@(Ext.CompileProxy.Single source warnings interfaces canonical compiled) =
     case source of
         Left _ -> untouched
 
         Right srcModule ->
-            case fmap Ext.Dev.Find.Canonical.used canonical of
+            case fmap Ext.Dev.Find.Canonical.usedModules canonical of
                 Nothing -> untouched
 
                 Just usedModules -> do
