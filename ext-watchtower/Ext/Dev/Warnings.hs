@@ -55,15 +55,15 @@ addAliasesToType canModule interfaces canType =
     case canType of 
         Can.TLambda one two ->
             Can.TLambda
-            (addAliasesToType canModule interfaces one)
-            (addAliasesToType canModule interfaces two)
+                (addAliasesToType canModule interfaces one)
+                (addAliasesToType canModule interfaces two)
 
         Can.TVar _ ->
             canType
 
         Can.TType moduleName name children ->
             Can.TType moduleName name
-            (fmap (addAliasesToType canModule interfaces) children)
+                (fmap (addAliasesToType canModule interfaces) children)
 
         Can.TRecord fieldMap maybeName ->
             case getAliasForRecord fieldMap canModule interfaces of
@@ -78,15 +78,15 @@ addAliasesToType canModule interfaces canType =
 
         Can.TTuple one two Nothing ->
             Can.TTuple 
-            (addAliasesToType canModule interfaces one) 
-            (addAliasesToType canModule interfaces two)
-            Nothing
+                (addAliasesToType canModule interfaces one) 
+                (addAliasesToType canModule interfaces two)
+                Nothing
 
         Can.TTuple one two (Just three) ->
             Can.TTuple 
-            (addAliasesToType canModule interfaces one) 
-            (addAliasesToType canModule interfaces two)
-            (Just ((addAliasesToType canModule interfaces three)))
+                (addAliasesToType canModule interfaces one) 
+                (addAliasesToType canModule interfaces two)
+                (Just ((addAliasesToType canModule interfaces three)))
 
         Can.TAlias moduleName name vars (Can.Holey holeyType) ->
             canType
