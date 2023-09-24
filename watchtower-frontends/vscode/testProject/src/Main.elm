@@ -1,6 +1,8 @@
 module Main exposing (main)
 
 import Html as What
+import Imported
+import Result
 
 
 
@@ -10,11 +12,27 @@ import Html as What
 {-| What is this??
 -}
 main =
-    What.text "Hello world!"
+    Imported.otherThing
+
+
+type alias Otherthing =
+    { a : String
+    , b : Int
+    }
+
+
+type alias Thing var =
+    { notANextOne : Bool
+    , aThird : var
+    }
 
 
 what : String
 what =
+    let
+        notUsed =
+            "whoops"
+    in
     "Other thing!"
 
 
@@ -24,6 +42,7 @@ anotherTHing =
 
 howAboutARecord =
     { notANextOne = True
+    , aThird = what
     }
 
 

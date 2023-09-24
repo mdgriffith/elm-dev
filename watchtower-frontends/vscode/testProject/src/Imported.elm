@@ -5,6 +5,6 @@ module Imported exposing (..)
 import Html as Ui
 
 
-otherThing : String
+otherThing : Ui.Html msg
 otherThing =
     Ui.text "Hello world!"
