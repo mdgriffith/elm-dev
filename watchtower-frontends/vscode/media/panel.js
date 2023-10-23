@@ -8590,8 +8590,8 @@ var $author$project$Main$update = F2(
 									{errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, lastUpdated: model.now, projects: statuses, projectsVersion: model.projectsVersion + 1}),
 								$elm$core$Platform$Cmd$none);
 						case 'WarningsUpdated':
-							var filepath = editorMsg.a.filepath;
 							var warnings = editorMsg.a.warnings;
+							var filepath = editorMsg.a.filepath;
 							var _v5 = $author$project$Main$panelLog('WarningsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -8602,8 +8602,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'CallGraphReceived':
-							var filepath = editorMsg.a.filepath;
 							var callgraph = editorMsg.a.callgraph;
+							var filepath = editorMsg.a.filepath;
 							var _v6 = $author$project$Main$panelLog('Callgraph received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -8614,8 +8614,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'ExplanationReceived':
-							var filepath = editorMsg.a.filepath;
 							var facts = editorMsg.a.facts;
+							var filepath = editorMsg.a.filepath;
 							var _v7 = $author$project$Main$panelLog('Facts received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -15654,66 +15654,193 @@ var $author$project$Explainer$view = function (facts) {
 					}),
 				A2($elm$core$List$sortBy, $author$project$Explainer$moduleIdentity, facts))));
 };
-var $elm$core$List$member = F2(
-	function (x, xs) {
+var $elm$core$String$replace = F3(
+	function (before, after, string) {
 		return A2(
-			$elm$core$List$any,
-			function (a) {
-				return _Utils_eq(a, x);
-			},
-			xs);
+			$elm$core$String$join,
+			after,
+			A2($elm$core$String$split, before, string));
 	});
-var $author$project$Navigator$viewNode = function (node) {
-	return A2(
-		$mdgriffith$elm_ui$Element$column,
-		_List_fromArray(
-			[
-				$author$project$Ui$pad.lg,
-				$author$project$Ui$font.dark.light,
-				$author$project$Ui$background.black,
-				$author$project$Ui$rounded.md,
-				$mdgriffith$elm_ui$Element$width(
-				$mdgriffith$elm_ui$Element$px(500))
-			]),
-		_List_fromArray(
-			[
-				$mdgriffith$elm_ui$Element$text(node.id),
-				function () {
-				var calls = A2(
-					$elm$core$List$filterMap,
-					function (call) {
-						return A2(
-							$elm$core$List$member,
-							call.callType,
-							_List_fromArray(
-								[$author$project$Ports$TopLevel])) ? $elm$core$Maybe$Just(
-							$mdgriffith$elm_ui$Element$text(call.id)) : $elm$core$Maybe$Nothing;
-					},
-					node.calls);
-				if (!calls.b) {
-					return $mdgriffith$elm_ui$Element$none;
+var $author$project$Navigator$sanitizeFnName = function (name) {
+	return A3(
+		$elm$core$String$replace,
+		'state',
+		'staate',
+		A3($elm$core$String$replace, 'note', 'noote', name));
+};
+var $elm$core$List$takeReverse = F3(
+	function (n, list, kept) {
+		takeReverse:
+		while (true) {
+			if (n <= 0) {
+				return kept;
+			} else {
+				if (!list.b) {
+					return kept;
 				} else {
-					return A2(
-						$mdgriffith$elm_ui$Element$column,
-						_List_fromArray(
-							[$author$project$Ui$pad.lg]),
-						calls);
+					var x = list.a;
+					var xs = list.b;
+					var $temp$n = n - 1,
+						$temp$list = xs,
+						$temp$kept = A2($elm$core$List$cons, x, kept);
+					n = $temp$n;
+					list = $temp$list;
+					kept = $temp$kept;
+					continue takeReverse;
 				}
-			}()
-			]));
+			}
+		}
+	});
+var $elm$core$List$takeTailRec = F2(
+	function (n, list) {
+		return $elm$core$List$reverse(
+			A3($elm$core$List$takeReverse, n, list, _List_Nil));
+	});
+var $elm$core$List$takeFast = F3(
+	function (ctr, n, list) {
+		if (n <= 0) {
+			return _List_Nil;
+		} else {
+			var _v0 = _Utils_Tuple2(n, list);
+			_v0$1:
+			while (true) {
+				_v0$5:
+				while (true) {
+					if (!_v0.b.b) {
+						return list;
+					} else {
+						if (_v0.b.b.b) {
+							switch (_v0.a) {
+								case 1:
+									break _v0$1;
+								case 2:
+									var _v2 = _v0.b;
+									var x = _v2.a;
+									var _v3 = _v2.b;
+									var y = _v3.a;
+									return _List_fromArray(
+										[x, y]);
+								case 3:
+									if (_v0.b.b.b.b) {
+										var _v4 = _v0.b;
+										var x = _v4.a;
+										var _v5 = _v4.b;
+										var y = _v5.a;
+										var _v6 = _v5.b;
+										var z = _v6.a;
+										return _List_fromArray(
+											[x, y, z]);
+									} else {
+										break _v0$5;
+									}
+								default:
+									if (_v0.b.b.b.b && _v0.b.b.b.b.b) {
+										var _v7 = _v0.b;
+										var x = _v7.a;
+										var _v8 = _v7.b;
+										var y = _v8.a;
+										var _v9 = _v8.b;
+										var z = _v9.a;
+										var _v10 = _v9.b;
+										var w = _v10.a;
+										var tl = _v10.b;
+										return (ctr > 1000) ? A2(
+											$elm$core$List$cons,
+											x,
+											A2(
+												$elm$core$List$cons,
+												y,
+												A2(
+													$elm$core$List$cons,
+													z,
+													A2(
+														$elm$core$List$cons,
+														w,
+														A2($elm$core$List$takeTailRec, n - 4, tl))))) : A2(
+											$elm$core$List$cons,
+											x,
+											A2(
+												$elm$core$List$cons,
+												y,
+												A2(
+													$elm$core$List$cons,
+													z,
+													A2(
+														$elm$core$List$cons,
+														w,
+														A3($elm$core$List$takeFast, ctr + 1, n - 4, tl)))));
+									} else {
+										break _v0$5;
+									}
+							}
+						} else {
+							if (_v0.a === 1) {
+								break _v0$1;
+							} else {
+								break _v0$5;
+							}
+						}
+					}
+				}
+				return list;
+			}
+			var _v1 = _v0.b;
+			var x = _v1.a;
+			return _List_fromArray(
+				[x]);
+		}
+	});
+var $elm$core$List$take = F2(
+	function (n, list) {
+		return A3($elm$core$List$takeFast, 0, n, list);
+	});
+var $author$project$Navigator$idToFnName = function (id) {
+	return $author$project$Navigator$sanitizeFnName(
+		A2(
+			$elm$core$String$join,
+			'',
+			A2(
+				$elm$core$List$take,
+				1,
+				$elm$core$List$reverse(
+					A2($elm$core$String$split, '.', id)))));
+};
+var $author$project$Navigator$toMermaid = function (nodes) {
+	var toSimpleId = function (id) {
+		return $author$project$Navigator$idToFnName(id);
+	};
+	var nodeToMermaid = function (node) {
+		var calls = A2(
+			$elm$core$List$filterMap,
+			function (call) {
+				var _v1 = call.callType;
+				if (_v1.$ === 'TopLevel') {
+					return $elm$core$Maybe$Just(
+						toSimpleId(call.id));
+				} else {
+					return $elm$core$Maybe$Nothing;
+				}
+			},
+			node.calls);
+		if (!calls.b) {
+			return _List_Nil;
+		} else {
+			return A2(
+				$elm$core$List$map,
+				function (call) {
+					return toSimpleId(node.id) + (' --> ' + toSimpleId(call));
+				},
+				calls);
+		}
+	};
+	return 'stateDiagram-v2\n    ' + A2(
+		$elm$core$String$join,
+		'\n    ',
+		A2($elm$core$List$concatMap, nodeToMermaid, nodes));
 };
 var $author$project$Navigator$view = function (nodes) {
-	return A2(
-		$mdgriffith$elm_ui$Element$column,
-		_List_fromArray(
-			[
-				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-				$mdgriffith$elm_ui$Element$height(
-				$mdgriffith$elm_ui$Element$px(1000)),
-				$mdgriffith$elm_ui$Element$htmlAttribute(
-				A2($elm$html$Html$Attributes$style, 'overflow', 'auto'))
-			]),
-		A2($elm$core$List$map, $author$project$Navigator$viewNode, nodes));
+	return $mdgriffith$elm_ui$Element$text(
+		$author$project$Navigator$toMermaid(nodes));
 };
 var $author$project$Editor$overlap = F2(
 	function (one, two) {
@@ -15896,7 +16023,7 @@ var $author$project$Main$viewIssueDetails = F5(
 			},
 			_List_fromArray(
 				[
-					A2(
+					expanded ? A2(
 					$mdgriffith$elm_ui$Element$el,
 					_List_fromArray(
 						[
@@ -15921,7 +16048,7 @@ var $author$project$Main$viewIssueDetails = F5(
 						A2(
 							$elm$core$List$indexedMap,
 							A3($author$project$Main$viewText, file, issue, errorCodeExpanded),
-							issue.message)))
+							issue.message))) : $mdgriffith$elm_ui$Element$none
 				]));
 	});
 var $author$project$Main$viewFileErrorDetails = F2(
@@ -16437,8 +16564,8 @@ var $author$project$Main$viewOverview = function (model) {
 		$elm$core$List$foldl,
 		F2(
 			function (project, gathered) {
-				var globals = gathered.globals;
 				var errs = gathered.errs;
+				var globals = gathered.globals;
 				switch (project.$) {
 					case 'NoData':
 						return gathered;

@@ -4,6 +4,6 @@
 */
 
 // Retrieve and display a callgraph
-export const callgraph = false;
+export const callgraph = true;
 
-export const explain = false;
+export const explain = true;

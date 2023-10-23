@@ -216,7 +216,7 @@ export class Watchtower {
       return;
     }
     this.statusDanger("Elm Dev connecting...");
-    self.startServer();
+    // self.startServer();
     socketConnect({
       url: Question.urls.websocket,
       onJoin: (connection) => {
