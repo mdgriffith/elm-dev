@@ -178,7 +178,8 @@ matches one two =
         Elm.Type.Record fields maybeExtensible ->
             case two of
                 Elm.Type.Record twoRecords twoMaybeExtensible ->
-                    Debug.todo ""
+                    -- Debug.todo ""
+                    False
 
                 _ ->
                     False
