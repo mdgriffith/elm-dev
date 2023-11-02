@@ -25,14 +25,14 @@ import qualified Publish
 import qualified Repl
 
 
-import qualified Watchtower
+import qualified Terminal.Dev
 
 -- MAIN
 
 
 main :: IO ()
 main =
-  Watchtower.main
+  Terminal.Dev.main
 
 
 intro :: P.Doc

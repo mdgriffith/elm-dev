@@ -51,8 +51,8 @@ Executable elm-dev
         -- elmx
         ext-common
         ext-sentry
-        -- watchtower
-        ext-watchtower
+        -- elm-dev
+        ext-dev
 
     other-extensions:
         TemplateHaskell
@@ -230,8 +230,10 @@ Executable elm-dev
         Ext.MemoryCached.Details
         Ext.MemoryCached.Generate
 
-        -- watchtower
-        Watchtower
+        -- elm-dev cli interface
+        Terminal.Dev
+
+        -- Watchtower
         Watchtower.Editor
         
         Watchtower.Live

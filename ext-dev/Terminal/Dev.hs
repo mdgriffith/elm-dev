@@ -4,7 +4,7 @@
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Watchtower where
+module Terminal.Dev where
 
 import Terminal
 import Text.Read (readMaybe)
@@ -181,8 +181,8 @@ warnings =
 
 
 
-getWarnings :: Warnings -> Watchtower.WarningFlags -> IO ()
-getWarnings arg (Watchtower.WarningFlags maybeOutput) =
+getWarnings :: Warnings -> Terminal.Dev.WarningFlags -> IO ()
+getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
   case arg of
     WarningsFile path ->
       if Path.takeExtension path == ".elm" then
@@ -228,8 +228,8 @@ output_ =
 
 
 
-getDocs :: DocsArgs -> Watchtower.DocFlags -> IO ()
-getDocs arg (Watchtower.DocFlags maybeOutput) =
+getDocs :: DocsArgs -> Terminal.Dev.DocFlags -> IO ()
+getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
   case arg of
     DocsCwdProject ->
       do
@@ -345,8 +345,8 @@ start =
   Terminal.Command "start" (Common summary) details example (optional dir) serverFlags startServer
 
 
-startServer :: Maybe FilePath -> Watchtower.Flags -> IO ()
-startServer maybeRoot (Watchtower.Flags maybePort) =
+startServer :: Maybe FilePath -> Terminal.Dev.Flags -> IO ()
+startServer maybeRoot (Terminal.Dev.Flags maybePort) =
   Watchtower.Server.serve maybeRoot (Watchtower.Server.Flags maybePort)
 
 
