@@ -17,9 +17,6 @@
     "stack:run": "stack run --",
     "test:docs": "stack run -- docs watchtower-frontends/vscode/testProject",
     "test:docs:package": "stack run --cwd watchtower-frontends/vscode/testProject -- docs mdgriffith/elm-ui",
-    "test:warnings": "stack run --cwd watchtower-frontends/vscode/testProject -- warnings src/Main.elm ",
-    "------": "---interactive generation",
-    "build:interactvie": "cd dev-interactive-generation ; elm make src/Generate.elm --output=../out/generate.js --optimize ; cat ./generator-postfix.js >> ../out/generate.js ",
-    "test:interactive": "yarn build:interactvie ; stack run -- generate watchtower-frontends/vscode/testProject"
+    "test:warnings": "stack run --cwd watchtower-frontends/vscode/testProject -- warnings src/Main.elm "
   }
 }
