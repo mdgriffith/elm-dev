@@ -24,6 +24,7 @@ import qualified Data.ByteString
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBSChar
 import qualified System.Directory as Dir
+import qualified Ext.Dev.EntryPoints
 
 import qualified Data.ByteString.Builder
 
@@ -58,6 +59,9 @@ main =
     [ start
     , docs
     , warnings
+    , find
+    , imports
+    , entrypoints
     ]
 
 
@@ -392,3 +396,263 @@ exampleProjectDir :: String -> IO [String]
 exampleProjectDir _ =
   return ["/path/to/my/project" ]
 
+
+
+
+{- 
+
+# Usages
+
+Given a starting point, report all usages of that file.
+
+Will report:
+  - Each top-level definition and where it is used.
+  - A summary of all modules that import this module
+  - Is the module in a package and is it exposed
+  - A new, recommended exposing list for the module.
+
+For each top-level definition, report:
+  - The module that uses it.
+      - 
+
+
+
+ -}
+
+
+
+
+data Find 
+    = FindModule String
+
+  
+data FindFlags =
+  FindFlags
+    { _findOutput :: Maybe String
+    }
+
+{-| -}
+find :: Terminal.Command
+find =
+  let
+    summary =
+      "Given a file, report all the usages of that file."
+
+    details =
+      "The `find` command will report all usages of a given elm module."
+
+    example =
+      reflow
+        ""
+
+    findFlags =
+      flags FindFlags
+        |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
+
+    findArgs =
+      oneOf 
+        [ require1 FindModule dir
+        ]
+  in
+  Terminal.Command "find" (Common summary) details example findArgs findFlags findRun
+
+
+findRun :: Find -> Terminal.Dev.FindFlags -> IO ()
+findRun arg (Terminal.Dev.FindFlags maybeOutput) =
+  case arg of
+    FindModule path ->
+      if Path.takeExtension path == ".elm" then
+        do
+          maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
+          case maybeRoot of
+            Nothing ->
+              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+            
+            Just root -> do
+              eitherWarnings <- Ext.Dev.warnings root path
+              case eitherWarnings of
+                Left _ ->
+                  System.IO.hPutStrLn System.IO.stdout "No warnings!"
+
+                Right (mod, warningList) ->
+                  System.IO.hPutStrLn System.IO.stdout
+                      (show (Json.Encode.encode
+                          (Json.Encode.list
+                              (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                              warningList
+                          )
+                      ))
+
+      else
+        -- Produce docs as a project
+        System.IO.hPutStrLn System.IO.stdout "Given file does not have an .elm extension"
+
+
+{- 
+
+## Imports
+
+Given a starting point, report all modules that are imported by that file.
+
+Will report:
+  - All direct imports 
+  - All indirect imports that aren't visible.
+  - All external depdendencies that are imported
+
+For every imported thing, also report:
+  - The literal filename of that file
+  - The Module name
+  - The Module alias
+
+
+
+ -}
+
+
+
+
+
+
+data Imports 
+    = ImportsModule String
+
+  
+data ImportsFlags =
+  ImportsFlags
+    { _importOutput :: Maybe String
+    }
+
+{-| -}
+imports :: Terminal.Command
+imports =
+  let
+    summary =
+      "Given a file, report all the imports of that file."
+
+    details =
+      "The `imports` command will report all imports of a given elm module."
+
+    example =
+      reflow
+        ""
+
+    importsFlags =
+      flags ImportsFlags
+        |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
+
+    importsArgs =
+      oneOf 
+        [ require1 ImportsModule dir
+        ]
+  in
+  Terminal.Command "imports" (Common summary) details example importsArgs importsFlags importsRun
+
+
+importsRun :: Imports -> Terminal.Dev.ImportsFlags -> IO ()
+importsRun arg (Terminal.Dev.ImportsFlags maybeOutput) =
+  case arg of
+    ImportsModule path ->
+      if Path.takeExtension path == ".elm" then
+        do
+          maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
+          case maybeRoot of
+            Nothing ->
+              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+            
+            Just root -> do
+              eitherWarnings <- Ext.Dev.warnings root path
+              case eitherWarnings of
+                Left _ ->
+                  System.IO.hPutStrLn System.IO.stdout "No warnings!"
+
+                Right (mod, warningList) ->
+                  System.IO.hPutStrLn System.IO.stdout
+                      (show (Json.Encode.encode
+                          (Json.Encode.list
+                              (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                              warningList
+                          )
+                      ))
+
+      else
+        -- Produce docs as a project
+        System.IO.hPutStrLn System.IO.stdout "Given file does not have an .elm extension"
+
+
+
+
+{- Entrypoints 
+
+
+If the project is an app:
+  
+  List all discovered entrypoints for a given project.
+  
+  For each entrypoint:
+    - List the literal filepath to the entrypoint.
+    - List the symbolic module name.
+    - The base directory of the `elm.json` file.
+
+
+    - All port definitions
+    - The full type for the flags
+
+
+
+-}
+
+
+
+data EntryPoints 
+    = EntryPoints
+
+  
+data EntryPointsFlags =
+  EntryPointsFlags
+    { _entrypointsOutput :: Maybe String
+    }
+
+{-| -}
+entrypoints :: Terminal.Command
+entrypoints =
+  let
+    summary =
+      "Given a directory, scan for all entrypoints, recursively."
+
+    details =
+      "The `entrypoints` command will report all usages of a given elm module."
+
+    example =
+      reflow
+        ""
+
+    entrypointsFlags =
+      flags EntryPointsFlags
+        |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
+
+    entrypointsArgs =
+      oneOf 
+        [ require0 EntryPoints
+        ]
+  in
+  Terminal.Command "entrypoints" (Common summary) details example entrypointsArgs entrypointsFlags entrypointsRun
+
+
+entrypointsRun :: EntryPoints -> Terminal.Dev.EntryPointsFlags -> IO ()
+entrypointsRun arg (Terminal.Dev.EntryPointsFlags maybeOutput) =
+  case arg of
+    EntryPoints -> do
+      maybeRoot <- Stuff.findRoot
+      case maybeRoot of
+        Nothing ->
+          System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+        
+        Just root -> do
+          entryResult <- Ext.Dev.entrypoints root
+          case entryResult of
+            Left err ->
+              System.IO.hPutStrLn System.IO.stdout 
+                  (Exit.toString (Exit.reactorToReport err))
+            
+            Right entry ->
+              outJson (Json.Encode.list Ext.Dev.EntryPoints.encode entry)

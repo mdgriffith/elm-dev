@@ -250,6 +250,7 @@ Executable elm-dev
         -- elm-dev
         Ext.Dev
         Ext.Dev.Docs
+        Ext.Dev.EntryPoints
         Ext.Dev.Package
         Ext.Dev.Project
         Ext.Dev.Warnings

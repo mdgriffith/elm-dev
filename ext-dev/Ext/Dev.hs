@@ -4,6 +4,7 @@ module Ext.Dev
     ( docs, docsForProject
     , info, Info(..)
     , warnings
+    , entrypoints
     )
     where
 
@@ -18,6 +19,7 @@ import qualified AST.Source as Src
 import qualified Ext.CompileProxy
 import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Warnings
+import qualified Ext.Dev.EntryPoints
 
 
 warnings :: FilePath -> FilePath -> IO (Either () (Src.Module, [ Warning.Warning ]))
@@ -95,3 +97,7 @@ docsForProject root path = do
     Ext.CompileProxy.compileToDocs root (NonEmpty.singleton path)
         
    
+
+entrypoints :: FilePath -> IO (Either Exit.Reactor [Ext.Dev.EntryPoints.EntryPoint])
+entrypoints root = do
+    Ext.Dev.EntryPoints.entrypoints root
