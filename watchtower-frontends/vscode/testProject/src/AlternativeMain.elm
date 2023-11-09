@@ -1,4 +1,4 @@
-port module Main exposing (main)
+port module AlternativeMain exposing (main)
 
 import Browser
 import Html as What
