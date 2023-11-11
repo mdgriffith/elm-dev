@@ -2,21 +2,82 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 
-module Ext.Dev.Project (getRoot, contains, discover, decodeProject, Project (..), encodeProjectJson, equal) where
+module Ext.Dev.Project (defaultImports, lookupModulePath, lookupModuleName, getRoot, contains, discover, decodeProject, Project (..), encodeProjectJson, equal) where
+
+
+import Prelude hiding (lookup)
+import qualified System.Directory as Dir
+import System.FilePath as FP ((</>))
+import Data.Function ((&))
 
 import qualified Control.Monad as Monad
 import qualified Data.List as List
+import qualified Data.Set as Set
+import qualified Data.Map as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Elm.Outline
+
+import qualified Ext.Common
+
 import qualified Json.Decode
 import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Json.String
-import qualified System.Directory as Dir
-import System.FilePath as FP ((</>))
-import Prelude hiding (lookup)
-import qualified Ext.Common
+
+import qualified Elm.Outline
+import qualified Elm.Details
+import qualified Elm.ModuleName as ModuleName
+
+
+defaultImports :: Set.Set ModuleName.Raw
+defaultImports =
+  Set.fromList
+    [ "Platform.Sub"
+    , "Platform.Cmd"
+    , "Platform"
+    , "Tuple"
+    , "Char"
+    , "String"
+    , "Result"
+    , "Maybe"
+    , "List"
+    , "Debug"
+    , "Basics"
+    ]
+
+
+{-|
+  ModuelName -> Path
+-}
+lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
+lookupModulePath details canModuleName =
+  details
+    & Elm.Details._locals
+    & Map.lookup (ModuleName._module canModuleName)
+    & fmap Elm.Details._path
+
+
+{-|
+  Path -> ModuleName
+-}
+lookupModuleName :: Elm.Details.Details -> FilePath -> Maybe ModuleName.Raw
+lookupModuleName details filepath =
+  let 
+      locals = Elm.Details._locals details
+  in
+  Map.foldrWithKey
+    (\moduleName details found ->
+       case found of
+         Just _ ->
+           found
+         Nothing ->
+           if Elm.Details._path details == filepath
+             then Just moduleName
+             else Nothing
+    )
+    Nothing
+    locals
+
 
 {-
     A project is an instance of `elm.json` that lives in _root as well

@@ -56,7 +56,7 @@ import qualified Elm.ModuleName as ModuleName
 encode :: EntryPoint -> Json.Encode.Value
 encode (EntryPoint base path moduleName) =
     Json.Encode.object
-        [ "base" ==> Json.Encode.chars dir
+        [ "base" ==> Json.Encode.chars base
         , "filepath" ==> Json.Encode.chars path
         , "module" ==> Json.Encode.chars (Name.toChars moduleName)
         ]
