@@ -6,6 +6,13 @@ module Ext.Dev.Explain
   )
 where
 
+{-|
+Given a point location, return all the Types and values that are used 
+in the definition at that point.
+
+
+
+-}
 
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
@@ -238,7 +245,7 @@ findFragment root (canMod, fragmentMap) =
 
     else
         do 
-            definitions <- Ext.Dev.Lookup.lookupMany root canMod (Map.keys fragmentMap)
+            definitions <- Ext.Dev.Lookup.lookupDefinitionMany root canMod (Map.keys fragmentMap)
             pure 
                 (List.foldl 
                     (\gathered (fragname, frag) ->

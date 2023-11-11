@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Ext.Dev.Lookup
-  ( Ext.Dev.Lookup.lookup
-  , lookupMany
+  ( Ext.Dev.Lookup.lookupDefinition
+  , lookupDefinitionMany
   , LookupResult(..)
   )
 where
@@ -34,18 +34,17 @@ import Data.Function ((&))
 
 
 
-
 data LookupResult
     = Union (Maybe Src.Comment) Can.Union
     | Alias (Maybe Src.Comment) Can.Alias
     | Def Src.Comment
     deriving (Show)
 
-lookup :: String -> ModuleName.Canonical -> Name -> IO (Maybe LookupResult)
-lookup root mod name =
+lookupDefinition :: String -> ModuleName.Canonical -> Name -> IO (Maybe LookupResult)
+lookupDefinition root mod name =
     do
         project <- Ext.CompileProxy.loadProject root
-        case Ext.Dev.Project.lookupModulePath project mod of 
+        case Ext.Dev.Project.lookupModulePath project (ModuleName._module mod) of 
             Nothing ->
                 pure Nothing
             
@@ -80,11 +79,11 @@ lookup root mod name =
 
 
 
-lookupMany :: String -> ModuleName.Canonical -> [ Name ] -> IO (Map.Map Name LookupResult)
-lookupMany root mod names =
+lookupDefinitionMany :: String -> ModuleName.Canonical -> [ Name ] -> IO (Map.Map Name LookupResult)
+lookupDefinitionMany root mod names =
     do
         project <- Ext.CompileProxy.loadProject root
-        case Ext.Dev.Project.lookupModulePath project mod of 
+        case Ext.Dev.Project.lookupModulePath project (ModuleName._module mod) of 
             Nothing ->
                 pure Map.empty 
             

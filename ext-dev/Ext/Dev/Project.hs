@@ -2,7 +2,15 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 
-module Ext.Dev.Project (defaultImports, lookupModulePath, lookupModuleName, getRoot, contains, discover, decodeProject, Project (..), encodeProjectJson, equal) where
+module Ext.Dev.Project
+  ( importersOf
+  , defaultImports
+  , lookupModulePath
+  , lookupModuleName
+  , getRoot
+  , contains
+  , discover, decodeProject, Project (..), encodeProjectJson, equal
+  ) where
 
 
 import Prelude hiding (lookup)
@@ -49,11 +57,11 @@ defaultImports =
 {-|
   ModuelName -> Path
 -}
-lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
+lookupModulePath :: Elm.Details.Details -> ModuleName.Raw -> Maybe FilePath
 lookupModulePath details canModuleName =
   details
     & Elm.Details._locals
-    & Map.lookup (ModuleName._module canModuleName)
+    & Map.lookup canModuleName
     & fmap Elm.Details._path
 
 
@@ -66,16 +74,32 @@ lookupModuleName details filepath =
       locals = Elm.Details._locals details
   in
   Map.foldrWithKey
-    (\moduleName details found ->
+    (\localModuleName localDetails found ->
        case found of
          Just _ ->
            found
          Nothing ->
-           if Elm.Details._path details == filepath
-             then Just moduleName
+           if Elm.Details._path localDetails == filepath
+             then Just localModuleName
              else Nothing
     )
     Nothing
+    locals
+
+
+importersOf :: Elm.Details.Details -> ModuleName.Raw -> Set.Set ModuleName.Raw
+importersOf details targetModule =
+  let 
+      locals = Elm.Details._locals details
+  in
+  Map.foldrWithKey
+    (\localModuleName localDetails found ->
+        if List.elem targetModule (Elm.Details._deps localDetails) then 
+            Set.insert localModuleName found
+        else
+            found
+    )
+    Set.empty
     locals
 
 

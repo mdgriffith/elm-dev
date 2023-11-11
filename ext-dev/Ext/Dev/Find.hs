@@ -117,7 +117,7 @@ definition root (Watchtower.Editor.PointLocation path point) = do
         findExternalWith findFn name listAccess canMod = do
           details <- Ext.CompileProxy.loadProject root
 
-          case Ext.Dev.Project.lookupModulePath details canMod of
+          case Ext.Dev.Project.lookupModulePath details (ModuleName._module canMod) of
             Nothing ->
                pure Json.Encode.null
 
