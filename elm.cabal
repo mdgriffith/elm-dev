@@ -262,8 +262,11 @@ Executable elm-dev
         Ext.Dev.Find.Source
         Ext.Dev.InScope
         Ext.Dev.Lookup
+        Ext.Dev.Json.Encode
+        Ext.Dev.Imports
         Ext.Log
         Ext.Sanity
+        
         
 
         Util
