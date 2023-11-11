@@ -24,6 +24,7 @@ import qualified Data.List as List
 
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Details
+import qualified Ext.Dev.Project
 
 import qualified Ext.CompileProxy
 
@@ -44,7 +45,7 @@ lookup :: String -> ModuleName.Canonical -> Name -> IO (Maybe LookupResult)
 lookup root mod name =
     do
         project <- Ext.CompileProxy.loadProject root
-        case lookupModulePath project mod of 
+        case Ext.Dev.Project.lookupModulePath project mod of 
             Nothing ->
                 pure Nothing
             
@@ -83,7 +84,7 @@ lookupMany :: String -> ModuleName.Canonical -> [ Name ] -> IO (Map.Map Name Loo
 lookupMany root mod names =
     do
         project <- Ext.CompileProxy.loadProject root
-        case lookupModulePath project mod of 
+        case Ext.Dev.Project.lookupModulePath project mod of 
             Nothing ->
                 pure Map.empty 
             
@@ -117,14 +118,5 @@ getType (Can.Module canModName exports docs decls unions aliases binops effects)
         
         Just union ->
             Map.insert name (Union maybeDocs union) foundNames
-
-lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
-lookupModulePath details canModuleName =
-  details
-    & Elm.Details._locals
-    & Map.lookup (ModuleName._module canModuleName)
-    & fmap Elm.Details._path
-
-
 
 

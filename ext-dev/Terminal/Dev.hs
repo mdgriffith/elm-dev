@@ -20,11 +20,20 @@ import qualified System.Directory as Dir
 import qualified System.Exit
 import qualified System.Process
 import qualified Ext.Common
+
+import qualified Data.Name as Name
 import qualified Data.ByteString
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBSChar
 import qualified System.Directory as Dir
+
+
 import qualified Ext.Dev.EntryPoints
+import qualified Ext.Dev.Find
+import qualified Ext.Dev.Json.Encode
+import qualified Ext.Dev.Imports
+import qualified Ext.Dev.Project
+import qualified Ext.CompileProxy
 
 import qualified Data.ByteString.Builder
 
@@ -423,7 +432,7 @@ For each top-level definition, report:
 
 
 data Find 
-    = FindModule String
+    = FindValue String
 
   
 data FindFlags =
@@ -436,7 +445,7 @@ find :: Terminal.Command
 find =
   let
     summary =
-      "Given a file, report all the usages of that file."
+      "Given a qualified value, find it's definition and usages."
 
     details =
       "The `find` command will report all usages of a given elm module."
@@ -451,7 +460,7 @@ find =
 
     findArgs =
       oneOf 
-        [ require1 FindModule dir
+        [ require1 FindValue dir
         ]
   in
   Terminal.Command "find" (Common summary) details example findArgs findFlags findRun
@@ -460,7 +469,7 @@ find =
 findRun :: Find -> Terminal.Dev.FindFlags -> IO ()
 findRun arg (Terminal.Dev.FindFlags maybeOutput) =
   case arg of
-    FindModule path ->
+    FindValue path ->
       if Path.takeExtension path == ".elm" then
         do
           maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
@@ -508,11 +517,6 @@ For every imported thing, also report:
 
  -}
 
-
-
-
-
-
 data Imports 
     = ImportsModule String
 
@@ -527,7 +531,7 @@ imports :: Terminal.Command
 imports =
   let
     summary =
-      "Given a file, report all the imports of that file."
+      "Given a file, report everything it imports."
 
     details =
       "The `imports` command will report all imports of a given elm module."
@@ -553,32 +557,57 @@ importsRun arg (Terminal.Dev.ImportsFlags maybeOutput) =
   case arg of
     ImportsModule path ->
       if Path.takeExtension path == ".elm" then
-        do
-          maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
+        do 
+          absolutePath <- toAbsoluteFilePath path
+          maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory absolutePath) Stuff.findRoot
           case maybeRoot of
             Nothing ->
               System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
             
             Just root -> do
-              eitherWarnings <- Ext.Dev.warnings root path
-              case eitherWarnings of
-                Left _ ->
-                  System.IO.hPutStrLn System.IO.stdout "No warnings!"
-
-                Right (mod, warningList) ->
-                  System.IO.hPutStrLn System.IO.stdout
-                      (show (Json.Encode.encode
-                          (Json.Encode.list
-                              (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
-                              warningList
-                          )
-                      ))
-
-      else
-        -- Produce docs as a project
-        System.IO.hPutStrLn System.IO.stdout "Given file does not have an .elm extension"
+              details <- Ext.CompileProxy.loadProject root
+              case Ext.Dev.Project.lookupModuleName details absolutePath of
+                Nothing ->
+                  System.IO.hPutStrLn System.IO.stdout "Was not able to find the module name for the given file"
+                
+                Just moduleName -> do
+                  let importSummary = Ext.Dev.Imports.getImportSummary details moduleName
+                  outJson
+                    (Ext.Dev.Imports.encodeSummary
+                        importSummary
+                    )
+              
 
 
+      else 
+        -- We're assuming this is a module naame
+        do
+          maybeRoot <- Stuff.findRoot
+          case maybeRoot of
+            Nothing ->
+              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+            
+            Just root -> do
+              details <- Ext.CompileProxy.loadProject root
+              let importSummary = Ext.Dev.Imports.getImportSummary details (Name.fromChars path)
+             
+              outJson
+                (Ext.Dev.Imports.encodeSummary
+                    importSummary
+                )
+                      
+
+      -- else
+      --   -- Produce docs as a project
+      --   System.IO.hPutStrLn System.IO.stdout "Given file does not have an .elm extension"
+
+
+
+toAbsoluteFilePath :: FilePath -> IO FilePath
+toAbsoluteFilePath path = do 
+  cwd <- Dir.getCurrentDirectory
+  return $ cwd </> path
+  
 
 
 {- Entrypoints 

@@ -35,6 +35,7 @@ import Json.Encode ((==>))
 import qualified Ext.CompileProxy
 import qualified Ext.Dev.Find.Source
 import qualified Ext.Dev.Lookup
+import qualified Ext.Dev.Json.Encode
 
 import qualified Watchtower.Editor
 import qualified Ext.Log
@@ -675,7 +676,7 @@ encodeFact localizer ref =
                 [ "source" ==> 
                     case source of
                         External modName ->
-                            encodeCanName modName
+                            Ext.Dev.Json.Encode.moduleName modName
 
                         LetValue ->
                             Json.Encode.chars "let"
@@ -689,7 +690,7 @@ encodeFact localizer ref =
         TypeReference fragment (Ext.Dev.Lookup.Union maybeComment canUnion) ->
             Json.Encode.object 
                 [ "source" ==> 
-                    encodeCanName (getFragmentCanonicalName fragment)
+                    Ext.Dev.Json.Encode.moduleName (getFragmentCanonicalName fragment)
                 , "name" ==> Json.Encode.name (getFragmentName fragment)
                 , "union" ==> 
                     encodeCanUnion localizer fragment maybeComment canUnion
@@ -698,7 +699,7 @@ encodeFact localizer ref =
         TypeReference fragment (Ext.Dev.Lookup.Alias maybeComment alias) ->
             Json.Encode.object 
                 [ "source" ==> 
-                    encodeCanName (getFragmentCanonicalName fragment)
+                    Ext.Dev.Json.Encode.moduleName (getFragmentCanonicalName fragment)
                 , "name" ==> Json.Encode.name (getFragmentName fragment)
                 , "alias" ==> 
                     encodeAlias localizer fragment maybeComment alias
@@ -707,7 +708,7 @@ encodeFact localizer ref =
         TypeReference fragment (Ext.Dev.Lookup.Def comment) ->
             Json.Encode.object 
                 [ "source" ==> 
-                    encodeCanName (getFragmentCanonicalName fragment)
+                    Ext.Dev.Json.Encode.moduleName (getFragmentCanonicalName fragment)
                 , "name" ==> Json.Encode.name (getFragmentName fragment)
                 , "definition" ==> 
                     encodeDefinition localizer fragment comment
@@ -749,14 +750,6 @@ encodeAlias localizer fragment maybeComment (Can.Alias vars type_) =
         , "comment" ==> encodeMaybe encodeComment maybeComment
         ] 
 
-
-  
-encodeCanName :: ModuleName.Canonical -> Json.Encode.Value
-encodeCanName (ModuleName.Canonical pkgName modName) =
-    Json.Encode.object 
-        [ "pkg" ==> Package.encode pkgName
-        , "module" ==>  Json.Encode.chars (Name.toChars modName)
-        ]   
 
 encodeCanUnion :: Reporting.Render.Type.Localizer.Localizer -> TypeUsage -> Maybe Src.Comment -> Can.Union -> Json.Encode.Value
 encodeCanUnion localizer fragment maybeComment (Can.Union vars ctors i opts) =

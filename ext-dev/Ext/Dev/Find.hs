@@ -43,7 +43,7 @@ import qualified Text.Show.Unicode
 import qualified Util
 import qualified Watchtower.Editor
 import qualified Ext.Dev.Find.Canonical
-
+import qualified Ext.Dev.Project
 {- Find Definition -}
 
 definition :: FilePath -> Watchtower.Editor.PointLocation -> IO Json.Encode.Value
@@ -117,7 +117,7 @@ definition root (Watchtower.Editor.PointLocation path point) = do
         findExternalWith findFn name listAccess canMod = do
           details <- Ext.CompileProxy.loadProject root
 
-          case lookupModulePath details canMod of
+          case Ext.Dev.Project.lookupModulePath details canMod of
             Nothing ->
                pure Json.Encode.null
 
@@ -148,12 +148,6 @@ encodeResult path result =
           )
         ]
 
-lookupModulePath :: Elm.Details.Details -> ModuleName.Canonical -> Maybe FilePath
-lookupModulePath details canModuleName =
-  details
-    & Elm.Details._locals
-    & Map.lookup (ModuleName._module canModuleName)
-    & fmap Elm.Details._path
 
 -- Match the AST node at the specified position
 

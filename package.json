@@ -18,6 +18,7 @@
     "test:docs": "stack run -- docs watchtower-frontends/vscode/testProject",
     "test:docs:package": "stack run --cwd watchtower-frontends/vscode/testProject -- docs mdgriffith/elm-ui",
     "test:warnings": "stack run --cwd watchtower-frontends/vscode/testProject -- warnings src/Main.elm ",
-    "test:entrypoints": "stack run --cwd watchtower-frontends/vscode/testProject -- entrypoints"
+    "test:entrypoints": "stack run --cwd watchtower-frontends/vscode/testProject -- entrypoints",
+    "test:imports": "stack run --cwd watchtower-frontends/vscode/testProject -- imports src/Main.elm"
   }
 }
