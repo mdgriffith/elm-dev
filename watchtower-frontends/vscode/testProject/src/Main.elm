@@ -1,4 +1,4 @@
-port module Main exposing (main)
+port module Main exposing (main, messageReceiver, sendMessage)
 
 import Browser
 import Html as What
@@ -96,6 +96,5 @@ andWhatBoutHere =
     "Whaaasat?"
 
 
-
--- gnome =
---     Imported.otherThing
+gnome =
+    Imported.otherThing

@@ -3,6 +3,8 @@ module Imported exposing (..)
 {-| -}
 
 import Html as Ui
+import NarrativeEngine.Syntax.NarrativeParser
+import NarrativeEngine.Syntax.RuleParser
 
 
 otherThing : Ui.Html msg
