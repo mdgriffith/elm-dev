@@ -245,7 +245,7 @@ findFragment root (canMod, fragmentMap) =
 
     else
         do 
-            definitions <- Ext.Dev.Lookup.lookupDefinitionMany root canMod (Map.keys fragmentMap)
+            definitions <- Ext.Dev.Lookup.lookupDefinitionMany root (ModuleName._module canMod) (Map.keys fragmentMap)
             pure 
                 (List.foldl 
                     (\gathered (fragname, frag) ->

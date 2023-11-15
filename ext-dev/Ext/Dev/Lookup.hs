@@ -40,11 +40,11 @@ data LookupResult
     | Def Src.Comment
     deriving (Show)
 
-lookupDefinition :: String -> ModuleName.Canonical -> Name -> IO (Maybe LookupResult)
-lookupDefinition root mod name =
+lookupDefinition :: String -> ModuleName.Raw -> Name -> IO (Maybe LookupResult)
+lookupDefinition root modName name =
     do
         project <- Ext.CompileProxy.loadProject root
-        case Ext.Dev.Project.lookupModulePath project (ModuleName._module mod) of 
+        case Ext.Dev.Project.lookupModulePath project modName of 
             Nothing ->
                 pure Nothing
             
@@ -79,21 +79,20 @@ lookupDefinition root mod name =
 
 
 
-lookupDefinitionMany :: String -> ModuleName.Canonical -> [ Name ] -> IO (Map.Map Name LookupResult)
-lookupDefinitionMany root mod names =
-    do
-        project <- Ext.CompileProxy.loadProject root
-        case Ext.Dev.Project.lookupModulePath project (ModuleName._module mod) of 
-            Nothing ->
-                pure Map.empty 
-            
-            Just path -> do
-                (Ext.CompileProxy.Single source warnings interfaces maybeCanonical compiled) <- Ext.CompileProxy.loadSingle root path
-                case maybeCanonical of
-                    Nothing -> pure Map.empty 
+lookupDefinitionMany :: String -> ModuleName.Raw -> [ Name ] -> IO (Map.Map Name LookupResult)
+lookupDefinitionMany root modName names = do
+    project <- Ext.CompileProxy.loadProject root
+    case Ext.Dev.Project.lookupModulePath project modName of 
+        Nothing ->
+            pure Map.empty 
+        
+        Just path -> do
+            (Ext.CompileProxy.Single source warnings interfaces maybeCanonical compiled) <- Ext.CompileProxy.loadSingle root path
+            case maybeCanonical of
+                Nothing -> pure Map.empty 
 
-                    Just canonical -> 
-                        pure (List.foldl (getType canonical) Map.empty names)
+                Just canonical -> 
+                    pure (List.foldl (getType canonical) Map.empty names)
 
 
 getType (Can.Module canModName exports docs decls unions aliases binops effects) foundNames name =
