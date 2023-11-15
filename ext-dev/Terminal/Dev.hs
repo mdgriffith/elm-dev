@@ -30,6 +30,7 @@ import qualified System.Directory as Dir
 
 import qualified Ext.Dev.EntryPoints
 import qualified Ext.Dev.Find
+import qualified Ext.Dev.Lookup
 import qualified Ext.Dev.Json.Encode
 import qualified Ext.Dev.Imports
 import qualified Ext.Dev.Project
@@ -53,6 +54,8 @@ import qualified Ext.Dev.Package
 import qualified Terminal.Helpers (package, version)
 import qualified Elm.Package as Pkg
 import qualified Elm.Version
+
+import qualified Data.Utf8 as Utf8
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8
@@ -473,27 +476,47 @@ findRun :: Find -> Terminal.Dev.FindFlags -> IO ()
 findRun arg (Terminal.Dev.FindFlags maybeOutput) =
   case arg of
     FindValue path -> do
-      maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
+      maybeRoot <- Stuff.findRoot
       case maybeRoot of
         Nothing ->
           System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
         
-        Just root -> do
-          eitherWarnings <- Ext.Dev.warnings root path
-          case eitherWarnings of
-            Left _ ->
-              System.IO.hPutStrLn System.IO.stdout "No warnings!"
+        Just root -> 
+          case parseValueName path of
+            Nothing ->
+              System.IO.hPutStrLn System.IO.stdout "Was not able to parse the given value name"
+            
+            Just (modName, valueName) -> do 
+              maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root modName valueName
+              case maybeDefinition of
+                Nothing ->
+                  System.IO.hPutStrLn System.IO.stdout "Nothing found"
 
-            Right (mod, warningList) ->
-              System.IO.hPutStrLn System.IO.stdout
-                  (show (Json.Encode.encode
-                      (Json.Encode.list
-                          (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
-                          warningList
-                      )
-                  ))
+                Just definition ->
+                  System.IO.hPutStrLn System.IO.stdout "Found!"
 
      
+parseValueName :: String -> Maybe (Name.Name, Name.Name)
+parseValueName string =
+  case reverse (Name.splitDots (Name.fromChars string)) of
+    [] ->
+      Nothing
+
+    [_] ->
+      Nothing
+
+    name : path ->
+      let 
+          correctedPath = (reverse path)
+
+          modName = Utf8.join 0x2E {- . -} correctedPath
+      in
+      Just
+        ( modName
+        , name
+        )
+
+
 
 
 {- 
