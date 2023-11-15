@@ -14,12 +14,14 @@ import qualified Reporting.Error
 import qualified System.IO.Unsafe
 import qualified Type.Constrain.Module as Type
 import qualified Type.Solve as Type
+import qualified StandaloneInstances
 
 data Artifacts =
   Artifacts
     { _ifaces :: Map.Map ModuleName.Raw I.Interface
     , _graph :: Opt.GlobalGraph
     }
+    deriving (Show)
 
 
 toInterfaces :: Map.Map ModuleName.Canonical I.DependencyInterface -> Map.Map ModuleName.Raw I.Interface

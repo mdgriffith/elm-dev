@@ -6,6 +6,7 @@ module Ext.CompileProxy
  , loadFileSource
  , loadCanonicalizeEnv
  , loadProject
+ , allPackageArtifacts
  , parse
  , compileToJson
  , compileToDocs

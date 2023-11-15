@@ -253,6 +253,7 @@ Executable elm-dev
         Ext.Dev.EntryPoints
         Ext.Dev.Package
         Ext.Dev.Project
+        Ext.Dev.Project.Ports
         Ext.Dev.Warnings
         Ext.Dev.Canonicalize
         Ext.Dev.Find

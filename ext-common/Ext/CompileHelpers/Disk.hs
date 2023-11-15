@@ -1,6 +1,7 @@
 module Ext.CompileHelpers.Disk
   ( compileToJson
   , compileToDocs
+  , compileWithoutJsGen
   , allPackageArtifacts
   )
 where
@@ -56,7 +57,7 @@ compileToJson root paths = do
   result <- compileWithoutJsGen root paths
   pure $
     case result of
-      Right () ->
+      Right _ ->
         Right $ Encode.object [ "compiled" ==> Encode.bool True ]
       Left exit -> do
         Left $ Exit.toJson $ Exit.reactorToReport exit
@@ -91,7 +92,7 @@ compile root paths =
             return $ Html.sandwich name javascript
 
 
-compileWithoutJsGen :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
+compileWithoutJsGen :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor Build.Artifacts)
 compileWithoutJsGen root paths =
   do
     Dir.withCurrentDirectory root $
@@ -99,9 +100,9 @@ compileWithoutJsGen root paths =
         Task.run $
           do
             details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-            artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
-
-            return ()
+            
+            Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
+            
 
 
 compileToDocs :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor Elm.Docs.Documentation)

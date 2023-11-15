@@ -11,6 +11,7 @@
 
 module StandaloneInstances where
 
+import qualified Build
 import Data.ByteString.Builder as B
 import Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
@@ -436,7 +437,7 @@ instance IsString Json.String.String where
 instance IsString Elm.String.String where
   fromString = Utf8.fromChars
 
-
+deriving instance Show Build.Root 
 
 
 
