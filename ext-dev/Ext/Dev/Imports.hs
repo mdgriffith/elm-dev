@@ -89,7 +89,7 @@ getImportSummary :: Elm.Details.Details -> ModuleName.Raw -> ImportSummary
 getImportSummary details moduleName =
     let 
         -- Get local imports
-        localImports = getImportsForModule details moduleName
+        localImports = Map.elems (getImportsForModule details moduleName Map.empty)
 
         -- Get used packages
         localImportNames = List.concatMap _imports localImports
@@ -136,25 +136,27 @@ getPackageImports details modName =
             [importDetails]
 
 
-getImportsForModule :: Elm.Details.Details -> ModuleName.Raw -> [Import]
-getImportsForModule details modName =
-    let 
-        locals = Elm.Details._locals details
-    in
-    case Map.lookup modName locals of 
-        Nothing ->
-            []
-        
-        Just importedLocalFound ->
-            let 
-                importDetails = localToImportDetails modName importedLocalFound
+getImportsForModule :: Elm.Details.Details -> ModuleName.Raw -> Map.Map ModuleName.Raw Import -> Map.Map ModuleName.Raw Import
+getImportsForModule details modName gathered =
+    if Map.member modName gathered then 
+        gathered 
+    else
+        let 
+            locals = Elm.Details._locals details
+        in
+        case Map.lookup modName locals of 
+            Nothing ->
+                gathered
             
-                indirectDeps = 
-                    (List.concatMap (getImportsForModule details) 
-                        (Elm.Details._deps importedLocalFound)
-                    )
-            in
-            importDetails : indirectDeps
+            Just importedLocalFound ->
+                let 
+                    importDetails = localToImportDetails modName importedLocalFound
+                in
+                List.foldr
+                    (getImportsForModule details)
+                    (Map.insert modName importDetails gathered)
+                    (Elm.Details._deps importedLocalFound)
+                
             
             
 localToImportDetails :: ModuleName.Raw -> Elm.Details.Local -> Import
