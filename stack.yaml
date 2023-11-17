@@ -1,21 +1,42 @@
-resolver: lts-19.31 # ghc-9.0.2
+resolver: lts-20.26 # ghc 9.2.8
+system-ghc: false
+ghc-options:
+  "$locals": -Wincomplete-patterns -lstdc++
+  "$targets": -lstdc++
 allow-newer: true
-local-bin-path: dist
 extra-deps:
-- snap-server-1.1.2.0@sha256:325378e4f7a50b1a94cf6175e11b9ac6db5edcdd87226f2d5997999334b85c46,15200
-- websockets-snap-0.10.3.1@sha256:89582b7db916e67b6c8192f489e4eafe7488d9f813e349836a2e74fa4388623d,991
-- io-streams-haproxy-1.0.1.0@sha256:2241a754697935e0a11e814affcaa4861b42fe88131f807b586ef48051e28a08,3070
-- regex-posix-clib-2.7 # Required to build on windows
+- timeout-0.1.1
+- command-0.1.1
+- snap-server-1.1.2.1
+- websockets-snap-0.10.3.1
+- fold-debounce-0.2.0.11
+- snap-core-1.0.5.1
+- readable-0.3.1
+- fsnotify-0.4.1.0
 
+# Required to build on windows
+- regex-posix-0.96.0.1
+
+# windows pinning for build issues
+- ansi-terminal-0.11
+- git: https://github.com/noteed/language-glsl.git
+  commit: 99c3aae76363b127679da640a6f00d61d2203830
+# Metapackage that apparently resolves below issues for windows:
 flags:
   regex-posix:
-    _regex-posix-clib: true
-
+     _regex-posix-clib: true
 packages:
-- "."
+- '.'
 
-extra-include-dirs: # Try remove this in 9.3.2 as it should be fixed: https://gitlab.haskell.org/ghc/ghc/-/issues/20592#note_436353
-# This should be a system agnostic path to macos FFI libs, if not working for you try find a valid path with these bash commands:
-# dir=`xcrun --show-sdk-path`/usr/include/ffi && ls -alh $dir && echo $dir
-# dir=`pkg-config --cflags libffi | sed -E "s/^-I//"` && ls -alh $dir && echo $dir
-- /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/ffi
+
+# Need to re-check if the below is still an issue now we're on GHC 9.4:
+# > The system-cxx-std-lib metapackage should significantly improve the status quo here and is shipped with GHC %9.4.1. Closing.
+# ---------------
+# https://gitlab.haskell.org/ghc/ghc/-/issues/20010#note_359766
+# however extra-libraries is not a supported stack.yaml field...?
+# extra-libraries: stdc++ supc++ gcc_s
+
+# And for windows build issues related to .ddl inclusion
+# https://discourse.haskell.org/t/announce-ghcup-0-1-15-rc2-windows-pre-release/2616/14
+# however it seems stack automatically includes a bunch of paths, don't think this helped?
+# - C:\ghcup\msys64\mingw64\include

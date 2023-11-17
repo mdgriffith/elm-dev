@@ -5,36 +5,89 @@
 
 packages:
 - completed:
-    hackage: snap-server-1.1.2.0@sha256:325378e4f7a50b1a94cf6175e11b9ac6db5edcdd87226f2d5997999334b85c46,15200
+    hackage: timeout-0.1.1@sha256:56c1d3321d7139d1f7ebf04d46c95d3a3f1c8c9e0f15666ae3ccd6bae6204b6e,1427
     pantry-tree:
-      sha256: bac856da3319ff93d100dfd5811fbcc39d7d8b7e51d6adc07aea3fc81aacd14e
+      sha256: e571503d7e609c3fe496de7e858613360bfa6c06e20ac57d9659bd32d0645889
+      size: 437
+  original:
+    hackage: timeout-0.1.1
+- completed:
+    hackage: command-0.1.1@sha256:5232b98c195bc3b8a6f35c55ccd2fa424abe355ca54cfcd836bbe7e494834773,1110
+    pantry-tree:
+      sha256: 1ecfeb4b1367de6b489dbda20be05df78beb07f71d7c0b1f471fab1cd9c8044a
+      size: 167
+  original:
+    hackage: command-0.1.1
+- completed:
+    hackage: snap-server-1.1.2.1@sha256:8ea05b9b068c1e86be77073107eadc177d7eec93724963c063877478a062b229,15471
+    pantry-tree:
+      sha256: ddeae933a2dfb19eebe466b1be5014b002154f18624e654086b13fe4bb56c0fd
       size: 3313
   original:
-    hackage: snap-server-1.1.2.0@sha256:325378e4f7a50b1a94cf6175e11b9ac6db5edcdd87226f2d5997999334b85c46,15200
+    hackage: snap-server-1.1.2.1
 - completed:
-    hackage: websockets-snap-0.10.3.1@sha256:89582b7db916e67b6c8192f489e4eafe7488d9f813e349836a2e74fa4388623d,991
+    hackage: websockets-snap-0.10.3.1@sha256:1e52d1b67eaa54e4c5e66e84fc22e9a2ca41bf9930ea2c94b8ec11e4080d3f23,1042
     pantry-tree:
-      sha256: 1630fc5df984c0fd574e68860bf21e1ea3f60ffc26ed1f3859d4e5411bc1e6d8
-      size: 330
+      sha256: 14aa753981ac0c8465d0d18ea84f0b1414d6e7a6232d47958e61b1d04e227f16
+      size: 331
   original:
-    hackage: websockets-snap-0.10.3.1@sha256:89582b7db916e67b6c8192f489e4eafe7488d9f813e349836a2e74fa4388623d,991
+    hackage: websockets-snap-0.10.3.1
 - completed:
-    hackage: io-streams-haproxy-1.0.1.0@sha256:2241a754697935e0a11e814affcaa4861b42fe88131f807b586ef48051e28a08,3070
+    hackage: fold-debounce-0.2.0.11@sha256:948b0ec836a62c5207c3caac5a9f15fa483cdca8cbe1d50cadb1bc03803bbb3f,2305
     pantry-tree:
-      sha256: e0fd63710948210cda2b5d21bd51eedc43f8813470d015158de8bd03237b1cb9
-      size: 589
+      sha256: 3bba10d8fca5a1e4d426f1c5cf0f6ff408240e9f9d3308499570acd5d5413fd0
+      size: 451
   original:
-    hackage: io-streams-haproxy-1.0.1.0@sha256:2241a754697935e0a11e814affcaa4861b42fe88131f807b586ef48051e28a08,3070
+    hackage: fold-debounce-0.2.0.11
 - completed:
-    hackage: regex-posix-clib-2.7@sha256:998fca06da3d719818f0691ef0b8b9b7375afeea228cb08bd9e2db53f96b0cd7,1232
+    hackage: snap-core-1.0.5.1@sha256:e84e14c59ef925cf83312103449e4253800489d051991675b747ee5bcc6dda4e,9502
     pantry-tree:
-      sha256: 5bf20952472d930323766d250f5fbbe3fe6f2cd3d931e5cf7b62a238ab2099ff
-      size: 524
+      sha256: 58715afcb05dfac897b3a4ab3dd8e34f99f17c65d470f589202ef62ead8453ca
+      size: 3429
   original:
-    hackage: regex-posix-clib-2.7
+    hackage: snap-core-1.0.5.1
+- completed:
+    hackage: readable-0.3.1@sha256:ea550740bbee9ae46c6bbf1c5e5185818a1d37509b855c640b0a7f2dfba6dc37,1121
+    pantry-tree:
+      sha256: a93d2c4e208cf064a8b1e8087d7a8ea77c263115e7ba18f3ef6abe935548faca
+      size: 313
+  original:
+    hackage: readable-0.3.1
+- completed:
+    hackage: fsnotify-0.4.1.0@sha256:44540beabea36aeeef930aa4d5f28091d431904bc9923b6ac4d358831c651235,2854
+    pantry-tree:
+      sha256: f8e89e81fe0ca6e285036e04b165119ccfc59e7e668c1bfc28927f39062c5949
+      size: 1280
+  original:
+    hackage: fsnotify-0.4.1.0
+- completed:
+    hackage: regex-posix-0.96.0.1@sha256:816d6acc560cb86672f347a7bef8129578dde26ed760f9e79b4976ed9bd7b9fd,2925
+    pantry-tree:
+      sha256: ea6a3adfad8fb41a761b71afb057454a41eb76fc3f75c926d0bda90588b20529
+      size: 748
+  original:
+    hackage: regex-posix-0.96.0.1
+- completed:
+    hackage: ansi-terminal-0.11@sha256:97470250c92aae14c4c810d7f664c532995ba8910e2ad797b29f22ad0d2d0194,3307
+    pantry-tree:
+      sha256: 4098c4b8bb503fcf0730aedc8247a479d3e22fd1fe4c6b4b2b2b5da30bdfb713
+      size: 1461
+  original:
+    hackage: ansi-terminal-0.11
+- completed:
+    commit: 99c3aae76363b127679da640a6f00d61d2203830
+    git: https://github.com/noteed/language-glsl.git
+    name: language-glsl
+    pantry-tree:
+      sha256: 155d01f395cc7df3c511df6ff35835b9d54f88a629a58098af7b54a4eeff8e63
+      size: 1066
+    version: 0.4.0.0
+  original:
+    commit: 99c3aae76363b127679da640a6f00d61d2203830
+    git: https://github.com/noteed/language-glsl.git
 snapshots:
 - completed:
-    sha256: e5f56f619132209b826084cacd6374d7f0344cc88a9d1d305878190e4204ae1f
-    size: 619205
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/19/31.yaml
-  original: lts-19.31
+    sha256: 5a59b2a405b3aba3c00188453be172b85893cab8ebc352b1ef58b0eae5d248a2
+    size: 650475
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/20/26.yaml
+  original: lts-20.26

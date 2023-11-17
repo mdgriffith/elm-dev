@@ -45,18 +45,24 @@ watch root action =
 toString :: System.FSNotify.Event -> String
 toString event =
   case event of
-    System.FSNotify.Added filepath _ _ -> "Added " <> System.FilePath.takeFileName filepath
-    System.FSNotify.Modified filepath _ _ -> "Modified " <> System.FilePath.takeFileName filepath
-    System.FSNotify.Removed filepath _ _ -> "Removed " <> System.FilePath.takeFileName filepath
-    System.FSNotify.Unknown filepath _ _ -> "Unknown " <> System.FilePath.takeFileName filepath
+    System.FSNotify.Added filepath _ _                   -> "Added " <> System.FilePath.takeFileName filepath
+    System.FSNotify.Modified filepath _ _                -> "Modified " <> System.FilePath.takeFileName filepath
+    System.FSNotify.ModifiedAttributes filepath _ _      -> "ModifiedAttributes " <> System.FilePath.takeFileName filepath
+    System.FSNotify.Removed filepath _ _                 -> "Removed " <> System.FilePath.takeFileName filepath
+    System.FSNotify.WatchedDirectoryRemoved filepath _ _ -> "WatchedDirectoryRemoved" <> System.FilePath.takeFileName filepath
+    System.FSNotify.CloseWrite filepath _ _              -> "CloseWrite" <> System.FilePath.takeFileName filepath
+    System.FSNotify.Unknown filepath _ _ _               -> "Unknown " <> System.FilePath.takeFileName filepath
 
 getEventFilePath :: System.FSNotify.Event -> FilePath
 getEventFilePath event =
   case event of
-    System.FSNotify.Added filepath _ _ -> filepath
-    System.FSNotify.Modified filepath _ _ -> filepath
-    System.FSNotify.Removed filepath _ _ -> filepath
-    System.FSNotify.Unknown filepath _ _ -> filepath
+    System.FSNotify.Added filepath _ _                   -> filepath
+    System.FSNotify.Modified filepath _ _                -> filepath
+    System.FSNotify.ModifiedAttributes filepath _ _      -> filepath
+    System.FSNotify.Removed filepath _ _                 -> filepath
+    System.FSNotify.WatchedDirectoryRemoved filepath _ _ -> filepath
+    System.FSNotify.CloseWrite filepath _ _              -> filepath
+    System.FSNotify.Unknown filepath _ _ _               -> filepath
 
 
 shouldTrigger :: System.FSNotify.Event -> Bool
