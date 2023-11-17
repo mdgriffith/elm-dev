@@ -409,13 +409,7 @@ instance Show a => Show (MVar.MVar a) where
 
 deriving instance Show Deps.Registry.KnownVersions
 
-
 deriving instance Show Json.Encode.Value
-
-instance Show B.Builder where
-  show = T.unpack . T.decodeUtf8 . BSL.toStrict . B.toLazyByteString
-
-
 
 deriving instance Show Elm.Details.Local
 
@@ -437,7 +431,7 @@ instance IsString Json.String.String where
 instance IsString Elm.String.String where
   fromString = Utf8.fromChars
 
-deriving instance Show Build.Root 
+deriving instance Show Build.Root
 
 
 
