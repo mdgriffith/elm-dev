@@ -20,6 +20,7 @@
     "test:warnings": "stack run --cwd watchtower-frontends/vscode/testProject -- warnings src/Main.elm ",
     "test:entrypoints": "stack run --cwd watchtower-frontends/vscode/testProject -- entrypoints",
     "test:imports": "stack run --cwd watchtower-frontends/vscode/testProject -- imports src/Main.elm",
-    "test:usage": "stack run --cwd watchtower-frontends/vscode/testProject -- usage Imported"
+    "test:usage": "stack run --cwd watchtower-frontends/vscode/testProject -- usage Imported",
+    "test:explain": "stack run --cwd watchtower-frontends/vscode/testProject -- explain Main.main"
   }
 }

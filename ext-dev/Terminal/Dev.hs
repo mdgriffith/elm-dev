@@ -63,7 +63,7 @@ import qualified Data.Map
 import qualified Data.Maybe
 import qualified Stuff
 import qualified File
-
+import qualified Ext.Dev.Explain
 
 
 
@@ -77,6 +77,7 @@ main =
     , imports
     , usage
     , entrypoints
+    , explain
     ]
 
 
@@ -218,13 +219,12 @@ getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
                   System.IO.hPutStrLn System.IO.stdout "No warnings!"
 
                 Right (mod, warningList) ->
-                  System.IO.hPutStrLn System.IO.stdout
-                      (show (Json.Encode.encode
-                          (Json.Encode.list
-                              (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
-                              warningList
-                          )
-                      ))
+                    outJson maybeOutput
+                      (Json.Encode.list
+                          (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                          warningList
+                      )
+                      
 
       else
         -- Produce docs as a project
@@ -266,7 +266,7 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
                       (Exit.toString (Exit.reactorToReport err))
                 
                 Right docs ->
-                  outJson (Docs.encode docs)
+                  outJson maybeOutput (Docs.encode docs)
 
     DocsPath path ->
       if Path.takeExtension path == ".elm" then do
@@ -282,7 +282,7 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
                 System.IO.hPutStrLn System.IO.stdout "Docs are not available"
 
               Just docs ->
-                outJson (Docs.encode (Docs.toDict [ docs ]))
+                outJson maybeOutput (Docs.encode (Docs.toDict [ docs ]))
       else do
         -- treat path as a directory path and produce docs as a project
         maybeRoot <-  Dir.withCurrentDirectory path Stuff.findRoot
@@ -298,7 +298,7 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
                     (Exit.toString (Exit.reactorToReport err))
               
               Right docs ->
-                outJson (Docs.encode docs)
+                outJson maybeOutput (Docs.encode docs)
       
 
     DocsPackage packageName ->
@@ -316,7 +316,7 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
                 System.IO.hPutStrLn System.IO.stdout (Exit.toString (Exit.toDocsProblemReport err ""))
 
               Right docs ->
-                outJson (Docs.encode docs)
+                outJson maybeOutput (Docs.encode docs)
         
     DocsPackageVersion name packageVersion ->
       do
@@ -326,13 +326,17 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
             System.IO.hPutStrLn System.IO.stdout (Exit.toString (Exit.toDocsProblemReport err ""))
 
           Right docs ->
-            outJson (Docs.encode docs)
+            outJson maybeOutput (Docs.encode docs)
 
 
-outJson :: Json.Encode.Value -> IO ()
-outJson jsonValue =
-    System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode jsonValue))
+outJson :: Maybe String -> Json.Encode.Value -> IO ()
+outJson maybePath jsonValue =
+    case maybePath of
+      Nothing ->
+        System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode jsonValue))
 
+      Just path ->
+        Json.Encode.write path jsonValue
 
  {-  Start Watchtower Server -}
 
@@ -607,7 +611,7 @@ importsRun arg (Terminal.Dev.ImportsFlags maybeOutput) =
                 Just moduleName -> do
                   let importSummary = Ext.Dev.Imports.getImportSummary details moduleName
                   
-                  outJson
+                  outJson maybeOutput
                     (Ext.Dev.Imports.encodeSummary
                         importSummary
                     )
@@ -658,7 +662,7 @@ usage :: Terminal.Command
 usage =
   let
     summary =
-      "Given a file, report everything it usage."
+      "Given a file, report all modules that use it in your project."
 
     details =
       "The `usage` command will report all usage of a given elm module."
@@ -697,13 +701,13 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput) =
                   System.IO.hPutStrLn System.IO.stdout "Was not able to find the module name for the given file"
 
                 Just moduleName -> do
-                  usageSummary <- Ext.Dev.Usage.usage root details moduleName
+                  usageSummary <- Ext.Dev.Usage.usageOfModule root details moduleName
                   case usageSummary of
                     Nothing ->
                         System.IO.hPutStrLn System.IO.stdout "Unable to find the given module"
 
                     Just summary ->
-                      outJson
+                      outJson maybeOutput
                         (Ext.Dev.Usage.encode
                             summary
                         )
@@ -783,4 +787,71 @@ entrypointsRun arg (Terminal.Dev.EntryPointsFlags maybeOutput) =
                   (Exit.toString (Exit.reactorToReport err))
             
             Right entry ->
-              outJson (Json.Encode.list Ext.Dev.EntryPoints.encode entry)
+              outJson maybeOutput (Json.Encode.list Ext.Dev.EntryPoints.encode entry)
+
+
+
+
+{- Explain -}
+
+
+
+
+data Explain 
+    = ExplainValue String
+
+  
+data ExplainFlags =
+  ExplainFlags
+    { _explainOutput :: Maybe String
+    }
+
+{-| -}
+explain :: Terminal.Command
+explain =
+  let
+    summary =
+      "Given a qualified value, explain it's definition and usages."
+
+    details =
+      "The `explain` command will report all usages of a given elm module."
+
+    example =
+      reflow
+        ""
+
+    explainFlags =
+      flags ExplainFlags
+        |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
+
+    explainArgs =
+      oneOf 
+        [ require1 ExplainValue dir
+        ]
+  in
+  Terminal.Command "explain" (Common summary) details example explainArgs explainFlags explainRun
+
+
+explainRun :: Explain -> Terminal.Dev.ExplainFlags -> IO ()
+explainRun arg (Terminal.Dev.ExplainFlags maybeOutput) =
+  case arg of
+    ExplainValue path -> do
+      maybeRoot <- Stuff.findRoot
+      case maybeRoot of
+        Nothing ->
+          System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+        
+        Just root -> 
+          case parseValueName path of
+            Nothing ->
+              System.IO.hPutStrLn System.IO.stdout "Was not able to parse the given value name"
+            
+            Just (modName, valueName) -> do 
+              details <- Ext.CompileProxy.loadProject root
+              maybeFound <- Ext.Dev.Explain.explain details root modName valueName
+              case maybeFound of
+                Nothing ->
+                  System.IO.hPutStrLn System.IO.stdout "Nothing found"
+
+                Just definition ->
+                  outJson maybeOutput (Ext.Dev.Explain.encode definition)

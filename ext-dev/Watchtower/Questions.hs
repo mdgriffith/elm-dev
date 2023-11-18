@@ -413,7 +413,7 @@ ask state question =
                 f
        in do
             root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-            maybeExplanation <- Ext.Dev.Explain.explain root location
+            maybeExplanation <- Ext.Dev.Explain.explainAtLocation root location
             case maybeExplanation of
               Nothing ->
                 Json.Encode.null

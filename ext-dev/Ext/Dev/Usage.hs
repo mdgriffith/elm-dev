@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Ext.Dev.Usage
-  ( usage
+  ( usageOfModule
   , UsageSummary(..)
   , encode
   )
@@ -54,8 +54,8 @@ data ExposedValue =
 
 
 
-usage :: String -> Elm.Details.Details -> ModuleName.Raw -> IO (Maybe UsageSummary)
-usage root project mod =
+usageOfModule :: String -> Elm.Details.Details -> ModuleName.Raw -> IO (Maybe UsageSummary)
+usageOfModule root project mod =
   case Ext.Dev.Project.lookupModulePath project mod of
     Nothing -> pure Nothing
     Just path -> do
@@ -72,6 +72,14 @@ toExposedValues foundMap =
         )
         []
         foundMap
+
+
+
+
+
+
+
+{--}
 
 lookupUsage :: String -> Elm.Details.Details -> ModuleName.Raw -> Map.Map Name (Set.Set ModuleName.Raw) ->  ModuleName.Raw -> IO (Map.Map Name (Set.Set ModuleName.Raw))
 lookupUsage root details originalModule foundMap importer = do
