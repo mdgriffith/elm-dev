@@ -1,4 +1,10 @@
-port module Main exposing (main, messageReceiver, sendMessage)
+port module Main exposing
+    ( main
+    , messageReceiver
+    , sendMessage
+    )
+
+{-| -}
 
 import Browser
 import Html as What
@@ -10,6 +16,8 @@ import Result
 -- import Imported
 
 
+{-| Here are my flags!!
+-}
 type alias Flags =
     { flag : String }
 
@@ -35,6 +43,8 @@ type alias Model =
     { flag : String }
 
 
+{-| HERE IS MY COMMENT
+-}
 type Msg
     = NoOp
     | Received String
