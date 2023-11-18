@@ -22,11 +22,12 @@ data Found
     = FoundValue (Maybe Def) (A.Located Src.Value)
     | FoundUnion (Maybe Can.Union) (A.Located Src.Union)
     | FoundAlias (Maybe Can.Alias) (A.Located Src.Alias)
-
+    deriving (Show)
 
 data Def
     = Def Can.Def
     | DefRecursive Can.Def [Can.Def]
+    deriving (Show)
 
 
 withCanonical :: Can.Module -> Found -> Found
@@ -39,7 +40,8 @@ withCanonical (Can.Module name exports docs decls unions aliases binops effects)
             FoundUnion (Map.lookup name unions) union
         
         FoundAlias _ (A.At loc alias_) ->
-            found
+            FoundAlias (Map.lookup (toAliasName alias_) aliases) (A.At loc alias_)
+
 
 
 getDefNamed :: Name -> Can.Decls -> Maybe Def
