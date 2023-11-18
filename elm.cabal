@@ -232,6 +232,9 @@ Executable elm-dev
 
         -- elm-dev cli interface
         Terminal.Dev
+        Terminal.Dev.Args
+        Terminal.Dev.Error
+        Terminal.Dev.Out
 
         -- Watchtower
         Watchtower.Editor
