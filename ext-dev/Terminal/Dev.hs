@@ -243,11 +243,14 @@ output_ =
   Parser
     { _singular = "output"
     , _plural = "output"
-    , _parser = readMaybe
+    , _parser = parseJsonOutput
     , _suggest = \_ -> return []
-    , _examples = \_ -> return ["docs.json"]
+    , _examples = \_ -> return ["out.json"]
     }
 
+parseJsonOutput :: String -> Maybe FilePath
+parseJsonOutput chars =
+  Just chars
 
 mapLeft :: (a -> c) -> Either a b -> Either c b
 mapLeft f (Left x) = Left (f x)
