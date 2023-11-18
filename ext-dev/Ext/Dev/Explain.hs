@@ -46,7 +46,6 @@ import qualified Ext.Dev.Lookup
 import qualified Ext.Dev.Json.Encode
 import qualified Ext.Dev.Project
 
-
 import qualified Elm.Details
 
 
@@ -139,13 +138,44 @@ explainAtModulePath root modulePath valuename = do
                             )
                         )
                 
-                Just (Ext.Dev.Find.Source.FoundUnion (Just union) (A.At pos srcUnion)) ->
-                    pure Nothing
+                Just (Ext.Dev.Find.Source.FoundUnion (Just union) (A.At pos srcUnion)) -> do
+                    let moduleName = Can._name canMod
+                    let usage = (UnionVariantUsage moduleName valuename Set.empty)
+                    let lookupCollection = LookupCollection (Map.singleton moduleName (Map.singleton valuename usage) )
+                    typeComponents <- lookUpTypesByFragments root lookupCollection
+                    let metadata = DeclarationMetadata valuename (Just (Can.TVar valuename)) typeComponents pos False
+                    
+                    pure 
+                        (Just 
+                            (Explanation
+                                localizer
+                                (Src.getName srcModule)
+                                metadata
+                                []
+                            )
+                        )
 
-                Just (Ext.Dev.Find.Source.FoundAlias (Just canAlias) (A.At pos alias_)) ->
-                    pure Nothing
-                
-                _ ->
+                Just (Ext.Dev.Find.Source.FoundAlias (Just canAlias) (A.At pos alias_)) -> do
+                    let (Can.Alias aliasVars aliasedType) = canAlias
+                    let placeholderAliasType = Can.Holey aliasedType
+
+                    let moduleName = Can._name canMod
+                    let usage = AliasUsage moduleName valuename [] placeholderAliasType
+                    let lookupCollection = LookupCollection (Map.singleton moduleName (Map.singleton valuename usage) )
+                    typeComponents <- lookUpTypesByFragments root lookupCollection
+                    let metadata = DeclarationMetadata valuename (Just aliasedType) typeComponents pos False
+                    
+                    pure 
+                        (Just 
+                            (Explanation
+                                localizer
+                                (Src.getName srcModule)
+                                metadata
+                                []
+                            )
+                        )
+
+                Just val -> do
                     pure Nothing
 
         (_, _) ->
