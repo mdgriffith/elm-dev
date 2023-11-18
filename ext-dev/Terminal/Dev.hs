@@ -55,6 +55,7 @@ import qualified Terminal.Helpers (package, version)
 import qualified Elm.Package as Pkg
 import qualified Elm.Version
 
+
 import qualified Data.Utf8 as Utf8
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString as BS
@@ -65,6 +66,9 @@ import qualified Stuff
 import qualified File
 import qualified Ext.Dev.Explain
 
+import qualified Terminal.Dev.Args
+import qualified Terminal.Dev.Out
+import qualified Terminal.Dev.Error
 
 
 main :: IO ()
@@ -219,11 +223,11 @@ getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
                   System.IO.hPutStrLn System.IO.stdout "No warnings!"
 
                 Right (mod, warningList) ->
-                    outJson maybeOutput
-                      (Json.Encode.list
-                          (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
-                          warningList
-                      )
+                    Terminal.Dev.Out.json maybeOutput
+                        (Right (Json.Encode.list
+                            (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                            warningList
+                        ))
                       
 
       else
@@ -245,6 +249,9 @@ output_ =
     }
 
 
+mapLeft :: (a -> c) -> Either a b -> Either c b
+mapLeft f (Left x) = Left (f x)
+mapLeft _ (Right x) = Right x
 
 
 getDocs :: DocsArgs -> Terminal.Dev.DocFlags -> IO ()
@@ -266,7 +273,7 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
                       (Exit.toString (Exit.reactorToReport err))
                 
                 Right docs ->
-                  outJson maybeOutput (Docs.encode docs)
+                   Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
 
     DocsPath path ->
       if Path.takeExtension path == ".elm" then do
@@ -282,7 +289,7 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
                 System.IO.hPutStrLn System.IO.stdout "Docs are not available"
 
               Just docs ->
-                outJson maybeOutput (Docs.encode (Docs.toDict [ docs ]))
+                 Terminal.Dev.Out.json maybeOutput (Right (Docs.encode (Docs.toDict [ docs ])))
       else do
         -- treat path as a directory path and produce docs as a project
         maybeRoot <-  Dir.withCurrentDirectory path Stuff.findRoot
@@ -298,45 +305,36 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
                     (Exit.toString (Exit.reactorToReport err))
               
               Right docs ->
-                outJson maybeOutput (Docs.encode docs)
+                Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
       
 
-    DocsPackage packageName ->
-      do
-        -- Is there an `elm.json` file?  Read it for the exact version.
-        maybeCurrentVersion <- Ext.Dev.Package.getCurrentlyUsedOrLatestVersion "." packageName
-        case maybeCurrentVersion of
-          Nothing ->
-            System.IO.hPutStrLn System.IO.stdout "No version found!"
+    DocsPackage packageName -> do
+      -- Is there an `elm.json` file?  Read it for the exact version.
+      maybeCurrentVersion <- Ext.Dev.Package.getCurrentlyUsedOrLatestVersion "." packageName
+      case maybeCurrentVersion of
+        Nothing ->
+          System.IO.hPutStrLn System.IO.stdout "No version found!"
 
-          Just packageVersion -> do   
-            result <- Ext.Dev.Package.getDocs packageName packageVersion
-            case result of
-              Left err ->
-                System.IO.hPutStrLn System.IO.stdout (Exit.toString (Exit.toDocsProblemReport err ""))
+        Just packageVersion -> do   
+          docsResult <- Ext.Dev.Package.getDocs packageName packageVersion
+          case docsResult of
+            Left err ->
+              System.IO.hPutStrLn System.IO.stdout (Exit.toString (Exit.toDocsProblemReport err ""))
 
-              Right docs ->
-                outJson maybeOutput (Docs.encode docs)
+            Right docs ->
+              Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
+           
         
-    DocsPackageVersion name packageVersion ->
-      do
-        result <- Ext.Dev.Package.getDocs name packageVersion
-        case result of
-          Left err ->
-            System.IO.hPutStrLn System.IO.stdout (Exit.toString (Exit.toDocsProblemReport err ""))
+    DocsPackageVersion name packageVersion -> do
+      result <- Ext.Dev.Package.getDocs name packageVersion
+      case result of
+        Left err ->
+          System.IO.hPutStrLn System.IO.stdout (Exit.toString (Exit.toDocsProblemReport err ""))
 
-          Right docs ->
-            outJson maybeOutput (Docs.encode docs)
+        Right docs ->
+          Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
 
 
-outJson :: Maybe String -> Json.Encode.Value -> IO ()
-outJson maybePath jsonValue =
-    case maybePath of
-      Nothing ->
-        System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode jsonValue))
-
-      Just path ->
-        Json.Encode.write path jsonValue
 
  {-  Start Watchtower Server -}
 
@@ -480,47 +478,19 @@ findRun :: Find -> Terminal.Dev.FindFlags -> IO ()
 findRun arg (Terminal.Dev.FindFlags maybeOutput) =
   case arg of
     FindValue path -> do
-      maybeRoot <- Stuff.findRoot
-      case maybeRoot of
-        Nothing ->
-          System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
-        
-        Just root -> 
-          case parseValueName path of
-            Nothing ->
-              System.IO.hPutStrLn System.IO.stdout "Was not able to parse the given value name"
-            
-            Just (modName, valueName) -> do 
-              maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root modName valueName
-              case maybeDefinition of
-                Nothing ->
-                  System.IO.hPutStrLn System.IO.stdout "Nothing found"
+      valueResult <- Terminal.Dev.Args.value path
+      case valueResult of
+        Left err ->
+           System.IO.hPutStrLn System.IO.stdout (Terminal.Dev.Error.toString err)
 
-                Just definition ->
-                  System.IO.hPutStrLn System.IO.stdout "Found!"
+        Right (Terminal.Dev.Args.Value root modName valueName) -> do
+            maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root modName valueName
+            case maybeDefinition of
+              Nothing ->
+                System.IO.hPutStrLn System.IO.stdout "Nothing found"
 
-     
-parseValueName :: String -> Maybe (Name.Name, Name.Name)
-parseValueName string =
-  case reverse (Name.splitDots (Name.fromChars string)) of
-    [] ->
-      Nothing
-
-    [_] ->
-      Nothing
-
-    name : path ->
-      let 
-          correctedPath = (reverse path)
-
-          modName = Utf8.join 0x2E {- . -} correctedPath
-      in
-      Just
-        ( modName
-        , name
-        )
-
-
+              Just definition ->
+                System.IO.hPutStrLn System.IO.stdout "Found!"
 
 
 {- 
@@ -579,50 +549,24 @@ imports =
 
 
 
-
-resolveModuleName :: String -> Elm.Details.Details -> IO (Maybe Name.Name)
-resolveModuleName string details = do
-   if Path.takeExtension string == ".elm" then do
-      absolutePath <- toAbsoluteFilePath string
-      pure (Ext.Dev.Project.lookupModuleName details absolutePath)
-   else 
-      pure (Just (Name.fromChars string))
-
-
-
-
 importsRun :: Imports -> Terminal.Dev.ImportsFlags -> IO ()
 importsRun arg (Terminal.Dev.ImportsFlags maybeOutput) =
   case arg of
-    ImportsModule path ->
-        do
-          maybeRoot <- Stuff.findRoot
-          case maybeRoot of
-            Nothing ->
-              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
-            
-            Just root -> do
-              details <- Ext.CompileProxy.loadProject root
-              resolved <- resolveModuleName path details
-              case resolved of
-                Nothing ->
-                  System.IO.hPutStrLn System.IO.stdout "Was not able to find the module name for the given file"
-
-                Just moduleName -> do
-                  let importSummary = Ext.Dev.Imports.getImportSummary details moduleName
-                  
-                  outJson maybeOutput
-                    (Ext.Dev.Imports.encodeSummary
-                        importSummary
-                    )
-
-
-toAbsoluteFilePath :: FilePath -> IO FilePath
-toAbsoluteFilePath path = do 
-  cwd <- Dir.getCurrentDirectory
-  return $ cwd </> path
-  
-
+    ImportsModule path -> do
+      moduleResult <- Terminal.Dev.Args.modul path
+      case moduleResult of
+        Left err ->
+           Terminal.Dev.Out.json maybeOutput (Left err)
+           
+        Right (Terminal.Dev.Args.Module root moduleName details) -> do
+          let importSummary = Ext.Dev.Imports.getImportSummary details moduleName
+          
+          Terminal.Dev.Out.json maybeOutput
+            (Right 
+              (Ext.Dev.Imports.encodeSummary
+                  importSummary
+              )
+            )
 
 
 {- Usage -}
@@ -686,31 +630,25 @@ usage =
 usageRun :: Usage -> Terminal.Dev.UsageFlags -> IO ()
 usageRun arg (Terminal.Dev.UsageFlags maybeOutput) =
   case arg of
-    UsageModule path ->
-        do
-          maybeRoot <- Stuff.findRoot
-          case maybeRoot of
+    UsageModule path -> do
+      moduleResult <- Terminal.Dev.Args.modul path
+      case moduleResult of
+        Left err ->
+           Terminal.Dev.Out.json maybeOutput (Left err)
+           
+        Right (Terminal.Dev.Args.Module root moduleName details) -> do
+          usageSummary <- Ext.Dev.Usage.usageOfModule root details moduleName
+          case usageSummary of
             Nothing ->
-              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
-            
-            Just root -> do
-              details <- Ext.CompileProxy.loadProject root
-              resolved <- resolveModuleName path details
-              case resolved of
-                Nothing ->
-                  System.IO.hPutStrLn System.IO.stdout "Was not able to find the module name for the given file"
+                System.IO.hPutStrLn System.IO.stdout "Unable to find the given module"
 
-                Just moduleName -> do
-                  usageSummary <- Ext.Dev.Usage.usageOfModule root details moduleName
-                  case usageSummary of
-                    Nothing ->
-                        System.IO.hPutStrLn System.IO.stdout "Unable to find the given module"
-
-                    Just summary ->
-                      outJson maybeOutput
-                        (Ext.Dev.Usage.encode
-                            summary
-                        )
+            Just summary ->
+                Terminal.Dev.Out.json maybeOutput
+                    (Right 
+                      (Ext.Dev.Usage.encode
+                          summary
+                      )
+                    )
 
 
 {- Entrypoints 
@@ -787,7 +725,8 @@ entrypointsRun arg (Terminal.Dev.EntryPointsFlags maybeOutput) =
                   (Exit.toString (Exit.reactorToReport err))
             
             Right entry ->
-              outJson maybeOutput (Json.Encode.list Ext.Dev.EntryPoints.encode entry)
+                Terminal.Dev.Out.json maybeOutput
+                  (Right (Json.Encode.list Ext.Dev.EntryPoints.encode entry))
 
 
 
@@ -836,22 +775,17 @@ explainRun :: Explain -> Terminal.Dev.ExplainFlags -> IO ()
 explainRun arg (Terminal.Dev.ExplainFlags maybeOutput) =
   case arg of
     ExplainValue path -> do
-      maybeRoot <- Stuff.findRoot
-      case maybeRoot of
-        Nothing ->
-          System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
-        
-        Just root -> 
-          case parseValueName path of
-            Nothing ->
-              System.IO.hPutStrLn System.IO.stdout "Was not able to parse the given value name"
-            
-            Just (modName, valueName) -> do 
-              details <- Ext.CompileProxy.loadProject root
-              maybeFound <- Ext.Dev.Explain.explain details root modName valueName
-              case maybeFound of
-                Nothing ->
-                  System.IO.hPutStrLn System.IO.stdout "Nothing found"
+      valueResult <- Terminal.Dev.Args.value path
+      case valueResult of
+        Left err ->
+          Terminal.Dev.Out.json maybeOutput (Left err)
 
-                Just definition ->
-                  outJson maybeOutput (Ext.Dev.Explain.encode definition)
+        Right (Terminal.Dev.Args.Value root modName valueName) -> do
+          details <- Ext.CompileProxy.loadProject root
+          maybeFound <- Ext.Dev.Explain.explain details root modName valueName
+          case maybeFound of
+            Nothing ->
+              System.IO.hPutStrLn System.IO.stdout "Nothing found"
+
+            Just definition ->
+              Terminal.Dev.Out.json maybeOutput (Right (Ext.Dev.Explain.encode definition))
