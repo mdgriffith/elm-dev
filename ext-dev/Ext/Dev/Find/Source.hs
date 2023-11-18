@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Ext.Dev.Find.Source
-  ( definitionAtPoint, Found(..)
+  ( definitionNamed 
+  , definitionAtPoint, Found(..)
   , withCanonical, Def(..)
   )
 where
@@ -69,34 +70,66 @@ defNamed name def =
             name == defName
 
 
+definitionNamed :: Name -> Src.Module -> Maybe Found
+definitionNamed valueName (Src.Module name exports docs imports values unions aliases infixes effects) =
+    find (withName valueName toValueName (FoundValue Nothing)) values
+        & orFind (withName valueName toUnionName (FoundUnion Nothing)) unions
+        & orFind (withName valueName toAliasName (FoundAlias Nothing)) aliases
+
+
+withName :: Name -> (a -> Name) ->  (A.Located a -> Found) ->  A.Located a -> Maybe Found
+withName name getName toFound (locatedItem@(A.At _ val)) =
+    if name == getName val then
+        Just (toFound locatedItem)
+    else
+        Nothing
+
+
+toValueName :: Src.Value -> Name
+toValueName (Src.Value (A.At _ name) _ _ _) =
+    name
+
+toUnionName :: Src.Union -> Name
+toUnionName (Src.Union (A.At _ name) _ _) =
+    name
+
+toAliasName :: Src.Alias -> Name
+toAliasName (Src.Alias (A.At _ name) _ _) =
+    name
+
+
 definitionAtPoint :: Watchtower.Editor.PointLocation -> Src.Module -> Maybe Found
 definitionAtPoint point (Src.Module name exports docs imports values unions aliases infixes effects) =
-    find point (FoundValue Nothing) values
-        & orFind point (FoundUnion Nothing) unions
-        & orFind point (FoundAlias Nothing) aliases
+    find (atLocation point (FoundValue Nothing)) values
+        & orFind (atLocation point (FoundUnion Nothing)) unions
+        & orFind (atLocation point (FoundAlias Nothing)) aliases
 
 
-find :: Watchtower.Editor.PointLocation -> (A.Located a -> Found) -> [ A.Located a ] -> Maybe Found
-find (Watchtower.Editor.PointLocation _ point) toResult items =
+atLocation :: Watchtower.Editor.PointLocation -> (A.Located a -> Found) -> A.Located a -> Maybe Found
+atLocation (Watchtower.Editor.PointLocation _ point) toFound (locatedItem@(A.At region _)) =
+    if withinRegion point region then
+        Just (toFound locatedItem)
+    else
+        Nothing
+
+find :: (A.Located a -> Maybe Found) -> [ A.Located a ] -> Maybe Found
+find toResult items =
     List.foldl 
-        (\found located@(A.At region item) ->
+        (\found located ->
             case found of
                 Nothing ->
-                    if withinRegion point region then
-                        Just (toResult located)
-                    else
-                        found
-
+                    (toResult located)
+                    
                 Just _ ->
                     found
         
         ) Nothing items
 
-orFind :: Watchtower.Editor.PointLocation -> (A.Located a -> Found) -> [ A.Located a] -> Maybe Found -> Maybe Found
-orFind point toResult items previousResult =
+orFind :: (A.Located a -> Maybe Found) -> [ A.Located a] -> Maybe Found -> Maybe Found
+orFind toResult items previousResult =
     case previousResult of
         Nothing ->
-           find point toResult items
+           find toResult items
 
         _ ->
             previousResult
