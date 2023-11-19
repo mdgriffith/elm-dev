@@ -477,12 +477,26 @@ emptyRefCollection =
 
 
 addRef :: Reference -> ReferenceCollection -> ReferenceCollection
-addRef (ref@(ValueReference mod name type_)) (ReferenceCollection refs usedTypes unions usedModules) =
-    ReferenceCollection 
-        (Map.insert (mod, name) ref refs)
-        usedTypes
-        unions
-        usedModules
+addRef ref (ReferenceCollection refs usedTypes unions usedModules) =
+    case ref of
+        ValueReference mod name type_ ->
+            ReferenceCollection 
+                (Map.insert (mod, name) ref refs)
+                usedTypes
+                unions
+                usedModules
+        
+        TypeReference typeUsage lookup ->
+            let 
+                mod = getFragmentCanonicalName typeUsage
+
+                name = getFragmentName typeUsage
+            in
+            ReferenceCollection 
+                (Map.insert (External mod, name) ref refs)
+                usedTypes
+                unions
+                usedModules
 
 
 addType :: Can.Type -> ReferenceCollection -> ReferenceCollection
@@ -989,6 +1003,9 @@ encodeVarList localizer varNames fragment =
                 (List.zip varNames varTypes)
 
         UnionVariantUsage canName name usages ->
+            Json.Encode.list id []
+
+        Definition canName name type_ ->
             Json.Encode.list id []
 
 
