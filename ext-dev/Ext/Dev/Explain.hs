@@ -123,11 +123,8 @@ explainAtModulePath root modulePath valuename = do
                                         (toLookupCollection refCollection)
 
                     Ext.Log.log Ext.Log.Misc (show (List.length foundTypeRefs))
-        
-                    let refs = Map.elems refMap 
-
+                    let refs = Map.elems refMap
                     metadata <- getDeclarationMetadata root pos def
-
                     pure 
                         (Just 
                             (Explanation
@@ -141,7 +138,8 @@ explainAtModulePath root modulePath valuename = do
                 Just (Ext.Dev.Find.Source.FoundUnion (Just union) (A.At pos srcUnion)) -> do
                     let moduleName = Can._name canMod
                     let usage = (UnionVariantUsage moduleName valuename Set.empty)
-                    let lookupCollection = LookupCollection (Map.singleton moduleName (Map.singleton valuename usage) )
+                    let lookupCollection = unionToLookupCollection moduleName valuename union
+
                     typeComponents <- lookUpTypesByFragments root lookupCollection
                     let metadata = DeclarationMetadata valuename (Just (Can.TVar valuename)) typeComponents pos False
                     
@@ -161,7 +159,10 @@ explainAtModulePath root modulePath valuename = do
 
                     let moduleName = Can._name canMod
                     let usage = AliasUsage moduleName valuename [] placeholderAliasType
+
                     let lookupCollection = LookupCollection (Map.singleton moduleName (Map.singleton valuename usage) )
+                                                 & getExternalTypeUsages aliasedType
+
                     typeComponents <- lookUpTypesByFragments root lookupCollection
                     let metadata = DeclarationMetadata valuename (Just aliasedType) typeComponents pos False
                     
@@ -255,6 +256,34 @@ toLookupCollection (ReferenceCollection refMap types refUnions usedMods) =
     in
     Map.elems refMap
         & List.foldl getTypeLookups lookup
+
+unionToLookupCollection :: ModuleName.Canonical -> Name.Name -> Can.Union -> LookupCollection
+unionToLookupCollection moduleName unionName union =
+    let
+        variantList = Can._u_alts union
+        externalTypes = 
+            List.concatMap 
+                (\(Can.Ctor _ _ _ types) -> types)
+                variantList
+
+        toUsage (Can.Ctor name _ _ types) =
+            UnionVariantUsage moduleName unionName (Set.singleton name)
+
+        variants = Map.fromList 
+                    (List.map 
+                        (\ctor ->
+                            (unionName, toUsage ctor)
+                        ) 
+                        variantList
+                    )
+
+        baseCollection =  LookupCollection (Map.singleton moduleName variants)
+    in
+    List.foldr 
+        getExternalTypeUsages
+        baseCollection
+        externalTypes
+
 
 getTypeLookups :: LookupCollection -> Reference -> LookupCollection
 getTypeLookups found ref =
@@ -402,22 +431,21 @@ findFragment root (canMod, fragmentMap) =
     if isSkippable canMod then 
         pure []
 
-    else
-        do 
-            definitions <- Ext.Dev.Lookup.lookupDefinitionMany root (ModuleName._module canMod) (Map.keys fragmentMap)
-            pure 
-                (List.foldl 
-                    (\gathered (fragname, frag) ->
-                        case Map.lookup fragname definitions of
-                            Nothing ->
-                                gathered
+    else do 
+        definitions <- Ext.Dev.Lookup.lookupDefinitionMany root (ModuleName._module canMod) (Map.keys fragmentMap)
+        pure 
+            (List.foldl 
+                (\gathered (fragname, frag) ->
+                    case Map.lookup fragname definitions of
+                        Nothing ->
+                            gathered
 
-                            Just fragDef ->
-                                (frag, fragDef) : gathered
-                    ) 
-                    []
-                    (Map.toList fragmentMap)
-                )
+                        Just fragDef ->
+                            (frag, fragDef) : gathered
+                ) 
+                []
+                (Map.toList fragmentMap)
+            )
 
    
 {-| Skip internalmodules
@@ -806,12 +834,6 @@ encodeDefinitionMetadata localizer (DeclarationMetadata name maybeType typeCompo
                         Just canType ->
                             encodeCanType localizer canType
 
-                , "args" ==> 
-                    case maybeType of
-                        Nothing -> Json.Encode.null
-                        Just canType -> 
-                            Json.Encode.list Json.Encode.name (toVars canType)
-                
                 , "components" ==>
                     (Json.Encode.object $
                         List.map
