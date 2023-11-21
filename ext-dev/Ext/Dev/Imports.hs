@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Ext.Dev.Imports
-  ( getImportSummary
+  ( getImportSummaryForMany 
+  , getImportSummary
   , ImportSummary(..)
   , Import(..)
   , encode
@@ -84,6 +85,29 @@ encodePackageImport (PackageImport name usedModules) =
         [ "name" ==> Elm.Package.encode name
         , "usedModules" ==> Json.Encode.list Json.Encode.name usedModules
         ]
+
+
+getImportSummaryForMany :: Elm.Details.Details -> [ ModuleName.Raw ] -> ImportSummary
+getImportSummaryForMany details moduleNameList =
+    let 
+        -- Get local imports
+        localImports = 
+            Map.elems 
+                (List.foldl 
+                    (\gathered moduleName -> 
+                        getImportsForModule details moduleName gathered
+                    )
+                    Map.empty
+                    moduleNameList
+                )
+
+        -- Get used packages
+        localImportNames = List.concatMap _imports localImports
+        packageImports = List.foldl (gatherPackageImports details) Map.empty (moduleNameList ++ localImportNames)
+
+    in
+    ImportSummary (toPackageList packageImports) localImports
+
 
 getImportSummary :: Elm.Details.Details -> ModuleName.Raw -> ImportSummary
 getImportSummary details moduleName =

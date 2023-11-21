@@ -1,5 +1,8 @@
 module Terminal.Dev.Args
-    ( Module(..)
+    ( moduleList
+    , ModuleList(..)
+    , ModuleInfo(..)
+    , Module(..)
     , modul
     , Value(..)
     , value
@@ -18,11 +21,45 @@ import qualified Data.Utf8 as Utf8
 import qualified System.Directory as Dir
 import qualified Ext.CompileProxy
 import qualified Terminal.Dev.Error as Error (Error(..))
+import qualified Control.Monad as Monad
+
+
+data ModuleList =
+    ModuleList
+        { _modListRoot :: FilePath
+        , _modListInfo :: [ModuleInfo]
+        , _modListDetails :: Elm.Details.Details
+        }
+
+data ModuleInfo =
+    ModuleInfo
+        { _modName :: Name.Name
+        , _modFilePath :: FilePath
+        }
+
+
+moduleList :: (FilePath, [FilePath])  -> IO (Either Error.Error ModuleList)
+moduleList (basePath, allOtherPaths) = do
+    maybeRoot <- Dir.withCurrentDirectory (Path.takeDirectory basePath) Stuff.findRoot
+    case maybeRoot of
+        Nothing -> pure (Left Error.CouldNotFindRoot)
+        Just root -> do
+            details <- Ext.CompileProxy.loadProject root
+            moduleInfos <- Monad.mapM (\path -> readModuleInfo path details) (basePath : allOtherPaths)
+            case sequence moduleInfos of
+                (Right infos)->
+                    pure (Right (ModuleList root infos details))
+                  
+                (Left err) -> pure (Left err)
+            
+
+
+{--}
 
 data Module =
     Module
         { _modRoot :: FilePath
-        , _modName :: Name.Name
+        , _moduleInfo :: ModuleInfo
         , _modDetails :: Elm.Details.Details
         }
 
@@ -40,11 +77,39 @@ modul base = do
         Nothing -> pure (Left Error.CouldNotFindRoot)
         Just root -> do
             details <- Ext.CompileProxy.loadProject root
-            moduleNameResult <- readModuleName base details
-            case moduleNameResult of
-                Left err -> pure (Left err)
-                Right name ->
-                    pure (Right (Module root name details))
+            moduleInfo <- readModuleInfo base details
+            case moduleInfo of
+                (Right info)->
+                    pure (Right (Module root info details))
+                  
+                (Left err) -> pure (Left err)
+                
+
+
+readModuleInfo :: String -> Elm.Details.Details -> IO (Either Error.Error ModuleInfo)
+readModuleInfo string details = do
+   if Path.takeExtension string == ".elm" then do
+      absolutePath <- toAbsoluteFilePath string
+      case Ext.Dev.Project.lookupModuleName details absolutePath of
+        Nothing -> pure (Left Error.CouldNotFindModule)
+        Just name -> pure (Right (ModuleInfo name absolutePath))
+   else 
+      case Ext.Dev.Project.lookupModulePath details (Name.fromChars string) of
+          Nothing -> pure (Left Error.CouldNotFindModule)
+          Just path -> pure (Right (ModuleInfo (Name.fromChars string) path))
+
+
+readModulePath :: String -> Elm.Details.Details -> IO (Either Error.Error FilePath)
+readModulePath string details = do
+   if Path.takeExtension string == ".elm" then do
+      absolutePath <- toAbsoluteFilePath string
+      pure (Right absolutePath)
+   else 
+      case Ext.Dev.Project.lookupModulePath details (Name.fromChars string) of
+          Nothing -> pure (Left Error.CouldNotFindModule)
+          Just path -> pure (Right path)
+
+
 
 readModuleName :: String -> Elm.Details.Details -> IO (Either Error.Error Name.Name)
 readModuleName string details = do

@@ -35,6 +35,8 @@ import qualified Ext.Dev.Json.Encode
 import qualified Ext.Dev.Imports
 import qualified Ext.Dev.Project
 import qualified Ext.Dev.Usage
+import qualified Ext.Dev.CallGraph
+
 import qualified Ext.CompileProxy
 
 import qualified Data.ByteString.Builder
@@ -82,6 +84,8 @@ main =
     , usage
     , entrypoints
     , explain
+    -- call graph needs some more thought
+    -- , callgraph
     ]
 
 
@@ -496,6 +500,9 @@ findRun arg (Terminal.Dev.FindFlags maybeOutput) =
                 System.IO.hPutStrLn System.IO.stdout "Found!"
 
 
+
+
+
 {- 
 
 ## Imports
@@ -514,16 +521,39 @@ For every imported thing, also report:
 
 
 
+Terminal.Helpers.elmFiles
+
  -}
 
-data Imports 
-    = ImportsModule String
 
+elmFileOrModule :: Parser String
+elmFileOrModule =
+  Parser
+    { _singular = "elm file"
+    , _plural = "elm files"
+    , _parser = parseElmFile
+    , _suggest = \_ -> return []
+    , _examples = exampleFilesOrModules
+    }
+
+
+parseElmFile :: String -> Maybe String
+parseElmFile chars =
+  Just chars
   
+
+
+exampleFilesOrModules :: String -> IO [String]
+exampleFilesOrModules _ =
+  return ["Main.elm","src/Main.elm", "Ui.Button"]
+
+
 data ImportsFlags =
   ImportsFlags
     { _importOutput :: Maybe String
     }
+
+
 
 {-| -}
 imports :: Terminal.Command
@@ -543,33 +573,98 @@ imports =
       flags ImportsFlags
         |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
 
-    importsArgs =
+  in
+  Terminal.Command "imports" (Common summary) details example (oneOrMore elmFileOrModule) importsFlags importsRun
+
+
+
+importsRun :: (String, [ String ]) -> Terminal.Dev.ImportsFlags -> IO ()
+importsRun moduleNames (Terminal.Dev.ImportsFlags maybeOutput) = do
+    moduleResult <- Terminal.Dev.Args.moduleList moduleNames
+    case moduleResult of
+      Left err ->
+          Terminal.Dev.Out.json maybeOutput (Left err)
+          
+      Right (Terminal.Dev.Args.ModuleList root infoList details) -> do
+
+        let allModulesNames = fmap Terminal.Dev.Args._modName infoList
+    
+        let importSummary = Ext.Dev.Imports.getImportSummaryForMany details allModulesNames
+        
+        Terminal.Dev.Out.json maybeOutput
+          (Right 
+            (Ext.Dev.Imports.encodeSummary
+                importSummary
+            )
+          )
+
+
+
+{- Call graph -}
+
+{- 
+
+ -}
+
+data CallGraph 
+    = CallGraphModule String
+
+  
+data CallGraphFlags =
+  CallGraphFlags
+    { _callgraphOutput :: Maybe String
+    }
+
+{-| -}
+callgraph :: Terminal.Command
+callgraph =
+  let
+    summary =
+      "Given a file, report everything it callgraph."
+
+    details =
+      "The `callgraph` command will report all callgraph of a given elm module."
+
+    example =
+      reflow
+        ""
+
+    callgraphFlags =
+      flags CallGraphFlags
+        |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
+
+    callgraphArgs =
       oneOf 
-        [ require1 ImportsModule dir
+        [ require1 CallGraphModule dir
         ]
   in
-  Terminal.Command "imports" (Common summary) details example importsArgs importsFlags importsRun
+  Terminal.Command "callgraph" (Common summary) details example callgraphArgs callgraphFlags callgraphRun
 
 
 
-importsRun :: Imports -> Terminal.Dev.ImportsFlags -> IO ()
-importsRun arg (Terminal.Dev.ImportsFlags maybeOutput) =
+callgraphRun :: CallGraph -> Terminal.Dev.CallGraphFlags -> IO ()
+callgraphRun arg (Terminal.Dev.CallGraphFlags maybeOutput) =
   case arg of
-    ImportsModule path -> do
+    CallGraphModule path -> do
       moduleResult <- Terminal.Dev.Args.modul path
       case moduleResult of
         Left err ->
            Terminal.Dev.Out.json maybeOutput (Left err)
            
-        Right (Terminal.Dev.Args.Module root moduleName details) -> do
-          let importSummary = Ext.Dev.Imports.getImportSummary details moduleName
-          
-          Terminal.Dev.Out.json maybeOutput
-            (Right 
-              (Ext.Dev.Imports.encodeSummary
-                  importSummary
-              )
-            )
+        Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
+          callgraphSummaryResult <- Ext.Dev.CallGraph.callgraph root modulePath
+          case callgraphSummaryResult of
+            Nothing ->
+              Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindModule)
+
+            Just callgraphSummary ->
+              Terminal.Dev.Out.json maybeOutput
+                (Right 
+                  (Ext.Dev.CallGraph.encode
+                      callgraphSummary
+                  )
+                )
+
 
 
 {- Usage -}
@@ -639,7 +734,7 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput) =
         Left err ->
            Terminal.Dev.Out.json maybeOutput (Left err)
            
-        Right (Terminal.Dev.Args.Module root moduleName details) -> do
+        Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
           usageSummary <- Ext.Dev.Usage.usageOfModule root details moduleName
           case usageSummary of
             Nothing ->
