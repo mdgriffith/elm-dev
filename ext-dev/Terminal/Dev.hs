@@ -539,7 +539,7 @@ elmFileOrModule =
 
 parseElmFile :: String -> Maybe String
 parseElmFile chars =
-  Just chars
+  Just (filter (/= ',') chars)
   
 
 
@@ -582,7 +582,7 @@ importsRun :: (String, [ String ]) -> Terminal.Dev.ImportsFlags -> IO ()
 importsRun moduleNames (Terminal.Dev.ImportsFlags maybeOutput) = do
     moduleResult <- Terminal.Dev.Args.moduleList moduleNames
     case moduleResult of
-      Left err ->
+      Left err -> do
           Terminal.Dev.Out.json maybeOutput (Left err)
           
       Right (Terminal.Dev.Args.ModuleList root infoList details) -> do
