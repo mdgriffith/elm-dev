@@ -6,6 +6,7 @@ module Ext.Dev.Explain
   , explainAtLocation
   , Explanation
   , encode
+  , encodeInlineDefinition
   )
 where
 
@@ -172,9 +173,9 @@ explainFromFileResult root valueName (single@(Ext.CompileProxy.Single source war
                     let usage = (UnionVariantUsage moduleName valueName Set.empty)
                     let lookupCollection = unionToLookupCollection moduleName valueName union
 
-                    -- typeComponents <- lookUpTypesByFragments root lookupCollection
-                    let typeComponents = []
-                    let metadata = DeclarationMetadata valueName (Just (Can.TVar valueName)) typeComponents pos False
+                    typeComponents <- lookUpTypesByFragments root lookupCollection
+                    
+                    let metadata = DeclarationMetadata valueName (Just (Can.TVar valueName)) (fmap toTypeComponentDefinition typeComponents) pos False
                     
                     pure 
                         (Just 
@@ -196,9 +197,9 @@ explainFromFileResult root valueName (single@(Ext.CompileProxy.Single source war
                     let lookupCollection = LookupCollection (Map.singleton moduleName (Map.singleton valueName usage) )
                                                  & getExternalTypeUsages aliasedType
 
-                    -- typeComponents <- lookUpTypesByFragments root lookupCollection
-                    let typeComponents = []
-                    let metadata = DeclarationMetadata valueName (Just aliasedType) typeComponents pos False
+                    typeComponents <- lookUpTypesByFragments root lookupCollection
+                    -- let typeComponents = []
+                    let metadata = DeclarationMetadata valueName (Just aliasedType) (fmap toTypeComponentDefinition typeComponents) pos False
                     
                     pure 
                         (Just 
@@ -217,6 +218,9 @@ explainFromFileResult root valueName (single@(Ext.CompileProxy.Single source war
              pure Nothing
 
 
+toTypeComponentDefinition :: (TypeUsage, Ext.Dev.Lookup.LookupResult) -> TypeComponentDefinition
+toTypeComponentDefinition (usage, lookup) =
+    TypeFromDef usage lookup
 
 
 explainAtLocation :: String -> Watchtower.Editor.PointLocation -> IO (Maybe Explanation)
@@ -499,16 +503,17 @@ getTypeComponents isTopLevel root tipe = do
             pure (oneComp ++ twoComp ++ threeComp)
         
         Can.TAlias canMod name varTypes aliasType -> do
-            maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root (ModuleName._module canMod) name
-            let definition = case maybeDefinition of
-                                Nothing -> Inline tipe
-                                Just lookupResult ->
-                                    let 
-                                        usage = AliasUsage canMod name varTypes aliasType
-                                    in
-                                    Defined usage lookupResult
-            pure [ TypeInline tipe refs definition ]
+            -- TODO: do we keep track of this alias at all?
+            getTypeComponents isTopLevel root (getTypeFromAlias aliasType)
             
+
+getTypeFromAlias aliasType =
+    case aliasType of
+        Can.Holey canType ->
+            canType
+
+        Can.Filled canType ->
+            canType
 
 lookUpTypesByFragments :: String -> LookupCollection -> IO [ (TypeUsage, Ext.Dev.Lookup.LookupResult) ]
 lookUpTypesByFragments root (LookupCollection fragments) =
@@ -569,27 +574,18 @@ getDeclarationMetadata root missingTypeLookup pos foundDef =
 getCanDeclarationMetadata root missingTypeLookup pos def recursive =
     case def of
         Can.Def (A.At _ name) patterns expr -> do 
-            -- System.IO.hPutStrLn System.IO.stdout (show lookupCollection) 
              case Map.lookup name missingTypeLookup of
                 Nothing ->
                     pure (DeclarationMetadata name Nothing [] pos recursive)
 
                 Just type_ -> do
-                    -- let lookupCollection = getExternalTypeUsages type_ emptyLookup
-                    -- typeComponents <- lookUpTypesByFragments root lookupCollection
                     typeComponents <- getTypeComponents True root type_
                     pure (DeclarationMetadata name (Just type_) typeComponents pos recursive)
         
-        Can.TypedDef (A.At _ name) freevars patterns expr type_ -> do 
-            -- let lookupCollection = getExternalTypeUsages type_ emptyLookup
-
-            -- typeComponents <- lookUpTypesByFragments root lookupCollection
-            typeComponents <- getTypeComponents True root type_
-
-            -- System.IO.hPutStrLn System.IO.stdout "----"
-            -- System.IO.hPutStrLn System.IO.stdout (show lookupCollection)            
-            
-            pure (DeclarationMetadata name (Just type_) typeComponents pos recursive)
+        Can.TypedDef (A.At _ name) freevars patternTypes expr returnType -> do
+            let tipe = Ext.Dev.Help.toFunctionType (fmap snd patternTypes) returnType
+            typeComponents <- getTypeComponents True root tipe
+            pure (DeclarationMetadata name (Just tipe) typeComponents pos recursive)
 
 
 {-| REFERENCE COLLECTION -}
@@ -939,55 +935,67 @@ encode (Explanation localizer moduleName def references) =
         --         (encodeFact localizer)
         --         references
         ]
+
+
+{-| This is used by `Usage` to embed an explanation in another piece of JSON which already has information like locaiton and name and stuff.
+
+So, this is just the definition explanation
+
+-}
+encodeInlineDefinition :: Explanation -> Json.Encode.Value
+encodeInlineDefinition (Explanation localizer moduleName def references) =
+    encodeDefinitionType localizer def
     
 encodeDefinitionMetadata :: Reporting.Render.Type.Localizer.Localizer ->  DeclarationMetadata -> Json.Encode.Value
-encodeDefinitionMetadata localizer (DeclarationMetadata name maybeType typeComponents region recursive) =
+encodeDefinitionMetadata localizer (def@(DeclarationMetadata name maybeType typeComponents region recursive)) =
     Json.Encode.object 
         [ "name" ==> Json.Encode.chars (Name.toChars name)
-        , "type" ==> 
-            (Json.Encode.object 
-                [ "signature" ==>
-                     case maybeType of
-                        Nothing -> Json.Encode.null
-                        Just canType ->
-                            encodeCanType localizer canType
-
-                , "components" ==>
-                    (Json.Encode.list 
-                        (\component ->  
-                            case component of
-                                TypeFromDef typeUsage typeLookup ->
-                                    Json.Encode.object (lookupToJsonFields localizer typeUsage typeLookup)
-                                
-                                TypeInline canType refs definition ->
-                                    Json.Encode.object 
-                                        [ "signature" ==> encodeCanType localizer canType
-                                        , "definition" ==> case definition of
-                                                            Inline tipe -> encodeTypeDefinition localizer tipe
-                                                            
-                                                            Defined usage defined -> encodeLookupResult localizer usage defined
-
-                                        -- , "references" ==>
-                                        --     Json.Encode.list 
-                                        --         (\(typeUsage, typeLookup)-> 
-                                        --             Json.Encode.object (lookupToJsonFields localizer typeUsage typeLookup)    
-                                        --         )
-                                        --         refs 
-                                        ]
-
-                                
-                        
-                        )
-                        typeComponents
-                    )
-
-                ]
-            )
+        , "type" ==> encodeDefinitionType localizer def
         , "region" ==> Watchtower.Editor.encodeRegion region
 
         -- Don't know if the below is useful
         -- , "recursive" ==>  Json.Encode.bool recursive
         ]   
+
+encodeDefinitionType :: Reporting.Render.Type.Localizer.Localizer -> DeclarationMetadata -> Json.Encode.Value
+encodeDefinitionType localizer (DeclarationMetadata name maybeType typeComponents region recursive) =
+    Json.Encode.object 
+        [ "signature" ==>
+                case maybeType of
+                Nothing -> Json.Encode.null
+                Just canType ->
+                    encodeCanType localizer canType
+
+        , "components" ==>
+            (Json.Encode.list 
+                (\component ->  
+                    case component of
+                        TypeFromDef typeUsage typeLookup ->
+                            Json.Encode.object (lookupToJsonFields localizer typeUsage typeLookup)
+                        
+                        TypeInline canType refs definition ->
+                            Json.Encode.object 
+                                [ "signature" ==> encodeCanType localizer canType
+                                , "definition" ==> case definition of
+                                                    Inline tipe -> encodeTypeDefinition localizer tipe
+                                                    
+                                                    Defined usage defined -> encodeLookupResult localizer usage defined
+
+                                -- , "references" ==>
+                                --     Json.Encode.list 
+                                --         (\(typeUsage, typeLookup)-> 
+                                --             Json.Encode.object (lookupToJsonFields localizer typeUsage typeLookup)    
+                                --         )
+                                --         refs 
+                                ]
+
+                        
+                
+                )
+                typeComponents
+            )
+
+        ]
 
 toVars :: Can.Type -> [ Name ]
 toVars canType =

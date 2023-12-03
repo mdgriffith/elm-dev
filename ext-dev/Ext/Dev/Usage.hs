@@ -185,8 +185,20 @@ encodeTypeUsage (TypeUsage locatedName canDef canType explanation isExposed) =
     Json.Encode.object
         [ ( "region", Ext.Dev.Json.Encode.region (A.toRegion locatedName))
         , ( "name", Json.Encode.name (A.toValue locatedName) )
-        , ( "explanation",  Ext.Dev.Json.Encode.maybe Ext.Dev.Explain.encode explanation)
+        , ( "isConcrete", Json.Encode.bool (isConcrete canType))
+        , ( "type",  Ext.Dev.Json.Encode.maybe Ext.Dev.Explain.encodeInlineDefinition explanation)
         ]
+
+
+isConcrete :: Can.Type -> Bool
+isConcrete tipe =
+    case tipe of
+        Can.TLambda _ _ ->
+            False
+
+        _ ->
+            True
+
 
 
 usageOfType ::
@@ -298,7 +310,8 @@ usedValueInDecls exports missingTypes moduleName targetTypeName decls found =
                 & usedValueInDecls exports missingTypes moduleName targetTypeName moarDecls
         
         Can.DeclareRec def defs moarDecls ->
-            List.foldl (\gathered innerDef -> usedTypeInDef exports missingTypes moduleName targetTypeName innerDef gathered) found (def : defs)
+            List.foldl (\gathered innerDef -> usedTypeInDef exports missingTypes moduleName targetTypeName innerDef gathered) 
+                found (def : defs)
                 & usedValueInDecls exports missingTypes moduleName targetTypeName moarDecls
 
         Can.SaveTheEnvironment ->
@@ -330,7 +343,10 @@ usedTypeInDef exports missingTypes moduleName targetTypeName def found =
             
             
         
-        Can.TypedDef locatedName freeVars patternTypes expr tipe ->
+        Can.TypedDef locatedName freeVars patternTypes expr returnTipe ->
+            let 
+                tipe = Ext.Dev.Help.toFunctionType (fmap snd patternTypes) returnTipe
+            in
             if typeIsUsed moduleName targetTypeName tipe then 
                 TypeUsage locatedName def tipe Nothing 
                     (Ext.Dev.Help.isExposed (A.toValue locatedName) exports)  

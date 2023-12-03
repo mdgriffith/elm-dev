@@ -1,6 +1,7 @@
-module Ext.Dev.Help (toMissingTypeLookup, isExposed) where
+module Ext.Dev.Help (toMissingTypeLookup, toFunctionType, isExposed) where
 
 
+import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Name as Name
 import qualified AST.Canonical as Can
@@ -43,3 +44,20 @@ isExposed name exports =
  
         Can.Export map ->
             Map.member name map
+
+
+toFunctionType :: [Can.Type] -> Can.Type -> Can.Type
+toFunctionType params returnType =
+    case params of
+        [] -> returnType
+        _ ->
+            toFunctionTypeHelp (List.reverse params) returnType
+
+
+toFunctionTypeHelp :: [Can.Type] -> Can.Type -> Can.Type
+toFunctionTypeHelp params returnType =
+    case params of
+        [] -> returnType
+        (top : remaining) ->
+           toFunctionTypeHelp remaining (Can.TLambda top returnType)
+        
