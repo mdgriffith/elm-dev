@@ -40,6 +40,9 @@ data LookupResult
     | Def Src.Comment
     deriving (Show)
 
+{-|
+
+-}
 lookupDefinition :: String -> ModuleName.Raw -> Name -> IO (Maybe LookupResult)
 lookupDefinition root modName name =
     do

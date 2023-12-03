@@ -497,6 +497,8 @@ findRun arg (Terminal.Dev.FindFlags maybeOutput) =
                 System.IO.hPutStrLn System.IO.stdout "Nothing found"
 
               Just definition ->
+                
+
                 System.IO.hPutStrLn System.IO.stdout "Found!"
 
 
@@ -692,12 +694,33 @@ For every imported thing, also report:
 
 data Usage 
     = UsageModule String
+    | UsageType () String
 
   
 data UsageFlags =
   UsageFlags
     { _usageOutput :: Maybe String
     }
+
+
+typeUsage :: Parser ()
+typeUsage =
+  Parser
+    { _singular = "type"
+    , _plural = "types"
+    , _parser = parseExact "type"
+    , _suggest = \_ -> return [ "type" ]
+    , _examples = \_ -> return ["type"]
+    }
+
+
+parseExact :: String -> String -> Maybe ()
+parseExact target found =
+  if target == found then 
+    Just ()
+  else 
+    Nothing
+
 
 {-| -}
 usage :: Terminal.Command
@@ -720,6 +743,7 @@ usage =
     usageArgs =
       oneOf 
         [ require1 UsageModule dir
+        , require2 UsageType typeUsage dir
         ]
   in
   Terminal.Command "usage" (Common summary) details example usageArgs usageFlags usageRun
@@ -728,6 +752,27 @@ usage =
 usageRun :: Usage -> Terminal.Dev.UsageFlags -> IO ()
 usageRun arg (Terminal.Dev.UsageFlags maybeOutput) =
   case arg of
+    UsageType _ path -> do
+      valueResult <- Terminal.Dev.Args.value path
+      case valueResult of
+        Left err ->
+           System.IO.hPutStrLn System.IO.stdout (Terminal.Dev.Error.toString err)
+
+        Right (Terminal.Dev.Args.Value root modName valueName) -> do
+          details <- Ext.CompileProxy.loadProject root
+          usageSummary <- Ext.Dev.Usage.usageOfType root details modName valueName
+          case usageSummary of
+            Left err ->
+                System.IO.hPutStrLn System.IO.stdout (Terminal.Dev.Error.toString err)
+
+            Right summary ->
+                Terminal.Dev.Out.json maybeOutput
+                    (Right 
+                      (Ext.Dev.Usage.encodeUsageOfType
+                          summary
+                      )
+                    )
+
     UsageModule path -> do
       moduleResult <- Terminal.Dev.Args.modul path
       case moduleResult of

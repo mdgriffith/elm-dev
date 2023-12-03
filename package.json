@@ -19,8 +19,10 @@
     "test:docs:package": "stack run --cwd watchtower-frontends/vscode/testProject -- docs mdgriffith/elm-ui",
     "test:warnings": "stack run --cwd watchtower-frontends/vscode/testProject -- warnings src/Main.elm ",
     "test:entrypoints": "stack run --cwd watchtower-frontends/vscode/testProject -- entrypoints",
-    "test:imports": "stack run --cwd watchtower-frontends/vscode/testProject -- imports src/Main.elm",
-    "test:usage": "stack run --cwd watchtower-frontends/vscode/testProject -- usage Imported",
-    "test:explain": "stack run --cwd watchtower-frontends/vscode/testProject -- explain Main.main"
+    "test:imports": "stack run --cwd watchtower-frontends/vscode/testProject -- imports Main, AlternativeMain  --output=out.json",
+    "test:usage": "stack run --cwd watchtower-frontends/vscode/testProject -- usage Imported --output=out.json",
+    "test:usage:type": "stack run --cwd watchtower-frontends/vscode/testProject -- usage type Imported.MyType --output=out.json",
+    "test:explain": "stack run --cwd watchtower-frontends/vscode/testProject -- explain Main.Regions --output=out.json",
+    "test:callgraph": "stack run --cwd watchtower-frontends/vscode/testProject -- callgraph Main --output=out.json"
   }
 }

@@ -2,7 +2,9 @@
 
 module Ext.Dev.Explain
   ( explain
+  , explainFromFileResult
   , explainAtLocation
+  , Explanation
   , encode
   )
 where
@@ -18,6 +20,7 @@ in the definition at that point.
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 
+import qualified System.IO
 import qualified Json.String
 import qualified Elm.Package as Package
 import qualified Elm.ModuleName as ModuleName
@@ -45,6 +48,7 @@ import qualified Ext.Dev.Find.Source
 import qualified Ext.Dev.Lookup
 import qualified Ext.Dev.Json.Encode
 import qualified Ext.Dev.Project
+import qualified Ext.Dev.Help
 
 import qualified Elm.Details
 
@@ -61,15 +65,33 @@ data Explanation =
         , _declaration :: DeclarationMetadata
         , _references :: [ Reference ]
         }
+        deriving (Show)
 
 data DeclarationMetadata =
     DeclarationMetadata
         { _declarationName :: Name
         , _declarationType :: Maybe Can.Type
-        , _declarationTypeComponents :: [ (TypeUsage, Ext.Dev.Lookup.LookupResult) ]
+        , _declarationTypeComponents :: [ TypeComponentDefinition ]
         , _declarationRange :: A.Region
         , _declarationRecursive :: Bool
         }
+        deriving (Show)
+
+
+data TypeComponentDefinition
+    = TypeFromDef TypeUsage Ext.Dev.Lookup.LookupResult
+    | TypeInline 
+        { _typeInline :: Can.Type
+        , _typeReferences :: [ (TypeUsage, Ext.Dev.Lookup.LookupResult) ]
+        , _typeDefinition :: TypeDefinition
+        }
+    deriving (Show)
+
+
+data TypeDefinition
+    = Defined TypeUsage Ext.Dev.Lookup.LookupResult
+    | Inline Can.Type
+    deriving (Show)
 
 
 data Reference
@@ -79,6 +101,7 @@ data Reference
         , _type :: Can.Type
         }
     | TypeReference TypeUsage Ext.Dev.Lookup.LookupResult
+    deriving (Show)
 
 
 data TypeUsage
@@ -107,24 +130,33 @@ explain details root modulename valueName = do
 
 explainAtModulePath :: String -> FilePath -> Name -> IO (Maybe Explanation)
 explainAtModulePath root modulePath valuename = do
-    (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root modulePath
+    single <- Ext.CompileProxy.loadSingle root modulePath
+    explainFromFileResult root valuename single
+   
+
+explainFromFileResult :: String -> Name -> Ext.CompileProxy.SingleFileResult -> IO (Maybe Explanation)
+explainFromFileResult root valueName (single@(Ext.CompileProxy.Single source warnings interfaces canonical compiled)) =
     case (source, canonical) of
         (Right srcModule, Just canMod) -> do
+            let missingTypeLookup = Ext.Dev.Help.toMissingTypeLookup single
             let localizer = Reporting.Render.Type.Localizer.fromModule srcModule
-            let found = fmap (Ext.Dev.Find.Source.withCanonical canMod) (Ext.Dev.Find.Source.definitionNamed valuename srcModule)
+            let found = fmap (Ext.Dev.Find.Source.withCanonical canMod) (Ext.Dev.Find.Source.definitionNamed valueName srcModule)
             case found of
-                Nothing ->
+                Nothing -> do
                     pure Nothing
 
                 Just (Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val)) ->  do
-                    let (refCollection@(ReferenceCollection refMap usedTypes refUnions usedModules)) = getFoundDefTypes def emptyRefCollection
+                    let (refCollection@(ReferenceCollection refMap usedTypes refUnions usedModules)) = getFoundDefTypes missingTypeLookup def emptyRefCollection
                     
+                    -- System.IO.hPutStrLn System.IO.stdout "Explaining : "
+                    -- System.IO.hPutStrLn System.IO.stdout (show ((Src.getName srcModule), valueName))
+                    -- System.IO.hPutStrLn System.IO.stdout (show refCollection)
                     foundTypeRefs <- lookUpTypesByFragments root 
                                         (toLookupCollection refCollection)
 
                     Ext.Log.log Ext.Log.Misc (show (List.length foundTypeRefs))
                     let refs = Map.elems refMap
-                    metadata <- getDeclarationMetadata root pos def
+                    metadata <- getDeclarationMetadata root missingTypeLookup pos def
                     pure 
                         (Just 
                             (Explanation
@@ -137,11 +169,12 @@ explainAtModulePath root modulePath valuename = do
                 
                 Just (Ext.Dev.Find.Source.FoundUnion (Just union) (A.At pos srcUnion)) -> do
                     let moduleName = Can._name canMod
-                    let usage = (UnionVariantUsage moduleName valuename Set.empty)
-                    let lookupCollection = unionToLookupCollection moduleName valuename union
+                    let usage = (UnionVariantUsage moduleName valueName Set.empty)
+                    let lookupCollection = unionToLookupCollection moduleName valueName union
 
-                    typeComponents <- lookUpTypesByFragments root lookupCollection
-                    let metadata = DeclarationMetadata valuename (Just (Can.TVar valuename)) typeComponents pos False
+                    -- typeComponents <- lookUpTypesByFragments root lookupCollection
+                    let typeComponents = []
+                    let metadata = DeclarationMetadata valueName (Just (Can.TVar valueName)) typeComponents pos False
                     
                     pure 
                         (Just 
@@ -158,13 +191,14 @@ explainAtModulePath root modulePath valuename = do
                     let placeholderAliasType = Can.Holey aliasedType
 
                     let moduleName = Can._name canMod
-                    let usage = AliasUsage moduleName valuename [] placeholderAliasType
+                    let usage = AliasUsage moduleName valueName [] placeholderAliasType
 
-                    let lookupCollection = LookupCollection (Map.singleton moduleName (Map.singleton valuename usage) )
+                    let lookupCollection = LookupCollection (Map.singleton moduleName (Map.singleton valueName usage) )
                                                  & getExternalTypeUsages aliasedType
 
-                    typeComponents <- lookUpTypesByFragments root lookupCollection
-                    let metadata = DeclarationMetadata valuename (Just aliasedType) typeComponents pos False
+                    -- typeComponents <- lookUpTypesByFragments root lookupCollection
+                    let typeComponents = []
+                    let metadata = DeclarationMetadata valueName (Just aliasedType) typeComponents pos False
                     
                     pure 
                         (Just 
@@ -184,11 +218,14 @@ explainAtModulePath root modulePath valuename = do
 
 
 
+
 explainAtLocation :: String -> Watchtower.Editor.PointLocation -> IO (Maybe Explanation)
 explainAtLocation root location@(Watchtower.Editor.PointLocation path _) = do
-    (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root path
+    single <- Ext.CompileProxy.loadSingle root path
+    let (Ext.CompileProxy.Single source warnings interfaces canonical compiled) = single
     case (source, canonical) of
         (Right srcModule, Just canMod) -> do
+            let missingTypeLookup = Ext.Dev.Help.toMissingTypeLookup single
             let localizer = Reporting.Render.Type.Localizer.fromModule srcModule
             let found = fmap (Ext.Dev.Find.Source.withCanonical canMod) (Ext.Dev.Find.Source.definitionAtPoint location srcModule)
             case found of
@@ -197,7 +234,7 @@ explainAtLocation root location@(Watchtower.Editor.PointLocation path _) = do
 
                 Just (Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val)) -> 
                     do
-                        let (refCollection@(ReferenceCollection refMap usedTypes refUnions usedModules)) = getFoundDefTypes def emptyRefCollection
+                        let (refCollection@(ReferenceCollection refMap usedTypes refUnions usedModules)) = getFoundDefTypes missingTypeLookup def emptyRefCollection
                         
                        
                         foundTypeRefs <- lookUpTypesByFragments root 
@@ -207,7 +244,7 @@ explainAtLocation root location@(Watchtower.Editor.PointLocation path _) = do
             
                         let refs = Map.elems refMap 
 
-                        metadata <- getDeclarationMetadata root pos def
+                        metadata <- getDeclarationMetadata root missingTypeLookup pos def
 
                         pure 
                             (Just 
@@ -252,10 +289,10 @@ toLookupCollection (ReferenceCollection refMap types refUnions usedMods) =
                 refUnions
 
         lookup =
-            List.foldl (flip getExternalTypeUsages) lookupCollectionWithUnions types
+            List.foldr getExternalTypeUsages lookupCollectionWithUnions types
     in
     Map.elems refMap
-        & List.foldl getTypeLookups lookup
+        & List.foldr (flip getTypeLookups) lookup
 
 unionToLookupCollection :: ModuleName.Canonical -> Name.Name -> Can.Union -> LookupCollection
 unionToLookupCollection moduleName unionName union =
@@ -320,6 +357,7 @@ getFragmentCanonicalName frag =
         
         UnionVariantUsage can name usagse ->
             can
+        
 
 
 getFragmentName :: TypeUsage -> Name
@@ -383,16 +421,14 @@ getExternalTypeUsages canType collection =
                         addFragment (TypeUsage canMod name varTypes)
                             collection
             in
-            List.foldl 
-                (\innerCollection typeVar -> 
-                    getExternalTypeUsages typeVar innerCollection
-                )
+            List.foldr
+                getExternalTypeUsages
                 newCollections
                 varTypes
 
         Can.TRecord fields extensibleName ->
-            Map.foldl 
-                (\innerCollection (Can.FieldType _ fieldType) -> 
+            Map.foldr
+                (\(Can.FieldType _ fieldType) innerCollection ->
                     getExternalTypeUsages fieldType innerCollection
                 )
                 collection
@@ -417,6 +453,71 @@ getExternalTypeUsages canType collection =
                 collection
 
 
+
+
+-- getSpecificTypeComponent isTopLevel root tipe canMod name varTypes = do
+    
+
+        -- pure (List.concat list)
+
+
+
+getTypeComponents :: Bool -> String -> Can.Type -> IO [ TypeComponentDefinition ]
+getTypeComponents isTopLevel root tipe = do
+    let lookupCollection = getExternalTypeUsages tipe emptyLookup
+    refs <- lookUpTypesByFragments root lookupCollection
+    case tipe of
+        Can.TLambda one two ->
+            pure [ TypeInline tipe refs (Inline tipe) ]
+
+        Can.TVar name ->
+            pure [ TypeInline tipe refs (Inline tipe) ]
+
+        Can.TType canMod name varTypes -> do
+            list <- Monad.mapM (getTypeComponents False root) varTypes
+            if isTopLevel then do
+                pure (List.concat list)
+            else do
+                maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root (ModuleName._module canMod) name
+                let definition = case maybeDefinition of
+                                    Nothing -> Inline tipe
+                                    Just lookupResult -> 
+                                        let 
+                                            usage = TypeUsage canMod name varTypes
+                                        in
+                                        Defined usage lookupResult
+
+                pure (TypeInline tipe refs definition : List.concat list)
+
+        Can.TRecord fields extensibleName ->
+            pure [ TypeInline tipe refs (Inline tipe) ]
+
+        Can.TUnit ->
+            pure [ TypeInline tipe refs (Inline tipe) ]
+
+        Can.TTuple one two Nothing -> do
+            oneComp <- getTypeComponents False root one
+            twoComp <- getTypeComponents False root two
+            pure (oneComp ++ twoComp)
+
+        Can.TTuple one two (Just three) -> do
+            oneComp <- getTypeComponents False root one
+            twoComp <- getTypeComponents False root two
+            threeComp <- getTypeComponents False root three
+            pure (oneComp ++ twoComp ++ threeComp)
+        
+        Can.TAlias canMod name varTypes aliasType -> do
+            maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root (ModuleName._module canMod) name
+            let definition = case maybeDefinition of
+                                Nothing -> Inline tipe
+                                Just lookupResult ->
+                                    let 
+                                        usage = AliasUsage canMod name varTypes aliasType
+                                    in
+                                    Defined usage lookupResult
+            pure [ TypeInline tipe refs definition ]
+            
+
 lookUpTypesByFragments :: String -> LookupCollection -> IO [ (TypeUsage, Ext.Dev.Lookup.LookupResult) ]
 lookUpTypesByFragments root (LookupCollection fragments) =
     List.concat <$> Monad.mapM (findFragment root) (Map.toList fragments)
@@ -434,8 +535,8 @@ findFragment root (canMod, fragmentMap) =
     else do 
         definitions <- Ext.Dev.Lookup.lookupDefinitionMany root (ModuleName._module canMod) (Map.keys fragmentMap)
         pure 
-            (List.foldl 
-                (\gathered (fragname, frag) ->
+            (List.foldr 
+                (\(fragname, frag) gathered ->
                     case Map.lookup fragname definitions of
                         Nothing ->
                             gathered
@@ -464,26 +565,37 @@ isSkippable (ModuleName.Canonical (Package.Name author project) modName) =
 
 
 
-getDeclarationMetadata root pos foundDef =
+getDeclarationMetadata root missingTypeLookup pos foundDef =
     case foundDef of
         Ext.Dev.Find.Source.Def def ->
-            getCanDeclarationMetadata root pos def False
+            getCanDeclarationMetadata root missingTypeLookup pos def False
 
         Ext.Dev.Find.Source.DefRecursive def otherDefs ->
-            getCanDeclarationMetadata root pos def True
+            getCanDeclarationMetadata root missingTypeLookup pos def True
             
 
-getCanDeclarationMetadata root pos def recursive =
+getCanDeclarationMetadata root missingTypeLookup pos def recursive =
     case def of
-        Can.Def (A.At _ name) patterns expr ->
-            pure (DeclarationMetadata name Nothing [] pos recursive)
+        Can.Def (A.At _ name) patterns expr -> do 
+            -- System.IO.hPutStrLn System.IO.stdout (show lookupCollection) 
+             case Map.lookup name missingTypeLookup of
+                Nothing ->
+                    pure (DeclarationMetadata name Nothing [] pos recursive)
+
+                Just type_ -> do
+                    -- let lookupCollection = getExternalTypeUsages type_ emptyLookup
+                    -- typeComponents <- lookUpTypesByFragments root lookupCollection
+                    typeComponents <- getTypeComponents True root type_
+                    pure (DeclarationMetadata name (Just type_) typeComponents pos recursive)
         
         Can.TypedDef (A.At _ name) freevars patterns expr type_ -> do 
+            -- let lookupCollection = getExternalTypeUsages type_ emptyLookup
 
-            -- LookupCollection
-            let lookupCollection = getExternalTypeUsages type_ emptyLookup
+            -- typeComponents <- lookUpTypesByFragments root lookupCollection
+            typeComponents <- getTypeComponents True root type_
 
-            typeComponents <- lookUpTypesByFragments root lookupCollection
+            -- System.IO.hPutStrLn System.IO.stdout "----"
+            -- System.IO.hPutStrLn System.IO.stdout (show lookupCollection)            
             
             pure (DeclarationMetadata name (Just type_) typeComponents pos recursive)
 
@@ -497,6 +609,7 @@ data ReferenceCollection =
         , _unionRef ::  Map.Map (ModuleName.Canonical, Name) (Can.Union, Set.Set Name)
         , _used :: Set.Set (ModuleName.Canonical, Name)
         }
+        deriving (Show)
 
 
 emptyRefCollection :: ReferenceCollection
@@ -565,34 +678,47 @@ addUnion canName typeName unionDef variantName (ReferenceCollection refs usedTyp
 
 
 
-getFoundDefTypes :: Ext.Dev.Find.Source.Def -> ReferenceCollection -> ReferenceCollection
-getFoundDefTypes foundDef collec =
+getFoundDefTypes :: Map.Map Name.Name Can.Type -> Ext.Dev.Find.Source.Def -> ReferenceCollection -> ReferenceCollection
+getFoundDefTypes missingTypeLookup foundDef collec =
     case foundDef of
         Ext.Dev.Find.Source.Def def ->
-            getDefTypes True def collec
+            getDefTypes missingTypeLookup True def collec
 
         Ext.Dev.Find.Source.DefRecursive def otherDefs ->
-            getDefTypes True def collec
+            getDefTypes missingTypeLookup True def collec
 
 
-getDefTypes :: Bool -> Can.Def ->  ReferenceCollection ->  ReferenceCollection
-getDefTypes isTopLevel foundDef collec =
+getDefTypes :: Map.Map Name.Name Can.Type -> Bool -> Can.Def ->  ReferenceCollection ->  ReferenceCollection
+getDefTypes missingTypeLookup isTopLevel foundDef collec =
     case foundDef of
-        Can.Def locatedName patterns expr ->
-            patterns
-                & List.foldl (flip getPatternTypes) collec 
-                & getExprTypes expr
+        Can.Def  (A.At _ name) patterns expr ->
+            case Map.lookup name missingTypeLookup of
+                Nothing ->
+                    patterns
+                        & List.foldr (getPatternTypes) collec 
+                        & getExprTypes missingTypeLookup expr
 
-        Can.TypedDef (A.At namePos name) freeVars patterns expr type_ ->
+                Just type_ ->
+                     patterns
+                        & List.foldr 
+                            (\pattern innerCollec ->  
+                                innerCollec
+                                    & getPatternTypes pattern
+                            ) 
+                            collec
+                        & getExprTypes missingTypeLookup expr
+                        & addRef (ValueReference (if isTopLevel then TopLevelDeclaration else LetValue) name type_)
+            
+        Can.TypedDef (A.At _ name) freeVars patterns expr type_ ->
             patterns
-                & List.foldl 
-                    (\innerCollec (pattern, patternType) ->  
+                & List.foldr
+                    (\(pattern, patternType) innerCollec ->
                         innerCollec
                             & addType patternType
                             & getPatternTypes pattern
                     ) 
                     collec
-                & getExprTypes expr
+                & getExprTypes missingTypeLookup expr
                 & addRef (ValueReference (if isTopLevel then TopLevelDeclaration else LetValue) name (gatherFunctionType patterns type_))
 
 
@@ -637,7 +763,7 @@ getPatternTypes pattern collec =
 
         Can.PList patterns ->
             patterns
-                & List.foldl (flip getPatternTypes) collec 
+                & List.foldr getPatternTypes collec 
 
         Can.PCons onePattern twoPattern ->
               collec
@@ -663,8 +789,8 @@ getPatternTypes pattern collec =
 
 
 
-getExprTypes :: Can.Expr -> ReferenceCollection -> ReferenceCollection
-getExprTypes expr collec =
+getExprTypes :: Map.Map Name.Name Can.Type -> Can.Expr -> ReferenceCollection -> ReferenceCollection
+getExprTypes missingTypeLookup expr collec =
     case A.toValue expr of
         Can.VarLocal name -> 
             collec
@@ -704,100 +830,100 @@ getExprTypes expr collec =
             collec
 
         Can.List innerExprs -> 
-            List.foldl (flip getExprTypes) collec innerExprs
+            List.foldr (getExprTypes missingTypeLookup) collec innerExprs
 
         Can.Negate inner -> 
-            getExprTypes inner collec
+            getExprTypes missingTypeLookup inner collec
 
         Can.Binop binName modName name annotation one two  -> 
             collec
                 & annotationToType modName name annotation 
-                & getExprTypes one 
-                & getExprTypes two 
+                & getExprTypes missingTypeLookup one 
+                & getExprTypes missingTypeLookup two 
 
         Can.Lambda patterns inner -> 
-            List.foldl (flip getPatternTypes) collec patterns
-                & getExprTypes inner
+            List.foldr getPatternTypes collec patterns
+                & getExprTypes missingTypeLookup inner
 
         Can.Call inner argExprs -> 
-            List.foldl (flip getExprTypes) collec argExprs
-                & getExprTypes inner 
+            List.foldr (getExprTypes missingTypeLookup) collec argExprs
+                & getExprTypes missingTypeLookup inner 
 
         Can.If ifExprs inner -> 
-            List.foldl 
-                (\innerCollec (oneExpr, twoExpr) -> 
+            List.foldr
+                (\(oneExpr, twoExpr) innerCollec ->
                     innerCollec
-                        & getExprTypes oneExpr 
-                        & getExprTypes twoExpr 
+                        & getExprTypes missingTypeLookup oneExpr 
+                        & getExprTypes missingTypeLookup twoExpr 
                 )
                 collec
                 ifExprs
-                & getExprTypes inner
+                & getExprTypes missingTypeLookup inner
 
         Can.Let innerDef inner -> 
             collec 
-                & getDefTypes False innerDef
-                & getExprTypes inner
+                & getDefTypes missingTypeLookup False innerDef
+                & getExprTypes missingTypeLookup inner
 
         Can.LetRec innerDefs inner -> 
-            List.foldl 
-                (\innerCollec letDef -> 
+            List.foldr
+                (\letDef innerCollec -> 
                     innerCollec
-                        & getDefTypes False letDef
+                        & getDefTypes missingTypeLookup False letDef
                 )
                 collec
                 innerDefs
-                & getExprTypes inner
+                & getExprTypes missingTypeLookup inner
 
         Can.LetDestruct pattern one two -> 
             collec 
                 & getPatternTypes pattern 
-                & getExprTypes one 
-                & getExprTypes two
+                & getExprTypes missingTypeLookup one 
+                & getExprTypes missingTypeLookup two
 
         Can.Case inner branches -> 
-            List.foldl 
-                (\innerCollec (Can.CaseBranch casePattern caseExpr) -> 
+            List.foldr
+                (\(Can.CaseBranch casePattern caseExpr) innerCollec -> 
                     innerCollec
                         & getPatternTypes casePattern 
-                        & getExprTypes caseExpr
+                        & getExprTypes missingTypeLookup caseExpr
                 )
                 collec
                 branches 
-                & getExprTypes inner
+                & getExprTypes missingTypeLookup inner
                  
         Can.Accessor name -> 
             collec
 
         Can.Access inner locatedName -> 
-            getExprTypes inner collec
+            getExprTypes missingTypeLookup inner collec
 
         Can.Update name inner fields -> 
-            List.foldl 
-                (\innerCollec (Can.FieldUpdate region fieldExpr) -> 
-                    getExprTypes fieldExpr innerCollec
+            List.foldr
+                (\(Can.FieldUpdate region fieldExpr) innerCollec -> 
+                    getExprTypes missingTypeLookup fieldExpr innerCollec
                 )
                 collec
                 (Map.elems fields) 
-                & getExprTypes inner
+                & getExprTypes missingTypeLookup inner
 
         Can.Record fields -> 
             Map.elems fields
-                & List.foldl (flip getExprTypes) collec 
+                & List.foldr (getExprTypes missingTypeLookup) collec 
 
         Can.Unit -> 
             collec
 
         Can.Tuple one two Nothing -> 
             collec
-                & getExprTypes one 
-                & getExprTypes two 
+                & getExprTypes missingTypeLookup one 
+                & getExprTypes missingTypeLookup two 
         
         Can.Tuple one two (Just three) -> 
            collec
-                & getExprTypes one 
-                & getExprTypes two 
-                & getExprTypes three
+                & getExprTypes missingTypeLookup one 
+                & getExprTypes missingTypeLookup two 
+                & getExprTypes missingTypeLookup three
 
 
         Can.Shader source types -> 
@@ -833,16 +959,33 @@ encodeDefinitionMetadata localizer (DeclarationMetadata name maybeType typeCompo
                         Nothing -> Json.Encode.null
                         Just canType ->
                             encodeCanType localizer canType
-
                 , "components" ==>
-                    (Json.Encode.object $
-                        List.map
-                            (\(typeUsage, typeLookup) ->  
-                                (Name.toChars (getFragmentName typeUsage)) ==> 
-                                     (Json.Encode.object (lookupToJsonFields localizer typeUsage typeLookup))
-                            
-                            )
-                            typeComponents
+                    (Json.Encode.list 
+                        (\component ->  
+                            case component of
+                                TypeFromDef typeUsage typeLookup ->
+                                    Json.Encode.object (lookupToJsonFields localizer typeUsage typeLookup)
+                                
+                                TypeInline canType refs definition ->
+                                    Json.Encode.object 
+                                        [ "signature" ==> encodeCanType localizer canType
+                                        , "definition" ==> case definition of
+                                                            Inline tipe -> encodeTypeDefinition localizer tipe
+                                                            
+                                                            Defined usage defined -> encodeLookupResult localizer usage defined
+
+                                        -- , "references" ==>
+                                        --     Json.Encode.list 
+                                        --         (\(typeUsage, typeLookup)-> 
+                                        --             Json.Encode.object (lookupToJsonFields localizer typeUsage typeLookup)    
+                                        --         )
+                                        --         refs 
+                                        ]
+
+                                
+                        
+                        )
+                        typeComponents
                     )
 
                 ]
@@ -886,21 +1029,21 @@ lookupToJsonFields ::
         -> TypeUsage 
         -> Ext.Dev.Lookup.LookupResult 
         -> [ (Json.String.String, Json.Encode.Value) ]
-lookupToJsonFields localizer fragment lookup =
-    [ "source" ==> 
-        Ext.Dev.Json.Encode.moduleName (getFragmentCanonicalName fragment)
-    , "definition" ==> 
-       case lookup of
-            Ext.Dev.Lookup.Union maybeComment canUnion ->
-                encodeCanUnion localizer fragment maybeComment canUnion
-
-            Ext.Dev.Lookup.Alias maybeComment alias ->
-                encodeAlias localizer fragment maybeComment alias
-
-            Ext.Dev.Lookup.Def comment ->
-                encodeDefinition localizer fragment comment
+lookupToJsonFields localizer usage lookup =
+    [ "source" ==> Ext.Dev.Json.Encode.moduleName (getFragmentCanonicalName usage)
+    , "definition" ==>  encodeLookupResult localizer usage lookup
     ]
-    
+
+encodeLookupResult localizer usage lookup =
+    case lookup of
+        Ext.Dev.Lookup.Union maybeComment canUnion ->
+            encodeCanUnion localizer usage maybeComment canUnion
+
+        Ext.Dev.Lookup.Alias maybeComment alias ->
+            encodeAlias localizer usage maybeComment alias
+
+        Ext.Dev.Lookup.Def comment ->
+            encodeDefinition localizer usage comment
 
 encodeFact :: Reporting.Render.Type.Localizer.Localizer -> Reference -> Json.Encode.Value
 encodeFact localizer ref =
@@ -960,7 +1103,12 @@ encodeAlias localizer fragment maybeComment (Can.Alias vars type_) =
         , "name" ==> Json.Encode.name (getFragmentName fragment)
         , "args" ==> encodeVarList localizer vars fragment
         , "signature" ==> encodeCanType localizer type_
-        , "fields" ==> encodeTypeDefinition localizer type_
+        , "fields" ==> 
+            case type_ of
+                Can.TRecord fields extensibleName ->
+                    encodeTypeDefinition localizer type_
+                _ ->
+                    Json.Encode.null
         ] 
 
 
