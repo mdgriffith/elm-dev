@@ -32,6 +32,7 @@ import qualified Canonicalize.Module as Canonicalize
 import qualified Compile
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
+import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name (Name, toChars)
 import qualified Data.NonEmptyList as NE
 import qualified Data.Set as Set
@@ -239,7 +240,11 @@ data SingleFileResult =
       , _compiled :: Maybe (Either Reporting.Error.Error Compile.Artifacts)
       }
 
+{-
+The below function also modifies the canonical AST by hydrating missing types.
 
+
+-}
 -- @TODO this is a disk mode function
 loadSingle :: FilePath -> FilePath -> IO SingleFileResult
 loadSingle root path =
@@ -277,7 +282,10 @@ loadSingle root path =
                         (Just (Left (Reporting.Error.BadNames errs)))
                       ) 
 
-                  Right canModule ->
+                  Right initialCanModule ->
+                      let 
+                         canModule = addMissingTypes canWarnings initialCanModule
+                      in
                       case CompileHelpers.typeCheck srcModule canModule of
                         Left typeErrors ->
                             pure
@@ -374,3 +382,53 @@ cachedHelp root name ciMvar = do
             Just iface ->
               do  putMVar ciMvar (Build.Loaded iface)
                   return (Just (name, iface))
+
+addMissingTypes :: [ Warning.Warning ] -> Can.Module -> Can.Module
+addMissingTypes warnings canModul =
+    let 
+        lookup :: Map.Map Name.Name Can.Type
+        lookup =
+            warnings
+              & fmap (\warning ->
+                  case warning of
+                      Warning.MissingTypeAnnotation region name annotation ->
+                          Just (name, annotation)
+
+                      _ ->
+                          Nothing
+                  )
+              & Maybe.catMaybes
+              & Map.fromList
+
+          
+    in
+    canModul { Can._decls = addMissingTypeToDecl lookup (Can._decls canModul) }
+
+
+addMissingTypeToDecl :: Map.Map Name.Name Can.Type -> Can.Decls -> Can.Decls
+addMissingTypeToDecl lookup decl =
+    case decl of
+      Can.Declare def moarDecls ->
+         Can.Declare (addMissingTypeToDef lookup def) (addMissingTypeToDecl lookup moarDecls)
+        
+      Can.DeclareRec def defs moarDecls ->
+          Can.DeclareRec (addMissingTypeToDef lookup def) (fmap (addMissingTypeToDef lookup) defs) (addMissingTypeToDecl lookup moarDecls)
+
+      Can.SaveTheEnvironment ->
+          Can.SaveTheEnvironment
+        
+      
+addMissingTypeToDef :: Map.Map Name.Name Can.Type -> Can.Def -> Can.Def
+addMissingTypeToDef typeLookup def =
+    case def of
+      Can.Def locatedName patterns expr ->
+        let 
+            maybeType = Map.lookup (A.toValue locatedName) typeLookup
+        in
+        case maybeType of
+          Nothing -> def
+          Just tipe ->
+              Can.TypedDef locatedName Map.empty (fmap (\patt -> (patt, Can.TUnit)) patterns) expr tipe
+
+      _ ->
+        def
