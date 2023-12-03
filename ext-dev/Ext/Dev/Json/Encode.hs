@@ -3,10 +3,12 @@
 module Ext.Dev.Json.Encode
   ( set
   , moduleName
+  , region
+  , Ext.Dev.Json.Encode.maybe
   )
 where
 
-
+import qualified Reporting.Annotation as Ann
 import qualified Data.Name as Name
 import qualified Data.Set as Set
 
@@ -34,3 +36,24 @@ moduleName (ModuleName.Canonical pkgName modName) =
         [ "pkg" ==> Package.encode pkgName
         , "module" ==>  Json.Encode.chars (Name.toChars modName)
         ]   
+
+maybe :: (a -> Json.Encode.Value) -> Maybe a -> Json.Encode.Value
+maybe toVal possibly =
+  case possibly of
+    Nothing -> Json.Encode.null
+    Just a -> toVal a
+
+region :: Ann.Region -> Json.Encode.Value
+region (Ann.Region start end) =
+    Json.Encode.object
+        [ ("start" ==> position start)
+        , ("end" ==> position end)
+        ]
+
+
+position :: Ann.Position -> Json.Encode.Value
+position (Ann.Position row col) =
+    Json.Encode.object
+        [ ("line" ==> Json.Encode.int (fromIntegral row))
+        , ("column" ==> Json.Encode.int (fromIntegral col))
+        ]
