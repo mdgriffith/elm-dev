@@ -455,12 +455,6 @@ getExternalTypeUsages canType collection =
 
 
 
--- getSpecificTypeComponent isTopLevel root tipe canMod name varTypes = do
-    
-
-        -- pure (List.concat list)
-
-
 
 getTypeComponents :: Bool -> String -> Can.Type -> IO [ TypeComponentDefinition ]
 getTypeComponents isTopLevel root tipe = do
@@ -475,19 +469,17 @@ getTypeComponents isTopLevel root tipe = do
 
         Can.TType canMod name varTypes -> do
             list <- Monad.mapM (getTypeComponents False root) varTypes
-            if isTopLevel then do
-                pure (List.concat list)
-            else do
-                maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root (ModuleName._module canMod) name
-                let definition = case maybeDefinition of
-                                    Nothing -> Inline tipe
-                                    Just lookupResult -> 
-                                        let 
-                                            usage = TypeUsage canMod name varTypes
-                                        in
-                                        Defined usage lookupResult
+           
+            maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root (ModuleName._module canMod) name
+            let definition = case maybeDefinition of
+                                Nothing -> Inline tipe
+                                Just lookupResult -> 
+                                    let 
+                                        usage = TypeUsage canMod name varTypes
+                                    in
+                                    Defined usage lookupResult
 
-                pure (TypeInline tipe refs definition : List.concat list)
+            pure (TypeInline tipe refs definition : List.concat list)
 
         Can.TRecord fields extensibleName ->
             pure [ TypeInline tipe refs (Inline tipe) ]
@@ -959,6 +951,7 @@ encodeDefinitionMetadata localizer (DeclarationMetadata name maybeType typeCompo
                         Nothing -> Json.Encode.null
                         Just canType ->
                             encodeCanType localizer canType
+
                 , "components" ==>
                     (Json.Encode.list 
                         (\component ->  
@@ -1100,6 +1093,7 @@ encodeAlias localizer fragment maybeComment (Can.Alias vars type_) =
     Json.Encode.object 
         [ "type" ==> Json.Encode.chars "alias"
         , "comment" ==> encodeMaybe encodeComment maybeComment
+        , "module" ==> Json.Encode.name (ModuleName._module (getFragmentCanonicalName fragment))
         , "name" ==> Json.Encode.name (getFragmentName fragment)
         , "args" ==> encodeVarList localizer vars fragment
         , "signature" ==> encodeCanType localizer type_
@@ -1149,10 +1143,10 @@ encodeCanUnion localizer fragment maybeComment (Can.Union vars ctors i opts) =
     Json.Encode.object 
         [ "type" ==> Json.Encode.chars "union"
         , "comment" ==> encodeMaybe encodeComment maybeComment
+        , "module" ==> Json.Encode.name (ModuleName._module (getFragmentCanonicalName fragment))
         , "name" ==> Json.Encode.name (getFragmentName fragment)
         , "args" ==> encodeVarList localizer vars fragment
         , "variants" ==> Json.Encode.list (encodeUnionVariant localizer) ctors
-       
         ] 
 
 
