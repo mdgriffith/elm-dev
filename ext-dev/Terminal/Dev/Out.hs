@@ -3,7 +3,14 @@ module Terminal.Dev.Out (json, asJson) where
 import qualified System.IO
 import qualified Json.Encode
 import qualified Terminal.Dev.Error
+import qualified Data.ByteString.Builder
+import qualified Data.ByteString.Lazy
 import Json.Encode ((==>))
+
+
+printJson :: Json.Encode.Value -> IO ()
+printJson jsonValue =
+    Data.ByteString.Builder.hPutBuilder System.IO.stdout (Json.Encode.encode jsonValue)
 
 json :: Maybe String -> Either Terminal.Dev.Error.Error Json.Encode.Value -> IO ()
 json maybePath result =
@@ -14,7 +21,7 @@ json maybePath result =
             in
             case maybePath of
                 Nothing ->
-                    System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode json))
+                    printJson json
 
                 Just path ->
                     Json.Encode.write path json
@@ -22,7 +29,7 @@ json maybePath result =
         Right jsonValue ->
             case maybePath of
                 Nothing ->
-                    System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode jsonValue))
+                    printJson jsonValue
 
                 Just path ->
                     Json.Encode.write path jsonValue
@@ -38,7 +45,7 @@ asJson maybePath encodeFail encoder result =
             in
             case maybePath of
                 Nothing ->
-                    System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode json))
+                    printJson json
 
                 Just path ->
                     Json.Encode.write path json
@@ -48,7 +55,7 @@ asJson maybePath encodeFail encoder result =
             in
             case maybePath of
                 Nothing ->
-                    System.IO.hPutStrLn System.IO.stdout (show (Json.Encode.encode jsonValue))
+                    printJson jsonValue
 
                 Just path ->
                     Json.Encode.write path jsonValue

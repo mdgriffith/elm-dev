@@ -9,6 +9,7 @@ module Terminal.Dev where
 import Terminal
 import Text.Read (readMaybe)
 import System.FilePath ((</>), (<.>))
+import qualified System.Directory as Dir
 
 import qualified Control.Monad as Monad
 import qualified Text.PrettyPrint.ANSI.Leijen as P
@@ -21,13 +22,21 @@ import qualified System.Exit
 import qualified System.Process
 import qualified Ext.Common
 
+
+import qualified Data.Utf8 as Utf8
+import qualified Data.ByteString.Builder
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8
+import qualified Data.Map
+import qualified Data.Maybe
+import qualified Data.NonEmptyList as NE
 import qualified Data.Name as Name
 import qualified Data.ByteString
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBSChar
-import qualified System.Directory as Dir
 
-
+import qualified Ext.Dev
+import qualified Ext.Dev.Package
 import qualified Ext.Dev.EntryPoints
 import qualified Ext.Dev.Find
 import qualified Ext.Dev.Lookup
@@ -36,11 +45,14 @@ import qualified Ext.Dev.Imports
 import qualified Ext.Dev.Project
 import qualified Ext.Dev.Usage
 import qualified Ext.Dev.CallGraph
+import qualified Ext.Dev.Explain
 
 import qualified Ext.CompileProxy
 
 import qualified Data.ByteString.Builder
 
+
+import qualified Reporting
 import qualified Reporting.Render.Type.Localizer
 import qualified Reporting.Exit as Exit
 import qualified Elm.Docs as Docs
@@ -48,30 +60,24 @@ import qualified Elm.Docs as Docs
 import qualified Json.String
 import qualified Json.Decode
 import qualified Json.Encode
+
+import qualified Elm.ModuleName
 import qualified Elm.Details
 import qualified Elm.Outline
-import qualified Ext.Dev
-import qualified Ext.Dev.Package
-
-import qualified Terminal.Helpers (package, version)
 import qualified Elm.Package as Pkg
 import qualified Elm.Version
 
-
-import qualified Data.Utf8 as Utf8
-import qualified Data.ByteString.Builder
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8
-import qualified Data.Map
-import qualified Data.Maybe
 import qualified Stuff
 import qualified File
-import qualified Ext.Dev.Explain
 
 import qualified Terminal.Dev.Args
 import qualified Terminal.Dev.Out
 import qualified Terminal.Dev.Error
+import qualified Terminal.Helpers (package, version)
 
+import qualified Make
+import qualified Build
+import qualified BackgroundWriter
 
 main :: IO ()
 main =
@@ -88,6 +94,100 @@ main =
     -- , callgraph
     ]
 
+
+data CompilationError
+    = DetailsFailedToLoad Exit.Details 
+    | BuildProblem Exit.BuildProblem
+    | IsApp 
+    | IsPackageWithNothingExposed 
+
+
+
+loadAndEnsureCompiled :: FilePath -> Maybe (NE.List Elm.ModuleName.Raw) -> IO Elm.Details.Details
+loadAndEnsureCompiled root exposed = do
+    result <- compile root exposed
+    case result of
+      Left err ->
+        error "ohno"
+        
+      Right details ->
+        pure details
+
+
+compile :: FilePath -> Maybe (NE.List Elm.ModuleName.Raw) -> IO (Either CompilationError Elm.Details.Details)
+compile root manuallySpecifiedEntrypoints =
+  BackgroundWriter.withScope $ \scope ->
+  Stuff.withRootLock root $
+  do 
+      detailsResult <- Elm.Details.load Reporting.json scope root
+      case detailsResult of
+          Left err ->
+              pure (Left (DetailsFailedToLoad err))
+
+          Right (details@(Elm.Details.Details _ validOutline _ _ _ _)) ->
+              case validOutline of
+                  Elm.Details.ValidApp _ ->
+                      case manuallySpecifiedEntrypoints of 
+                        Nothing -> 
+                          build root details
+                            (NE.List (Name.fromChars "Main") [])
+                              
+
+                        Just exposed ->
+                          build root details exposed
+                        
+                  Elm.Details.ValidPkg _ exposed _ ->
+                      case exposed of 
+                        [] -> 
+                          case manuallySpecifiedEntrypoints of 
+                            Nothing -> 
+                              pure (Left IsPackageWithNothingExposed)
+
+                            Just exposed ->
+                              build root details exposed
+
+                        (top:remain) ->
+                            build root details (NE.List top remain)
+
+
+build root details exposed = do
+    result <- Build.fromExposed Reporting.json root details Build.IgnoreDocs exposed
+    case result of
+      Left err ->
+        pure (Left (BuildProblem err))
+
+      Right _ ->
+        pure (Right details)
+
+
+-- If this is a package, returns the exposed packages
+-- If this is an app, then we assume that `Main` is the module entrypoint
+getEntryModules :: FilePath -> IO (Either CompilationError (NE.List Elm.ModuleName.Raw))
+getEntryModules root =
+    BackgroundWriter.withScope $ \scope ->
+    Stuff.withRootLock root $
+    do 
+        detailsResult <- Elm.Details.load Reporting.json scope root
+        case detailsResult of
+            Left err ->
+                pure (Left (DetailsFailedToLoad err))
+
+            Right (details@(Elm.Details.Details _ validOutline _ _ _ _)) ->
+                case validOutline of
+                    Elm.Details.ValidApp _ ->
+                        pure (Left IsApp)
+                        -- pure (Right (NE.List (Name.fromChars "Main") []))
+
+                    Elm.Details.ValidPkg _ exposed _ ->
+                        case exposed of 
+                          [] -> pure (Left IsPackageWithNothingExposed)
+                          (top:remain) ->
+                              pure (Right (NE.List top remain))
+
+
+runCompilation :: FilePath -> Elm.Details.Details -> NE.List Elm.ModuleName.Raw -> IO (Either Exit.BuildProblem ())
+runCompilation root details exposed =
+   Build.fromExposed Reporting.json root details Build.IgnoreDocs exposed
 
 
 intro :: P.Doc
@@ -759,7 +859,7 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput) =
            System.IO.hPutStrLn System.IO.stdout (Terminal.Dev.Error.toString err)
 
         Right (Terminal.Dev.Args.Value root modName valueName) -> do
-          details <- Ext.CompileProxy.loadProject root
+          details <- loadAndEnsureCompiled root Nothing
           usageSummary <- Ext.Dev.Usage.usageOfType root details modName valueName
           case usageSummary of
             Left err ->
@@ -924,7 +1024,7 @@ explainRun arg (Terminal.Dev.ExplainFlags maybeOutput) =
           Terminal.Dev.Out.json maybeOutput (Left err)
 
         Right (Terminal.Dev.Args.Value root modName valueName) -> do
-          details <- Ext.CompileProxy.loadProject root
+          details <- loadAndEnsureCompiled root Nothing
           maybeFound <- Ext.Dev.Explain.explain details root modName valueName
           case maybeFound of
             Nothing ->
