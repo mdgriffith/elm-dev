@@ -1,4 +1,4 @@
-module Ext.Dev.Project.Ports (Ports(..), toPorts, PortGroup) where
+module Ext.Dev.Project.Ports (empty, Ports(..), toPorts, PortGroup) where
 
 import qualified Control.Monad as Monad
 import qualified Control.Concurrent.MVar as MVar
@@ -38,6 +38,13 @@ data Ports =
     }
     
 type PortGroup = Map.Map (ModuleName.Raw, Name.Name) Can.Type
+
+empty :: Ports
+empty =
+  Ports
+    { _incoming = Map.empty
+    , _outgoing = Map.empty
+    }
 
 
 toPorts :: Build.Artifacts -> IO Ports

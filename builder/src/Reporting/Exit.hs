@@ -26,6 +26,9 @@ module Reporting.Exit
   , toStderr
   , toJson
   , toDocsProblemReport
+  , toDetailsReport
+  , toBuildProblemReport
+  , toOutlineReport
   )
   where
 

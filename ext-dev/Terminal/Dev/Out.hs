@@ -17,7 +17,7 @@ json maybePath result =
     case result of
         Left err ->
             let 
-                json = (Json.Encode.object ["error" ==> Json.Encode.chars (Terminal.Dev.Error.toString err) ])
+                json = Terminal.Dev.Error.toJson err
             in
             case maybePath of
                 Nothing ->

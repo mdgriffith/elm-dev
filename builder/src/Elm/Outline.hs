@@ -12,6 +12,9 @@ module Elm.Outline
   , decoder
   , defaultSummary
   , flattenExposed
+
+  -- Exposed
+  , toAbsolute
   )
   where
 

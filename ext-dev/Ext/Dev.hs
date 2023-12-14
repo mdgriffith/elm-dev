@@ -98,6 +98,6 @@ docsForProject root path = do
         
    
 
-entrypoints :: FilePath -> IO (Either Exit.Reactor [Ext.Dev.EntryPoints.EntryPoint])
-entrypoints root = do
+entrypoints :: FilePath -> IO (Either Ext.CompileProxy.CompilationError [Ext.Dev.EntryPoints.EntryPoint])
+entrypoints root =
     Ext.Dev.EntryPoints.entrypoints root

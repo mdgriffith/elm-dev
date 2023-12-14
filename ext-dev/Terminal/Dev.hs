@@ -9,19 +9,19 @@ module Terminal.Dev where
 import Terminal
 import Text.Read (readMaybe)
 import System.FilePath ((</>), (<.>))
+
+import qualified System.IO (hPutStrLn, stdout, Handle)
+import qualified System.Exit
+import qualified System.Process
+import qualified System.FilePath as Path
 import qualified System.Directory as Dir
 
 import qualified Control.Monad as Monad
 import qualified Text.PrettyPrint.ANSI.Leijen as P
 import qualified Watchtower.Server
 import qualified Watchtower.Live
-import qualified System.IO (hPutStrLn, stdout, Handle)
-import qualified System.FilePath as Path
-import qualified System.Directory as Dir
-import qualified System.Exit
-import qualified System.Process
-import qualified Ext.Common
 
+import qualified Ext.Common
 
 import qualified Data.Utf8 as Utf8
 import qualified Data.ByteString.Builder
@@ -95,99 +95,15 @@ main =
     ]
 
 
-data CompilationError
-    = DetailsFailedToLoad Exit.Details 
-    | BuildProblem Exit.BuildProblem
-    | IsApp 
-    | IsPackageWithNothingExposed 
-
-
-
 loadAndEnsureCompiled :: FilePath -> Maybe (NE.List Elm.ModuleName.Raw) -> IO Elm.Details.Details
 loadAndEnsureCompiled root exposed = do
-    result <- compile root exposed
+    result <- Ext.CompileProxy.ensureModulesAreCompiled root exposed
     case result of
       Left err ->
         error "ohno"
         
       Right details ->
         pure details
-
-
-compile :: FilePath -> Maybe (NE.List Elm.ModuleName.Raw) -> IO (Either CompilationError Elm.Details.Details)
-compile root manuallySpecifiedEntrypoints =
-  BackgroundWriter.withScope $ \scope ->
-  Stuff.withRootLock root $
-  do 
-      detailsResult <- Elm.Details.load Reporting.json scope root
-      case detailsResult of
-          Left err ->
-              pure (Left (DetailsFailedToLoad err))
-
-          Right (details@(Elm.Details.Details _ validOutline _ _ _ _)) ->
-              case validOutline of
-                  Elm.Details.ValidApp _ ->
-                      case manuallySpecifiedEntrypoints of 
-                        Nothing -> 
-                          build root details
-                            (NE.List (Name.fromChars "Main") [])
-                              
-
-                        Just exposed ->
-                          build root details exposed
-                        
-                  Elm.Details.ValidPkg _ exposed _ ->
-                      case exposed of 
-                        [] -> 
-                          case manuallySpecifiedEntrypoints of 
-                            Nothing -> 
-                              pure (Left IsPackageWithNothingExposed)
-
-                            Just exposed ->
-                              build root details exposed
-
-                        (top:remain) ->
-                            build root details (NE.List top remain)
-
-
-build root details exposed = do
-    result <- Build.fromExposed Reporting.json root details Build.IgnoreDocs exposed
-    case result of
-      Left err ->
-        pure (Left (BuildProblem err))
-
-      Right _ ->
-        pure (Right details)
-
-
--- If this is a package, returns the exposed packages
--- If this is an app, then we assume that `Main` is the module entrypoint
-getEntryModules :: FilePath -> IO (Either CompilationError (NE.List Elm.ModuleName.Raw))
-getEntryModules root =
-    BackgroundWriter.withScope $ \scope ->
-    Stuff.withRootLock root $
-    do 
-        detailsResult <- Elm.Details.load Reporting.json scope root
-        case detailsResult of
-            Left err ->
-                pure (Left (DetailsFailedToLoad err))
-
-            Right (details@(Elm.Details.Details _ validOutline _ _ _ _)) ->
-                case validOutline of
-                    Elm.Details.ValidApp _ ->
-                        pure (Left IsApp)
-                        -- pure (Right (NE.List (Name.fromChars "Main") []))
-
-                    Elm.Details.ValidPkg _ exposed _ ->
-                        case exposed of 
-                          [] -> pure (Left IsPackageWithNothingExposed)
-                          (top:remain) ->
-                              pure (Right (NE.List top remain))
-
-
-runCompilation :: FilePath -> Elm.Details.Details -> NE.List Elm.ModuleName.Raw -> IO (Either Exit.BuildProblem ())
-runCompilation root details exposed =
-   Build.fromExposed Reporting.json root details Build.IgnoreDocs exposed
 
 
 intro :: P.Doc
@@ -860,6 +776,7 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput) =
 
         Right (Terminal.Dev.Args.Value root modName valueName) -> do
           details <- loadAndEnsureCompiled root Nothing
+
           usageSummary <- Ext.Dev.Usage.usageOfType root details modName valueName
           case usageSummary of
             Left err ->
@@ -964,8 +881,8 @@ entrypointsRun arg (Terminal.Dev.EntryPointsFlags maybeOutput) =
           entryResult <- Ext.Dev.entrypoints root
           case entryResult of
             Left err ->
-              System.IO.hPutStrLn System.IO.stdout 
-                  (Exit.toString (Exit.reactorToReport err))
+               Terminal.Dev.Out.json maybeOutput
+                  (Left (Terminal.Dev.Error.CompilationError err))
             
             Right entry ->
                 Terminal.Dev.Out.json maybeOutput

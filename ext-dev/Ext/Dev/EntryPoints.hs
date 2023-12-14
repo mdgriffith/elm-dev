@@ -8,9 +8,11 @@ module Ext.Dev.EntryPoints
     where
 
 
+
 import qualified Data.Map as Map
 import qualified Data.Name as Name
 import qualified Data.Maybe as Maybe
+
 import qualified Elm.Docs
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Warning as Warning
@@ -28,6 +30,7 @@ import qualified Ext.CompileProxy
 import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Warnings
 import qualified Elm.Details
+import qualified Elm.Outline
 import qualified Elm.ModuleName as ModuleName
 import qualified Ext.Dev.Project.Ports
 import qualified Reporting.Render.Type
@@ -117,25 +120,17 @@ data EntryPoint =
         , _outgoing :: Ext.Dev.Project.Ports.PortGroup
         }
 
-entrypoints :: FilePath -> IO (Either Exit.Reactor [Ext.Dev.EntryPoints.EntryPoint])
+entrypoints :: FilePath -> IO (Either Ext.CompileProxy.CompilationError [Ext.Dev.EntryPoints.EntryPoint])
 entrypoints root = do 
-    details <- Ext.CompileProxy.loadProject root
-    artifacts <- Ext.CompileProxy.allPackageArtifacts root
+    detailsResult <- Ext.CompileProxy.ensureModulesAreCompiled root Nothing
+    case detailsResult of
+        Left err -> do
+            pure (Left err)
 
-    let locals = Elm.Details._locals details  
+        Right details -> do
+            let locals = Elm.Details._locals details
 
-
-    compileResult <- Ext.CompileHelpers.Disk.compileWithoutJsGen root (NonEmpty.singleton "src/Main.elm")
-
-    case compileResult of
-        Left exit -> 
-            pure (Left exit)
-        
-        Right buildArtifacts -> do
-           
-            ports <- Ext.Dev.Project.Ports.toPorts buildArtifacts
-
-            let entry = Map.foldrWithKey (toEntryPoint root ports) [] locals 
+            let entry = Map.foldrWithKey (toEntryPoint root Ext.Dev.Project.Ports.empty) [] locals 
             
             pure (Right entry)
 

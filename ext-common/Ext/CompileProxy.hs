@@ -10,6 +10,11 @@ module Ext.CompileProxy
  , parse
  , compileToJson
  , compileToDocs
+
+
+ , ensureModulesAreCompiled, compilationErrorToJson
+ , CompilationError(..)
+ , ModuleListError(..)
  )
  where
 
@@ -22,7 +27,7 @@ import Control.Concurrent.MVar
 import Ext.Common
 import Ext.CompileMode (getMode, CompileMode(..))
 import Json.Encode ((==>))
-import qualified Control.Monad (foldM_)
+import qualified Control.Monad (foldM_, mapM, filterM)
 import qualified AST.Canonical as Can
 import qualified AST.Optimized as Opt
 import qualified AST.Source as Src
@@ -32,12 +37,14 @@ import qualified Canonicalize.Module as Canonicalize
 import qualified Compile
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
+import qualified Data.List as List
 import qualified Data.Maybe as Maybe
-import qualified Data.Name as Name (Name, toChars)
+import qualified Data.Name as Name (Name, toChars, fromChars)
 import qualified Data.NonEmptyList as NE
 import qualified Data.Set as Set
 import qualified Elm.Docs as Docs
 import qualified Elm.Details as Details
+import qualified Elm.Outline
 import qualified Elm.Interface as I
 import qualified Elm.Package as Pkg
 import qualified Ext.CompileHelpers.Disk
@@ -60,6 +67,7 @@ import qualified Reporting.Task as Task
 import qualified Reporting.Warning as Warning
 import qualified Stuff
 import qualified System.Directory as Dir
+import qualified System.FilePath as Path
 import System.IO.Unsafe (unsafePerformIO)
 
 import StandaloneInstances
@@ -70,8 +78,7 @@ import Data.OneOrMore (OneOrMore(..))
 import qualified Canonicalize.Environment.Local
 import qualified Ext.Log
 
-
-
+import qualified BackgroundWriter
 
 
 type AggregateStatistics = Map.Map CompileMode Double
@@ -432,3 +439,151 @@ addMissingTypeToDef typeLookup def =
 
       _ ->
         def
+
+
+
+data CompilationError
+    = DetailsFailedToLoad Exit.Details 
+    | BuildProblem Exit.BuildProblem
+    | ModuleProblem ModuleListError
+
+compilationErrorToJson :: CompilationError -> Encode.Value
+compilationErrorToJson err =
+  case err of
+    DetailsFailedToLoad details ->
+      Exit.toJson (Exit.toDetailsReport details)
+
+    BuildProblem buildProblem ->
+      Exit.toJson (Exit.toBuildProblemReport buildProblem)
+
+    ModuleProblem (OutlineError outlineProblem) ->
+      Exit.toJson (Exit.toOutlineReport outlineProblem)
+    
+    ModuleProblem NoModulesFoundForApp ->
+      Encode.object [ "error" ==> Encode.chars "No .elm files found!" ]
+
+    ModuleProblem NoModulesFoundForPackage ->
+      Encode.object [ "error" ==> Encode.chars "No modules are exposed for this package." ]
+
+
+ensureModulesAreCompiled :: FilePath -> Maybe (NE.List ModuleName.Raw) -> IO (Either CompilationError Details.Details)
+ensureModulesAreCompiled root manuallySpecifiedEntrypoints =
+  BackgroundWriter.withScope $ \scope ->
+  Stuff.withRootLock root $
+  do 
+      exposedElmModuleResult <- case manuallySpecifiedEntrypoints of 
+                      Nothing -> getAllElmModules root 
+                      Just exposed ->
+                        pure (Right exposed)
+
+      case exposedElmModuleResult of 
+        Left err -> 
+            pure (Left (ModuleProblem err))
+
+        Right elmModules -> do
+          detailsResult <- Details.load Reporting.json scope root
+          case detailsResult of
+              Left err ->
+                  pure (Left (DetailsFailedToLoad err))
+
+              Right originalDetails -> do
+                  result <- Build.fromExposed Reporting.json root originalDetails Build.IgnoreDocs elmModules
+                  case result of
+                    Left err ->
+                      pure (Left (BuildProblem err))
+
+                    Right _ -> do
+                      newDetailsResult <- Details.load Reporting.json scope root
+                      
+                      case newDetailsResult of
+                        Left err ->
+                            pure (Left (DetailsFailedToLoad err))
+
+                        Right details ->
+                            pure (Right details)
+                            
+                    
+
+
+
+{- Get exposed modules or just a list of every module -}
+
+
+
+-- Convert a file path to an Elm module name based on a root directory
+toElmModuleName :: FilePath -> FilePath -> ModuleName.Raw
+toElmModuleName root file =
+    let relativePath = Path.makeRelative root file
+        withoutExtension = Path.dropExtension relativePath
+    in 
+    Name.fromChars (replaceDirectorySeparatorWithDot withoutExtension)
+
+
+
+-- Convert a file path to an Elm module name based on a root directory
+replaceDirectorySeparatorWithDot :: FilePath -> String
+replaceDirectorySeparatorWithDot = 
+    let 
+        replaceSeparator c = if c == Path.pathSeparator then '.' else c
+    in
+    map replaceSeparator
+  
+    
+
+data ModuleListError
+    = OutlineError Exit.Outline
+    | NoModulesFoundForApp
+    | NoModulesFoundForPackage
+    
+
+findAllElmFiles :: FilePath -> IO [FilePath]
+findAllElmFiles dir = do
+    contents <- Dir.getDirectoryContents dir
+    let paths = map (dir `Path.combine`) $ filter (`notElem` [".", ".."]) contents
+    files <- Control.Monad.filterM Dir.doesFileExist paths
+    dirs <- Control.Monad.filterM Dir.doesDirectoryExist paths
+    let elmFiles = filter (\f -> Path.takeExtension f == ".elm") files
+    elmFilesInDirs <- fmap concat $ mapM findAllElmFiles dirs
+    return $ elmFiles ++ elmFilesInDirs
+  
+
+
+getAllElmModules :: FilePath -> IO (Either ModuleListError (NE.List ModuleName.Raw))
+getAllElmModules root = 
+  let 
+     toNonEmpty onFail list =
+        case list of 
+          [] -> Left onFail
+          (top:remain) -> Right (NE.List top remain)
+  in do
+  elmJsonResult <- Elm.Outline.read root
+  case elmJsonResult of
+      Left outlineExit ->
+        pure (Left (OutlineError outlineExit))
+      
+      Right (Elm.Outline.App appOutline) ->
+        let 
+            srcDirs = fmap (Elm.Outline.toAbsolute root) (Elm.Outline._app_source_dirs appOutline)
+
+            findModuleNames srcDir =
+                fmap 
+                  (fmap (toElmModuleName srcDir))
+                  (findAllElmFiles srcDir)
+
+        in do
+        allNestedFiles <- Control.Monad.mapM findModuleNames srcDirs
+        pure (toNonEmpty NoModulesFoundForApp (List.concat allNestedFiles))
+      
+      Right (Elm.Outline.Pkg pkgOutline) ->
+        let 
+           exposed = Elm.Outline._pkg_exposed pkgOutline
+        in
+        case exposed of 
+          Elm.Outline.ExposedList exposedList ->
+            pure (toNonEmpty NoModulesFoundForPackage exposedList)
+
+          Elm.Outline.ExposedDict keyValueList ->
+            let 
+               exposedList = List.concatMap snd keyValueList
+            in
+            pure (toNonEmpty NoModulesFoundForPackage exposedList)
