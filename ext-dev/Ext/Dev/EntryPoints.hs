@@ -74,8 +74,8 @@ encode (EntryPoint base path moduleName incoming outgoing) =
         , "module" ==> Json.Encode.name moduleName
 
         -- Still need to make this correct
-        -- , "incoming" ==> encodePorts incoming
-        -- , "outgoing" ==> encodePorts outgoing
+        , "incoming" ==> encodePorts incoming
+        , "outgoing" ==> encodePorts outgoing
         ]
 
 encodePorts :: Ext.Dev.Project.Ports.PortGroup -> Json.Encode.Value
@@ -128,9 +128,10 @@ entrypoints root = do
             pure (Left err)
 
         Right details -> do
+            ports <- Ext.Dev.Project.Ports.findPorts root
             let locals = Elm.Details._locals details
 
-            let entry = Map.foldrWithKey (toEntryPoint root Ext.Dev.Project.Ports.empty) [] locals 
+            let entry = Map.foldrWithKey (toEntryPoint root ports) [] locals 
             
             pure (Right entry)
 

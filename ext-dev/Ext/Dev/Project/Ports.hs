@@ -1,4 +1,4 @@
-module Ext.Dev.Project.Ports (empty, Ports(..), toPorts, PortGroup) where
+module Ext.Dev.Project.Ports (empty, Ports(..), toPorts, PortGroup, findPorts) where
 
 import qualified Control.Monad as Monad
 import qualified Control.Concurrent.MVar as MVar
@@ -13,10 +13,10 @@ import qualified AST.Canonical as Can
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Interface
 import qualified Build
-
+import qualified Ext.CompileProxy
 
 import qualified Ext.CompileHelpers.Generic
-
+import qualified System.IO
 
 {-
     UNDER CONSTRUCTION!
@@ -36,7 +36,9 @@ data Ports =
     -- cmds
     , _outgoing :: PortGroup
     }
-    
+    deriving (Show)
+
+
 type PortGroup = Map.Map (ModuleName.Raw, Name.Name) Can.Type
 
 empty :: Ports
@@ -45,6 +47,59 @@ empty =
     { _incoming = Map.empty
     , _outgoing = Map.empty
     }
+
+
+
+findPorts :: FilePath -> IO Ports
+findPorts root = do
+    portsResult <- Ext.CompileProxy.findPorts root
+    case portsResult of
+        Left err ->
+            pure empty
+
+        Right portPaths ->
+            Monad.foldM (capturePorts root) empty portPaths
+    
+    
+capturePorts :: FilePath -> Ports -> FilePath -> IO Ports
+capturePorts root ports path = do
+    (Ext.CompileProxy.Single source warnings interfaces maybeCanonical compiled) <- Ext.CompileProxy.loadSingle root path
+    case maybeCanonical of
+        Nothing ->
+            pure ports
+
+        Just canonical ->
+            let 
+                effects = Can._effects canonical
+
+                moduleName = ModuleName._module (Can._name canonical)
+            in
+            case effects of
+                Can.NoEffects ->
+                    pure ports
+
+                Can.Manager _ _ _ _ -> 
+                    pure ports
+
+                Can.Ports portMap ->
+                    pure (Map.foldrWithKey (mergeInPort moduleName) ports portMap)
+
+
+
+mergeInPort :: ModuleName.Raw -> Name.Name -> Can.Port -> Ports -> Ports
+mergeInPort moduleName name port (Ports incoming outgoing) =
+    case port of
+        Can.Incoming freeVars payload func ->
+            Ports
+                (Map.insert (moduleName, name) payload incoming)
+                outgoing
+
+        Can.Outgoing freeVars payload func ->
+            Ports
+                incoming
+                (Map.insert (moduleName, name) payload outgoing)
+
+
 
 
 toPorts :: Build.Artifacts -> IO Ports
