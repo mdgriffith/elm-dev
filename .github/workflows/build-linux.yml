@@ -3,7 +3,7 @@ on:
     branches:
       - release
 
-name: Build Watchtower for Linux
+name: Build Elm Dev for Linux
 jobs:
   build-packages:
     name: Build Libraries
@@ -91,7 +91,6 @@ jobs:
           strip -s ./watchtower
 
         shell: alpine.sh --root {0}
-
 
   # The install step is split to a separate job, so that if the we were building
   # from scratch and just spent 30 minutes building all the libraries, but then

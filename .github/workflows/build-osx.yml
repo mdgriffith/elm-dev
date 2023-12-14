@@ -3,7 +3,7 @@ on:
     branches:
       - release
 
-name: Build Watchtower for MacOS
+name: Build Elm Dev for MacOS
 jobs:
   build-packages:
     name: Build MacOS Libraries
@@ -41,7 +41,7 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         with:
           enable-stack: true
-          stack-version: 'latest'
+          stack-version: "latest"
           stack-no-global: true
 
       # Install just our dependencies, this can take ~30m from scratch and is the
@@ -68,7 +68,7 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         with:
           enable-stack: true
-          stack-version: 'latest'
+          stack-version: "latest"
           stack-no-global: true
 
       - uses: actions/cache@v2
