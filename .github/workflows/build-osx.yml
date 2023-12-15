@@ -1,7 +1,7 @@
 on:
   push:
     branches:
-      - release
+      - release-DISABLED
 
 name: Build Elm Dev for MacOS
 jobs:
@@ -89,8 +89,8 @@ jobs:
           max_attempts: 3
           command: stack install
 
-      - name: Archive watchtower artifact
+      - name: Archive Elm Dev artifact
         uses: actions/upload-artifact@v2
         with:
-          name: watchtower
-          path: ~/.local/bin/watchtower
+          name: elm-dev
+          path: ~/.local/bin/elm-dev

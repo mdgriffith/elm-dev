@@ -154,17 +154,17 @@ jobs:
           ghcup set ghc 9.0.2
 
           # Fix git complaint about 'dubious ownership' on Github CI
-          git config --global --add safe.directory /home/runner/work/elm-watchtower/elm-watchtower
+          git config --global --add safe.directory /home/runner/work/elm-dev/elm-dev
 
           cabal v2-update
           cabal v2-build --ghc-option=-optl=-static --ghc-option=-split-sections -O2
-          cp dist-newstyle/build/x86_64-linux/ghc-*/elm-*/x/watchtower/*opt/build/watchtower/watchtower ./
-          strip -s ./watchtower
+          cp dist-newstyle/build/x86_64-linux/ghc-*/elm-*/x/elm-dev/*opt/build/elm-dev/elm-dev ./
+          strip -s ./elm-dev
 
         shell: alpine.sh --root {0}
 
-      - name: Archive watchtower artifact
+      - name: Archive Elm Dev artifact
         uses: actions/upload-artifact@v2
         with:
-          name: watchtower
-          path: watchtower
+          name: elm-dev
+          path: elm-dev
