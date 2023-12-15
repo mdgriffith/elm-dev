@@ -15,12 +15,12 @@ import GHC.Stack (HasCallStack)
 
 
 {- An alternative version of (!) that will print where it was called from -}
-(!) :: (Ord c, HasCallStack) => Map.Map c a -> c -> a
+(!) :: (Show c, Ord c, HasCallStack) => Map.Map c a -> c -> a
 (!) m k =
     case Map.lookup k m of
       Just v -> v
       Nothing ->
-        error ("Sanity: (!) failed!: ")
+        error ("Sanity: (!) failed!: " ++ show k)
 
 
 {- An alternative version of (!) that will print where it was called from -}
