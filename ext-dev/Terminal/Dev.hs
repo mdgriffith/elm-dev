@@ -85,7 +85,7 @@ main =
     [ start
     , docs
     , warnings
-    , find
+    -- , find
     , imports
     , usage
     , entrypoints
@@ -286,14 +286,13 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
           maybeRoot <- Stuff.findRoot
           case maybeRoot of
             Nothing ->
-              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+              Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
             
             Just root -> do
               maybeDocs <- Ext.Dev.docsForProject root path
               case maybeDocs of
                 Left err ->
-                  System.IO.hPutStrLn System.IO.stdout 
-                      (Exit.toString (Exit.reactorToReport err))
+                  Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.ExitReactor err))
                 
                 Right docs ->
                    Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
@@ -303,13 +302,13 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
         maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
         case maybeRoot of
           Nothing ->
-            System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+            Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
           
           Just root -> do
             maybeDocs <- Ext.Dev.docs root path
             case maybeDocs of
               Nothing ->
-                System.IO.hPutStrLn System.IO.stdout "Docs are not available"
+                Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
 
               Just docs ->
                  Terminal.Dev.Out.json maybeOutput (Right (Docs.encode (Docs.toDict [ docs ])))
@@ -318,14 +317,13 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
         maybeRoot <-  Dir.withCurrentDirectory path Stuff.findRoot
         case maybeRoot of
           Nothing ->
-            System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+            Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
           
           Just root -> do
             maybeDocs <- Ext.Dev.docsForProject root path
             case maybeDocs of
               Left err ->
-                System.IO.hPutStrLn System.IO.stdout 
-                    (Exit.toString (Exit.reactorToReport err))
+                Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.ExitReactor err))
               
               Right docs ->
                 Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
@@ -336,13 +334,13 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
       maybeCurrentVersion <- Ext.Dev.Package.getCurrentlyUsedOrLatestVersion "." packageName
       case maybeCurrentVersion of
         Nothing ->
-          System.IO.hPutStrLn System.IO.stdout "No version found!"
+           Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.CouldNotFindCurrentVersionForPackage packageName))
 
         Just packageVersion -> do   
           docsResult <- Ext.Dev.Package.getDocs packageName packageVersion
           case docsResult of
             Left err ->
-              System.IO.hPutStrLn System.IO.stdout (Exit.toString (Exit.toDocsProblemReport err ""))
+              Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.DocsProblem err))
 
             Right docs ->
               Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
@@ -352,7 +350,7 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
       result <- Ext.Dev.Package.getDocs name packageVersion
       case result of
         Left err ->
-          System.IO.hPutStrLn System.IO.stdout (Exit.toString (Exit.toDocsProblemReport err ""))
+          Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.DocsProblem err))
 
         Right docs ->
           Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
