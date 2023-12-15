@@ -8,6 +8,10 @@ module Terminal
   , Args, noArgs, required, optional, zeroOrMore, oneOrMore, oneOf
   , require0, require1, require2, require3, require4, require5
   , RequiredArgs, args, exactly, (!), (?), (...)
+
+
+  -- Nonstandard 
+  , oneOrMoreWith
   )
   where
 
@@ -299,6 +303,13 @@ zeroOrMore parser =
 oneOrMore :: Parser a -> Args (a, [a])
 oneOrMore parser =
   args (,) ! parser ... parser
+
+
+{-|** DEFINED BY GRIFF**-}
+oneOrMoreWith :: (a -> [a] -> final) -> Parser a -> Args final
+oneOrMoreWith capture parser =
+  args capture ! parser ... parser
+
 
 
 {-|-}
