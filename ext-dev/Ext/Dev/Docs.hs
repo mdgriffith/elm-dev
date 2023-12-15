@@ -25,6 +25,7 @@ import qualified AST.Canonical as Can
 import qualified AST.Source as Src
 
 
+
 {-|
 This is a more permissive way of generating a Docs.Module.
 
@@ -228,15 +229,14 @@ checkExport info name (A.At region export) =
 
 getType :: Name.Name -> Info -> Result.Result i w Reporting.Error.Docs.DefProblem Type.Type
 getType name info =
-  case _iValues info ! name of
-    Left region ->
-      case _cTypes info ! name of
-        Can.Forall vars tipe ->
-          Result.ok (Extract.fromType tipe)
+    case Map.lookup name (_cTypes info) of
+      Nothing -> 
+        Result.ok (Type.Var (Name.fromChars "unknown"))
+      
+      Just (Can.Forall vars tipe) ->
+        Result.ok (Extract.fromType tipe)
 
-
-    Right tipe ->
-      Result.ok (Extract.fromType tipe)
+  
 
 {-|
 

@@ -17,6 +17,7 @@ import qualified Ext.CompileProxy
 
 import qualified Ext.CompileHelpers.Generic
 import qualified System.IO
+import qualified Ext.Project.Find
 
 {-
     UNDER CONSTRUCTION!
@@ -52,7 +53,7 @@ empty =
 
 findPorts :: FilePath -> IO Ports
 findPorts root = do
-    portsResult <- Ext.CompileProxy.findPorts root
+    portsResult <- Ext.Project.Find.findPorts root
     case portsResult of
         Left err ->
             pure empty

@@ -46,6 +46,8 @@ import qualified Ext.Dev.Find
 import qualified Ext.Dev.Explain
 import qualified Ext.Dev.CallGraph
 import qualified Ext.Dev.InScope
+import qualified Ext.Project.Find
+
 
 import qualified Ext.CompileProxy
 import qualified Ext.Log
@@ -302,7 +304,7 @@ ask state question =
     Docs (ForProject entrypoint) ->
       do
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot entrypoint state)
-        maybeDocs <- Ext.Dev.docsForProject root entrypoint
+        maybeDocs <- Ext.Dev.docsForProject root (NE.singleton (Ext.Project.Find.toElmModuleName root entrypoint))
         case maybeDocs of
           Left err ->
             pure (Json.Encode.encodeUgly (Json.Encode.chars (Exit.toString (Exit.reactorToReport err))))

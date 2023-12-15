@@ -11,7 +11,9 @@ import Control.Monad (liftM2, unless)
 import Ext.Common
 import Json.Encode ((==>))
 import qualified Data.Map
-import Data.Map.Strict ((!))
+-- import Data.Map.Strict ((!))
+
+import qualified System.IO
 
 import qualified Ext.Log
 import qualified AST.Source as Src
@@ -50,6 +52,8 @@ import qualified Generate
 import qualified Data.ByteString as BS
 import qualified Reporting.Error.Import as Import
 import qualified Ext.Dev.Docs
+
+import Ext.Sanity
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
 compileToJson root paths = do
@@ -105,35 +109,20 @@ compileWithoutJsGen root paths =
             
 
 
-compileToDocs :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor Elm.Docs.Documentation)
-compileToDocs root paths =
-  do
-    Dir.withCurrentDirectory root $
-      BW.withScope $ \scope -> Stuff.withRootLock root $
-        Task.run $
-          do
-            details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-            let allModuleNames = case getModuleNames details of
-                                  [] ->  (NE.singleton (Name.fromChars "Main"))
-                                  (top : rest) -> NE.List top rest
-            
-            docsResult <- Task.eio Exit.ReactorBadBuild $ 
-                            docsFromExposed Reporting.silent root details Build.KeepDocs 
-                              allModuleNames
+compileToDocs :: FilePath -> NE.List ModuleName.Raw -> IO (Either Exit.Reactor Elm.Docs.Documentation)
+compileToDocs root allModuleNames = do
+  Dir.withCurrentDirectory root $
+    BW.withScope $ \scope -> Stuff.withRootLock root $
+      Task.run $ do
+        details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
+        -- let allModuleNames = case getModuleNames details of
+        --                       [] ->  (NE.singleton (Name.fromChars "Main"))
+        --                       (top : rest) -> NE.List top rest
+        
+        Task.eio Exit.ReactorBadBuild $ 
+            docsFromExposed Reporting.silent root details Build.KeepDocs 
+              allModuleNames
 
-            return docsResult
-
-
-nameListToString :: [ModuleName.Raw] -> String
-nameListToString names =
-  case names of
-    [] -> ""
-    (name : rest) -> (ModuleName.toChars name) ++ "\n" ++ (nameListToString rest)
-
-getModuleNames :: Details.Details -> [ ModuleName.Raw ]
-getModuleNames details =
-  (Map.keys (Details._locals details))
- 
 
 
 {- Appropriated from worker/src/Artifacts.hs
@@ -165,7 +154,6 @@ allPackageArtifacts root =
 
 
 
-
 {- DOCS FROM EXPOSED
 
 This mimics Build.fromExposed, but
@@ -177,7 +165,8 @@ This mimics Build.fromExposed, but
 docsFromExposed :: Reporting.Style -> FilePath -> Details.Details -> Build.DocsGoal docs -> NE.List ModuleName.Raw -> IO (Either Exit.BuildProblem Elm.Docs.Documentation)
 docsFromExposed style root details docsGoal exposed@(NE.List e es) =
   Reporting.trackBuild style $ \key ->
-  do  env <- Build.makeEnv key root details
+  do  
+      env <- Build.makeEnv key root details
       dmvar <- Details.loadInterfaces root details
 
       -- crawl
@@ -195,7 +184,8 @@ docsFromExposed style root details docsGoal exposed@(NE.List e es) =
           return (Left (Exit.BuildProjectProblem problem))
 
         Right foreigns ->
-          do  rmvar <- newEmptyMVar
+          do  
+              rmvar <- newEmptyMVar
               resultMVars <- Build.forkWithKey (checkModule env foreigns rmvar) statuses
               putMVar rmvar resultMVars
               results <- traverse readMVar resultMVars
@@ -240,7 +230,7 @@ toDocs result =
 
 
 checkModule :: Build.Env -> Build.Dependencies -> MVar DocsResultDict -> ModuleName.Raw -> Build.Status -> IO DocsResult
-checkModule env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar name status =
+checkModule env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar name status = do 
   case status of
     Build.SCached local@(Details.Local path time deps hasMain lastChange lastCompile) ->
       do  results <- readMVar resultsMVar

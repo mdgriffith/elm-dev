@@ -9,12 +9,17 @@ module Ext.Dev
     where
 
 
+import qualified System.IO
+
 import qualified Data.Maybe as Maybe
+
+import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Docs
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Warning as Warning
 import qualified Data.NonEmptyList as NonEmpty
 import qualified AST.Source as Src
+import qualified Data.NonEmptyList as NE
 
 import qualified Ext.CompileProxy
 import qualified Ext.Dev.Docs
@@ -79,8 +84,8 @@ docs :: FilePath -> FilePath -> IO (Maybe Elm.Docs.Module)
 docs root path = do
     (Ext.CompileProxy.Single source warnings interfaces canonical compiled) <- Ext.CompileProxy.loadSingle root path
     case compiled of
-        Just (Right artifacts) ->
-            case  Ext.Dev.Docs.fromArtifacts artifacts of
+        Just (Right artifacts) -> do 
+            case Ext.Dev.Docs.fromArtifacts artifacts of
                 Left err ->
                     pure Nothing
                 
@@ -91,10 +96,9 @@ docs root path = do
             pure Nothing
 
 
-
-docsForProject :: FilePath -> FilePath -> IO (Either Exit.Reactor Elm.Docs.Documentation)
-docsForProject root path = do
-    Ext.CompileProxy.compileToDocs root (NonEmpty.singleton path)
+docsForProject :: FilePath -> NE.List ModuleName.Raw -> IO (Either Exit.Reactor Elm.Docs.Documentation)
+docsForProject root modules = do
+    Ext.CompileProxy.compileToDocs root modules
         
    
 

@@ -16,6 +16,7 @@ import qualified System.Process
 import qualified System.FilePath as Path
 import qualified System.Directory as Dir
 
+import qualified Data.Char as Char
 import qualified Control.Monad as Monad
 import qualified Text.PrettyPrint.ANSI.Leijen as P
 import qualified Watchtower.Server
@@ -73,7 +74,7 @@ import qualified File
 import qualified Terminal.Dev.Args
 import qualified Terminal.Dev.Out
 import qualified Terminal.Dev.Error
-import qualified Terminal.Helpers (package, version)
+import qualified Terminal.Helpers
 
 import qualified Make
 import qualified Build
@@ -125,61 +126,6 @@ outro =
     "Happy hacking!"
 
 
-
-{- Get the docs for a package, a local project, or a specific file. -}
-
-
-
-data DocFlags =
-  DocFlags
-    { _output :: Maybe String
-    }
-
-data DocsArgs
-    = DocsCwdProject
-    | DocsPath FilePath
-    | DocsPackage Pkg.Name
-    | DocsPackageVersion Pkg.Name Elm.Version.Version 
-    deriving (Show)
-
-
-{-|
-
-You can provide:
-
-  A package: mdgriffith/elm-ui
-  An Elm file: Tests.elm
-  Or an elm.json file
-
-
--}
-docs :: Terminal.Command
-docs =
-  let
-    summary =
-      "Report the docs.json for the given package"
-
-    details =
-      "The `docs` command generates docs.json for :"
-
-    example =
-      reflow
-        "After running that command, watchtower is listening at <http://localhost:51213>\
-        \ and ready to be connected to."
-
-    docsFlags =
-      flags DocFlags
-        |-- flag "output" output_ "An optional file to write the JSON form of docs to.  If not supplied, the docs will be printed."
-
-    docsArgs =
-      oneOf 
-        [ require0 DocsCwdProject
-        , require1 DocsPackage Terminal.Helpers.package
-        , require2 DocsPackageVersion Terminal.Helpers.package Terminal.Helpers.version
-        , require1 DocsPath dir
-        ]
-  in
-  Terminal.Command "docs" (Common summary) details example docsArgs docsFlags getDocs
 
 
 
@@ -234,13 +180,14 @@ getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
           maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
           case maybeRoot of
             Nothing ->
-              System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+              Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
             
             Just root -> do
               eitherWarnings <- Ext.Dev.warnings root path
               case eitherWarnings of
                 Left _ ->
-                  System.IO.hPutStrLn System.IO.stdout "No warnings!"
+                  Terminal.Dev.Out.json maybeOutput
+                      (Right (Json.Encode.list (\a -> a) []))
 
                 Right (mod, warningList) ->
                     Terminal.Dev.Out.json maybeOutput
@@ -277,50 +224,148 @@ mapLeft f (Left x) = Left (f x)
 mapLeft _ (Right x) = Right x
 
 
+
+
+
+{- Get the docs for a package, a local project, or a specific file. -}
+
+
+
+data DocFlags =
+  DocFlags
+    { _output :: Maybe String
+    }
+
+data DocsArgs
+    = DocsFileList FilePath [FilePath]
+    | DocsModules Elm.ModuleName.Raw [Elm.ModuleName.Raw]
+    | DocsPackage Pkg.Name
+    | DocsPackageVersion Pkg.Name Elm.Version.Version 
+    deriving (Show)
+
+
+{-|
+
+You can provide:
+
+  A package: mdgriffith/elm-ui
+  An Elm file: Tests.elm
+  Or an elm.json file
+
+
+-}
+docs :: Terminal.Command
+docs =
+  let
+    summary =
+      "Report the docs.json for the given package"
+
+    details =
+      "The `docs` command generates docs.json for :"
+
+    example =
+      reflow
+        "After running that command, watchtower is listening at <http://localhost:51213>\
+        \ and ready to be connected to."
+
+    docsFlags =
+      flags DocFlags
+        |-- flag "output" output_ "An optional file to write the JSON form of docs to.  If not supplied, the docs will be printed."
+
+    docsArgs =
+      oneOf 
+        [ require1 DocsPackage Terminal.Helpers.package
+        , require2 DocsPackageVersion Terminal.Helpers.package Terminal.Helpers.version
+        , oneOrMoreWith DocsFileList Terminal.Helpers.elmFile
+        , oneOrMoreWith DocsModules elmModuleList
+        ]
+  in
+  Terminal.Command "docs" (Common summary) details example docsArgs docsFlags getDocs
+
+
+
+
+elmModuleList :: Parser Elm.ModuleName.Raw
+elmModuleList =
+  Parser
+    { _singular = "elm file"
+    , _plural = "elm files"
+    , _parser = parseElmModule
+    , _suggest = \_ -> return []
+    , _examples = exampleModules
+    }
+
+
+
+
+splitOn :: Eq a => a -> [a] -> [[a]]
+splitOn delimiter = go
+  where
+    go [] = []
+    go xs = 
+        let (before, remainder) = break (== delimiter) xs
+        in before : case remainder of
+                      [] -> []
+                      _:after -> go after
+
+
+parseElmModule :: String -> Maybe Elm.ModuleName.Raw
+parseElmModule chars =
+  if length chars == 0 then
+    Nothing
+  else
+    let 
+        pieces = splitOn '.' chars
+    in
+    if all isValidElmPiece pieces then
+      Just (Name.fromChars chars)
+    else
+      Nothing
+
+isValidElmPiece :: String -> Bool
+isValidElmPiece [] = False  -- An empty string doesn't meet the criteria
+isValidElmPiece (x:xs) = Char.isUpper x && all isValidChar xs
+  where
+    isValidChar c = Char.isAlphaNum c || c == '_'
+   
+  
+
+exampleModules :: String -> IO [String]
+exampleModules _ =
+  return ["Main", "Style.Button"]
+
+
+gatherDocs :: Data.Map.Map Name.Name Docs.Module -> FilePath ->  IO (Data.Map.Map Name.Name Docs.Module)
+gatherDocs moduleDict path = do
+  maybeRoot <-  Stuff.findRoot
+  case maybeRoot of
+    Nothing ->
+      pure moduleDict
+    
+    Just root -> do
+      maybeDocs <- Ext.Dev.docs root path
+      case maybeDocs of
+        Nothing ->
+          pure moduleDict
+
+        Just docs ->
+          pure (Data.Map.insert (Docs._name docs) docs moduleDict)
+
 getDocs :: DocsArgs -> Terminal.Dev.DocFlags -> IO ()
 getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
   case arg of
-    DocsCwdProject ->
-      do
-          let path = "src/Main.elm"
-          maybeRoot <- Stuff.findRoot
-          case maybeRoot of
-            Nothing ->
-              Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
-            
-            Just root -> do
-              maybeDocs <- Ext.Dev.docsForProject root path
-              case maybeDocs of
-                Left err ->
-                  Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.ExitReactor err))
-                
-                Right docs ->
-                   Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
+    DocsFileList top fileList -> do
+      docMap <- Monad.foldM gatherDocs Data.Map.empty (top : fileList)
+      Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docMap))
 
-    DocsPath path ->
-      if Path.takeExtension path == ".elm" then do
-        maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
+    DocsModules top moduleList -> do
+        maybeRoot <- Stuff.findRoot
         case maybeRoot of
           Nothing ->
             Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
           
           Just root -> do
-            maybeDocs <- Ext.Dev.docs root path
-            case maybeDocs of
-              Nothing ->
-                Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
-
-              Just docs ->
-                 Terminal.Dev.Out.json maybeOutput (Right (Docs.encode (Docs.toDict [ docs ])))
-      else do
-        -- treat path as a directory path and produce docs as a project
-        maybeRoot <-  Dir.withCurrentDirectory path Stuff.findRoot
-        case maybeRoot of
-          Nothing ->
-            Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
-          
-          Just root -> do
-            maybeDocs <- Ext.Dev.docsForProject root path
+            maybeDocs <- Ext.Dev.docsForProject root (NE.List top moduleList)
             case maybeDocs of
               Left err ->
                 Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.ExitReactor err))
@@ -328,7 +373,6 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
               Right docs ->
                 Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
       
-
     DocsPackage packageName -> do
       -- Is there an `elm.json` file?  Read it for the exact version.
       maybeCurrentVersion <- Ext.Dev.Package.getCurrentlyUsedOrLatestVersion "." packageName
