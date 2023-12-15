@@ -6,32 +6,51 @@ port module Main exposing
 
 {-| -}
 
+import Alias
 import Browser
 import Html as What
 import Imported
 import Result
+import Ui.Arbor
 
 
-
--- import Imported
+type alias Regions view =
+    { main : view
+    , nav : Maybe view
+    , detail : List view
+    }
 
 
 {-| Here are my flags!!
 -}
-type alias Flags =
-    { flag : String }
+type alias Flags one =
+    { flag : one
+    , innerRecord : InnerRecord
+    , inner : String
+    , other : Bool
+    }
+
+
+type alias InnerRecord =
+    { test : Bool }
 
 
 {-| What is this??
 -}
-main : Program Flags Model Msg
+main : Program (Flags String) Model Msg
 main =
     Browser.document
-        { init = \{ flag } -> ( { flag = flag }, Cmd.none )
+        { init =
+            \flag ->
+                ( { flag = flag
+                  , value = Alias.test { test = True }
+                  }
+                , sendMessage "Yoo"
+                )
         , view =
             \model ->
                 { title = "test"
-                , body = [ What.text model.flag ]
+                , body = [ What.text model.flag.flag ]
                 }
         , update = update
         , subscriptions =
@@ -39,8 +58,15 @@ main =
         }
 
 
+
+-- main =
+--     Ui.Arbor.main
+
+
 type alias Model =
-    { flag : String }
+    { flag : Flags String
+    , value : Alias.Alias InnerRecord
+    }
 
 
 {-| HERE IS MY COMMENT
@@ -48,14 +74,18 @@ type alias Model =
 type Msg
     = NoOp
     | Received String
+    | OtherReceived InnerRecord
 
 
 update msg model =
     case msg of
         NoOp ->
-            ( model, sendMessage model.flag )
+            ( model, sendMessage model.flag.flag )
 
         Received _ ->
+            ( model, Cmd.none )
+
+        OtherReceived _ ->
             ( model, Cmd.none )
 
 
@@ -104,7 +134,3 @@ howAboutARecord =
 andWhatBoutHere : String
 andWhatBoutHere =
     "Whaaasat?"
-
-
-gnome =
-    Imported.otherThing
