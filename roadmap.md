@@ -1,29 +1,42 @@
-# Roadmap
+# Elm Dev Roadmap
 
-If you like what you see now, that's pretty much what Elm is going to be for a while.
+Elm Dev is here to empower Elm tooling to allow Elm projects to be developed, and managed in a swift and delightful manner.
 
-I'm currently doing some exploratory work with compiler techniques and targets, but it is still too early to tell which parts of that might work out. I know many readers take "exploring X" as a promise that "X will definitely happen", so I want to be careful in setting expectations low since there is still so much uncertainty in the work. So while there is no real news to share at this point, I can give some expectations about future stability of Elm:
+Elm is the armor and the blasters, Elm Dev is the jetpack.
 
-**If this exploratory work goes well**, even in the wildest version of success, I wouldn't expect the language or core packages to change very much. Maybe two or three years down the line it could reveal something that'd be good to fix up, but I don't really foresee notable changes right now.
+I'm also very interested in emphasizing things that appeal to people outside of the Elm community. This means covering areas that aren't just standard stuff (though some amount of standard tooling is desired as well).
 
-**If this exploratory work does not work out**, I have some more conservative projects that are good ideas that I want to circle back to at some point. Things like:
+## Road map
 
-- add a constrained type variable `eq` to get rid of the runtime error for `(==)` on functions
-- try to integrate `elm test` so it can run only tests that changed
-- try to get `elm format` using the latest parsing infrastructure so it's not a perf bottleneck during development anymore
-- do another round on perf because I have one last idea that can squeeze out a bit more speed
+There are generally going to be phases in Elm Dev's roadmap.
 
-These are all nice quality of life things, but with 0.19.0 and 0.19.1 taking so long, I got pretty burnt out on "incremental improvements that are good ideas, but take a very long time and aren't very exciting to non-Elm users." Without getting too into the details, I really needed to change things up before returning to these particular ideas.
+1. Elm Dev experimental CLI release.
+   Initially I'm going to release a CLI tool that is focused on reporting information about a given Elm project in JSON.
+   Performance is not really a consideration as there are a class of tools that would only ask questions from the CLI every now and then.
 
-If someone has a security issue from the compiler or core libraries, please DM me about it on the Elm Slack. Outside of security issues, I think capacity for more discretionary changes will increase once the lessons from the compiler explorations become more clear. Hopefully the discussion [here](https://discourse.elm-lang.org/t/costs-funding-in-open-source-languages/5722) clarifies the thinking on these capacity questions a bit.
+2. Elm Dev server process.
+   Utilize the work that's already been done to keep compiler artifacts in memory. The server can watch multiple projects and compiler your project for you.
 
-<br>
-<br>
+   This will unlock live-development tooling.
 
-**Taking a step back**, I have found that working in this looser style has produced a high baseline of quality, and I think that is an important part of Elm. For example, all the error message work in Elm began as a project to implement the `--report=json` flag. That work happened to reveal some cool ideas on improving error messages, and if I had been using a rigid roadmap, I might have skipped those ideas to meet the publicly-stated arbitrary deadline. We'd have a clearer roadmap, but error messages no different than other type-inferred languages.
+3. The server can function as a language server.
 
-So I think having more flexibility in planning is a competitive advantage for Elm in certain ways, but it is obviously a trade off that does not work for everyone. If someone needs more certainty, I generally recommend looking into other languages to see if they have a balance that works better for their needs. For example, languages made by big corporations are generally "less risky" on things like this, but I think you see the fruits of that kind of process in the design decisions as well. Trade offs!
+So, the general roadmap is looking something like this:
 
-Anyway, like I said at the beginning, if you like what you see now, that's what it's going to be for a while. Even in the best case scenario with my current explorations!
+1. An Elm Dev CLI tool is released that is primarily focused on exposing info via JSON.
 
-I hope this is helpful information, and I hope you have a good experience with Elm, even if you ultimately find a different language that works better for you!
+The main motivation here is to unblock some downstream projects that I have. The things I need are not very performance critical and aren't very sophisticated, but I need elm-dev to get them for me.
+
+Specifically I've been working on a codegen tool that I'm currently calling `elm-press`. I'll have more to share later, but it's "plugin" based, so you can choose what you want generated based on your requirements. So far the plugins I have are:
+
+    - An opinionated app archutecture with some superpowers around state handling.
+    - Elm UI theme generator
+    - Interactive code generator thing
+
+Once that's out and I'm able to finish the above (while coordinating Elm UI 2.0 with the above generator), the focus will move to enriching the server experience.
+
+2. Elm Dev as a development server. This unlocks a bunch of stuff performance-wise as well as some really cool features like live dev tools and code generation.
+
+3. Elm Dev server as a language server. Once everything else it taken care of, I'd like elm-dev to power a language server.
+
+I also want to emphasize that step 1. is about exploration

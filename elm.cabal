@@ -229,6 +229,7 @@ Executable elm-dev
         Ext.MemoryCached.Build
         Ext.MemoryCached.Details
         Ext.MemoryCached.Generate
+        Ext.Project.Find
 
         -- elm-dev cli interface
         Terminal.Dev
@@ -272,7 +273,6 @@ Executable elm-dev
         Ext.Dev.Imports
         Ext.Log
         Ext.Sanity
-        
         
 
         Util
