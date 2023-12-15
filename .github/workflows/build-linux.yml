@@ -77,8 +77,8 @@ jobs:
           ghcup install cabal recommended
           PATH=$PATH:/home/runner/.ghcup/bin
 
-          ghcup install ghc 9.0.2
-          ghcup set ghc 9.0.2
+          ghcup install ghc 9.2.8
+          ghcup set ghc 9.2.8
 
           # Fix git complaint about 'dubious ownership' on Github CI
           git config --global --add safe.directory /home/runner/work/elm-watchtower/elm-watchtower
@@ -150,8 +150,8 @@ jobs:
           ghcup install cabal recommended
           PATH=$PATH:/home/runner/.ghcup/bin
 
-          ghcup install ghc 9.0.2
-          ghcup set ghc 9.0.2
+          ghcup install ghc 9.2.8
+          ghcup set ghc 9.2.8
 
           # Fix git complaint about 'dubious ownership' on Github CI
           git config --global --add safe.directory /home/runner/work/elm-dev/elm-dev
