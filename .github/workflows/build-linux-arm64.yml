@@ -1,0 +1,27 @@
+on:
+  push:
+    branches:
+      - distribute
+      - linux
+      - linux-arm64
+
+name: Build Linux arm64
+jobs:
+  build:
+    name: Build Linux arm64
+    # For some reason this OOM's on community m1 but not on local m1, so we use a dedicated linux-arm64 box for now
+    runs-on: lamdera-community-linux-arm64
+    steps:
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.GH_USER_SCP_KEY }}
+          name: id_ed25519
+          known_hosts: ${{ secrets.KNOWN_HOSTS }}
+          if_key_exists: replace
+      - uses: actions/checkout@v3
+      - run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
+      - name: Run distribution script
+        run: |
+          cd distribution
+          ./build-linux-arm64-musl.sh
