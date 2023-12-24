@@ -1,23 +1,29 @@
 on:
   push:
     branches:
-      - release
+      - distribute
+      - windows
 
-name: Build Elm Dev for Windows
+name: Build Windows x86_64
 jobs:
   build-packages:
     name: Build Windows Libraries
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
 
       # First, check if the specific cache exists, so we don't waste ~3m of build
-      # time restoring the 1.5GB cache for no reason. See https://github.com/actions/cache/pull/420
-      # as this functionality may become part of actions/cache in future.
-      - uses: bowd/cache@v3
+      # time restoring the 1.5GB cache for no reason.
+      - uses: actions/cache@v3
         id: cache
         with:
-          only-check-key: true
+          lookup-only: true
           path: |
             ~\AppData\Local\Programs\stack
             .stack-work
@@ -27,7 +33,7 @@ jobs:
       # If it doesn't exist, setup our cache action, while also trying to restore
       # a prior broader matching cache if it exists (saves a lot of time if just
       # modifying a few packages).
-      - uses: actions/cache@v2
+      - uses: actions/cache@v3
         if: steps.cache.outputs.cache-hit != 'true'
         with:
           path: |
@@ -38,19 +44,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-
 
-      # Setup Haskell tooling
-      - uses: haskell/actions/setup@v1
+      # Now setup Haskell, given we're comitted to actually doing a lib build
+      - uses: haskell-actions/setup@v2
         if: steps.cache.outputs.cache-hit != 'true'
         with:
           enable-stack: true
-          stack-version: "latest"
           stack-no-global: true
+          stack-version: 'latest'
 
       # Install just our dependencies, this can take ~30m from scratch and is the
       # most part valuable to cache.
       - name: Install Dependencies
         if: steps.cache.outputs.cache-hit != 'true'
-        run: stack build --only-dependencies
+        run: stack build --only-dependencies --ghc-options '-optl"-Wl,-Bstatic,-lstdc++,-lgcc_s,-lwinpthread,-Bdynamic"'
 
   # The install step is split to a separate job, so that if the we were building
   # from scratch and just spent 30 minutes building all the libraries, but then
@@ -63,17 +69,15 @@ jobs:
     runs-on: windows-latest
     needs: build-packages
     steps:
-      - uses: actions/checkout@v2
-
-      # Setup Haskell tooling
-      - uses: haskell/actions/setup@v1
-        if: steps.cache.outputs.cache-hit != 'true'
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - uses: haskell-actions/setup@v2
         with:
           enable-stack: true
-          stack-version: "latest"
           stack-no-global: true
-
-      - uses: actions/cache@v2
+          stack-version: 'latest'
+      - uses: actions/cache@v3
         with:
           path: |
             ~\AppData\Local\Programs\stack
@@ -86,14 +90,53 @@ jobs:
       # Use a retry action because inexplicably sometimes stack install stalls
       # indefinitely after the `compiling Main` step, but then succeeds immediately
       # with a second stack install. 🤷🏻‍♂️
-      - uses: nick-invision/retry@v2
+      - uses: nick-fields/retry@v2
         with:
           timeout_minutes: 5
-          max_attempts: 3
-          command: stack install
+          max_attempts: 4
+          # https://gitlab.haskell.org/ghc/ghc/-/issues/20878
+          # https://gitlab.haskell.org/ghc/ghc/-/issues/20010#note_359766
+          command: stack install --ghc-options '-optl"-Wl,-Bstatic,-lstdc++,-lgcc_s,-lwinpthread,-Bdynamic"'
 
-      - name: Archive elm-dev.exe artifact
-        uses: actions/upload-artifact@v2
+      - name: Copy binary files, dlls & check
+        run: |
+          mkdir elm-dev
+          cp ~/AppData/Roaming/local/bin/elm-dev.exe elm-dev/elm-dev.exe
+          cp distribution/dlls/* elm-dev/
+          ./elm-dev/elm-dev.exe --version-full
+
+      - name: Create distribution zip
+        uses: vimtor/action-zip@v1
         with:
-          name: elm-dev.exe
-          path: ~\AppData\Roaming\local\bin\elm-dev.exe
+          files: elm-dev/
+          recursive: false
+          dest: elm-dev.zip
+
+      - name: Archive elm-dev.zip artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: elm-dev-next.zip
+          path: elm-dev.zip
+
+  upload:
+    needs: install
+    name: Upload elm-dev-next.zip to SFTP
+    runs-on: lamdera-community-linux-x86_64
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: elm-dev-next.zip
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.GH_USER_SCP_KEY }}
+          name: id_ed25519
+          known_hosts: ${{ secrets.KNOWN_HOSTS }}
+          if_key_exists: replace
+
+      - run: |
+          pwd
+          ls -alh
+          echo "put elm-dev.zip next/elm-dev-next-windows-x86_64.zip" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com
