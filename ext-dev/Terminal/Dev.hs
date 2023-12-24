@@ -96,15 +96,15 @@ main =
     ]
 
 
-loadAndEnsureCompiled :: FilePath -> Maybe (NE.List Elm.ModuleName.Raw) -> IO Elm.Details.Details
+loadAndEnsureCompiled :: FilePath -> Maybe (NE.List Elm.ModuleName.Raw) -> IO (Either Terminal.Dev.Error.Error Elm.Details.Details)
 loadAndEnsureCompiled root exposed = do
     result <- Ext.CompileProxy.ensureModulesAreCompiled root exposed
     case result of
       Left err ->
-        error "ohno"
+        pure (Left (Terminal.Dev.Error.CompilationError err))
         
       Right details ->
-        pure details
+        pure (Right details)
 
 
 intro :: P.Doc
@@ -190,12 +190,14 @@ getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
                       (Right (Json.Encode.list (\a -> a) []))
 
                 Right (mod, warningList) ->
-                    Terminal.Dev.Out.json maybeOutput
-                        (Right (Json.Encode.list
-                            (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
-                            warningList
-                        ))
-                      
+                  Terminal.Dev.Out.json maybeOutput
+                      (Right 
+                        (Json.Encode.list
+                          (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                          warningList
+                        )
+                      )
+                    
 
       else
         -- Produce docs as a project
@@ -546,17 +548,15 @@ findRun arg (Terminal.Dev.FindFlags maybeOutput) =
       valueResult <- Terminal.Dev.Args.value path
       case valueResult of
         Left err ->
-           System.IO.hPutStrLn System.IO.stdout (Terminal.Dev.Error.toString err)
+          Terminal.Dev.Out.json maybeOutput (Left err)
 
         Right (Terminal.Dev.Args.Value root modName valueName) -> do
             maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root modName valueName
             case maybeDefinition of
               Nothing ->
-                System.IO.hPutStrLn System.IO.stdout "Nothing found"
+                Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindModule)
 
               Just definition ->
-                
-
                 System.IO.hPutStrLn System.IO.stdout "Found!"
 
 
@@ -643,7 +643,7 @@ importsRun moduleNames (Terminal.Dev.ImportsFlags maybeOutput) = do
     moduleResult <- Terminal.Dev.Args.moduleList moduleNames
     case moduleResult of
       Left err -> do
-          Terminal.Dev.Out.json maybeOutput (Left err)
+        Terminal.Dev.Out.json maybeOutput (Left err)
           
       Right (Terminal.Dev.Args.ModuleList root infoList details) -> do
 
@@ -814,23 +814,30 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput) =
       valueResult <- Terminal.Dev.Args.value path
       case valueResult of
         Left err ->
-           System.IO.hPutStrLn System.IO.stdout (Terminal.Dev.Error.toString err)
+          Terminal.Dev.Out.json maybeOutput
+                    (Left err)
 
         Right (Terminal.Dev.Args.Value root modName valueName) -> do
-          details <- loadAndEnsureCompiled root Nothing
-
-          usageSummary <- Ext.Dev.Usage.usageOfType root details modName valueName
-          case usageSummary of
+          compilationCheckResult <- loadAndEnsureCompiled root Nothing
+          case compilationCheckResult of
             Left err ->
-                System.IO.hPutStrLn System.IO.stdout (Terminal.Dev.Error.toString err)
+              Terminal.Dev.Out.json maybeOutput
+                    (Left err)
 
-            Right summary ->
-                Terminal.Dev.Out.json maybeOutput
-                    (Right 
-                      (Ext.Dev.Usage.encodeUsageOfType
-                          summary
-                      )
-                    )
+            Right details -> do
+              usageSummary <- Ext.Dev.Usage.usageOfType root details modName valueName
+              case usageSummary of
+                Left err ->
+                    Terminal.Dev.Out.json maybeOutput
+                        (Left err)
+
+                Right summary ->
+                    Terminal.Dev.Out.json maybeOutput
+                        (Right 
+                          (Ext.Dev.Usage.encodeUsageOfType
+                              summary
+                          )
+                        )
 
     UsageModule path -> do
       moduleResult <- Terminal.Dev.Args.modul path
@@ -842,7 +849,8 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput) =
           usageSummary <- Ext.Dev.Usage.usageOfModule root details moduleName
           case usageSummary of
             Nothing ->
-                System.IO.hPutStrLn System.IO.stdout "Unable to find the given module"
+                Terminal.Dev.Out.json maybeOutput
+                    (Left Terminal.Dev.Error.CouldNotFindModule)
 
             Just summary ->
                 Terminal.Dev.Out.json maybeOutput
@@ -917,7 +925,8 @@ entrypointsRun arg (Terminal.Dev.EntryPointsFlags maybeOutput) =
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
         Nothing ->
-          System.IO.hPutStrLn System.IO.stdout "Was not able to find an elm.json!"
+           Terminal.Dev.Out.json maybeOutput
+              (Left (Terminal.Dev.Error.CouldNotFindRoot))
         
         Just root -> do
           entryResult <- Ext.Dev.entrypoints root
@@ -983,11 +992,17 @@ explainRun arg (Terminal.Dev.ExplainFlags maybeOutput) =
           Terminal.Dev.Out.json maybeOutput (Left err)
 
         Right (Terminal.Dev.Args.Value root modName valueName) -> do
-          details <- loadAndEnsureCompiled root Nothing
-          maybeFound <- Ext.Dev.Explain.explain details root modName valueName
-          case maybeFound of
-            Nothing ->
-              System.IO.hPutStrLn System.IO.stdout "Nothing found"
+          compilationCheckResult <- loadAndEnsureCompiled root (Just (NE.List modName []))
+          case compilationCheckResult of
+            Left err ->
+              Terminal.Dev.Out.json maybeOutput
+                    (Left err)
 
-            Just definition ->
-              Terminal.Dev.Out.json maybeOutput (Right (Ext.Dev.Explain.encode definition))
+            Right details -> do
+              maybeFound <- Ext.Dev.Explain.explain details root modName valueName
+              case maybeFound of
+                Nothing ->
+                  Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.CouldNotFindModule))
+
+                Just definition ->
+                  Terminal.Dev.Out.json maybeOutput (Right (Ext.Dev.Explain.encode definition))
