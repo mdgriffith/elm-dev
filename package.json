@@ -8,11 +8,11 @@
   "license": "BSD 3",
   "private": true,
   "scripts": {
-    "vscode": "yarn --cwd watchtower-frontends/vscode",
+    "vscode": "pnpm --cwd watchtower-frontends/vscode",
     "watchtower": "stack ghci",
     "install:system": "stack install",
     "install:vscode": "stack --local-bin-path ./watchtower-frontends/vscode/out install",
-    "prepare:vscode": "yarn install:vscode ; (cd watchtower-frontends/vscode ; yarn package)",
+    "prepare:vscode": "pnpm install:vscode ; (cd watchtower-frontends/vscode ; pnpm package)",
     "build": "stack build",
     "stack:run": "stack run --",
     "test:docs": "stack run --cwd watchtower-frontends/vscode/testProject -- docs",
