@@ -206,6 +206,24 @@ getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
 
 
 
+entrypoints_ :: Parser (NE.List Elm.ModuleName.Raw)
+entrypoints_ =
+  Parser
+    { _singular = "entrypoint"
+    , _plural = "entrypoints"
+    , _parser = parseEntrypoints
+    , _suggest = \_ -> return []
+    , _examples = \_ -> return ["Main, Style.Button"]
+    }
+
+parseEntrypoints :: String -> Maybe (NE.List Elm.ModuleName.Raw)
+parseEntrypoints chars =
+  case Data.Maybe.catMaybes $ fmap parseElmModule (splitOn ',' chars) of 
+      [] -> Nothing
+      (top : remain) -> 
+           Just (NE.List top remain)
+  
+
 
 output_ :: Parser String
 output_ =
@@ -298,6 +316,8 @@ elmModuleList =
     }
 
 
+trimWhitespace :: String -> String
+trimWhitespace = reverse . dropWhile Char.isSpace . reverse . dropWhile Char.isSpace
 
 
 splitOn :: Eq a => a -> [a] -> [[a]]
@@ -312,7 +332,10 @@ splitOn delimiter = go
 
 
 parseElmModule :: String -> Maybe Elm.ModuleName.Raw
-parseElmModule chars =
+parseElmModule charsRaw =
+  let 
+      chars = trimWhitespace charsRaw
+  in
   if length chars == 0 then
     Nothing
   else
@@ -758,6 +781,7 @@ data Usage
 data UsageFlags =
   UsageFlags
     { _usageOutput :: Maybe String
+    , _usageEntryPoints :: Maybe (NE.List Elm.ModuleName.Raw)
     }
 
 
@@ -797,6 +821,7 @@ usage =
     usageFlags =
       flags UsageFlags
         |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
+        |-- flag "entypoints" entrypoints_ "Specify which modules are entrypoints to the project.  This will limit the scope of the search."
 
     usageArgs =
       oneOf 
@@ -808,7 +833,7 @@ usage =
 
 
 usageRun :: Usage -> Terminal.Dev.UsageFlags -> IO ()
-usageRun arg (Terminal.Dev.UsageFlags maybeOutput) =
+usageRun arg (Terminal.Dev.UsageFlags maybeOutput maybeEntrypoints) =
   case arg of
     UsageType _ path -> do
       valueResult <- Terminal.Dev.Args.value path
@@ -818,7 +843,7 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput) =
                     (Left err)
 
         Right (Terminal.Dev.Args.Value root modName valueName) -> do
-          compilationCheckResult <- loadAndEnsureCompiled root Nothing
+          compilationCheckResult <- loadAndEnsureCompiled root maybeEntrypoints
           case compilationCheckResult of
             Left err ->
               Terminal.Dev.Out.json maybeOutput
