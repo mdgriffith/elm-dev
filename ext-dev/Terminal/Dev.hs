@@ -174,34 +174,30 @@ warnings =
 getWarnings :: Warnings -> Terminal.Dev.WarningFlags -> IO ()
 getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
   case arg of
-    WarningsFile path ->
-      if Path.takeExtension path == ".elm" then
-        do
-          maybeRoot <-  Dir.withCurrentDirectory (Path.takeDirectory path) Stuff.findRoot
-          case maybeRoot of
-            Nothing ->
-              Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
-            
-            Just root -> do
-              eitherWarnings <- Ext.Dev.warnings root path
-              case eitherWarnings of
-                Left _ ->
-                  Terminal.Dev.Out.json maybeOutput
-                      (Right (Json.Encode.list (\a -> a) []))
+    WarningsFile path -> do
+      moduleResult <- Terminal.Dev.Args.modul path
+      case moduleResult of
+        Left err ->
+           Terminal.Dev.Out.json maybeOutput (Left err)
 
-                Right (mod, warningList) ->
-                  Terminal.Dev.Out.json maybeOutput
-                      (Right 
-                        (Json.Encode.list
-                          (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
-                          warningList
-                        )
-                      )
+        Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
+          eitherWarnings <- Ext.Dev.warnings root modulePath
+          case eitherWarnings of
+            Left _ ->
+              Terminal.Dev.Out.json maybeOutput
+                  (Right (Json.Encode.list (\a -> a) []))
+
+            Right (mod, warningList) ->
+              Terminal.Dev.Out.json maybeOutput
+                  (Right 
+                    (Json.Encode.list
+                      (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                      warningList
+                    )
+                  )
                     
 
-      else
-        -- Produce docs as a project
-        System.IO.hPutStrLn System.IO.stdout "Given file does not have an .elm extension"
+   
 
 
 
