@@ -72,6 +72,7 @@ data DeclarationMetadata =
     DeclarationMetadata
         { _declarationName :: Name
         , _declarationType :: Maybe Can.Type
+        , _declarationFound :: Ext.Dev.Find.Source.Found
         , _declarationTypeComponents :: [ TypeComponentDefinition ]
         , _declarationRange :: A.Region
         , _declarationRecursive :: Bool
@@ -146,18 +147,15 @@ explainFromFileResult root valueName (single@(Ext.CompileProxy.Single source war
                 Nothing -> do
                     pure Nothing
 
-                Just (Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val)) ->  do
+                Just (sourceFound@(Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val))) ->  do
                     let (refCollection@(ReferenceCollection refMap usedTypes refUnions usedModules)) = getFoundDefTypes missingTypeLookup def emptyRefCollection
                     
-                    -- System.IO.hPutStrLn System.IO.stdout "Explaining : "
-                    -- System.IO.hPutStrLn System.IO.stdout (show ((Src.getName srcModule), valueName))
-                    -- System.IO.hPutStrLn System.IO.stdout (show refCollection)
                     foundTypeRefs <- lookUpTypesByFragments root 
                                         (toLookupCollection refCollection)
 
                     Ext.Log.log Ext.Log.Misc (show (List.length foundTypeRefs))
                     let refs = Map.elems refMap
-                    metadata <- getDeclarationMetadata root missingTypeLookup pos def
+                    metadata <- getDeclarationMetadata root missingTypeLookup pos def sourceFound
                     pure 
                         (Just 
                             (Explanation
@@ -168,14 +166,13 @@ explainFromFileResult root valueName (single@(Ext.CompileProxy.Single source war
                             )
                         )
                 
-                Just (Ext.Dev.Find.Source.FoundUnion (Just union) (A.At pos srcUnion)) -> do
+                Just (sourceFound@(Ext.Dev.Find.Source.FoundUnion (Just union) (A.At pos srcUnion))) -> do
                     let moduleName = Can._name canMod
-                    let usage = (UnionVariantUsage moduleName valueName Set.empty)
                     let lookupCollection = unionToLookupCollection moduleName valueName union
 
                     typeComponents <- lookUpTypesByFragments root lookupCollection
                     
-                    let metadata = DeclarationMetadata valueName (Just (Can.TVar valueName)) (fmap toTypeComponentDefinition typeComponents) pos False
+                    let metadata = DeclarationMetadata valueName (Just (Can.TVar valueName)) sourceFound (fmap toTypeComponentDefinition typeComponents) pos False
                     
                     pure 
                         (Just 
@@ -187,7 +184,7 @@ explainFromFileResult root valueName (single@(Ext.CompileProxy.Single source war
                             )
                         )
 
-                Just (Ext.Dev.Find.Source.FoundAlias (Just canAlias) (A.At pos alias_)) -> do
+                Just (sourceFound@(Ext.Dev.Find.Source.FoundAlias (Just canAlias) (A.At pos alias_))) -> do
                     let (Can.Alias aliasVars aliasedType) = canAlias
                     let placeholderAliasType = Can.Holey aliasedType
 
@@ -198,8 +195,7 @@ explainFromFileResult root valueName (single@(Ext.CompileProxy.Single source war
                                                  & getExternalTypeUsages aliasedType
 
                     typeComponents <- lookUpTypesByFragments root lookupCollection
-                    -- let typeComponents = []
-                    let metadata = DeclarationMetadata valueName (Just aliasedType) (fmap toTypeComponentDefinition typeComponents) pos False
+                    let metadata = DeclarationMetadata valueName (Just aliasedType) sourceFound (fmap toTypeComponentDefinition typeComponents) pos False
                     
                     pure 
                         (Just 
@@ -236,7 +232,7 @@ explainAtLocation root location@(Watchtower.Editor.PointLocation path _) = do
                 Nothing ->
                     pure Nothing
 
-                Just (Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val)) -> 
+                Just (sourceFound@(Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val))) -> 
                     do
                         let (refCollection@(ReferenceCollection refMap usedTypes refUnions usedModules)) = getFoundDefTypes missingTypeLookup def emptyRefCollection
                         
@@ -248,7 +244,7 @@ explainAtLocation root location@(Watchtower.Editor.PointLocation path _) = do
             
                         let refs = Map.elems refMap 
 
-                        metadata <- getDeclarationMetadata root missingTypeLookup pos def
+                        metadata <- getDeclarationMetadata root missingTypeLookup pos def sourceFound
 
                         pure 
                             (Just 
@@ -307,23 +303,13 @@ unionToLookupCollection moduleName unionName union =
                 (\(Can.Ctor _ _ _ types) -> types)
                 variantList
 
-        toUsage (Can.Ctor name _ _ types) =
-            UnionVariantUsage moduleName unionName (Set.singleton name)
-
-        variants = Map.fromList 
-                    (List.map 
-                        (\ctor ->
-                            (unionName, toUsage ctor)
-                        ) 
-                        variantList
-                    )
-
-        baseCollection =  LookupCollection (Map.singleton moduleName variants)
+        baseCollection = LookupCollection (Map.singleton moduleName Map.empty)
     in
     List.foldr 
         getExternalTypeUsages
         baseCollection
         externalTypes
+        
 
 
 getTypeLookups :: LookupCollection -> Reference -> LookupCollection
@@ -474,8 +460,11 @@ getTypeComponents isTopLevel root tipe = do
         Can.TType canMod name varTypes -> do
             list <- Monad.mapM (getTypeComponents False root) varTypes
            
-            maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root (ModuleName._module canMod) name
-            let definition = case maybeDefinition of
+            if isTopLevel then 
+                pure (List.concat list)
+            else do 
+                maybeDefinition <- Ext.Dev.Lookup.lookupDefinition root (ModuleName._module canMod) name
+                let definition = case maybeDefinition of
                                 Nothing -> Inline tipe
                                 Just lookupResult -> 
                                     let 
@@ -483,7 +472,7 @@ getTypeComponents isTopLevel root tipe = do
                                     in
                                     Defined usage lookupResult
 
-            pure (TypeInline tipe refs definition : List.concat list)
+                pure (TypeInline tipe refs definition : List.concat list)
 
         Can.TRecord fields extensibleName ->
             pure [ TypeInline tipe refs (Inline tipe) ]
@@ -524,7 +513,7 @@ pairToReference :: (TypeUsage, Ext.Dev.Lookup.LookupResult) -> Reference
 pairToReference (fragment, lookup) =
     TypeReference fragment lookup
 
-findFragment :: String -> ( ModuleName.Canonical, Map.Map Name TypeUsage) -> IO [  (TypeUsage, Ext.Dev.Lookup.LookupResult) ]      
+findFragment :: String -> ( ModuleName.Canonical, Map.Map Name TypeUsage) -> IO [ (TypeUsage, Ext.Dev.Lookup.LookupResult) ]      
 findFragment root (canMod, fragmentMap) =
     if isSkippable canMod then 
         pure []
@@ -562,30 +551,30 @@ isSkippable (ModuleName.Canonical (Package.Name author project) modName) =
 
 
 
-getDeclarationMetadata root missingTypeLookup pos foundDef =
+getDeclarationMetadata root missingTypeLookup pos foundDef foundSource =
     case foundDef of
         Ext.Dev.Find.Source.Def def ->
-            getCanDeclarationMetadata root missingTypeLookup pos def False
+            getCanDeclarationMetadata root missingTypeLookup pos def False foundSource
 
         Ext.Dev.Find.Source.DefRecursive def otherDefs ->
-            getCanDeclarationMetadata root missingTypeLookup pos def True
+            getCanDeclarationMetadata root missingTypeLookup pos def True foundSource
             
 
-getCanDeclarationMetadata root missingTypeLookup pos def recursive =
+getCanDeclarationMetadata root missingTypeLookup pos def recursive foundSource =
     case def of
         Can.Def (A.At _ name) patterns expr -> do 
              case Map.lookup name missingTypeLookup of
                 Nothing ->
-                    pure (DeclarationMetadata name Nothing [] pos recursive)
+                    pure (DeclarationMetadata name Nothing foundSource [] pos recursive)
 
                 Just type_ -> do
                     typeComponents <- getTypeComponents True root type_
-                    pure (DeclarationMetadata name (Just type_) typeComponents pos recursive)
+                    pure (DeclarationMetadata name (Just type_) foundSource typeComponents pos recursive)
         
         Can.TypedDef (A.At _ name) freevars patternTypes expr returnType -> do
             let tipe = Ext.Dev.Help.toFunctionType (fmap snd patternTypes) returnType
             typeComponents <- getTypeComponents True root tipe
-            pure (DeclarationMetadata name (Just tipe) typeComponents pos recursive)
+            pure (DeclarationMetadata name (Just tipe) foundSource typeComponents pos recursive)
 
 
 {-| REFERENCE COLLECTION -}
@@ -947,7 +936,7 @@ encodeInlineDefinition (Explanation localizer moduleName def references) =
     encodeDefinitionType localizer def
     
 encodeDefinitionMetadata :: Reporting.Render.Type.Localizer.Localizer ->  DeclarationMetadata -> Json.Encode.Value
-encodeDefinitionMetadata localizer (def@(DeclarationMetadata name maybeType typeComponents region recursive)) =
+encodeDefinitionMetadata localizer (def@(DeclarationMetadata name maybeType srcFound typeComponents region recursive)) =
     Json.Encode.object 
         [ "name" ==> Json.Encode.chars (Name.toChars name)
         , "type" ==> encodeDefinitionType localizer def
@@ -958,14 +947,14 @@ encodeDefinitionMetadata localizer (def@(DeclarationMetadata name maybeType type
         ]   
 
 encodeDefinitionType :: Reporting.Render.Type.Localizer.Localizer -> DeclarationMetadata -> Json.Encode.Value
-encodeDefinitionType localizer (DeclarationMetadata name maybeType typeComponents region recursive) =
+encodeDefinitionType localizer (DeclarationMetadata name maybeType srcFound typeComponents region recursive) =
     Json.Encode.object 
         [ "signature" ==>
                 case maybeType of
                 Nothing -> Json.Encode.null
                 Just canType ->
                     encodeCanType localizer canType
-
+        , "definition" ==> encodeSrcFoundToDefinition localizer srcFound
         , "components" ==>
             (Json.Encode.list 
                 (\component ->  
@@ -1034,6 +1023,34 @@ lookupToJsonFields localizer usage lookup =
     [ "source" ==> Ext.Dev.Json.Encode.moduleName (getFragmentCanonicalName usage)
     , "definition" ==>  encodeLookupResult localizer usage lookup
     ]
+
+
+
+encodeSrcFoundToDefinition localizer srcFound =
+    case srcFound of
+        Ext.Dev.Find.Source.FoundValue (Just def) (A.At pos val) ->
+            Json.Encode.null
+
+        Ext.Dev.Find.Source.FoundUnion (Just (Can.Union vars ctors i opts)) (A.At pos srcUnion) ->
+            Json.Encode.object 
+                [ "type" ==> Json.Encode.chars "union"
+                , "variants" ==> Json.Encode.list (encodeUnionVariant localizer) ctors
+                ] 
+        
+        Ext.Dev.Find.Source.FoundAlias (Just (Can.Alias vars type_)) (A.At pos alias_) ->
+            Json.Encode.object 
+                [ "type" ==> Json.Encode.chars "alias"
+                , "fields" ==> 
+                    case type_ of
+                        Can.TRecord fields extensibleName ->
+                            encodeTypeDefinition localizer type_
+                        _ ->
+                            Json.Encode.null
+                ] 
+
+        _ ->
+            Json.Encode.null
+
 
 encodeLookupResult localizer usage lookup =
     case lookup of
