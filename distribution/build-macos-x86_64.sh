@@ -36,4 +36,4 @@ cp $dist/$project $bin                                    # Copy built binary to
 strip $bin                                                # Strip symbols to reduce binary size (90M -> 56M)
 file $bin
 ls -alh $bin
-echo "put $bin next/$project-next-$os-$arch" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com
+echo "put $bin $project/$project-next-$os-$arch" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com

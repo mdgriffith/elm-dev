@@ -102,7 +102,7 @@ jobs:
         run: |
           mkdir elm-dev
           cp ~/AppData/Roaming/local/bin/elm-dev.exe elm-dev/elm-dev.exe
-          cp distribution/dlls/* elm-dev/
+          # cp distribution/dlls/* elm-dev/
           ./elm-dev/elm-dev.exe --version-full
 
       - name: Create distribution zip
@@ -139,4 +139,4 @@ jobs:
       - run: |
           pwd
           ls -alh
-          echo "put elm-dev.zip next/elm-dev-next-windows-x86_64.zip" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com
+          echo "put elm-dev.zip elm-dev/elm-dev-next-windows-x86_64.zip" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com

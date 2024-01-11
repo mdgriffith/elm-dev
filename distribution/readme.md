@@ -6,7 +6,7 @@ Distributions for the following architectures are currently supported:
 | Build                                 | Linking | Supported build hosts                   |
 | ------------------------------------- | ------- | --------------------------------------- |
 | `elm-dev-[verison]-macos-x86_64`      | Dynamic | `macos-x86_64`, `macos-arm64` (Rosetta) |
-| `elm-dev-[verison]-macos-arm64`       | Dynamic | `macos-arm64` + llvm                    |
+| `elm-dev-[verison]-macos-arm64`       | Dynamic | `macos-arm64`                           |
 | `elm-dev-[verison]-linux-x86_64-musl` | Static  | `linux-x86_64`/`macos-x86_64` (Docker)  |
 | `elm-dev-[verison]-linux-arm64-musl`  | Static  | `linux-arm64`/`macos-arm64` (Docker)    |
 | `elm-dev-[verison]-win-x86_64`        | Dynamic | `win-x86_64`                            |
@@ -17,7 +17,6 @@ Distributions for the following architectures are currently supported:
 ### Pre-requisites
 
 - [ghcup](https://www.haskell.org/ghcup/) (scripts will attempt to install Stack/GHC/Cabal)
-- LLVM v13+ (MacOS arm64 only, suggest [homebrew](https://brew.sh/) `brew install llvm@13`)
 
 How to install these varies depending on your build host. [GHCup](https://www.haskell.org/ghcup/) is a convenient option for trying out multiple versions.
 
@@ -30,25 +29,12 @@ elm-dev should compile on both `x86_64` (Intel) and `arm64` (M-series) chipset m
 
 If you have an `x86_64` mac, you can only build `x86_64` binaries.
 
-If you have an `arm64` mac and [Rosetta 2](https://support.apple.com/en-gb/HT211861), you can also cross-compile the `x86_64` binary, however it will require the prerequisite toolchain in the respective CPU flavour, i.e.
+If you have an `arm64` mac and [Rosetta 2](https://support.apple.com/en-gb/HT211861) (`softwareupdate --install-rosetta --agree-to-license`), you can also cross-compile the `x86_64` binary, however it will require the prerequisite toolchain in the respective CPU flavour, i.e.
 
-- llvm-arm64 + GHC-arm64 + cabal-arm64  => elm-dev-macos-arm64
+- GHC-arm64 + cabal-arm64  => elm-dev-macos-arm64
 - GHC-x86_64 + cabal-x86_64  => elm-dev-macos-x86-64
 
-If you use `ghcup`, you can force install the x86 tools to replace the arm64 ones like follows:
-
-```
-ghcup install ghc 9.2.8 --force -p x86_64-apple-darwin --set
-ghcup install cabal 3.6.2.0 --force -p x86_64-apple-darwin --set
-ghcup set ghc 9.2.8
-```
-
-It seems ghcup doesn't currently support multi-arch installs. Check the arch of your currently installed binaries as follows:
-
-```
-file ~/.ghcup/bin/cabal
-file ~/.ghcup/ghc/9.2.8/lib/ghc-9.2.8/bin/ghc
-```
+The `distribution/build-macos-*` scripts are setup to install the required toolchain seperately from any system ones.
 
 
 ## Linux builds with Docker
