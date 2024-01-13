@@ -85,7 +85,8 @@ build_binary_docker() {
     cabal build --only-dependencies $CABALOPTS --ghc-options="$GHCOPTS"
 
     # GOAL: build the binary statically
-    cabal build $CABALOPTS --ghc-options="$GHCOPTS"
+    # Inexplicably the first build fails, but the second succeeds
+    (cabal build $CABALOPTS --ghc-options="$GHCOPTS" || true) && cabal build $CABALOPTS --ghc-options="$GHCOPTS"
 
     cp "$(cabal list-bin .)" "$bin"
     strip "$bin"
@@ -100,7 +101,7 @@ declare -f build_binary_docker
 # Here's how to use it without the bash injection for manual by-hand testing:
 # docker -H ssh://$project@lamdera-community-build-arm64 run \
 #     -v /root/compiler:/root/compiler \
-#     -it registry.gitlab.b-data.ch/ghc/ghc4pandoc:9.2.7 \
+#     -it glcr.b-data.ch/ghc/ghc-musl:9.2.8 \
 #     /bin/bash
 
 mkdir -p $dist
@@ -109,7 +110,7 @@ mkdir -p $dist
 docker $dockerHost run \
     -v "$mountRoot:/root/compiler" \
     -v "$cacheRoot:/root/cache" \
-    $runMode registry.gitlab.b-data.ch/ghc/ghc4pandoc:9.2.7 \
+    $runMode glcr.b-data.ch/ghc/ghc-musl:9.2.8 \
     bash -c "$(declare -f build_binary_docker); build_binary_docker '$bin' '$GITHUB_ACTIONS' '$(id -u)' '$(id -g)'"
 
 
@@ -124,4 +125,4 @@ ls -alh "$bin"
 chmod a+x "$bin"
 file "$bin"
 ls -alh "$bin"
-echo "put $bin next/$project-next-$os-$arch" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com
+echo "put $bin $project/$project-next-$os-$arch" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com

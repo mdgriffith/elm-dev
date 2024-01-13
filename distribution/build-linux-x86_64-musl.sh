@@ -15,7 +15,7 @@ cd "$scriptDir/.."                                        # Move into the projec
 git submodule init && git submodule update
 
                                                           # Build in Docker
-docker build --progress=plain --platform linux/amd64 \
+docker build --platform linux/amd64 \
   -t "$buildTag:latest" \
   -f distribution/docker/$arch-musl.dockerfile .
 
@@ -27,4 +27,4 @@ docker run --rm --entrypoint cat $buildTag /$project/$project > $bin
 chmod a+x $bin
 file $bin
 ls -alh $bin
-echo "put $bin next/$project-next-$os-$arch" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com
+echo "put $bin $project/$project-next-$os-$arch" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com

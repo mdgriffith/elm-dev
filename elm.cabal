@@ -239,18 +239,18 @@ Executable elm-dev
 
         -- Watchtower
         Watchtower.Editor
-        
+
         Watchtower.Live
         Watchtower.Live.Client
         Watchtower.Live.Compile
-        
+
         Watchtower.Questions
         Watchtower.Server
         Watchtower.StaticAssets
         Watchtower.Test
         Watchtower.Version
         Watchtower.Websocket
-        
+
         -- elm-dev
         Ext.Dev
         Ext.Dev.Help
@@ -273,7 +273,7 @@ Executable elm-dev
         Ext.Dev.Imports
         Ext.Log
         Ext.Sanity
-        
+
 
         Util
         Llamadera
@@ -289,7 +289,7 @@ Executable elm-dev
         ansi-wl-pprint >= 0.6.8 && < 0.7,
         base >=4.11 && <5,
         binary >= 0.8 && < 0.9,
-        bytestring >= 0.9 && < 0.11,
+        bytestring >= 0.11 && < 0.12,
         containers,
           -- >= 0.5.8.2 && < 0.6,
         directory >= 1.2.3.0 && < 2.0,

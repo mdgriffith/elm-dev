@@ -1,4 +1,4 @@
-# Watchtower
+# elm-dev
 
 This is both an elm compiler extension + server, as well as an app that talks to that server.
 
@@ -40,4 +40,4 @@ At the moment, it also looks for `src/Main.elm` as the entrypoint, though there 
 
 ## Install Watchtower locally
 
-Run `stack install` and it will compile and copy the `elm-watchtower` binaries to your PATH.
+Run `stack install` and it will compile and copy the `elm-dev` binaries to your PATH.

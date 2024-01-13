@@ -22,7 +22,7 @@ RUN apk add --no-cache \
 RUN curl https://downloads.haskell.org/~ghcup/0.1.19.5/x86_64-linux-ghcup-0.1.19.5 -o /usr/local/bin/ghcup && chmod a+x /usr/local/bin/ghcup
 
 # Setup GHC
-RUN ghcup install ghc 9.4.7 --set
+RUN ghcup install ghc 9.2.8 --set
 RUN ghcup install cabal 3.10.1.0 --set
 
 ENV PATH="${PATH}:/root/.ghcup/bin"
@@ -42,7 +42,7 @@ WORKDIR /elm-dev
 COPY elm.cabal ./
 COPY cabal.project ./
 # COPY cabal.project.freeze ./
-COPY vendor/elm-format vendor/elm-format
+# COPY vendor/elm-format vendor/elm-format
 
 RUN cabal update
 
@@ -58,13 +58,12 @@ COPY terminal terminal
 COPY LICENSE ./
 
 COPY ext-common ext-common
-COPY ext-elm-pages ext-elm-pages
+COPY ext-dev ext-dev
 COPY ext-sentry ext-sentry
-COPY extra extra
-COPY test test
 COPY .git .git
 
-RUN cabal build $CABALOPTS --ghc-options="$GHCOPTS"
+# Inexplicably the first build fails, but the second succeeds
+RUN (cabal build $CABALOPTS --ghc-options="$GHCOPTS" || true) && cabal build $CABALOPTS --ghc-options="$GHCOPTS"
 
 RUN cabal list-bin . | grep -v HEAD
 RUN cp `cabal list-bin . | grep -v HEAD` ./elm-dev
