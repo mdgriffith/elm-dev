@@ -1,0 +1,47 @@
+{
+  "name": "elm-dev",
+  "version": "0.1.0",
+  "description": "Installer for Elm Dev: downloads the binary into node_modules",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mdgriffith/elm-dev.git"
+  },
+  "homepage": "https://github.com/mdgriffith/elm-dev/tree/master/installers-elm-dev/npm",
+  "bugs": "https://github.com/mdgriffith/elm-dev/issues",
+  "author": {
+    "name": "Matt Griffith",
+    "url": "https://github.com/mdgriffith"
+  },
+  "engines": {
+    "node": ">=7.0.0"
+  },
+  "scripts": {
+    "install": "node install.js"
+  },
+  "files": [
+    "install.js",
+    "binary.js",
+    "bin",
+    "bin/elm-dev"
+  ],
+  "keywords": [
+    "bin",
+    "binary",
+    "binaries",
+    "elm",
+    "elm-dev",
+    "install",
+    "installer"
+  ],
+  "bin": {
+    "elm-dev": "bin/elm-dev"
+  },
+  "optionalDependencies": {
+    "@elm_dev_binaries/darwin_arm64": "0.1.0",
+    "@elm_dev_binaries/darwin_x64": "0.1.0",
+    "@elm_dev_binaries/linux_arm64": "0.1.0",
+    "@elm_dev_binaries/linux_x64": "0.1.0",
+    "@elm_dev_binaries/win32_x64": "0.1.0"
+  }
+}
