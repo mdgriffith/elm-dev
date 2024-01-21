@@ -80,17 +80,17 @@ encode (EntryPoint base path moduleName incoming outgoing) =
 
 encodePorts :: Ext.Dev.Project.Ports.PortGroup -> Json.Encode.Value
 encodePorts ports =
-    Json.Encode.object
+    Json.Encode.array
         (Map.foldrWithKey
             (\(moduleName, name) type_ entries ->
                 let 
-                    field = 
-                        (Name.toChars name) ==> 
-                            (Json.Encode.object 
-                                [ "module" ==> Json.Encode.name moduleName
-                                , "type" ==> Json.Encode.chars (renderType type_)
-                                ]
-                            )
+                    field =
+                        Json.Encode.object 
+                            [ "module" ==> Json.Encode.name moduleName
+                            , "name" ==> Json.Encode.name name
+                            , "type" ==> Json.Encode.chars (renderType type_)
+                            ]
+                        
                 in
                 field : entries
             )
@@ -143,11 +143,27 @@ toEntryPoint root ports moduleName local entries =
         let
             path = Elm.Details._path local
 
-            incoming = Ext.Dev.Project.Ports._incoming ports
+            incoming = onlyImportedPorts moduleName local (Ext.Dev.Project.Ports._incoming ports)
 
-            outgoing = Ext.Dev.Project.Ports._outgoing ports
+            outgoing = onlyImportedPorts moduleName local (Ext.Dev.Project.Ports._outgoing ports)
         in
         (EntryPoint root path moduleName incoming outgoing) : entries
     else
         entries
     
+
+
+onlyImportedPorts :: ModuleName.Raw -> Elm.Details.Local -> Ext.Dev.Project.Ports.PortGroup -> Ext.Dev.Project.Ports.PortGroup
+onlyImportedPorts mainModuleName local ports =
+    Map.filterWithKey
+        (\(moduleName, name) _ ->
+            if mainModuleName == moduleName then
+                True
+            else
+                let
+                    -- [ModuleName.Raw]
+                    imports = Elm.Details._deps local
+                in
+                any (\importModuleName -> importModuleName == moduleName) imports
+        )
+        ports
