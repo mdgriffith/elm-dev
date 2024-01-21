@@ -79,11 +79,12 @@ import qualified Terminal.Helpers
 import qualified Make
 import qualified Build
 import qualified BackgroundWriter
+import Json.Encode ((==>))
 
 main :: IO ()
 main =
   Terminal.app intro outro
-    [ start
+    [ server
     , docs
     , warnings
     -- , find
@@ -190,9 +191,16 @@ getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
             Right (mod, warningList) ->
               Terminal.Dev.Out.json maybeOutput
                   (Right 
-                    (Json.Encode.list
-                      (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
-                      warningList
+                    (Json.Encode.list id 
+                      [ Json.Encode.object
+                          [ "filepath" ==> Json.Encode.string (Json.String.fromChars modulePath)
+                          , "module" ==> Json.Encode.name moduleName
+                          , "warnings" ==>
+                              Json.Encode.list
+                              (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                              warningList
+                          ]
+                      ]
                     )
                   )
                     
@@ -430,8 +438,8 @@ data Flags =
 
 
 
-start :: Terminal.Command
-start =
+server :: Terminal.Command
+server =
   let
     summary =
       "Start the Elm Dev server."
@@ -448,7 +456,7 @@ start =
       flags Flags
         |-- flag "port" port_ "The port of the Elm Dev server (default: 51213)"
   in
-  Terminal.Command "start" (Common summary) details example (optional dir) serverFlags startServer
+  Terminal.Command "server" (Common summary) details example (optional dir) serverFlags startServer
 
 
 startServer :: Maybe FilePath -> Terminal.Dev.Flags -> IO ()
