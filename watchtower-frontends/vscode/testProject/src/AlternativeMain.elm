@@ -2,12 +2,7 @@ port module AlternativeMain exposing (main)
 
 import Browser
 import Html as What
-import Imported
 import Result
-
-
-
--- import Imported
 
 
 type alias Flags =
@@ -94,8 +89,3 @@ howAboutARecord =
 andWhatBoutHere : String
 andWhatBoutHere =
     "Whaaasat?"
-
-
-
--- gnome =
---     Imported.otherThing

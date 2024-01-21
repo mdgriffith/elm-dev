@@ -83,7 +83,7 @@ update msg model =
             ( model, sendMessage model.flag.flag )
 
         Received _ ->
-            ( model, Cmd.none )
+            ( model, Imported.sendOtherMessage "pls" )
 
         OtherReceived _ ->
             ( model, Cmd.none )
