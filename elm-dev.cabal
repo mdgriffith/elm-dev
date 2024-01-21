@@ -1,6 +1,6 @@
 
-Name: elm
-Version: 0.19.1
+Name: elm-dev
+Version: 0.1.0
 
 Synopsis:
     The `elm` command line interface.
@@ -14,9 +14,8 @@ Homepage: https://elm-lang.org
 License: BSD3
 License-file: LICENSE
 
-Author:     Evan Czaplicki
+Author:     Matt Griffith
 Maintainer: info@elm-lang.org
-Copyright:  Copyright (c) 2011-present, Evan Czaplicki
 
 Category: Compiler, Language
 
