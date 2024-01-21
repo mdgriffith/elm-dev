@@ -274,15 +274,14 @@ docs :: Terminal.Command
 docs =
   let
     summary =
-      "Report the docs.json for the given package"
+      "Report the docs.json for the given package or local file."
 
     details =
-      "The `docs` command generates docs.json for :"
+      "Generate a JSON formatted description of docs for a package or a local elm file.  You may specify a local file either by providing the path to the file, or by providing the module name."
 
     example =
       reflow
-        "After running that command, watchtower is listening at <http://localhost:51213>\
-        \ and ready to be connected to."
+        ""
 
     docsFlags =
       flags DocFlags
@@ -304,10 +303,10 @@ docs =
 elmModuleList :: Parser Elm.ModuleName.Raw
 elmModuleList =
   Parser
-    { _singular = "elm file"
-    , _plural = "elm files"
+    { _singular = "elm module"
+    , _plural = "elm modules"
     , _parser = parseElmModule
-    , _suggest = \_ -> return []
+    , _suggest = \_ -> return ["Ui.Button"]
     , _examples = exampleModules
     }
 
@@ -435,7 +434,7 @@ start :: Terminal.Command
 start =
   let
     summary =
-      "The Elm development experience dreams are made of."
+      "Start the Elm Dev server."
 
     details =
       "The `start` command starts the Elm Dev server on your computer:"
@@ -918,10 +917,10 @@ entrypoints :: Terminal.Command
 entrypoints =
   let
     summary =
-      "Given a directory, scan for all entrypoints, recursively."
+      "Given a directory with an elm.json, report all entrypoints for the project."
 
     details =
-      "The `entrypoints` command will report all usages of a given elm module."
+      "Also report all exposed ports and their types."
 
     example =
       reflow
@@ -982,10 +981,10 @@ explain :: Terminal.Command
 explain =
   let
     summary =
-      "Given a qualified value, explain it's definition and usages."
+      "Given a qualified value, explain it's definition."
 
     details =
-      "The `explain` command will report all usages of a given elm module."
+      "The `explain` command will report the definition of a specific type or value."
 
     example =
       reflow
@@ -993,7 +992,7 @@ explain =
 
     explainFlags =
       flags ExplainFlags
-        |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
+        |-- flag "output" output_ "An optional file to write the JSON to.  If not supplied, everything will be printed."
 
     explainArgs =
       oneOf 
