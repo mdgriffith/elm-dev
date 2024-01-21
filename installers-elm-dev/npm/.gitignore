@@ -1,3 +1,4 @@
 node_modules/
 packages/*/elm-dev
 packages/*/elm-dev.exe
+releases

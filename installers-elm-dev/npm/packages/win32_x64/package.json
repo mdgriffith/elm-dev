@@ -1,6 +1,6 @@
 {
   "name": "@elm_dev_binaries/win32_x64",
-  "version": "0.19.1-0",
+  "version": "0.1.0",
   "description": "Download the Elm Dev binary for Windows (x64)",
   "repository": "https://github.com/mdgriffith/elm-dev",
   "license": "BSD-3-Clause",
