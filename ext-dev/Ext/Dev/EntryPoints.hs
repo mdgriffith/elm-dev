@@ -33,6 +33,7 @@ import qualified Elm.Details
 import qualified Elm.Outline
 import qualified Elm.ModuleName as ModuleName
 import qualified Ext.Dev.Project.Ports
+import qualified Ext.Dev.Imports
 import qualified Reporting.Render.Type
 import qualified Reporting.Doc
 import qualified Reporting.Render.Type.Localizer
@@ -131,21 +132,23 @@ entrypoints root = do
             ports <- Ext.Dev.Project.Ports.findPorts root
             let locals = Elm.Details._locals details
 
-            let entry = Map.foldrWithKey (toEntryPoint root ports) [] locals 
+            let entry = Map.foldrWithKey (toEntryPoint root details ports) [] locals 
             
             pure (Right entry)
 
 
 
-toEntryPoint :: FilePath -> Ext.Dev.Project.Ports.Ports -> ModuleName.Raw -> Elm.Details.Local ->  [EntryPoint] -> [EntryPoint]
-toEntryPoint root ports moduleName local entries =
+toEntryPoint :: FilePath -> Elm.Details.Details -> Ext.Dev.Project.Ports.Ports -> ModuleName.Raw -> Elm.Details.Local ->  [EntryPoint] -> [EntryPoint]
+toEntryPoint root details ports moduleName local entries =
     if Elm.Details._main local then
         let
             path = Elm.Details._path local
 
-            incoming = onlyImportedPorts moduleName local (Ext.Dev.Project.Ports._incoming ports)
+            allImportedModuleNames = Ext.Dev.Imports.toAllImportedModules (Ext.Dev.Imports.getImportSummary details moduleName) --Map.keys (Elm.Details._locals details)
 
-            outgoing = onlyImportedPorts moduleName local (Ext.Dev.Project.Ports._outgoing ports)
+            incoming = onlyImportedPorts allImportedModuleNames (Ext.Dev.Project.Ports._incoming ports)
+
+            outgoing = onlyImportedPorts allImportedModuleNames (Ext.Dev.Project.Ports._outgoing ports)
         in
         (EntryPoint root path moduleName incoming outgoing) : entries
     else
@@ -153,17 +156,10 @@ toEntryPoint root ports moduleName local entries =
     
 
 
-onlyImportedPorts :: ModuleName.Raw -> Elm.Details.Local -> Ext.Dev.Project.Ports.PortGroup -> Ext.Dev.Project.Ports.PortGroup
-onlyImportedPorts mainModuleName local ports =
+onlyImportedPorts :: [ ModuleName.Raw ] -> Ext.Dev.Project.Ports.PortGroup -> Ext.Dev.Project.Ports.PortGroup
+onlyImportedPorts moduleNames ports =
     Map.filterWithKey
         (\(moduleName, name) _ ->
-            if mainModuleName == moduleName then
-                True
-            else
-                let
-                    -- [ModuleName.Raw]
-                    imports = Elm.Details._deps local
-                in
-                any (\importModuleName -> importModuleName == moduleName) imports
+            any ((==) moduleName) moduleNames
         )
         ports

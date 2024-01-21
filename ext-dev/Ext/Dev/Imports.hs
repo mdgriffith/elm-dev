@@ -3,6 +3,7 @@
 module Ext.Dev.Imports
   ( getImportSummaryForMany 
   , getImportSummary
+  , toAllImportedModules
   , ImportSummary(..)
   , Import(..)
   , encode
@@ -71,6 +72,13 @@ data PackageImport =
     {  _name :: Elm.Package.Name
     , _usedModules :: [ModuleName.Raw]
     }
+
+toAllImportedModules :: ImportSummary -> [ModuleName.Raw]
+toAllImportedModules (ImportSummary packages imports) =
+    let 
+        moduleNames = List.map _moduleName imports
+    in
+    moduleNames <> List.concatMap _imports imports
 
 encodeSummary :: ImportSummary -> Json.Encode.Value
 encodeSummary (ImportSummary packages imports) =
