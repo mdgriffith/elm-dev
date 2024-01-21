@@ -1,0 +1,150 @@
+[
+    {
+        "warning": "UnusedVariable",
+        "region": {
+            "start": {
+                "line": 118,
+                "column": 9
+            },
+            "end": {
+                "line": 118,
+                "column": 16
+            }
+        },
+        "context": "def",
+        "name": "notUsed"
+    },
+    {
+        "warning": "UnusedVariable",
+        "region": {
+            "start": {
+                "line": 99,
+                "column": 15
+            },
+            "end": {
+                "line": 99,
+                "column": 20
+            }
+        },
+        "context": "pattern",
+        "name": "model"
+    },
+    {
+        "warning": "MissingAnnotation",
+        "region": {
+            "start": {
+                "line": 80,
+                "column": 1
+            },
+            "end": {
+                "line": 80,
+                "column": 7
+            }
+        },
+        "name": "update",
+        "signature": "Msg -> Flags { a | flag : String } -> ( Flags { a | flag : String }, Cmd msg )"
+    },
+    {
+        "warning": "MissingAnnotation",
+        "region": {
+            "start": {
+                "line": 128,
+                "column": 1
+            },
+            "end": {
+                "line": 128,
+                "column": 16
+            }
+        },
+        "name": "howAboutARecord",
+        "signature": "Thing String"
+    },
+    {
+        "warning": "MissingAnnotation",
+        "region": {
+            "start": {
+                "line": 124,
+                "column": 1
+            },
+            "end": {
+                "line": 124,
+                "column": 13
+            }
+        },
+        "name": "anotherTHing",
+        "signature": "number"
+    },
+    {
+        "warning": "UnusedImport",
+        "region": {
+            "start": {
+                "line": 14,
+                "column": 8
+            },
+            "end": {
+                "line": 14,
+                "column": 16
+            }
+        },
+        "name": "Ui.Arbor"
+    },
+    {
+        "warning": "UnusedImport",
+        "region": {
+            "start": {
+                "line": 13,
+                "column": 8
+            },
+            "end": {
+                "line": 13,
+                "column": 14
+            }
+        },
+        "name": "Result"
+    },
+    {
+        "warning": "UnusedVariable",
+        "region": {
+            "start": {
+                "line": 128,
+                "column": 1
+            },
+            "end": {
+                "line": 128,
+                "column": 16
+            }
+        },
+        "context": "def",
+        "name": "howAboutARecord"
+    },
+    {
+        "warning": "UnusedVariable",
+        "region": {
+            "start": {
+                "line": 124,
+                "column": 1
+            },
+            "end": {
+                "line": 124,
+                "column": 13
+            }
+        },
+        "context": "def",
+        "name": "anotherTHing"
+    },
+    {
+        "warning": "UnusedVariable",
+        "region": {
+            "start": {
+                "line": 135,
+                "column": 1
+            },
+            "end": {
+                "line": 135,
+                "column": 16
+            }
+        },
+        "context": "def",
+        "name": "andWhatBoutHere"
+    }
+]

@@ -1,0 +1,61 @@
+[
+    {
+        "name": "Imported",
+        "comment": " ",
+        "unions": [
+            {
+                "name": "MyType",
+                "comment": "",
+                "args": [
+                    "inner"
+                ],
+                "cases": [
+                    [
+                        "MyValue",
+                        [
+                            "inner"
+                        ]
+                    ]
+                ]
+            }
+        ],
+        "aliases": [],
+        "values": [
+            {
+                "name": "otherThing",
+                "comment": "",
+                "type": "Html.Html msg"
+            },
+            {
+                "name": "sendOtherMessage",
+                "comment": "",
+                "type": "String.String -> Platform.Cmd.Cmd msg"
+            }
+        ],
+        "binops": []
+    },
+    {
+        "name": "Main",
+        "comment": " ",
+        "unions": [],
+        "aliases": [],
+        "values": [
+            {
+                "name": "main",
+                "comment": " What is this??\n",
+                "type": "Platform.Program (Main.Flags String.String) Main.Model Main.Msg"
+            },
+            {
+                "name": "messageReceiver",
+                "comment": "",
+                "type": "(String.String -> msg) -> Platform.Sub.Sub msg"
+            },
+            {
+                "name": "sendMessage",
+                "comment": "",
+                "type": "String.String -> Platform.Cmd.Cmd msg"
+            }
+        ],
+        "binops": []
+    }
+]

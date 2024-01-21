@@ -1,0 +1,48 @@
+{
+    "moduleName": "Main",
+    "definition": {
+        "name": "Regions",
+        "type": {
+            "signature": "{ main : view, nav : Maybe view, detail : List view }",
+            "definition": {
+                "type": "alias",
+                "fields": {
+                    "detail": "List view",
+                    "main": "view",
+                    "nav": "Maybe view"
+                }
+            },
+            "components": [
+                {
+                    "source": {
+                        "pkg": "author/project",
+                        "module": "Main"
+                    },
+                    "definition": {
+                        "type": "alias",
+                        "comment": null,
+                        "module": "Main",
+                        "name": "Regions",
+                        "args": [],
+                        "signature": "{ main : view, nav : Maybe view, detail : List view }",
+                        "fields": {
+                            "detail": "List view",
+                            "main": "view",
+                            "nav": "Maybe view"
+                        }
+                    }
+                }
+            ]
+        },
+        "region": {
+            "start": {
+                "line": 17,
+                "column": 1
+            },
+            "end": {
+                "line": 21,
+                "column": 6
+            }
+        }
+    }
+}

@@ -1,0 +1,17 @@
+{
+    "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Imported.elm",
+    "usages": [
+        {
+            "name": "MyValue",
+            "usedBy": [
+                "Alias"
+            ]
+        },
+        {
+            "name": "sendOtherMessage",
+            "usedBy": [
+                "Main"
+            ]
+        }
+    ]
+}

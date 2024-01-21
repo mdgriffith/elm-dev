@@ -1,0 +1,131 @@
+{
+    "packages": [
+        {
+            "name": "avh4/elm-color",
+            "usedModules": [
+                "Color"
+            ]
+        },
+        {
+            "name": "elm/browser",
+            "usedModules": [
+                "Browser"
+            ]
+        },
+        {
+            "name": "elm/html",
+            "usedModules": [
+                "Html"
+            ]
+        },
+        {
+            "name": "elm-community/list-extra",
+            "usedModules": [
+                "List.Extra"
+            ]
+        },
+        {
+            "name": "elm-community/typed-svg",
+            "usedModules": [
+                "TypedSvg",
+                "TypedSvg.Attributes",
+                "TypedSvg.Attributes.InPx",
+                "TypedSvg.Core",
+                "TypedSvg.Events",
+                "TypedSvg.Types"
+            ]
+        },
+        {
+            "name": "folkertdev/one-true-path-experiment",
+            "usedModules": [
+                "Curve",
+                "Path"
+            ]
+        },
+        {
+            "name": "gampleman/elm-rosetree",
+            "usedModules": [
+                "Tree"
+            ]
+        },
+        {
+            "name": "gampleman/elm-visualization",
+            "usedModules": [
+                "Hierarchy",
+                "Shape",
+                "Zoom"
+            ]
+        },
+        {
+            "name": "jschomay/elm-narrative-engine",
+            "usedModules": [
+                "NarrativeEngine.Syntax.NarrativeParser",
+                "NarrativeEngine.Syntax.RuleParser"
+            ]
+        }
+    ],
+    "imports": [
+        {
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Alias.elm",
+            "module": "Alias",
+            "imports": [
+                "Imported"
+            ]
+        },
+        {
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/AlternativeMain.elm",
+            "module": "AlternativeMain",
+            "imports": [
+                "Browser",
+                "Html"
+            ]
+        },
+        {
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Imported.elm",
+            "module": "Imported",
+            "imports": [
+                "Html",
+                "NarrativeEngine.Syntax.NarrativeParser",
+                "NarrativeEngine.Syntax.RuleParser",
+                "OtherPorts"
+            ]
+        },
+        {
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Main.elm",
+            "module": "Main",
+            "imports": [
+                "Alias",
+                "Browser",
+                "Html",
+                "Imported",
+                "Ui.Arbor"
+            ]
+        },
+        {
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/OtherPorts.elm",
+            "module": "OtherPorts",
+            "imports": []
+        },
+        {
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Ui/Arbor.elm",
+            "module": "Ui.Arbor",
+            "imports": [
+                "Browser",
+                "Color",
+                "Curve",
+                "Hierarchy",
+                "List.Extra",
+                "Path",
+                "Shape",
+                "Tree",
+                "TypedSvg",
+                "TypedSvg.Attributes",
+                "TypedSvg.Attributes.InPx",
+                "TypedSvg.Core",
+                "TypedSvg.Events",
+                "TypedSvg.Types",
+                "Zoom"
+            ]
+        }
+    ]
+}
