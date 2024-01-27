@@ -47,7 +47,7 @@ module.exports = function()
 	}
 
 	// figure out where to put the binary
-	var binaryPath = path.resolve(__dirname, package.bin.elm);
+	var binaryPath = path.resolve(__dirname, package.bin["elm-dev"]);
 	var tmpPath = binaryPath + '.tmp';
 
 	// optimize by replacing the JS bin/elm with the native binary directly
@@ -80,7 +80,7 @@ function verifyPlatform(version, subPackageName)
 		+ 'I am detecting that your computer (' + situation + ') may not be compatible with any\n'
 		+ 'of the official pre-built binaries.\n\n'
 		+ 'I recommend against using the npm installer for your situation. Check out the\n'
-		+ 'alternative installers at https://github.com/elm/compiler/releases/tag/' + version + '\n'
+		+ 'alternative installers at https://github.com/mdgriffith/elm-dev/releases/tag/' + version + '\n'
 		+ 'to see if there is something that will work better for you.\n\n'
 		+ 'From there I recommend asking for guidance on Slack or Discourse to find someone\n'
 		+ 'who can help with your specific situation.\n\n'
@@ -100,7 +100,7 @@ function exitFailure(version, message)
 		'-- ERROR -----------------------------------------------------------------------\n\n'
 		+ message
 		+ '\n\nNOTE: You can avoid npm entirely by downloading directly from:\n'
-		+ 'https://github.com/elm/compiler/releases/tag/' + version + '\n'
+		+ 'https://github.com/mdgriffith/elm-dev/releases/tag/' + version + '\n'
 		+ 'All this package does is distribute a file from there.\n\n'
 		+ '--------------------------------------------------------------------------------\n'
 	);
