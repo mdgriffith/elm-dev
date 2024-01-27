@@ -1,26 +1,24 @@
-See (ext-dev/readme.md)[ext-dev/readme.md].
+# Elm Dev
 
----
+Elm Dev is a version of the Elm compiler that is made to support editing tools.
 
-# Elm
+Install via `npm install -g elm-dev` if you want to play with it.
 
-A delightful language for reliable webapps.
+It's currently experimental, but will likely be stable soon.
 
-Check out the [Home Page](http://elm-lang.org/), [Try Online](http://elm-lang.org/try), or [The Official Guide](http://guide.elm-lang.org/)
+It is currently a command line tool with the following commands that print or output JSON.
 
+- `warnings` - List missing type signatures and unused values.
+- `entrypoints` - Detect what `.elm` files are the potential roots of a project. This will also report any ports relevant to a specific entrypoint as well as the type signatures of those ports.
+- `docs` - Generate `docs.json` for any package, or any local `.elm` file.
+- `imports` - Given a list of modules, report all files and packages that they collectively depends on. This is useful for
+- `usage` - Given a module, return all usages of that module in a given project.
+- `explain` - Given a fully qualified type name, provide it's full definition.
 
-<br>
+Each command may instead report compilation errors if the file or project fails to compile.
 
-## Install
+## Roadmap
 
-✨ [Install](https://guide.elm-lang.org/install/elm.html) ✨
+The above functionality is a first pass on what would be useful for `elm-dev` to report and has been published to allow downstream projects to try stuff out.
 
-For multiple versions, previous versions, and uninstallation, see the instructions [here](https://github.com/elm/compiler/blob/master/installers/README.md).
-
-<br>
-
-## Help
-
-If you are stuck, ask around on [the Elm slack channel][slack]. Folks are friendly and happy to help with questions!
-
-[slack]: http://elmlang.herokuapp.com/
+In the medium term, the intention is to support the language-server protocol and to adjust functionaltiy based on downstream projects.
