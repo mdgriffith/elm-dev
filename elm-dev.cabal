@@ -251,6 +251,7 @@ Executable elm-dev
         Watchtower.Websocket
 
         -- elm-dev
+        ElmDevElmVersion
         Ext.Dev
         Ext.Dev.Help
         Ext.Dev.Docs
