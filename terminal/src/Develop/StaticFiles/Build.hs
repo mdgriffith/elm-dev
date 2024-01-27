@@ -42,7 +42,7 @@ buildReactorFrontEnd =
   BW.withScope $ \scope ->
   Dir.withCurrentDirectory "reactor" $
   do  root <- Dir.getCurrentDirectory
-      runTaskUnsafe $
+      runTaskUnsafe "" $
         do  details    <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
             artifacts  <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
             javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.prod root details artifacts
@@ -58,18 +58,20 @@ paths =
     ]
 
 
-runTaskUnsafe :: Task.Task Exit.Reactor a -> IO a
-runTaskUnsafe task =
+runTaskUnsafe :: a -> Task.Task Exit.Reactor a -> IO a
+runTaskUnsafe fallback task =
   do  result <- Task.run task
       case result of
         Right a ->
           return a
 
         Left exit ->
-          do  Exit.toStderr (Exit.reactorToReport exit)
-              error
-                "\n--------------------------------------------------------\
-                \\nError in Develop.StaticFiles.Build.buildReactorFrontEnd\
-                \\nCompile with `elm make` directly to figure it out faster\
-                \\n--------------------------------------------------------\
-                \\n"
+          -- Doing this because this is failing for some reason and Elm Dev doesn't use reactor functionality
+          return fallback
+          -- do  Exit.toStderr (Exit.reactorToReport exit)
+          --     error
+          --       "\n--------------------------------------------------------\
+          --       \\nError in Develop.StaticFiles.Build.buildReactorFrontEnd\
+          --       \\nCompile with `elm make` directly to figure it out faster\
+          --       \\n--------------------------------------------------------\
+          --       \\n"
