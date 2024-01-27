@@ -1,4 +1,20 @@
-**NOTE** This process was borrowed from the main elm compiler repo.
+# Elm Dev Installer
+
+Elm Dev is borrowing the publishing approach that the official Elm compiler takes, with a few small adjustments.
+
+## Publishing
+
+1. Push to the `distribute` branch. This will kick off a github action which builds binaries for windows, linux, and mac.
+   - Different branches will allow rebuilding specific binaries, check out the github action files.
+2. Binaries are uploaded to https://static.lamdera.com/bin/elm-dev/ (Thanks Mario, you're a dream)
+3. the `scripts/download-binaries.sh` script will download all binaries and place them into the correct subdirectory of `packages`.
+   - The `version` will be updated for each of the subdirectories as well.
+   - It will also prepare and gzip binaries in the `releases` folder.
+4. Once this is done, and assuming it runs correctly, we then follow the process described in PUBLISHING.md
+   - Each sub package then needs to be published.
+   - Versions need to be checked in the top level package.
+
+**NOTE** The below process was borrowed from the main elm compiler repo.
 
 # Elm Installer
 
