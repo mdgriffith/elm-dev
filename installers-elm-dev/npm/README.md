@@ -1,58 +1,26 @@
-# Elm Dev Installer
+# Elm Dev
 
-Elm Dev is borrowing the publishing approach that the official Elm compiler takes, with a few small adjustments.
+Elm Dev is a version of the Elm compiler that is made to support editing tools.
 
-## Publishing
+Not to be confused with Elm itself which lives here: https://elm-lang.org/
 
-1. Push to the `distribute` branch. This will kick off a github action which builds binaries for windows, linux, and mac.
-   - Different branches will allow rebuilding specific binaries, check out the github action files.
-2. Binaries are uploaded to https://static.lamdera.com/bin/elm-dev/ (Thanks Mario, you're a dream)
-3. the `scripts/download-binaries.sh` script will download all binaries and place them into the correct subdirectory of `packages`.
-   - The `version` will be updated for each of the subdirectories as well.
-   - It will also prepare and gzip binaries in the `releases` folder.
-4. Once this is done, and assuming it runs correctly, we then follow the process described in PUBLISHING.md
-   - Each sub package then needs to be published.
-   - Versions need to be checked in the top level package.
+This package is for toolmakers, so if you're just starting out using Elm, you likely don't need this tool directly.
 
-**NOTE** The below process was borrowed from the main elm compiler repo.
+Install via `npm install -g elm-dev` if you want to play with it. It's currently experimental, but will likely be stable soon.
 
-# Elm Installer
+Currently this is a command line tool with the following commands that print or output JSON.
 
-[Elm](https://elm-lang.org) is a functional programming language that compiles to JavaScript.
+- `warnings` - List missing type signatures and unused values.
+- `entrypoints` - Detect what `.elm` files are the potential roots of a project. This will also report any ports relevant to a specific entrypoint as well as the type signatures of those ports.
+- `docs` - Generate `docs.json` for any package, or any local `.elm` file.
+- `imports` - Given a list of modules, report all files and packages that they collectively depends on. This is useful for
+- `usage` - Given a module, return all usages of that module in a given project.
+- `explain` - Given a fully qualified type name, provide it's full definition.
 
-Head over to [The Official Guide](https://guide.elm-lang.org/) to start learning Elm!
+Each command may instead report compilation errors if the file or project fails to compile.
 
-<br/>
+## Roadmap
 
-## What is this package for?
+The above functionality is a first pass on what would be useful for `elm-dev` to report and has been published to allow downstream projects to try stuff out.
 
-For normal installs, I reccomend using the instructions [here](https://guide.elm-lang.org/install/elm.html) instead. This package is only for people who enjoy using `npm` even when it is not necessary, or for people who want to use `npm` for certain scenarios such as:
-
-**Multiple versions**
-
-People using Elm at work may use different versions of Elm in different projects. They can run `npm install elm@latest-0.19.1` in each project and use the binary at `./node_modules/.bin/elm` for compilation.
-
-**Continuous integration**
-
-The `npm` installer works for this, but there are faster and more reliable options:
-
-1. You can download `elm` directly from GitHub with [this script](https://github.com/elm/compiler/blob/master/installers/linux/README.md). This allows you to skip `npm` entirely.
-2. Many continuous integration have ways to cache files ([example](https://docs.travis-ci.com/user/caching/)) to make builds faster and more reliable. This is the ideal setup.
-
-That said, it works to use the `npm` installer on CI if you prefer that option.
-
-<br/>
-
-## Install Locally
-
-The following command should download the latest Elm 0.19.1 binary:
-
-```
-npm install elm@latest-0.19.1
-```
-
-You should be able to run `./node_modules/bin/elm --version` within your project and see `0.19.1`. Now you can compile with `./node_modules/bin/elm make src/Main.elm` and not disrupt other packages.
-
-Use `npm install elm@latest-0.19.0` or `npm install elm@latest-0.18.0` for earlier versions.
-
-**Note:** The `latest-X.Y.Z` convention is used in case we need to publish patches for the `npm` installer within a given Elm release. For example, say `npm` decides that some transitive dependency is not secure. Nothing is changing about Elm or the binaries, but we need to publish a new `npm` installer that fixes this issue.
+In the medium term, the intention is to support the language-server protocol and to adjust functionaltiy based on downstream projects.

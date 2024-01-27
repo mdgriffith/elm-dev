@@ -2,11 +2,13 @@
 
 Elm Dev is a version of the Elm compiler that is made to support editing tools.
 
-Install via `npm install -g elm-dev` if you want to play with it.
+Not to be confused with Elm itself which lives here: https://elm-lang.org/
 
-It's currently experimental, but will likely be stable soon.
+This package is for toolmakers, so if you're just starting out using Elm, you likely don't need this tool directly.
 
-It is currently a command line tool with the following commands that print or output JSON.
+Install via `npm install -g elm-dev` if you want to play with it. It's currently experimental, but will likely be stable soon.
+
+Currently this is a command line tool with the following commands that print or output JSON.
 
 - `warnings` - List missing type signatures and unused values.
 - `entrypoints` - Detect what `.elm` files are the potential roots of a project. This will also report any ports relevant to a specific entrypoint as well as the type signatures of those ports.
