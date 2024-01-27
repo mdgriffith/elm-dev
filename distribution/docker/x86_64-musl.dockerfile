@@ -39,7 +39,7 @@ RUN cp crtendS.o crtend.o
 
 # Install packages
 WORKDIR /elm-dev
-COPY elm.cabal ./
+COPY elm-dev.cabal ./
 COPY cabal.project ./
 # COPY cabal.project.freeze ./
 # COPY vendor/elm-format vendor/elm-format

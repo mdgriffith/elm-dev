@@ -1,4 +1,3 @@
-
 ## Supported architectures
 
 Distributions for the following architectures are currently supported:
@@ -11,7 +10,6 @@ Distributions for the following architectures are currently supported:
 | `elm-dev-[verison]-linux-arm64-musl`  | Static  | `linux-arm64`/`macos-arm64` (Docker)    |
 | `elm-dev-[verison]-win-x86_64`        | Dynamic | `win-x86_64`                            |
 
-
 ## Building an elm-dev compiler binary
 
 ### Pre-requisites
@@ -22,7 +20,6 @@ How to install these varies depending on your build host. [GHCup](https://www.ha
 
 Once you have these dependencies, running the relevant `build-<os>-<aarch>.sh` should result in an elm-dev binary.
 
-
 ## Macos cross-compiling
 
 elm-dev should compile on both `x86_64` (Intel) and `arm64` (M-series) chipset macs.
@@ -31,11 +28,10 @@ If you have an `x86_64` mac, you can only build `x86_64` binaries.
 
 If you have an `arm64` mac and [Rosetta 2](https://support.apple.com/en-gb/HT211861) (`softwareupdate --install-rosetta --agree-to-license`), you can also cross-compile the `x86_64` binary, however it will require the prerequisite toolchain in the respective CPU flavour, i.e.
 
-- GHC-arm64 + cabal-arm64  => elm-dev-macos-arm64
-- GHC-x86_64 + cabal-x86_64  => elm-dev-macos-x86-64
+- GHC-arm64 + cabal-arm64 => elm-dev-macos-arm64
+- GHC-x86_64 + cabal-x86_64 => elm-dev-macos-x86-64
 
 The `distribution/build-macos-*` scripts are setup to install the required toolchain seperately from any system ones.
-
 
 ## Linux builds with Docker
 
@@ -46,8 +42,8 @@ The Docker philosophy of immutable layers is great for reproducibility, but a pa
 I.e. where `cabal install` run directly will resume based on prior progress (i.e. expensive package compilation), to get similar behaviour via Docker we need to:
 
 ```bash
-COPY elm.cabal ./                   # only add elm.cabal
-RUN cabal build --only-dependencies # single layer for building deps based on elm.cabal only
+COPY elm-dev.cabal ./                   # only add elm-dev.cabal
+RUN cabal build --only-dependencies # single layer for building deps based on elm-dev.cabal only
 COPY ...                            # add all remaining project files afterward
 RUN cabal build                     # run the actual elm build
 ```

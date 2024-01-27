@@ -28,7 +28,7 @@ COPY builder builder
 COPY compiler compiler
 COPY reactor reactor
 COPY terminal terminal
-COPY cabal.config elm.cabal LICENSE ./
+COPY cabal.config elm-dev.cabal LICENSE ./
 
 # Build statically linked elm binary
 RUN cabal new-update
