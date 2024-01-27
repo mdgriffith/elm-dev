@@ -1,7 +1,7 @@
 {
   "name": "elm-dev",
   "version": "0.1.0",
-  "description": "Installer for Elm Dev: downloads the binary into node_modules",
+  "description": "Elm Dev: a version of the Elm compiler to help with editor tooling.",
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
