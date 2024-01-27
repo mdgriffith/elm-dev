@@ -205,7 +205,7 @@ Executable elm-dev
         Type.Type
         Type.Unify
         Type.UnionFind
-        Paths_elm
+        Paths_elm_dev
 
         -- elmx
         -- ext-common
