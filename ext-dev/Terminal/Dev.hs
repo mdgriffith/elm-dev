@@ -182,27 +182,45 @@ getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
            Terminal.Dev.Out.json maybeOutput (Left err)
 
         Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
-          eitherWarnings <- Ext.Dev.warnings root modulePath
-          case eitherWarnings of
-            Left _ ->
-              Terminal.Dev.Out.json maybeOutput
-                  (Right (Json.Encode.list (\a -> a) []))
+          compilationCheckResult <- loadAndEnsureCompiled root (Just (NE.List moduleName []))
+          case compilationCheckResult of
+            Left err ->
+              Terminal.Dev.Out.json maybeOutput (Left err)
 
-            Right (mod, warningList) ->
-              Terminal.Dev.Out.json maybeOutput
-                  (Right 
-                    (Json.Encode.list id 
-                      [ Json.Encode.object
-                          [ "filepath" ==> Json.Encode.string (Json.String.fromChars modulePath)
-                          , "module" ==> Json.Encode.name moduleName
-                          , "warnings" ==>
-                              Json.Encode.list
-                              (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
-                              warningList
+            Right details -> do
+              eitherWarnings <- Ext.Dev.warnings root modulePath
+              case eitherWarnings of
+                Left err ->
+                  Terminal.Dev.Out.json maybeOutput
+                     (Right 
+                        (Json.Encode.list id 
+                          [ Json.Encode.object
+                              [ "filepath" ==> Json.Encode.string (Json.String.fromChars modulePath)
+                              , "module" ==> Json.Encode.name moduleName
+                              , "warnings" ==>
+                                  Json.Encode.list
+                                  id
+                                  []
+                              ]
                           ]
-                      ]
-                    )
-                  )
+                        )
+                      )
+
+                Right (mod, warningList) ->
+                  Terminal.Dev.Out.json maybeOutput
+                      (Right 
+                        (Json.Encode.list id 
+                          [ Json.Encode.object
+                              [ "filepath" ==> Json.Encode.string (Json.String.fromChars modulePath)
+                              , "module" ==> Json.Encode.name moduleName
+                              , "warnings" ==>
+                                  Json.Encode.list
+                                  (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                                  warningList
+                              ]
+                          ]
+                        )
+                      )
                     
 
    
