@@ -386,7 +386,7 @@ encodeWarning localizer warning =
 
               )
           , "name" ==>
-              (Json.Encode.chars (Name.toChars name))
+              Json.Encode.name name
           ]
 
     Warning.MissingTypeAnnotation region name type_ ->
