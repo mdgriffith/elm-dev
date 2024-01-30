@@ -47,8 +47,8 @@ import qualified Ext.Dev.Explain
 import qualified Ext.Dev.CallGraph
 import qualified Ext.Dev.InScope
 import qualified Ext.Project.Find
-
-
+import qualified Terminal.Dev.Out as Out
+import qualified Terminal.Dev.Error
 import qualified Ext.CompileProxy
 import qualified Ext.Log
 
@@ -289,8 +289,6 @@ getPosition =
 
 
 
-
-
 ask :: Watchtower.Live.State -> Question -> IO Data.ByteString.Builder.Builder
 ask state question =
   case question of
@@ -301,16 +299,27 @@ ask state question =
       allProjectStatuses state
 
     
-    Docs (ForProject entrypoint) ->
-      do
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot entrypoint state)
-        maybeDocs <- Ext.Dev.docsForProject root (NE.singleton (Ext.Project.Find.toElmModuleName root entrypoint))
-        case maybeDocs of
-          Left err ->
-            pure (Json.Encode.encodeUgly (Json.Encode.chars (Exit.toString (Exit.reactorToReport err))))
-
-          Right docs ->
-            pure (Json.Encode.encodeUgly (Docs.encode docs))
+    Docs (ForProject entrypoint) -> do
+      maybeRoot <- Stuff.findRoot
+      case maybeRoot of
+        Nothing ->
+          pure (Out.asJsonUgly (Left Terminal.Dev.Error.CouldNotFindRoot))
+        
+        Just root -> do
+          let moduleNames = NE.List (Name.fromChars entrypoint) []
+          compilationResult <- Ext.CompileProxy.loadAndEnsureCompiled root (Just moduleNames)
+          case compilationResult of
+            Left err ->
+              pure (Out.asJsonUgly (Left (Terminal.Dev.Error.CompilationError err)))
+            
+            Right details -> do
+              maybeDocs <-  Ext.CompileProxy.compileToDocs root moduleNames details
+              case maybeDocs of
+                Left err ->
+                  pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor err)))
+                
+                Right docs ->
+                  pure (Out.asJsonUgly (Right (Docs.encode docs)))
 
     Docs (FromFile path) ->
       do

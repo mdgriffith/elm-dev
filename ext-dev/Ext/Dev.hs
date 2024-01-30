@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Ext.Dev 
-    ( docs, docsForProject
+    ( docs
     , info, Info(..)
     , warnings
     , entrypoints
@@ -95,12 +95,6 @@ docs root path = do
         _ ->
             pure Nothing
 
-
-docsForProject :: FilePath -> NE.List ModuleName.Raw -> IO (Either Exit.Reactor Elm.Docs.Documentation)
-docsForProject root modules = do
-    Ext.CompileProxy.compileToDocs root modules
-        
-   
 
 entrypoints :: FilePath -> IO (Either Ext.CompileProxy.CompilationError [Ext.Dev.EntryPoints.EntryPoint])
 entrypoints root =

@@ -12,7 +12,7 @@ module Ext.CompileProxy
  , compileToDocs
 
 
- , ensureModulesAreCompiled, compilationErrorToJson
+ , loadAndEnsureCompiled, ensureModulesAreCompiled, compilationErrorToJson
  , CompilationError(..)
  )
  where
@@ -132,13 +132,24 @@ modeRunner identifier ioDisk ioMemory = do
       (results !! 1) & (\(_,_,x) -> x) & pure
 
 
+
+loadAndEnsureCompiled :: FilePath -> Maybe (NE.List ModuleName.Raw) -> IO (Either CompilationError Details.Details)
+loadAndEnsureCompiled root exposed = do
+    result <- ensureModulesAreCompiled root exposed
+    case result of
+      Left err ->
+        pure (Left err)
+        
+      Right details ->
+        pure (Right details)
+
 -- Interfaces
 
 {-| Needs memory mode!
 -}
-compileToDocs :: FilePath -> NE.List ModuleName.Raw -> IO (Either Exit.Reactor Docs.Documentation)
-compileToDocs root modules =
-  Ext.CompileHelpers.Disk.compileToDocs root modules
+compileToDocs :: FilePath -> NE.List ModuleName.Raw -> Details.Details -> IO (Either Exit.Reactor Docs.Documentation)
+compileToDocs root modules details =
+  Ext.CompileHelpers.Disk.compileToDocsCached root modules details
 
 
 

@@ -1,6 +1,7 @@
 module Ext.CompileHelpers.Disk
   ( compileToJson
   , compileToDocs
+  , compileToDocsCached
   , compileWithoutJsGen
   , allPackageArtifacts
   )
@@ -115,10 +116,18 @@ compileToDocs root allModuleNames = do
     BW.withScope $ \scope -> Stuff.withRootLock root $
       Task.run $ do
         details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-        -- let allModuleNames = case getModuleNames details of
-        --                       [] ->  (NE.singleton (Name.fromChars "Main"))
-        --                       (top : rest) -> NE.List top rest
         
+        Task.eio Exit.ReactorBadBuild $ 
+            docsFromExposed Reporting.silent root details Build.KeepDocs 
+              allModuleNames
+
+
+
+compileToDocsCached :: FilePath -> NE.List ModuleName.Raw -> Details.Details -> IO (Either Exit.Reactor Elm.Docs.Documentation)
+compileToDocsCached root allModuleNames details = do
+  Dir.withCurrentDirectory root $
+    BW.withScope $ \scope -> Stuff.withRootLock root $
+      Task.run $ 
         Task.eio Exit.ReactorBadBuild $ 
             docsFromExposed Reporting.silent root details Build.KeepDocs 
               allModuleNames

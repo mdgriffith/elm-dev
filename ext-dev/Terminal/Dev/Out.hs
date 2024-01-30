@@ -1,4 +1,4 @@
-module Terminal.Dev.Out (json, asJson) where
+module Terminal.Dev.Out (json, asJson, asJsonUgly) where
 
 import qualified System.IO
 import qualified Json.Encode
@@ -11,6 +11,15 @@ import Json.Encode ((==>))
 printJson :: Json.Encode.Value -> IO ()
 printJson jsonValue =
     Data.ByteString.Builder.hPutBuilder System.IO.stdout (Json.Encode.encode jsonValue)
+
+asJsonUgly :: Either Terminal.Dev.Error.Error Json.Encode.Value ->  Data.ByteString.Builder.Builder
+asJsonUgly result =
+    case result of
+        Left err ->
+            Json.Encode.encodeUgly (Terminal.Dev.Error.toJson err)
+
+        Right jsonValue ->
+            Json.Encode.encodeUgly jsonValue
 
 json :: Maybe String -> Either Terminal.Dev.Error.Error Json.Encode.Value -> IO ()
 json maybePath result =

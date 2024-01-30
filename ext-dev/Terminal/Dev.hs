@@ -97,15 +97,7 @@ main =
     ]
 
 
-loadAndEnsureCompiled :: FilePath -> Maybe (NE.List Elm.ModuleName.Raw) -> IO (Either Terminal.Dev.Error.Error Elm.Details.Details)
-loadAndEnsureCompiled root exposed = do
-    result <- Ext.CompileProxy.ensureModulesAreCompiled root exposed
-    case result of
-      Left err ->
-        pure (Left (Terminal.Dev.Error.CompilationError err))
-        
-      Right details ->
-        pure (Right details)
+
 
 
 intro :: P.Doc
@@ -158,7 +150,7 @@ warnings =
         "After running that command, watchtower is listening at <http://localhost:51213>\
         \ and ready to be connected to."
 
-    docsFlags =
+    warningFlags =
       flags WarningFlags
         |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
 
@@ -167,7 +159,7 @@ warnings =
         [ require1 WarningsFile dir
         ]
   in
-  Terminal.Command "warnings" (Common summary) details example warningArgs docsFlags getWarnings
+  Terminal.Command "warnings" (Common summary) details example warningArgs warningFlags getWarnings
 
 
 
@@ -182,8 +174,8 @@ getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
            Terminal.Dev.Out.json maybeOutput (Left err)
 
         Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
-          compilationCheckResult <- loadAndEnsureCompiled root (Just (NE.List moduleName []))
-          case compilationCheckResult of
+          compilationCheckResult <- Ext.CompileProxy.loadAndEnsureCompiled root (Just (NE.List moduleName []))
+          case mapError Terminal.Dev.Error.CompilationError compilationCheckResult of
             Left err ->
               Terminal.Dev.Out.json maybeOutput (Left err)
 
@@ -405,19 +397,26 @@ getDocs arg (Terminal.Dev.DocFlags maybeOutput) =
       Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docMap))
 
     DocsModules top moduleList -> do
-        maybeRoot <- Stuff.findRoot
-        case maybeRoot of
-          Nothing ->
-            Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
-          
-          Just root -> do
-            maybeDocs <- Ext.Dev.docsForProject root (NE.List top moduleList)
-            case maybeDocs of
-              Left err ->
-                Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.ExitReactor err))
-              
-              Right docs ->
-                Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
+      maybeRoot <- Stuff.findRoot
+      case maybeRoot of
+        Nothing ->
+          Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
+        
+        Just root -> do
+          let moduleNames = NE.List top moduleList
+          compilationResult <- Ext.CompileProxy.loadAndEnsureCompiled root (Just moduleNames)
+          case mapError Terminal.Dev.Error.CompilationError compilationResult of
+            Left err ->
+              Terminal.Dev.Out.json maybeOutput (Left err)
+            
+            Right details -> do
+              maybeDocs <-  Ext.CompileProxy.compileToDocs root moduleNames details
+              case maybeDocs of
+                Left err ->
+                  Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.ExitReactor err))
+                
+                Right docs ->
+                  Terminal.Dev.Out.json maybeOutput (Right (Docs.encode docs))
       
     DocsPackage packageName -> do
       -- Is there an `elm.json` file?  Read it for the exact version.
@@ -864,8 +863,8 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput maybeEntrypoints) =
                     (Left err)
 
         Right (Terminal.Dev.Args.Value root modName valueName) -> do
-          compilationCheckResult <- loadAndEnsureCompiled root maybeEntrypoints
-          case compilationCheckResult of
+          compilationCheckResult <- Ext.CompileProxy.loadAndEnsureCompiled root maybeEntrypoints
+          case mapError Terminal.Dev.Error.CompilationError compilationCheckResult of
             Left err ->
               Terminal.Dev.Out.json maybeOutput
                     (Left err)
@@ -1038,8 +1037,8 @@ explainRun arg (Terminal.Dev.ExplainFlags maybeOutput) =
           Terminal.Dev.Out.json maybeOutput (Left err)
 
         Right (Terminal.Dev.Args.Value root modName valueName) -> do
-          compilationCheckResult <- loadAndEnsureCompiled root (Just (NE.List modName []))
-          case compilationCheckResult of
+          compilationCheckResult <- Ext.CompileProxy.loadAndEnsureCompiled root (Just (NE.List modName []))
+          case mapError Terminal.Dev.Error.CompilationError compilationCheckResult of
             Left err ->
               Terminal.Dev.Out.json maybeOutput
                     (Left err)
@@ -1052,3 +1051,13 @@ explainRun arg (Terminal.Dev.ExplainFlags maybeOutput) =
 
                 Just definition ->
                   Terminal.Dev.Out.json maybeOutput (Right (Ext.Dev.Explain.encode definition))
+
+
+-- Terminal.Dev.Error.CompilationError        
+mapError toErr result =
+    case result of 
+      Right ok ->
+          Right ok 
+
+      Left err ->
+          Left (toErr err)
