@@ -141,10 +141,10 @@ favicon =
 
 -- livePane :: BS.ByteString
 -- livePane =
---   $(bsToExp =<< runIO (BS.readFile ("watchtower-frontends" </> "vscode" </> "src" </> "livePanel" </> "public" </> "app.html")))
+--   $(bsToExp =<< runIO (BS.readFile ("elm-dev-frontends" </> "vscode" </> "src" </> "livePanel" </> "public" </> "app.html")))
 
 
 
 -- livePaneJs :: BS.ByteString
 -- livePaneJs =
---   $(bsToExp =<< runIO (BS.readFile ("watchtower-frontends" </> "vscode" </> "src" </> "livePanel" </> "public" </> "live.js")))
+--   $(bsToExp =<< runIO (BS.readFile ("elm-dev-frontends" </> "vscode" </> "src" </> "livePanel" </> "public" </> "live.js")))
