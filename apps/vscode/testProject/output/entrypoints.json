@@ -1,7 +1,7 @@
 [
     {
-        "base": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject",
-        "filepath": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/AlternativeMain.elm",
+        "base": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject",
+        "filepath": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject/src/AlternativeMain.elm",
         "module": "AlternativeMain",
         "incoming": [
             {
@@ -19,8 +19,8 @@
         ]
     },
     {
-        "base": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject",
-        "filepath": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Main.elm",
+        "base": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject",
+        "filepath": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject/src/Main.elm",
         "module": "Main",
         "incoming": [
             {
@@ -43,8 +43,8 @@
         ]
     },
     {
-        "base": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject",
-        "filepath": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Ui/Arbor.elm",
+        "base": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject",
+        "filepath": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject/src/Ui/Arbor.elm",
         "module": "Ui.Arbor",
         "incoming": [],
         "outgoing": []
