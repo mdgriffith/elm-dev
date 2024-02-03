@@ -66,14 +66,14 @@
     ],
     "imports": [
         {
-            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Alias.elm",
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject/src/Alias.elm",
             "module": "Alias",
             "imports": [
                 "Imported"
             ]
         },
         {
-            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/AlternativeMain.elm",
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject/src/AlternativeMain.elm",
             "module": "AlternativeMain",
             "imports": [
                 "Browser",
@@ -81,7 +81,7 @@
             ]
         },
         {
-            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Imported.elm",
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject/src/Imported.elm",
             "module": "Imported",
             "imports": [
                 "Html",
@@ -91,7 +91,7 @@
             ]
         },
         {
-            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Main.elm",
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject/src/Main.elm",
             "module": "Main",
             "imports": [
                 "Alias",
@@ -102,12 +102,12 @@
             ]
         },
         {
-            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/OtherPorts.elm",
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject/src/OtherPorts.elm",
             "module": "OtherPorts",
             "imports": []
         },
         {
-            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/watchtower-frontends/vscode/testProject/src/Ui/Arbor.elm",
+            "path": "/Users/mattgriffith/projects/mdgriffith/elm-dev/apps/vscode/testProject/src/Ui/Arbor.elm",
             "module": "Ui.Arbor",
             "imports": [
                 "Browser",

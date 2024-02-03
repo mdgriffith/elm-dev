@@ -682,24 +682,29 @@ imports =
 
 
 importsRun :: (String, [ String ]) -> Terminal.Dev.ImportsFlags -> IO ()
-importsRun moduleNames (Terminal.Dev.ImportsFlags maybeOutput) = do
-    moduleResult <- Terminal.Dev.Args.moduleList moduleNames
-    case moduleResult of
-      Left err -> do
-        Terminal.Dev.Out.json maybeOutput (Left err)
-          
-      Right (Terminal.Dev.Args.ModuleList root infoList details) -> do
+importsRun (top, remaining) (Terminal.Dev.ImportsFlags maybeOutput) = do
+    let allModulesNames = NE.List (Name.fromChars top) (fmap Name.fromChars remaining)
+    maybeRoot <- Stuff.findRoot
+    case maybeRoot of
+      Nothing ->
+        Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
+      
+      Just root -> do
+        compilationResult <- Ext.CompileProxy.loadAndEnsureCompiled root Nothing
 
-        let allModulesNames = fmap Terminal.Dev.Args._modName infoList
-    
-        let importSummary = Ext.Dev.Imports.getImportSummaryForMany details allModulesNames
-        
-        Terminal.Dev.Out.json maybeOutput
-          (Right 
-            (Ext.Dev.Imports.encodeSummary
-                importSummary
-            )
-          )
+        case mapError Terminal.Dev.Error.CompilationError compilationResult of
+          Left err ->
+            Terminal.Dev.Out.json maybeOutput (Left err)
+          
+          Right details -> do
+            let importSummary = Ext.Dev.Imports.getImportSummaryForMany details (NE.toList allModulesNames)
+            
+            Terminal.Dev.Out.json maybeOutput
+              (Right 
+                (Ext.Dev.Imports.encodeSummary
+                    importSummary
+                )
+              )
 
 
 
@@ -867,7 +872,7 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput maybeEntrypoints) =
           case mapError Terminal.Dev.Error.CompilationError compilationCheckResult of
             Left err ->
               Terminal.Dev.Out.json maybeOutput
-                    (Left err)
+                  (Left err)
 
             Right details -> do
               usageSummary <- Ext.Dev.Usage.usageOfType root details modName valueName
@@ -885,25 +890,37 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput maybeEntrypoints) =
                         )
 
     UsageModule path -> do
-      moduleResult <- Terminal.Dev.Args.modul path
-      case moduleResult of
-        Left err ->
-           Terminal.Dev.Out.json maybeOutput (Left err)
-           
-        Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
-          usageSummary <- Ext.Dev.Usage.usageOfModule root details moduleName
-          case usageSummary of
-            Nothing ->
-                Terminal.Dev.Out.json maybeOutput
-                    (Left Terminal.Dev.Error.CouldNotFindModule)
+      maybeRoot <- Stuff.findRoot
+      case maybeRoot of
+        Nothing ->
+          Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
+        
+        Just root -> do
+          compilationResult <- Ext.CompileProxy.loadAndEnsureCompiled root maybeEntrypoints
+          case mapError Terminal.Dev.Error.CompilationError compilationResult of
+            Left err ->
+              Terminal.Dev.Out.json maybeOutput (Left err)
+            
+            Right details -> do
+              -- moduleResult <- Terminal.Dev.Args.modul path
+              -- case moduleResult of
+              --   Left err ->
+                  -- Terminal.Dev.Out.json maybeOutput (Left err)
+                  
+                -- Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
+              usageSummary <- Ext.Dev.Usage.usageOfModule root details (Name.fromChars path)
+              case usageSummary of
+                Nothing ->
+                    Terminal.Dev.Out.json maybeOutput
+                        (Left Terminal.Dev.Error.CouldNotFindModule)
 
-            Just summary ->
-                Terminal.Dev.Out.json maybeOutput
-                    (Right 
-                      (Ext.Dev.Usage.encode
-                          summary
-                      )
-                    )
+                Just summary ->
+                    Terminal.Dev.Out.json maybeOutput
+                        (Right 
+                          (Ext.Dev.Usage.encode
+                              summary
+                          )
+                        )
 
 
 {- Entrypoints 
