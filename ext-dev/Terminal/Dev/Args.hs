@@ -22,12 +22,13 @@ import qualified System.Directory as Dir
 import qualified Ext.CompileProxy
 import qualified Terminal.Dev.Error as Error (Error(..))
 import qualified Control.Monad as Monad
+import qualified Data.NonEmptyList as NE
 
 
 data ModuleList =
     ModuleList
         { _modListRoot :: FilePath
-        , _modListInfo :: [ModuleInfo]
+        , _modListInfo :: NE.List ModuleInfo
         , _modListDetails :: Elm.Details.Details
         }
 
@@ -45,12 +46,15 @@ moduleList (basePath, allOtherPaths) = do
         Nothing -> pure (Left Error.CouldNotFindRoot)
         Just root -> do
             details <- Ext.CompileProxy.loadProject root
-            moduleInfos <- Monad.mapM (\path -> readModuleInfo path details) (basePath : allOtherPaths)
-            case sequence moduleInfos of
-                (Right infos)->
-                    pure (Right (ModuleList root infos details))
+            topModuleInfo <- readModuleInfo basePath details
+            moduleInfos <- Monad.mapM (\path -> readModuleInfo path details) allOtherPaths
+            case (topModuleInfo, sequence moduleInfos) of
+                (Right topInfo, Right infos)->
+                    pure (Right (ModuleList root (NE.List topInfo infos) details))
                   
-                (Left err) -> pure (Left err)
+                (Left err, _) -> pure (Left err)
+
+                (_, Left err) -> pure (Left err)
             
 
 

@@ -168,23 +168,24 @@ getWarnings :: Warnings -> Terminal.Dev.WarningFlags -> IO ()
 getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
   case arg of
     WarningsFile path -> do
-      moduleResult <- Terminal.Dev.Args.modul path
-      case moduleResult of
+      compilationCheckResult <- loadAndEnsureCompiled (Just (NE.singleton (Name.fromChars path)))
+      
+      case compilationCheckResult of
         Left err ->
-           Terminal.Dev.Out.json maybeOutput (Left err)
+          Terminal.Dev.Out.json maybeOutput (Left err)
 
-        Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
-          compilationCheckResult <- Ext.CompileProxy.loadAndEnsureCompiled root (Just (NE.List moduleName []))
-          case mapError Terminal.Dev.Error.CompilationError compilationCheckResult of
+        Right details -> do
+          moduleResult <- Terminal.Dev.Args.modul path
+          case moduleResult of
             Left err ->
               Terminal.Dev.Out.json maybeOutput (Left err)
 
-            Right details -> do
+            Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
               eitherWarnings <- Ext.Dev.warnings root modulePath
               case eitherWarnings of
                 Left err ->
                   Terminal.Dev.Out.json maybeOutput
-                     (Right 
+                      (Right 
                         (Json.Encode.list id 
                           [ Json.Encode.object
                               [ "filepath" ==> Json.Encode.string (Json.String.fromChars modulePath)
@@ -213,7 +214,7 @@ getWarnings arg (Terminal.Dev.WarningFlags maybeOutput) =
                           ]
                         )
                       )
-                    
+                
 
    
 
@@ -654,6 +655,7 @@ exampleFilesOrModules _ =
 data ImportsFlags =
   ImportsFlags
     { _importOutput :: Maybe String
+    , _importEntryPoints :: Maybe (NE.List Elm.ModuleName.Raw)
     }
 
 
@@ -675,6 +677,7 @@ imports =
     importsFlags =
       flags ImportsFlags
         |-- flag "output" output_ "An optional file to write the JSON form of warnings to.  If not supplied, the warnings will be printed."
+        |-- flag "entypoints" entrypoints_ "Specify which modules are entrypoints to the project.  This will limit the scope of the search."
 
   in
   Terminal.Command "imports" (Common summary) details example (oneOrMore elmFileOrModule) importsFlags importsRun
@@ -682,29 +685,20 @@ imports =
 
 
 importsRun :: (String, [ String ]) -> Terminal.Dev.ImportsFlags -> IO ()
-importsRun (top, remaining) (Terminal.Dev.ImportsFlags maybeOutput) = do
-    let allModulesNames = NE.List (Name.fromChars top) (fmap Name.fromChars remaining)
-    maybeRoot <- Stuff.findRoot
-    case maybeRoot of
-      Nothing ->
-        Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
+importsRun (top, remaining) (Terminal.Dev.ImportsFlags maybeOutput maybeEntrypoints) = do
+    result <- loadAndEnsureCompiled maybeEntrypoints
+    case result of
+      Left err ->
+        Terminal.Dev.Out.json maybeOutput (Left err)
       
-      Just root -> do
-        compilationResult <- Ext.CompileProxy.loadAndEnsureCompiled root Nothing
-
-        case mapError Terminal.Dev.Error.CompilationError compilationResult of
-          Left err ->
-            Terminal.Dev.Out.json maybeOutput (Left err)
-          
-          Right details -> do
-            let importSummary = Ext.Dev.Imports.getImportSummaryForMany details (NE.toList allModulesNames)
-            
-            Terminal.Dev.Out.json maybeOutput
-              (Right 
-                (Ext.Dev.Imports.encodeSummary
-                    importSummary
-                )
-              )
+      Right details -> do
+        let importSummary = Ext.Dev.Imports.getImportSummaryForMany details (fmap Name.fromChars (top : remaining))
+        Terminal.Dev.Out.json maybeOutput
+          (Right 
+            (Ext.Dev.Imports.encodeSummary
+                importSummary
+            )
+          )
 
 
 
@@ -890,38 +884,37 @@ usageRun arg (Terminal.Dev.UsageFlags maybeOutput maybeEntrypoints) =
                         )
 
     UsageModule path -> do
-      maybeRoot <- Stuff.findRoot
-      case maybeRoot of
-        Nothing ->
-          Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
+      result <- loadAndEnsureCompiled maybeEntrypoints
+      case result of
+        Left err ->
+          Terminal.Dev.Out.json maybeOutput (Left err)
         
-        Just root -> do
-          compilationResult <- Ext.CompileProxy.loadAndEnsureCompiled root maybeEntrypoints
-          case mapError Terminal.Dev.Error.CompilationError compilationResult of
-            Left err ->
-              Terminal.Dev.Out.json maybeOutput (Left err)
-            
-            Right details -> do
-              -- moduleResult <- Terminal.Dev.Args.modul path
-              -- case moduleResult of
-              --   Left err ->
-                  -- Terminal.Dev.Out.json maybeOutput (Left err)
-                  
-                -- Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
-              usageSummary <- Ext.Dev.Usage.usageOfModule root details (Name.fromChars path)
-              case usageSummary of
-                Nothing ->
-                    Terminal.Dev.Out.json maybeOutput
-                        (Left Terminal.Dev.Error.CouldNotFindModule)
+        Right details -> do
+          usageSummary <- Ext.Dev.Usage.usageOfModule "." details (Name.fromChars path)
+          case usageSummary of
+            Nothing ->
+                Terminal.Dev.Out.json maybeOutput
+                    (Left Terminal.Dev.Error.CouldNotFindModule)
 
-                Just summary ->
-                    Terminal.Dev.Out.json maybeOutput
-                        (Right 
-                          (Ext.Dev.Usage.encode
-                              summary
-                          )
-                        )
+            Just summary ->
+                Terminal.Dev.Out.json maybeOutput
+                    (Right 
+                      (Ext.Dev.Usage.encode
+                          summary
+                      )
+                    )
 
+
+loadAndEnsureCompiled :: Maybe (NE.List Elm.ModuleName.Raw) -> IO (Either Terminal.Dev.Error.Error Elm.Details.Details)
+loadAndEnsureCompiled maybeEntrypoints = do
+  maybeRoot <- Stuff.findRoot
+  case maybeRoot of
+    Nothing ->
+      pure (Left Terminal.Dev.Error.CouldNotFindRoot)
+    
+    Just root -> do
+      compilationResult <- Ext.CompileProxy.loadAndEnsureCompiled root maybeEntrypoints
+      pure (mapError Terminal.Dev.Error.CompilationError compilationResult)
 
 {- Entrypoints 
 

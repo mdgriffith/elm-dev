@@ -22,7 +22,7 @@ stack run --cwd apps/vscode/testProject -- docs mdgriffith/elm-ui --output=outpu
 
 # Warnings
 rm -rf apps/vscode/testProject/elm-stuff
-stack run --cwd apps/vscode/testProject -- warnings src/Main.elm --output=output/warnings.json
+stack run --cwd apps/vscode/testProject -- warnings Main --output=output/warnings.json
 
 # Entrypoints
 rm -rf apps/vscode/testProject/elm-stuff
