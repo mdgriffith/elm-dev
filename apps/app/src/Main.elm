@@ -24,6 +24,7 @@ import Ui
 import Ui.Card
 
 
+
 main : Program () Model Msg
 main =
     Browser.element
@@ -34,7 +35,7 @@ main =
             \_ ->
                 Sub.batch
                     [ Ports.incoming Incoming
-                    , Time.every 500 CurrentTime
+                    -- , Time.every 500 CurrentTime
                     ]
         }
 
@@ -58,6 +59,7 @@ init =
     , Cmd.none
     )
 
+test = True
 
 panelLog =
     Debug.log "Panel"
@@ -65,7 +67,7 @@ panelLog =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case msg of
+    case Debug.log "MSG" msg of
         Incoming (Err err) ->
             let
                 _ =
@@ -662,6 +664,7 @@ foundErrorsMenu model found =
                     ]
             , Ui.text summaryText
             ]
+
 
 
 viewErrorMenuContent model found =

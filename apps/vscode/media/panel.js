@@ -4313,52 +4313,6 @@ function _Browser_load(url)
 
 
 
-function _Time_now(millisToPosix)
-{
-	return _Scheduler_binding(function(callback)
-	{
-		callback(_Scheduler_succeed(millisToPosix(Date.now())));
-	});
-}
-
-var _Time_setInterval = F2(function(interval, task)
-{
-	return _Scheduler_binding(function(callback)
-	{
-		var id = setInterval(function() { _Scheduler_rawSpawn(task); }, interval);
-		return function() { clearInterval(id); };
-	});
-});
-
-function _Time_here()
-{
-	return _Scheduler_binding(function(callback)
-	{
-		callback(_Scheduler_succeed(
-			A2($elm$time$Time$customZone, -(new Date().getTimezoneOffset()), _List_Nil)
-		));
-	});
-}
-
-
-function _Time_getZoneName()
-{
-	return _Scheduler_binding(function(callback)
-	{
-		try
-		{
-			var name = $elm$time$Time$Name(Intl.DateTimeFormat().resolvedOptions().timeZone);
-		}
-		catch (e)
-		{
-			var name = $elm$time$Time$Offset(new Date().getTimezoneOffset());
-		}
-		callback(_Scheduler_succeed(name));
-	});
-}
-
-
-
 
 // STRINGS
 
@@ -4603,9 +4557,6 @@ var $elm$core$Set$toList = function (_v0) {
 var $elm$core$Basics$EQ = {$: 'EQ'};
 var $elm$core$Basics$GT = {$: 'GT'};
 var $elm$core$Basics$LT = {$: 'LT'};
-var $author$project$Model$CurrentTime = function (a) {
-	return {$: 'CurrentTime', a: a};
-};
 var $author$project$Model$Incoming = function (a) {
 	return {$: 'Incoming', a: a};
 };
@@ -5319,18 +5270,44 @@ var $elm$core$Task$perform = F2(
 				A2($elm$core$Task$map, toMessage, task)));
 	});
 var $elm$browser$Browser$element = _Browser_element;
-var $elm$time$Time$Every = F2(
-	function (a, b) {
-		return {$: 'Every', a: a, b: b};
+var $elm$core$Basics$composeL = F3(
+	function (g, f, x) {
+		return g(
+			f(x));
 	});
-var $elm$time$Time$State = F2(
-	function (taggers, processes) {
-		return {processes: processes, taggers: taggers};
+var $elm$json$Json$Decode$decodeValue = _Json_run;
+var $author$project$Ports$CallGraphReceived = function (a) {
+	return {$: 'CallGraphReceived', a: a};
+};
+var $author$project$Ports$ExplanationReceived = function (a) {
+	return {$: 'ExplanationReceived', a: a};
+};
+var $author$project$Ports$ProjectsStatusUpdated = function (a) {
+	return {$: 'ProjectsStatusUpdated', a: a};
+};
+var $author$project$Ports$VisibleEditorsUpdated = function (a) {
+	return {$: 'VisibleEditorsUpdated', a: a};
+};
+var $author$project$Ports$WarningsUpdated = function (a) {
+	return {$: 'WarningsUpdated', a: a};
+};
+var $elm$json$Json$Decode$andThen = _Json_andThen;
+var $author$project$Ports$CallGraphNode = F4(
+	function (id, recursive, calls, callers) {
+		return {callers: callers, calls: calls, id: id, recursive: recursive};
 	});
-var $elm$core$Dict$RBEmpty_elm_builtin = {$: 'RBEmpty_elm_builtin'};
-var $elm$core$Dict$empty = $elm$core$Dict$RBEmpty_elm_builtin;
-var $elm$time$Time$init = $elm$core$Task$succeed(
-	A2($elm$time$Time$State, $elm$core$Dict$empty, $elm$core$Dict$empty));
+var $elm$json$Json$Decode$bool = _Json_decodeBool;
+var $author$project$Ports$Call = F2(
+	function (id, callType) {
+		return {callType: callType, id: id};
+	});
+var $author$project$Ports$Constructor = {$: 'Constructor'};
+var $author$project$Ports$Debug = {$: 'Debug'};
+var $author$project$Ports$Foreign = {$: 'Foreign'};
+var $author$project$Ports$Local = {$: 'Local'};
+var $author$project$Ports$Operator = {$: 'Operator'};
+var $author$project$Ports$TopLevel = {$: 'TopLevel'};
+var $elm$json$Json$Decode$fail = _Json_fail;
 var $elm$core$Basics$compare = _Utils_compare;
 var $elm$core$Dict$get = F2(
 	function (targetKey, dict) {
@@ -5363,6 +5340,23 @@ var $elm$core$Dict$get = F2(
 			}
 		}
 	});
+var $elm$json$Json$Decode$string = _Json_decodeString;
+var $author$project$Ports$enum = function (vals) {
+	return A2(
+		$elm$json$Json$Decode$andThen,
+		function (str) {
+			var _v0 = A2($elm$core$Dict$get, str, vals);
+			if (_v0.$ === 'Nothing') {
+				return $elm$json$Json$Decode$fail('Don\'t recognize ' + str);
+			} else {
+				var val = _v0.a;
+				return $elm$json$Json$Decode$succeed(val);
+			}
+		},
+		$elm$json$Json$Decode$string);
+};
+var $elm$core$Dict$RBEmpty_elm_builtin = {$: 'RBEmpty_elm_builtin'};
+var $elm$core$Dict$empty = $elm$core$Dict$RBEmpty_elm_builtin;
 var $elm$core$Dict$Black = {$: 'Black'};
 var $elm$core$Dict$RBNode_elm_builtin = F5(
 	function (a, b, c, d, e) {
@@ -5471,317 +5465,6 @@ var $elm$core$Dict$insert = F3(
 			return x;
 		}
 	});
-var $elm$time$Time$addMySub = F2(
-	function (_v0, state) {
-		var interval = _v0.a;
-		var tagger = _v0.b;
-		var _v1 = A2($elm$core$Dict$get, interval, state);
-		if (_v1.$ === 'Nothing') {
-			return A3(
-				$elm$core$Dict$insert,
-				interval,
-				_List_fromArray(
-					[tagger]),
-				state);
-		} else {
-			var taggers = _v1.a;
-			return A3(
-				$elm$core$Dict$insert,
-				interval,
-				A2($elm$core$List$cons, tagger, taggers),
-				state);
-		}
-	});
-var $elm$core$Process$kill = _Scheduler_kill;
-var $elm$core$Dict$foldl = F3(
-	function (func, acc, dict) {
-		foldl:
-		while (true) {
-			if (dict.$ === 'RBEmpty_elm_builtin') {
-				return acc;
-			} else {
-				var key = dict.b;
-				var value = dict.c;
-				var left = dict.d;
-				var right = dict.e;
-				var $temp$func = func,
-					$temp$acc = A3(
-					func,
-					key,
-					value,
-					A3($elm$core$Dict$foldl, func, acc, left)),
-					$temp$dict = right;
-				func = $temp$func;
-				acc = $temp$acc;
-				dict = $temp$dict;
-				continue foldl;
-			}
-		}
-	});
-var $elm$core$Dict$merge = F6(
-	function (leftStep, bothStep, rightStep, leftDict, rightDict, initialResult) {
-		var stepState = F3(
-			function (rKey, rValue, _v0) {
-				stepState:
-				while (true) {
-					var list = _v0.a;
-					var result = _v0.b;
-					if (!list.b) {
-						return _Utils_Tuple2(
-							list,
-							A3(rightStep, rKey, rValue, result));
-					} else {
-						var _v2 = list.a;
-						var lKey = _v2.a;
-						var lValue = _v2.b;
-						var rest = list.b;
-						if (_Utils_cmp(lKey, rKey) < 0) {
-							var $temp$rKey = rKey,
-								$temp$rValue = rValue,
-								$temp$_v0 = _Utils_Tuple2(
-								rest,
-								A3(leftStep, lKey, lValue, result));
-							rKey = $temp$rKey;
-							rValue = $temp$rValue;
-							_v0 = $temp$_v0;
-							continue stepState;
-						} else {
-							if (_Utils_cmp(lKey, rKey) > 0) {
-								return _Utils_Tuple2(
-									list,
-									A3(rightStep, rKey, rValue, result));
-							} else {
-								return _Utils_Tuple2(
-									rest,
-									A4(bothStep, lKey, lValue, rValue, result));
-							}
-						}
-					}
-				}
-			});
-		var _v3 = A3(
-			$elm$core$Dict$foldl,
-			stepState,
-			_Utils_Tuple2(
-				$elm$core$Dict$toList(leftDict),
-				initialResult),
-			rightDict);
-		var leftovers = _v3.a;
-		var intermediateResult = _v3.b;
-		return A3(
-			$elm$core$List$foldl,
-			F2(
-				function (_v4, result) {
-					var k = _v4.a;
-					var v = _v4.b;
-					return A3(leftStep, k, v, result);
-				}),
-			intermediateResult,
-			leftovers);
-	});
-var $elm$core$Platform$sendToSelf = _Platform_sendToSelf;
-var $elm$time$Time$Name = function (a) {
-	return {$: 'Name', a: a};
-};
-var $elm$time$Time$Offset = function (a) {
-	return {$: 'Offset', a: a};
-};
-var $elm$time$Time$Zone = F2(
-	function (a, b) {
-		return {$: 'Zone', a: a, b: b};
-	});
-var $elm$time$Time$customZone = $elm$time$Time$Zone;
-var $elm$time$Time$setInterval = _Time_setInterval;
-var $elm$core$Process$spawn = _Scheduler_spawn;
-var $elm$time$Time$spawnHelp = F3(
-	function (router, intervals, processes) {
-		if (!intervals.b) {
-			return $elm$core$Task$succeed(processes);
-		} else {
-			var interval = intervals.a;
-			var rest = intervals.b;
-			var spawnTimer = $elm$core$Process$spawn(
-				A2(
-					$elm$time$Time$setInterval,
-					interval,
-					A2($elm$core$Platform$sendToSelf, router, interval)));
-			var spawnRest = function (id) {
-				return A3(
-					$elm$time$Time$spawnHelp,
-					router,
-					rest,
-					A3($elm$core$Dict$insert, interval, id, processes));
-			};
-			return A2($elm$core$Task$andThen, spawnRest, spawnTimer);
-		}
-	});
-var $elm$time$Time$onEffects = F3(
-	function (router, subs, _v0) {
-		var processes = _v0.processes;
-		var rightStep = F3(
-			function (_v6, id, _v7) {
-				var spawns = _v7.a;
-				var existing = _v7.b;
-				var kills = _v7.c;
-				return _Utils_Tuple3(
-					spawns,
-					existing,
-					A2(
-						$elm$core$Task$andThen,
-						function (_v5) {
-							return kills;
-						},
-						$elm$core$Process$kill(id)));
-			});
-		var newTaggers = A3($elm$core$List$foldl, $elm$time$Time$addMySub, $elm$core$Dict$empty, subs);
-		var leftStep = F3(
-			function (interval, taggers, _v4) {
-				var spawns = _v4.a;
-				var existing = _v4.b;
-				var kills = _v4.c;
-				return _Utils_Tuple3(
-					A2($elm$core$List$cons, interval, spawns),
-					existing,
-					kills);
-			});
-		var bothStep = F4(
-			function (interval, taggers, id, _v3) {
-				var spawns = _v3.a;
-				var existing = _v3.b;
-				var kills = _v3.c;
-				return _Utils_Tuple3(
-					spawns,
-					A3($elm$core$Dict$insert, interval, id, existing),
-					kills);
-			});
-		var _v1 = A6(
-			$elm$core$Dict$merge,
-			leftStep,
-			bothStep,
-			rightStep,
-			newTaggers,
-			processes,
-			_Utils_Tuple3(
-				_List_Nil,
-				$elm$core$Dict$empty,
-				$elm$core$Task$succeed(_Utils_Tuple0)));
-		var spawnList = _v1.a;
-		var existingDict = _v1.b;
-		var killTask = _v1.c;
-		return A2(
-			$elm$core$Task$andThen,
-			function (newProcesses) {
-				return $elm$core$Task$succeed(
-					A2($elm$time$Time$State, newTaggers, newProcesses));
-			},
-			A2(
-				$elm$core$Task$andThen,
-				function (_v2) {
-					return A3($elm$time$Time$spawnHelp, router, spawnList, existingDict);
-				},
-				killTask));
-	});
-var $elm$time$Time$Posix = function (a) {
-	return {$: 'Posix', a: a};
-};
-var $elm$time$Time$millisToPosix = $elm$time$Time$Posix;
-var $elm$time$Time$now = _Time_now($elm$time$Time$millisToPosix);
-var $elm$time$Time$onSelfMsg = F3(
-	function (router, interval, state) {
-		var _v0 = A2($elm$core$Dict$get, interval, state.taggers);
-		if (_v0.$ === 'Nothing') {
-			return $elm$core$Task$succeed(state);
-		} else {
-			var taggers = _v0.a;
-			var tellTaggers = function (time) {
-				return $elm$core$Task$sequence(
-					A2(
-						$elm$core$List$map,
-						function (tagger) {
-							return A2(
-								$elm$core$Platform$sendToApp,
-								router,
-								tagger(time));
-						},
-						taggers));
-			};
-			return A2(
-				$elm$core$Task$andThen,
-				function (_v1) {
-					return $elm$core$Task$succeed(state);
-				},
-				A2($elm$core$Task$andThen, tellTaggers, $elm$time$Time$now));
-		}
-	});
-var $elm$core$Basics$composeL = F3(
-	function (g, f, x) {
-		return g(
-			f(x));
-	});
-var $elm$time$Time$subMap = F2(
-	function (f, _v0) {
-		var interval = _v0.a;
-		var tagger = _v0.b;
-		return A2(
-			$elm$time$Time$Every,
-			interval,
-			A2($elm$core$Basics$composeL, f, tagger));
-	});
-_Platform_effectManagers['Time'] = _Platform_createManager($elm$time$Time$init, $elm$time$Time$onEffects, $elm$time$Time$onSelfMsg, 0, $elm$time$Time$subMap);
-var $elm$time$Time$subscription = _Platform_leaf('Time');
-var $elm$time$Time$every = F2(
-	function (interval, tagger) {
-		return $elm$time$Time$subscription(
-			A2($elm$time$Time$Every, interval, tagger));
-	});
-var $elm$json$Json$Decode$decodeValue = _Json_run;
-var $author$project$Ports$CallGraphReceived = function (a) {
-	return {$: 'CallGraphReceived', a: a};
-};
-var $author$project$Ports$ExplanationReceived = function (a) {
-	return {$: 'ExplanationReceived', a: a};
-};
-var $author$project$Ports$ProjectsStatusUpdated = function (a) {
-	return {$: 'ProjectsStatusUpdated', a: a};
-};
-var $author$project$Ports$VisibleEditorsUpdated = function (a) {
-	return {$: 'VisibleEditorsUpdated', a: a};
-};
-var $author$project$Ports$WarningsUpdated = function (a) {
-	return {$: 'WarningsUpdated', a: a};
-};
-var $elm$json$Json$Decode$andThen = _Json_andThen;
-var $author$project$Ports$CallGraphNode = F4(
-	function (id, recursive, calls, callers) {
-		return {callers: callers, calls: calls, id: id, recursive: recursive};
-	});
-var $elm$json$Json$Decode$bool = _Json_decodeBool;
-var $author$project$Ports$Call = F2(
-	function (id, callType) {
-		return {callType: callType, id: id};
-	});
-var $author$project$Ports$Constructor = {$: 'Constructor'};
-var $author$project$Ports$Debug = {$: 'Debug'};
-var $author$project$Ports$Foreign = {$: 'Foreign'};
-var $author$project$Ports$Local = {$: 'Local'};
-var $author$project$Ports$Operator = {$: 'Operator'};
-var $author$project$Ports$TopLevel = {$: 'TopLevel'};
-var $elm$json$Json$Decode$fail = _Json_fail;
-var $elm$json$Json$Decode$string = _Json_decodeString;
-var $author$project$Ports$enum = function (vals) {
-	return A2(
-		$elm$json$Json$Decode$andThen,
-		function (str) {
-			var _v0 = A2($elm$core$Dict$get, str, vals);
-			if (_v0.$ === 'Nothing') {
-				return $elm$json$Json$Decode$fail('Don\'t recognize ' + str);
-			} else {
-				var val = _v0.a;
-				return $elm$json$Json$Decode$succeed(val);
-			}
-		},
-		$elm$json$Json$Decode$string);
-};
 var $elm$core$Dict$fromList = function (assocs) {
 	return A3(
 		$elm$core$List$foldl,
@@ -8563,14 +8246,15 @@ var $author$project$Elm$ProjectStatus$successful = function (statuses) {
 };
 var $author$project$Main$update = F2(
 	function (msg, model) {
-		switch (msg.$) {
+		var _v0 = A2($elm$core$Debug$log, 'MSG', msg);
+		switch (_v0.$) {
 			case 'Incoming':
-				if (msg.a.$ === 'Err') {
-					var err = msg.a.a;
+				if (_v0.a.$ === 'Err') {
+					var err = _v0.a.a;
 					var _v1 = $author$project$Main$panelLog(err);
 					return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 				} else {
-					var editorMsg = msg.a.a;
+					var editorMsg = _v0.a.a;
 					switch (editorMsg.$) {
 						case 'VisibleEditorsUpdated':
 							var visible = editorMsg.a;
@@ -8590,8 +8274,8 @@ var $author$project$Main$update = F2(
 									{errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, lastUpdated: model.now, projects: statuses, projectsVersion: model.projectsVersion + 1}),
 								$elm$core$Platform$Cmd$none);
 						case 'WarningsUpdated':
-							var warnings = editorMsg.a.warnings;
 							var filepath = editorMsg.a.filepath;
+							var warnings = editorMsg.a.warnings;
 							var _v5 = $author$project$Main$panelLog('WarningsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -8602,8 +8286,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'CallGraphReceived':
-							var callgraph = editorMsg.a.callgraph;
 							var filepath = editorMsg.a.filepath;
+							var callgraph = editorMsg.a.callgraph;
 							var _v6 = $author$project$Main$panelLog('Callgraph received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -8614,8 +8298,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'ExplanationReceived':
-							var facts = editorMsg.a.facts;
 							var filepath = editorMsg.a.filepath;
+							var facts = editorMsg.a.facts;
 							var _v7 = $author$project$Main$panelLog('Facts received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -8635,15 +8319,15 @@ var $author$project$Main$update = F2(
 					}
 				}
 			case 'ErrorMenuUpdated':
-				var _new = msg.a;
+				var _new = _v0.a;
 				return _Utils_Tuple2(
 					_Utils_update(
 						model,
 						{errorMenuVisible: _new}),
 					$elm$core$Platform$Cmd$none);
 			case 'ErrorCodeToggled':
-				var ref = msg.a;
-				var bool = msg.b;
+				var ref = _v0.a;
+				var bool = _v0.b;
 				return _Utils_Tuple2(
 					_Utils_update(
 						model,
@@ -8652,28 +8336,28 @@ var $author$project$Main$update = F2(
 						}),
 					$elm$core$Platform$Cmd$none);
 			case 'EditorGoTo':
-				var path = msg.a;
-				var region = msg.b;
+				var path = _v0.a;
+				var region = _v0.b;
 				return _Utils_Tuple2(
 					model,
 					$author$project$Ports$outgoing(
 						$author$project$Ports$Goto(
 							{file: path, region: region})));
 			case 'EditorFillTypeSignatures':
-				var path = msg.a;
+				var path = _v0.a;
 				return _Utils_Tuple2(
 					model,
 					$author$project$Ports$outgoing(
 						$author$project$Ports$FillTypeSignatures(path)));
 			case 'View':
-				var viewing = msg.a;
+				var viewing = _v0.a;
 				return _Utils_Tuple2(
 					_Utils_update(
 						model,
 						{viewing: viewing}),
 					$elm$core$Platform$Cmd$none);
 			case 'CurrentTime':
-				var newTime = msg.a;
+				var newTime = _v0.a;
 				return _Utils_Tuple2(
 					_Utils_update(
 						model,
@@ -8682,12 +8366,12 @@ var $author$project$Main$update = F2(
 						}),
 					$elm$core$Platform$Cmd$none);
 			default:
-				if (msg.a.$ === 'Err') {
-					var err = msg.a.a;
+				if (_v0.a.$ === 'Err') {
+					var err = _v0.a.a;
 					var _v8 = A2($elm$core$Debug$log, 'PANEL: HTTP, Answer error', err);
 					return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 				} else {
-					var answer = msg.a.a;
+					var answer = _v0.a.a;
 					var path = answer.a;
 					var missing = answer.b;
 					return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
@@ -16564,8 +16248,8 @@ var $author$project$Main$viewOverview = function (model) {
 		$elm$core$List$foldl,
 		F2(
 			function (project, gathered) {
-				var errs = gathered.errs;
 				var globals = gathered.globals;
+				var errs = gathered.errs;
 				switch (project.$) {
 					case 'NoData':
 						return gathered;
@@ -16612,6 +16296,12 @@ var $author$project$Main$viewOverview = function (model) {
 				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
 				$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
 				$author$project$Ui$pad.xl,
+				$mdgriffith$elm_ui$Element$inFront(
+				A2(
+					$mdgriffith$elm_ui$Element$el,
+					_List_fromArray(
+						[$mdgriffith$elm_ui$Element$alignBottom, $mdgriffith$elm_ui$Element$alignRight]),
+					$mdgriffith$elm_ui$Element$text('NEW'))),
 				$mdgriffith$elm_ui$Element$inFront(
 				A2(
 					$mdgriffith$elm_ui$Element$el,
@@ -16738,8 +16428,7 @@ var $author$project$Main$main = $elm$browser$Browser$element(
 			return $elm$core$Platform$Sub$batch(
 				_List_fromArray(
 					[
-						$author$project$Ports$incoming($author$project$Model$Incoming),
-						A2($elm$time$Time$every, 500, $author$project$Model$CurrentTime)
+						$author$project$Ports$incoming($author$project$Model$Incoming)
 					]));
 		},
 		update: $author$project$Main$update,

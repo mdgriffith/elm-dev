@@ -62,16 +62,15 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "yarn run build",
-    "package": "yarn build ; vsce package --out ./dist/elm-watchtower-vscode.vsix",
-    "build": "yarn run esbuild & bash scripts/copy_deps.sh & yarn run build:elm ; yarn run build:elm-interactive-generator",
-    "build:elm": "cd src/panel ; elm make src/Main.elm --output=../../media/panel.js ",
-    "build:elm-interactive-generator": "cd codegen ; elm make Generate.elm --output=../out/generate.js ",
+    "vscode:prepublish": "pnpm run build",
+    "package": "pnpm build ; vsce package --out ./dist/elm-watchtower-vscode.vsix",
+    "build": "pnpm run esbuild & bash scripts/copy_deps.sh & pnpm run build:elm",
+    "build:elm": "cd ../app ; elm make src/Main.elm --output=../vscode/media/panel.js ",
     "watch": "tsc -watch -p ./",
-    "test": "yarn run build && node ./node_modules/vscode/bin/test",
-    "esbuild": "yarn run esbuild-base --sourcemap",
+    "test": "pnpm run build && node ./node_modules/vscode/bin/test",
+    "esbuild": "pnpm run esbuild-base --sourcemap",
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
-    "esbuild-watch": "yarn run esbuild-base --sourcemap --watch",
+    "esbuild-watch": "pnpm run esbuild-base --sourcemap --watch",
     "dev:link-to-vscode": "ln -s $PWD ~/.vscode/extensions/mgriff.elm-watchtower-0.0.1"
   },
   "devDependencies": {

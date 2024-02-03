@@ -4,9 +4,10 @@ module Question exposing (Answer(..), TypeSignature, ask)
 
 import Editor
 import Http
-import Json.Decode
+import Json.Decode as Decode
 import Url
 import Url.Builder
+
 
 
 watchtower : List String -> List Url.Builder.QueryParameter -> String
@@ -28,11 +29,12 @@ ask =
                 , expect =
                     Http.expectJson
                         (Result.map (MissingTypeSignatures path))
-                        (Json.Decode.list
+                        (Decode.list
                             decodeMissingTypesignature
                         )
                 }
     }
+
 
 
 type Answer
@@ -46,8 +48,10 @@ type alias TypeSignature =
     }
 
 
+
+decodeMissingTypesignature : Decode.Decoder TypeSignature
 decodeMissingTypesignature =
-    Json.Decode.map3 TypeSignature
-        (Json.Decode.field "name" Json.Decode.string)
-        (Json.Decode.field "region" Editor.decodeRegion)
-        (Json.Decode.field "signature" Json.Decode.string)
+    Decode.map3 TypeSignature
+        (Decode.field "name" Decode.string)
+        (Decode.field "region" Editor.decodeRegion)
+        (Decode.field "signature" Decode.string)
