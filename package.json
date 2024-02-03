@@ -14,17 +14,7 @@
     "install:vscode": "stack --local-bin-path ./apps/vscode/out install",
     "prepare:vscode": "pnpm install:vscode ; (cd apps/vscode ; pnpm package)",
     "build": "stack build",
-    "stack:run": "stack run --",
-    "test:output": "pnpm run test:docs ; pnpm run test:warnings ; pnpm run test:entrypoints ; pnpm run test:imports ; pnpm run test:usage ; pnpm run test:usage:type ; pnpm run test:explain ; pnpm run test:callgraph",
-    "test:docs": "stack run --cwd apps/vscode/testProject -- docs src/Main.elm src/Imported.elm --output=output/docs-files.json",
-    "test:docs:module": "stack run --cwd apps/vscode/testProject -- docs Main Imported Alias --output=output/docs-modules.json",
-    "test:docs:package": "stack run --cwd apps/vscode/testProject -- docs mdgriffith/elm-ui --output=output/docs-package.json",
-    "test:warnings": "stack run --cwd apps/vscode/testProject -- warnings src/Main.elm --output=output/warnings.json",
-    "test:entrypoints": "stack run --cwd apps/vscode/testProject -- entrypoints --output=output/entrypoints.json",
-    "test:imports": "stack run --cwd apps/vscode/testProject -- imports Main, AlternativeMain --output=output/imports.json",
-    "test:usage": "stack run --cwd apps/vscode/testProject -- usage Imported --output=output/usage.json",
-    "test:usage:type": "stack run --cwd apps/vscode/testProject -- usage type Imported.MyType --output=output/usage-type.json",
-    "test:explain": "stack run --cwd apps/vscode/testProject -- explain Main.Regions --output=output/explain.json",
-    "test:callgraph": "stack run --cwd apps/vscode/testProject -- callgraph Main --output=output/callgraph.json"
+    "test-all": "bash scripts/testProject.sh",
+    "stack:run": "stack run --"
   }
 }
