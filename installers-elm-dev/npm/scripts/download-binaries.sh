@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.1.1"
+VERSION="0.1.3"
 RELEASE_DIR="releases/$VERSION"
 
 # Define URLs for download
