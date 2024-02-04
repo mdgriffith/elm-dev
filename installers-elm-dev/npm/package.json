@@ -38,10 +38,10 @@
     "elm-dev": "bin/elm-dev"
   },
   "optionalDependencies": {
-    "@elm_dev_binaries/darwin_arm64": "0.1.1",
-    "@elm_dev_binaries/darwin_x64": "0.1.1",
-    "@elm_dev_binaries/linux_arm64": "0.1.1",
-    "@elm_dev_binaries/linux_x64": "0.1.1",
-    "@elm_dev_binaries/win32_x64": "0.1.1"
+    "@elm_dev_binaries/darwin_arm64": "0.1.3",
+    "@elm_dev_binaries/darwin_x64": "0.1.3",
+    "@elm_dev_binaries/linux_arm64": "0.1.3",
+    "@elm_dev_binaries/linux_x64": "0.1.3",
+    "@elm_dev_binaries/win32_x64": "0.1.3"
   }
 }
