@@ -2,8 +2,6 @@ import { defineConfig } from "vite";
 // @ts-ignore
 import elmPlugin from "vite-plugin-elm";
 
-console.log(elmPlugin);
-
 // https://vitejs.dev/config/
 export default defineConfig(async ({ mode }) => {
   const isDev = mode == "development";
@@ -19,6 +17,8 @@ export default defineConfig(async ({ mode }) => {
       watch: {
         // 3. tell vite to ignore watching `src-tauri`
         ignored: ["**/src-tauri/**"],
+        // Watch the elm app
+        additionalPaths: ["../app/src/**"],
       },
     },
     plugins: [
