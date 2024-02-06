@@ -1,8 +1,8 @@
 // Type definitions and functions for communicating with the Elm Dev Server.
 //
 
-import * as log from "../utils/log";
 import * as JSONSafe from "../utils/json";
+// import WebSocket from "ws";
 
 export type MissingSignature = {
   filepath: String;
@@ -85,7 +85,27 @@ export const questions = {
   },
 };
 
+// WEBSOCKET TYPES
+
+type WebSocketMsg =
+  | { msg: "Discover"; details: { root: String; watching: Watching[] } }
+  | { msg: "Changed"; details: { path: String } }
+  | {
+      msg: "Watched";
+      details: Watching[];
+    };
+
+type Watching = { path: String; warnings: Boolean; docs: Boolean };
+
+//
+
 type SendGetFunction = (
+  url: string,
+  onSuccess: (data: any) => void,
+  onError: (error: Error) => void
+) => void;
+
+type SendToWebSocket = (
   url: string,
   onSuccess: (data: any) => void,
   onError: (error: Error) => void
@@ -97,12 +117,28 @@ export class ElmDev {
   private port: string;
   private domain: string;
   private sendGet: SendGetFunction;
+  private websocket: any | null;
 
   // Constructor to initialize the fields
   constructor(port: string, domain: string, sendGet: SendGetFunction) {
     this.port = port;
     this.domain = domain;
     this.sendGet = sendGet;
+    this.websocket = null;
+  }
+
+  connectWebSocket(onOpen: any, onMessage: any, onError: any) {
+    this.websocket = new WebSocket(this.websocketUrl());
+
+    this.websocket.onopen = onOpen;
+    this.websocket.onerror = onError;
+    this.websocket.onmessage = onMessage;
+  }
+
+  sendToWebSocket(msg: WebSocketMsg) {
+    if (this.websocket) {
+      this.websocket.send(JSON.stringify(msg));
+    }
   }
 
   get(
@@ -113,12 +149,13 @@ export class ElmDev {
     return this.sendGet(this.questionUrl(path), onSuccess, onError);
   }
 
-  questionUrl(path: string): string {
-    return `${this.domain}:${this.port}${path}`;
+  private questionUrl(path: string): string {
+    return `http://${this.domain}:${this.port}${path}`;
   }
 
-  websocketUrl(): string {
-    return "ws://" + this.domain + "/ws";
+  private websocketUrl(): string {
+    // return "ws://" + this.domain + ":${this.port}/ws";
+    return `ws://${this.domain}:${this.port}/ws`;
   }
 
   // Method to display information about the instance
@@ -166,111 +203,18 @@ export class ElmDev {
         break;
       }
       default: {
-        log.log("wut?");
+        break;
       }
     }
   }
 }
 
-// export const port = "51213";
-// const domain = `localhost:${port}`;
-
-// export const urls = {
-//   websocket: "ws://" + domain + "/ws",
-//   question: (path) => {
-//     return "http://" + domain + path;
-//   },
-// };
-
-// export const ask = (question: Question, onSuccess: any, onError: any) => {
-//   switch (question.msg) {
-//     case "ServerHealth": {
-//       http
-//         .get(urls.question("/health"), captureRequest(onSuccess))
-//         .on("error", onError);
-
-//       break;
-//     }
-//     case "Discover": {
-//       http
-//         .get(
-//           urls.question("/discover?dir=" + question.directory),
-//           captureRequest(onSuccess)
-//         )
-//         .on("error", (err) => {
-//           log.log("Error on discovery");
-//           log.log(err);
-//           onError(err);
-//         });
-
-//       break;
-//     }
-//     case "Warnings": {
-//       http
-//         .get(
-//           urls.question(`/warnings?file=${question.filepath}`),
-//           captureRequest(onSuccess)
-//         )
-//         .on("error", (err) => {
-//           log.log("Error on requesting warnings");
-//           log.log(err);
-//           onError(err);
-//         });
-//       break;
-//     }
-//     case "FindDefinition": {
-//       http
-//         .get(
-//           urls.question(
-//             `/definition?file=${question.filepath}&char=${question.char}&line=${question.line}`
-//           ),
-//           captureRequest(onSuccess)
-//         )
-//         .on("error", (err) => {
-//           log.log("Error on finding definition");
-//           log.log(err);
-//           onError(err);
-//         });
-//       break;
-//     }
-//     case "Explain": {
-//       http
-//         .get(
-//           urls.question(
-//             `/explain?file=${question.filepath}&char=${question.char}&line=${question.line}`
-//           ),
-//           captureRequest(onSuccess)
-//         )
-//         .on("error", (err) => {
-//           log.log("Error on finding definition");
-//           log.log(err);
-//           onError(err);
-//         });
-//       break;
-//     }
-//     case "CallGraph": {
-//       http
-//         .get(
-//           urls.question(`/callgraph?file=${question.filepath}`),
-//           captureRequest(onSuccess)
-//         )
-//         .on("error", (err) => {
-//           onError(err);
-//         });
-//       break;
-//     }
-//     default: {
-//       log.log("wut?");
-//     }
-//   }
-// };
-
 const captureRequest = (onCapture: any) => {
-  return (response) => {
+  return (response: any) => {
     var str = "";
 
     //another chunk of data has been received, so append it to `str`
-    response.on("data", function (chunk) {
+    response.on("data", function (chunk: string) {
       str += chunk;
     });
 

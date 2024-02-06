@@ -24,7 +24,18 @@ export type ToProjectPanel =
   | {
       msg: "InteractiveCodeRefreshed";
       details: { js: string };
-    };
+    }
+  | { msg: "Server"; details: ServerStatus };
+
+export const serverStatus = (status: ServerStatus): ToProjectPanel => {
+  return { msg: "Server", details: status };
+};
+
+export type ServerStatus =
+  | {
+      status: "Disconnected";
+    }
+  | { status: "Connected"; port: string; host: string; version: string };
 
 export type Explanation = {
   definition: {

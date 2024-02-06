@@ -17,7 +17,7 @@ import Time
 
 
 type alias Model =
-    { server : Server
+    { server : Ports.Server
 
     -- editor
     , active : Maybe Editor.Editor
@@ -38,9 +38,6 @@ type alias Model =
     , facts : Dict FilePath (List Ports.Fact)
     }
 
-
-type alias Server =
-    { connected : Bool }
 
 
 type alias FilePath =

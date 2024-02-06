@@ -6,7 +6,6 @@ import Editor
 import Element as Ui
 import Element.Border as Border
 import Element.Events as Events
-import Element.Font as Font
 import Element.Keyed as Keyed
 import Elm.ProjectStatus
 import Explainer
@@ -24,7 +23,6 @@ import Ui
 import Ui.Card
 
 
-
 main : Program () Model Msg
 main =
     Browser.element
@@ -35,6 +33,7 @@ main =
             \_ ->
                 Sub.batch
                     [ Ports.incoming Incoming
+
                     -- , Time.every 500 CurrentTime
                     ]
         }
@@ -42,7 +41,7 @@ main =
 
 init : ( Model, Cmd Msg )
 init =
-    ( { server = { connected = True }
+    ( { server = { status = Ports.Disconnected }
       , active = Nothing
       , visible = []
       , projects = []
@@ -59,7 +58,6 @@ init =
     , Cmd.none
     )
 
-test = True
 
 panelLog =
     Debug.log "Panel"
@@ -145,7 +143,7 @@ update msg model =
                     , Cmd.none
                     )
 
-                Ports.ServerConnection server ->
+                Ports.ServerStatusUpdated server ->
                     ( { model | server = server }
                     , Cmd.none
                     )
@@ -245,12 +243,55 @@ view model =
             [ Ui.htmlAttribute (Html.Attributes.class "base")
             , Ui.width Ui.fill
             , Ui.height Ui.fill
+            , Ui.inFront
+                (Ui.el
+                    [ Ui.alignTop
+                    , Ui.alignRight
+                    ]
+                    (viewServerStatus model.server)
+                )
+            , Ui.inFront
+                (Ui.el
+                    [ Ui.alignBottom
+                    , Ui.alignRight
+                    ]
+                    (viewLastUpdated model)
+                )
+            , Ui.inFront
+                (Ui.el
+                    [ Ui.alignBottom
+                    , Ui.alignLeft
+                    ]
+                    (viewVisible model)
+                )
             ]
             (case model.viewing of
                 Overview ->
                     viewOverview model
             )
         ]
+
+
+viewServerStatus : Ports.Server -> Ui.Element Msg
+viewServerStatus server =
+    case server.status of
+        Ports.Disconnected ->
+            Ui.el
+                [ Ui.pad.xy.lg.md
+                ]
+                (Ui.text "Disconnected")
+
+        Ports.Connecting ->
+            Ui.el
+                [ Ui.pad.xy.lg.md
+                ]
+                (Ui.text "Connecting")
+
+        Ports.Connected info ->
+            Ui.el
+                [ Ui.pad.xy.lg.md
+                ]
+                (Ui.text (info.host ++ ":" ++ info.port_))
 
 
 viewOverview : Model -> Ui.Element Msg
@@ -371,20 +412,6 @@ viewOverview model =
         , Ui.pad.xl
 
         -- , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
-        , Ui.inFront
-            (Ui.el
-                [ Ui.alignBottom
-                , Ui.alignRight
-                ]
-                (viewLastUpdated model)
-            )
-        , Ui.inFront
-            (Ui.el
-                [ Ui.alignBottom
-                , Ui.alignLeft
-                ]
-                (viewVisible model)
-            )
         ]
         [ Ui.row [ Ui.width Ui.fill ]
             [ Ui.el [ Ui.font.cyan ]
@@ -664,7 +691,6 @@ foundErrorsMenu model found =
                     ]
             , Ui.text summaryText
             ]
-
 
 
 viewErrorMenuContent model found =

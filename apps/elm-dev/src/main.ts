@@ -1,18 +1,8 @@
-import { invoke } from "@tauri-apps/api/tauri";
-
 // @ts-ignore
 import { Elm } from "../../app/src/Main.elm";
-let greetInputEl: HTMLInputElement | null;
-let greetMsgEl: HTMLElement | null;
-
-async function greet() {
-  if (greetMsgEl && greetInputEl) {
-    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    greetMsgEl.textContent = await invoke("greet", {
-      name: greetInputEl.value,
-    });
-  }
-}
+import * as Question from "../../app/interop/watchtower/question";
+import * as Message from "../../app/interop/messages";
+import * as JSONSafe from "../../app/interop/utils/json";
 
 // Boot up the Elm App
 const app = Elm.Main.init({
@@ -20,11 +10,69 @@ const app = Elm.Main.init({
   flags: {},
 });
 
-window.addEventListener("DOMContentLoaded", () => {
-  greetInputEl = document.querySelector("#greet-input");
-  greetMsgEl = document.querySelector("#greet-msg");
-  document.querySelector("#greet-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    greet();
-  });
+app.ports.toWorld.subscribe(function (message: any) {
+  console.log("Message from Elm", message);
+  switch (message.msg) {
+    case "ConnectToServer":
+      break;
+    case "Jump":
+      break;
+    case "FillTypeSignatures":
+      break;
+    default:
+      console.log("Unknown message", message);
+      break;
+  }
 });
+
+// Talk to Elm Dev
+
+const sendHttpGet = (
+  url: string,
+  onSuccess: (data: any) => void,
+  onError: (error: Error) => void
+) => {
+  fetch(url)
+    .then((resp) => {
+      resp.json().then(onSuccess);
+    })
+    .catch(onError);
+};
+
+const elmDev = new Question.ElmDev("51213", "localhost", sendHttpGet);
+
+// Initial Health Check
+elmDev.ask(
+  Question.questions.serverHealth,
+  (resp: any) => {
+    // Server is healthy
+    app.ports.toElm.send(
+      Message.serverStatus({
+        status: "Connected",
+        port: "51213",
+        host: "localhost",
+        version: "0.0.1",
+      })
+    );
+  },
+  (err: any) => {
+    console.log(err);
+  }
+);
+
+elmDev.connectWebSocket(
+  (event: any) => {
+    console.log("Connected", event);
+  },
+  (msg: any) => {
+    console.log("Elm Dev WS Message:", msg);
+    const parsed = JSONSafe.parse(msg.data);
+    if (parsed == null) {
+      return;
+    }
+    app.ports.toElm.send(parsed);
+  },
+  (event: any) => {
+    console.log("Error", event);
+  }
+);

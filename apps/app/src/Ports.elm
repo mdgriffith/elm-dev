@@ -2,7 +2,7 @@ port module Ports exposing
     ( Incoming(..), Outgoing(..), incoming, outgoing, Warning(..)
     , CallGraphNode, Call, CallType(..)
     , Fact(..), FactDetails(..), Module
-    , Source(..), Type, UnionDetails
+    , Server, ServerStatus(..), Source(..), Type, UnionDetails
     )
 
 {-|
@@ -59,7 +59,24 @@ type Incoming
         , definition : ExplainedDefinition
         , facts : List Fact
         }
-    | ServerConnection { connected : Bool }
+    | ServerStatusUpdated Server
+
+
+type alias Server =
+    { status : ServerStatus }
+
+
+type ServerStatus
+    = Connected ServerInfo
+    | Connecting
+    | Disconnected
+
+
+type alias ServerInfo =
+    { version : String
+    , port_ : String
+    , host : String
+    }
 
 
 type alias ExplainedDefinition =
@@ -380,13 +397,19 @@ type Warning
 
 
 type Outgoing
-    = Goto Editor.Location
+    = ConnectToServer
+    | Goto Editor.Location
     | FillTypeSignatures String
 
 
 encodeOutgoing : Outgoing -> Json.Encode.Value
 encodeOutgoing out =
     case out of
+        ConnectToServer ->
+            Json.Encode.object
+                [ ( "msg", Json.Encode.string "ConnectToServer" )
+                ]
+
         Goto location ->
             Json.Encode.object
                 [ ( "msg", Json.Encode.string "Jump" )
@@ -415,6 +438,28 @@ incomingDecoder =
         |> Decode.andThen
             (\msg ->
                 case msg of
+                    "Server" ->
+                        Decode.field "details"
+                            (Decode.field "status" Decode.string
+                                |> Decode.andThen
+                                    (\status ->
+                                        case status of
+                                            "Connected" ->
+                                                Decode.map (\info -> ServerStatusUpdated { status = Connected info })
+                                                    (Decode.map3 ServerInfo
+                                                        (Decode.field "version" Decode.string)
+                                                        (Decode.field "port" Decode.string)
+                                                        (Decode.field "host" Decode.string)
+                                                    )
+
+                                            "Disconnected" ->
+                                                Decode.succeed (ServerStatusUpdated { status = Disconnected })
+
+                                            _ ->
+                                                Decode.fail ("Unknown server status: " ++ status)
+                                    )
+                            )
+
                     "Status" ->
                         Decode.map ProjectsStatusUpdated
                             (Decode.field "details" (Decode.list (Decode.map .status Elm.ProjectStatus.decodeProject)))
