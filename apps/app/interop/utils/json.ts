@@ -1,13 +1,11 @@
-import * as log from "./log";
-
 export const parse = (source: string) => {
   try {
     return JSON.parse(source);
   } catch (err) {
-    log.log("Error parsing watchtower Msg:");
-    log.log("    " + err);
-    log.log("Original Msg");
-    log.log(source);
+    console.log("Error parsing watchtower Msg:");
+    console.log("    " + err);
+    console.log("Original Msg");
+    console.log(source);
     return null;
   }
 };
