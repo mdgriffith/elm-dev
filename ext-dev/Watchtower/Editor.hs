@@ -43,3 +43,20 @@ encodePosition (Ann.Position row col) =
         [ ("line" ==> Json.Encode.int (fromIntegral row))
         , ("column" ==> Json.Encode.int (fromIntegral col))
         ]
+
+
+
+-- DECODERS
+
+decodeRegion :: Json.Decode.Decoder x Ann.Region
+decodeRegion =
+    Ann.Region
+        <$> (Json.Decode.field "start" decodePosition)
+        <*> (Json.Decode.field "end" decodePosition)
+
+
+decodePosition :: Json.Decode.Decoder x Ann.Position
+decodePosition =
+    Ann.Position
+        <$> (Json.Decode.field "line" (fmap fromIntegral Json.Decode.int))
+        <*> (Json.Decode.field "column" (fmap fromIntegral Json.Decode.int))

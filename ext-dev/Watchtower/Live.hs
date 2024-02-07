@@ -163,7 +163,7 @@ receive state clientId text = do
 
 
 receiveAction :: Client.State -> Client.ClientId -> Client.Incoming -> IO ()
-receiveAction state@(Client.State mClients mProjects) clientId incoming =
+receiveAction state@(Client.State mClients mProjects) senderClientId incoming =
   case incoming of
     Client.Changed fileChanged ->
       do
@@ -175,14 +175,14 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
         Ext.Log.log Ext.Log.Live 
           ("👀 watch changed" <> ("\n    " ++ List.intercalate "\n    " (fmap FilePath.takeFileName ((Map.keys watching)))))
         
-        maybePreviouslyWatching <- Client.getClientData clientId state
+        maybePreviouslyWatching <- Client.getClientData senderClientId state
         
         STM.atomically $ do
           STM.modifyTVar
             mClients
             ( fmap
                 ( Watchtower.Websocket.updateClientData
-                    clientId
+                    senderClientId
                     (Client.watchTheseFilesOnly watching)
                 )
             )
@@ -203,42 +203,56 @@ receiveAction state@(Client.State mClients mProjects) clientId incoming =
          
         
 
-    Client.Discover root watching ->
-      do
-        Ext.Log.log Ext.Log.Live ("👀 discover requested: " <> root)
+    Client.Discover root watching ->  do
+      Ext.Log.log Ext.Log.Live ("👀 discover requested: " <> root)
+      discovered <- discoverProjects root
+      STM.atomically $ do
+        STM.modifyTVar mProjects
+            (\projects ->
+                List.foldl
+                  (\existing new ->
+                    if List.any (Client.matchingProject new) existing then
+                        existing
+                    else
+                        new : existing
 
-        discovered <- discoverProjects root
-
-        STM.atomically $ do
-          STM.modifyTVar mProjects
-              (\projects ->
-                  List.foldl
-                    (\existing new ->
-                      if List.any (Client.matchingProject new) existing then
-                          existing
-                      else
-                          new : existing
-
-                    )
-                    projects
-                    discovered
-              )
-
-          STM.modifyTVar
-            mClients
-            ( fmap
-                ( Watchtower.Websocket.updateClientData
-                    clientId
-                    (\clientWatching ->
-                        clientWatching
-                          & Client.watchProjects (List.map Client.getProjectRoot discovered)
-                          & Client.watchTheseFilesOnly watching
-                    )
-                    
-                )
+                  )
+                  projects
+                  discovered
             )
 
-        Watchtower.Live.Compile.recompile state (Map.keys watching)
+        STM.modifyTVar
+          mClients
+          ( fmap
+              ( Watchtower.Websocket.updateClientData
+                  senderClientId
+                  (\clientWatching ->
+                      clientWatching
+                        & Client.watchProjects (List.map Client.getProjectRoot discovered)
+                        & Client.watchTheseFilesOnly watching
+                  )       
+              )
+          )
+
+      Watchtower.Live.Compile.recompile state (Map.keys watching)
+
+    Client.EditorViewingUpdated viewingList -> do
+      Ext.Log.log Ext.Log.Live ("👀 editor viewing updated: " ++ (show viewingList))
+      broadCastToEveryoneNotMe state senderClientId
+        (Client.EditorViewing viewingList)
+
+    Client.EditorJumpToRequested file position -> do
+      Ext.Log.log Ext.Log.Live ("👀 editor jump to requested: " ++ (show file) ++ " " ++ (show position))
+      broadCastToEveryoneNotMe state senderClientId
+        (Client.EditorJumpTo file position)
+      
 
 
 
+broadCastToEveryoneNotMe :: Client.State -> Client.ClientId -> Client.Outgoing -> IO ()
+broadCastToEveryoneNotMe (Client.State mClients _) myClientId outgoing =
+  Client.broadcastToMany mClients
+    (\client -> 
+      not (Watchtower.Websocket.matchId myClientId client)
+    )
+    outgoing

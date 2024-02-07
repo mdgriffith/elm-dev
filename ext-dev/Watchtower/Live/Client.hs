@@ -5,7 +5,7 @@ module Watchtower.Live.Client
     , getAllStatuses, getRoot, getProjectRoot, getClientData
     , Outgoing(..), encodeOutgoing, outgoingToLog
     , Incoming(..), decodeIncoming, encodeWarning
-    , broadcast, broadcastTo
+    , broadcast, broadcastTo, broadcastToMany
     , matchingProject
     , isWatchingFileForWarnings, isWatchingFileForDocs
     , emptyWatch
@@ -84,6 +84,7 @@ data Watching = Watching
     , watchingFiles :: Map.Map FilePath FileWatchType
     }
 
+
 data FileWatchType
     = FileWatchType
         { watchForWarnings :: Bool -- missing type signatures/unused stuff
@@ -91,6 +92,37 @@ data FileWatchType
         }
 
 type ProjectRoot = FilePath
+
+
+
+
+{- Websocket messages
+-}
+data Incoming
+   = Discover FilePath (Map.Map FilePath FileWatchType)
+   | Changed FilePath
+   | Watched (Map.Map FilePath FileWatchType)
+   | EditorViewingUpdated [ViewingInEditorDetails]
+   | EditorJumpToRequested FilePath Ann.Region
+
+
+data Outgoing
+   = ElmStatus [ ProjectStatus ]
+   | Warnings FilePath Reporting.Render.Type.Localizer.Localizer [Warning.Warning]
+   | Docs FilePath [Docs.Module]
+   | EditorViewing [ViewingInEditorDetails]
+   | EditorJumpTo FilePath Ann.Region
+
+
+
+data ViewingInEditorDetails = ViewingInEditorDetails 
+  { _viewingFilepath :: FilePath
+  , _viewingRegion :: Ann.Region
+  }
+  deriving (Show)
+
+
+
 
 
 watchedFiles :: Watching -> Map.Map FilePath FileWatchType
@@ -207,23 +239,6 @@ getStatus (ProjectCache proj cache) =
         pure (ProjectStatus proj successful json)
 
 
-
-{-
--}
-data Incoming
-  = Discover FilePath (Map.Map FilePath FileWatchType)
-  | Changed FilePath
-  | Watched (Map.Map FilePath FileWatchType)
-
-
-data Outgoing
-  = -- forwarding information
-    ElmStatus [ ProjectStatus ]
-  | Warnings FilePath Reporting.Render.Type.Localizer.Localizer [Warning.Warning]
-  | Docs FilePath [Docs.Module]
-
-
-
 outgoingToLog :: Outgoing -> String
 outgoingToLog outgoing =
   case outgoing of
@@ -235,6 +250,12 @@ outgoingToLog outgoing =
 
     Docs _ _ ->
       "Docs"
+
+    EditorViewing _ ->
+      "EditorViewing"
+    
+    EditorJumpTo _ _ ->
+      "EditorJumpTo"
 
 
 projectStatusToString :: ProjectStatus -> String
@@ -302,6 +323,33 @@ encodeOutgoing out =
                     ]
           ]
 
+      EditorViewing details ->
+        Json.Encode.object
+          [ "msg" ==> Json.Encode.string (Json.String.fromChars "EditorViewing"),
+            "details"
+              ==> Json.Encode.list
+                    ( \detail ->
+                        Json.Encode.object
+                          [ "filepath"
+                              ==> Json.Encode.string
+                                (Json.String.fromChars (_viewingFilepath detail)),
+                            "region"
+                              ==> Watchtower.Editor.encodeRegion (_viewingRegion detail)
+                          ]
+                    )
+                    details
+          ]
+
+      EditorJumpTo path region ->
+        Json.Encode.object
+          [ "msg" ==> Json.Encode.string (Json.String.fromChars "EditorJumpTo"),
+            "details"
+              ==> Json.Encode.object
+                    [ "path" ==> Json.Encode.string (Json.String.fromChars path),
+                      "region" ==> Watchtower.Editor.encodeRegion region
+                    ]
+          ]
+
 
 {- Decoding -}
 
@@ -330,6 +378,22 @@ decodeIncoming =
                        <$> Json.Decode.field "details" 
                             decodeWatched
 
+              "EditorViewingUpdated" ->
+                    EditorViewingUpdated
+                      <$> Json.Decode.field "details"
+                          (Json.Decode.list
+                              (ViewingInEditorDetails
+                                  <$> Json.Decode.field "filepath" (Json.String.toChars <$> Json.Decode.string)
+                                  <*> Json.Decode.field "region" Watchtower.Editor.decodeRegion
+                              )
+                          )
+
+              "EditorJumpToRequested" ->
+                    Json.Decode.field "details"
+                          (EditorJumpToRequested
+                              <$> Json.Decode.field "path" (Json.String.toChars <$> Json.Decode.string)
+                              <*> Json.Decode.field "region" Watchtower.Editor.decodeRegion
+                            )
               _ ->
                 Json.Decode.failure "Unknown msg"
         )
@@ -506,3 +570,19 @@ broadcast mClients msg =
                         True
                 )
                 msg
+
+    EditorViewing _ ->
+        do
+            broadcastToMany
+                mClients
+                ( \client -> True )
+                msg
+
+    EditorJumpTo _ _ ->
+        do
+            broadcastToMany
+                mClients
+                ( \client -> True )
+                msg
+
+    
