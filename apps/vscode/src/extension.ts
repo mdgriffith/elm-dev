@@ -34,10 +34,6 @@ export async function activate(context: vscode.ExtensionContext) {
     ElmLanguage,
     tower.codelensProvider
   );
-  vscode.languages.registerCodeLensProvider(
-    ElmLanguage,
-    tower.diagnostics.codeLenses
-  );
   vscode.languages.registerDefinitionProvider(
     ElmLanguage,
     tower.definitionsProvider
@@ -56,6 +52,12 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("elm.projectPanel", () => {
       tower.showPanel(context.extensionPath);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("elm.connect", () => {
+      tower.connect();
     })
   );
 

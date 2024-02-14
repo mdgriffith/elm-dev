@@ -5,7 +5,7 @@ import * as Question from "../watchtower/question";
 export type ToProjectPanel =
   | {
       msg: "EditorVisibilityChanged";
-      details: { active: EditorVisibility | null; visible: EditorVisibility[] };
+      details: { visible: EditorVisibility[] };
     }
   | { msg: "Status"; details: ProjectStatus[] }
   | {
@@ -36,9 +36,10 @@ export type Explanation = {
 };
 
 export type EditorVisibility = {
-  fileName: string;
-  ranges: Range[];
-  selections: Selection[];
+  filepath: string;
+  regions: Range[];
+  // selections: Selection[];
+  active: Boolean;
   unsavedChanges: Boolean;
 };
 
@@ -145,11 +146,10 @@ export const interactiveCodeRefreshed = (js: string): ToProjectPanel => {
   };
 };
 
-export const sendEditorVisibility = (): ToProjectPanel => {
-  let active = null;
-  if (Code.window.activeTextEditor) {
-    active = prepareVisibility(Code.window.activeTextEditor);
-  }
+export const sendEditorVisibility = (): {
+  msg: "EditorVisibilityChanged";
+  details: { visible: EditorVisibility[] };
+} => {
   const visible = [];
   for (const index in Code.window.visibleTextEditors) {
     visible.push(prepareVisibility(Code.window.visibleTextEditors[index]));
@@ -158,18 +158,25 @@ export const sendEditorVisibility = (): ToProjectPanel => {
   return {
     msg: "EditorVisibilityChanged",
     details: {
-      active: active,
       visible: visible,
     },
   };
 };
 
 const prepareVisibility = (editor: Code.TextEditor): EditorVisibility => {
+  let isActive = false;
+  if (Code.window.activeTextEditor) {
+    isActive =
+      editor.document.fileName ===
+      Code.window.activeTextEditor.document.fileName;
+  }
+
   return {
-    fileName: editor.document.fileName,
-    ranges: prepareRanges(editor.visibleRanges),
-    selections: prepareSelections(editor.selections),
+    filepath: editor.document.fileName,
+    regions: prepareRanges(editor.visibleRanges),
+    // selections: prepareSelections(editor.selections),
     unsavedChanges: editor.document.isDirty,
+    active: isActive,
   };
 };
 
@@ -177,15 +184,15 @@ const prepareVisibility = (editor: Code.TextEditor): EditorVisibility => {
 function prepareSelections(selections: readonly Code.Selection[]): Selection[] {
   const len = selections.length;
 
-  var prepared = [];
+  var prepared: Selection[] = [];
   for (var i = 0; i < len; i++) {
     const selection = selections[i];
     const start = {
-      character: selection.start.character,
+      column: selection.start.character,
       line: selection.start.line + 1,
     };
     const end = {
-      character: selection.end.character,
+      column: selection.end.character,
       line: selection.end.line + 1,
     };
     let cursorPosition = end;
@@ -201,14 +208,14 @@ function prepareSelections(selections: readonly Code.Selection[]): Selection[] {
 function prepareRanges(ranges: readonly Code.Range[]): Range[] {
   const rangeLength = ranges.length;
 
-  var prepared = [];
+  var prepared: Range[] = [];
   for (var i = 0; i < rangeLength; i++) {
     const start = {
-      character: ranges[i].start.character,
+      column: ranges[i].start.character,
       line: ranges[i].start.line,
     };
     const end = {
-      character: ranges[i].end.character,
+      column: ranges[i].end.character,
       line: ranges[i].end.line,
     };
     prepared.push({ start: start, end: end });
@@ -228,7 +235,6 @@ export function warnings(details: {
 }
 
 export function visibility(details: {
-  active: EditorVisibility | null;
   visible: EditorVisibility[];
 }): ToProjectPanel {
   return { msg: "EditorVisibilityChanged", details: details };

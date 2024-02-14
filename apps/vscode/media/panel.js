@@ -5279,11 +5279,22 @@ var $elm$json$Json$Decode$decodeValue = _Json_run;
 var $author$project$Ports$CallGraphReceived = function (a) {
 	return {$: 'CallGraphReceived', a: a};
 };
+var $author$project$Ports$Connected = function (a) {
+	return {$: 'Connected', a: a};
+};
+var $author$project$Ports$Disconnected = {$: 'Disconnected'};
 var $author$project$Ports$ExplanationReceived = function (a) {
 	return {$: 'ExplanationReceived', a: a};
 };
 var $author$project$Ports$ProjectsStatusUpdated = function (a) {
 	return {$: 'ProjectsStatusUpdated', a: a};
+};
+var $author$project$Ports$ServerInfo = F3(
+	function (version, port_, host) {
+		return {host: host, port_: port_, version: version};
+	});
+var $author$project$Ports$ServerStatusUpdated = function (a) {
+	return {$: 'ServerStatusUpdated', a: a};
 };
 var $author$project$Ports$VisibleEditorsUpdated = function (a) {
 	return {$: 'VisibleEditorsUpdated', a: a};
@@ -5514,16 +5525,16 @@ var $author$project$Ports$decodeCallGraphNode = A5(
 		'callers',
 		$elm$json$Json$Decode$list($author$project$Ports$decodeCall)));
 var $author$project$Editor$Editor = F4(
-	function (fileName, unsavedChanges, ranges, selections) {
-		return {fileName: fileName, ranges: ranges, selections: selections, unsavedChanges: unsavedChanges};
+	function (filepath, unsavedChanges, regions, active) {
+		return {active: active, filepath: filepath, regions: regions, unsavedChanges: unsavedChanges};
 	});
 var $author$project$Editor$Region = F2(
 	function (start, end) {
 		return {end: end, start: start};
 	});
 var $author$project$Editor$Position = F2(
-	function (row, col) {
-		return {col: col, row: row};
+	function (line, column) {
+		return {column: column, line: line};
 	});
 var $elm$json$Json$Decode$int = _Json_decodeInt;
 var $elm$json$Json$Decode$oneOf = _Json_oneOf;
@@ -5551,16 +5562,13 @@ var $author$project$Editor$decodeRegion = A3(
 var $author$project$Editor$decodeEditor = A5(
 	$elm$json$Json$Decode$map4,
 	$author$project$Editor$Editor,
-	A2($elm$json$Json$Decode$field, 'fileName', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'filepath', $elm$json$Json$Decode$string),
 	A2($elm$json$Json$Decode$field, 'unsavedChanges', $elm$json$Json$Decode$bool),
 	A2(
 		$elm$json$Json$Decode$field,
-		'ranges',
+		'regions',
 		$elm$json$Json$Decode$list($author$project$Editor$decodeRegion)),
-	A2(
-		$elm$json$Json$Decode$field,
-		'selections',
-		$elm$json$Json$Decode$list($author$project$Editor$decodeRegion)));
+	A2($elm$json$Json$Decode$field, 'active', $elm$json$Json$Decode$bool));
 var $author$project$Ports$ExplainedDefinition = F4(
 	function (name, type_, recursive, range) {
 		return {name: name, range: range, recursive: recursive, type_: type_};
@@ -7487,7 +7495,7 @@ var $author$project$Elm$ProjectStatus$fileError = A4(
 							return $.start;
 						},
 						function ($) {
-							return $.row;
+							return $.line;
 						}))),
 			$elm$json$Json$Decode$list($author$project$Elm$ProjectStatus$decodeProblem))));
 var $author$project$Elm$ProjectStatus$decodeStatus = $elm$json$Json$Decode$oneOf(
@@ -7601,6 +7609,38 @@ var $author$project$Ports$incomingDecoder = A2(
 	$elm$json$Json$Decode$andThen,
 	function (msg) {
 		switch (msg) {
+			case 'Server':
+				return A2(
+					$elm$json$Json$Decode$field,
+					'details',
+					A2(
+						$elm$json$Json$Decode$andThen,
+						function (status) {
+							switch (status) {
+								case 'Connected':
+									return A2(
+										$elm$json$Json$Decode$map,
+										function (info) {
+											return $author$project$Ports$ServerStatusUpdated(
+												{
+													status: $author$project$Ports$Connected(info)
+												});
+										},
+										A4(
+											$elm$json$Json$Decode$map3,
+											$author$project$Ports$ServerInfo,
+											A2($elm$json$Json$Decode$field, 'version', $elm$json$Json$Decode$string),
+											A2($elm$json$Json$Decode$field, 'port', $elm$json$Json$Decode$string),
+											A2($elm$json$Json$Decode$field, 'host', $elm$json$Json$Decode$string)));
+								case 'Disconnected':
+									return $elm$json$Json$Decode$succeed(
+										$author$project$Ports$ServerStatusUpdated(
+											{status: $author$project$Ports$Disconnected}));
+								default:
+									return $elm$json$Json$Decode$fail('Unknown server status: ' + status);
+							}
+						},
+						A2($elm$json$Json$Decode$field, 'status', $elm$json$Json$Decode$string)));
 			case 'Status':
 				return A2(
 					$elm$json$Json$Decode$map,
@@ -7619,17 +7659,12 @@ var $author$project$Ports$incomingDecoder = A2(
 				return A2(
 					$elm$json$Json$Decode$field,
 					'details',
-					A3(
-						$elm$json$Json$Decode$map2,
-						F2(
-							function (active, vis) {
-								return $author$project$Ports$VisibleEditorsUpdated(
-									{active: active, visible: vis});
-							}),
-						A2(
-							$elm$json$Json$Decode$field,
-							'active',
-							$elm$json$Json$Decode$nullable($author$project$Editor$decodeEditor)),
+					A2(
+						$elm$json$Json$Decode$map,
+						function (vis) {
+							return $author$project$Ports$VisibleEditorsUpdated(
+								{visible: vis});
+						},
 						A2(
 							$elm$json$Json$Decode$field,
 							'visible',
@@ -7694,7 +7729,7 @@ var $author$project$Ports$incomingDecoder = A2(
 								'facts',
 								$elm$json$Json$Decode$list($author$project$Ports$decodeFact)))));
 			default:
-				var _v1 = A2($elm$core$Debug$log, 'UNRECOGNIZED INCOMING MSG', msg);
+				var _v2 = A2($elm$core$Debug$log, 'UNRECOGNIZED INCOMING MSG', msg);
 				return A2(
 					$elm$json$Json$Decode$andThen,
 					function (val) {
@@ -7726,7 +7761,7 @@ var $author$project$Main$init = _Utils_Tuple2(
 		now: $elm$core$Maybe$Nothing,
 		projects: _List_Nil,
 		projectsVersion: 0,
-		server: {connected: true},
+		server: {status: $author$project$Ports$Disconnected},
 		viewing: $author$project$Model$Overview,
 		visible: _List_Nil,
 		warnings: $elm$core$Dict$empty
@@ -7737,6 +7772,26 @@ var $author$project$Ports$FillTypeSignatures = function (a) {
 };
 var $author$project$Ports$Goto = function (a) {
 	return {$: 'Goto', a: a};
+};
+var $elm$core$List$filter = F2(
+	function (isGood, list) {
+		return A3(
+			$elm$core$List$foldr,
+			F2(
+				function (x, xs) {
+					return isGood(x) ? A2($elm$core$List$cons, x, xs) : xs;
+				}),
+			_List_Nil,
+			list);
+	});
+var $elm$core$List$head = function (list) {
+	if (list.b) {
+		var x = list.a;
+		var xs = list.b;
+		return $elm$core$Maybe$Just(x);
+	} else {
+		return $elm$core$Maybe$Nothing;
+	}
 };
 var $elm$core$Set$insert = F2(
 	function (key, _v0) {
@@ -7764,10 +7819,10 @@ var $author$project$Editor$encodePosition = function (pos) {
 			[
 				_Utils_Tuple2(
 				'line',
-				$elm$json$Json$Encode$int(pos.row)),
+				$elm$json$Json$Encode$int(pos.line)),
 				_Utils_Tuple2(
 				'column',
-				$elm$json$Json$Encode$int(pos.col))
+				$elm$json$Json$Encode$int(pos.column))
 			]));
 };
 var $author$project$Editor$encodeRegion = function (region) {
@@ -7784,45 +7839,54 @@ var $author$project$Editor$encodeRegion = function (region) {
 };
 var $elm$json$Json$Encode$string = _Json_wrap;
 var $author$project$Ports$encodeOutgoing = function (out) {
-	if (out.$ === 'Goto') {
-		var location = out.a;
-		return $elm$json$Json$Encode$object(
-			_List_fromArray(
-				[
-					_Utils_Tuple2(
-					'msg',
-					$elm$json$Json$Encode$string('Jump')),
-					_Utils_Tuple2(
-					'details',
-					$elm$json$Json$Encode$object(
-						_List_fromArray(
-							[
-								_Utils_Tuple2(
-								'path',
-								$elm$json$Json$Encode$string(location.file)),
-								_Utils_Tuple2(
-								'region',
-								$author$project$Editor$encodeRegion(location.region))
-							])))
-				]));
-	} else {
-		var path = out.a;
-		return $elm$json$Json$Encode$object(
-			_List_fromArray(
-				[
-					_Utils_Tuple2(
-					'msg',
-					$elm$json$Json$Encode$string('InsertMissingTypeSignatures')),
-					_Utils_Tuple2(
-					'details',
-					$elm$json$Json$Encode$object(
-						_List_fromArray(
-							[
-								_Utils_Tuple2(
-								'path',
-								$elm$json$Json$Encode$string(path))
-							])))
-				]));
+	switch (out.$) {
+		case 'ConnectToServer':
+			return $elm$json$Json$Encode$object(
+				_List_fromArray(
+					[
+						_Utils_Tuple2(
+						'msg',
+						$elm$json$Json$Encode$string('ConnectToServer'))
+					]));
+		case 'Goto':
+			var location = out.a;
+			return $elm$json$Json$Encode$object(
+				_List_fromArray(
+					[
+						_Utils_Tuple2(
+						'msg',
+						$elm$json$Json$Encode$string('Jump')),
+						_Utils_Tuple2(
+						'details',
+						$elm$json$Json$Encode$object(
+							_List_fromArray(
+								[
+									_Utils_Tuple2(
+									'path',
+									$elm$json$Json$Encode$string(location.file)),
+									_Utils_Tuple2(
+									'region',
+									$author$project$Editor$encodeRegion(location.region))
+								])))
+					]));
+		default:
+			var path = out.a;
+			return $elm$json$Json$Encode$object(
+				_List_fromArray(
+					[
+						_Utils_Tuple2(
+						'msg',
+						$elm$json$Json$Encode$string('InsertMissingTypeSignatures')),
+						_Utils_Tuple2(
+						'details',
+						$elm$json$Json$Encode$object(
+							_List_fromArray(
+								[
+									_Utils_Tuple2(
+									'path',
+									$elm$json$Json$Encode$string(path))
+								])))
+					]));
 	}
 };
 var $author$project$Ports$toWorld = _Platform_outgoingPort('toWorld', $elm$core$Basics$identity);
@@ -8257,12 +8321,21 @@ var $author$project$Main$update = F2(
 					var editorMsg = _v0.a.a;
 					switch (editorMsg.$) {
 						case 'VisibleEditorsUpdated':
-							var visible = editorMsg.a;
+							var visible = editorMsg.a.visible;
 							var _v3 = $author$project$Main$panelLog('VisibleEditorsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
 									model,
-									{active: visible.active, visible: visible.visible}),
+									{
+										active: $elm$core$List$head(
+											A2(
+												$elm$core$List$filter,
+												function ($) {
+													return $.active;
+												},
+												visible)),
+										visible: visible
+									}),
 								$elm$core$Platform$Cmd$none);
 						case 'ProjectsStatusUpdated':
 							var statuses = editorMsg.a;
@@ -8274,8 +8347,8 @@ var $author$project$Main$update = F2(
 									{errorCodeExpanded: $elm$core$Set$empty, errorMenuVisible: false, lastUpdated: model.now, projects: statuses, projectsVersion: model.projectsVersion + 1}),
 								$elm$core$Platform$Cmd$none);
 						case 'WarningsUpdated':
-							var filepath = editorMsg.a.filepath;
 							var warnings = editorMsg.a.warnings;
+							var filepath = editorMsg.a.filepath;
 							var _v5 = $author$project$Main$panelLog('WarningsUpdated');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -8286,8 +8359,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'CallGraphReceived':
-							var filepath = editorMsg.a.filepath;
 							var callgraph = editorMsg.a.callgraph;
+							var filepath = editorMsg.a.filepath;
 							var _v6 = $author$project$Main$panelLog('Callgraph received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -8298,8 +8371,8 @@ var $author$project$Main$update = F2(
 									}),
 								$elm$core$Platform$Cmd$none);
 						case 'ExplanationReceived':
-							var filepath = editorMsg.a.filepath;
 							var facts = editorMsg.a.facts;
+							var filepath = editorMsg.a.filepath;
 							var _v7 = $author$project$Main$panelLog('Facts received!');
 							return _Utils_Tuple2(
 								_Utils_update(
@@ -8378,6 +8451,20 @@ var $author$project$Main$update = F2(
 				}
 		}
 	});
+var $mdgriffith$elm_ui$Internal$Model$AlignY = function (a) {
+	return {$: 'AlignY', a: a};
+};
+var $mdgriffith$elm_ui$Internal$Model$Bottom = {$: 'Bottom'};
+var $mdgriffith$elm_ui$Element$alignBottom = $mdgriffith$elm_ui$Internal$Model$AlignY($mdgriffith$elm_ui$Internal$Model$Bottom);
+var $mdgriffith$elm_ui$Internal$Model$AlignX = function (a) {
+	return {$: 'AlignX', a: a};
+};
+var $mdgriffith$elm_ui$Internal$Model$Left = {$: 'Left'};
+var $mdgriffith$elm_ui$Element$alignLeft = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$Left);
+var $mdgriffith$elm_ui$Internal$Model$Right = {$: 'Right'};
+var $mdgriffith$elm_ui$Element$alignRight = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$Right);
+var $mdgriffith$elm_ui$Internal$Model$Top = {$: 'Top'};
+var $mdgriffith$elm_ui$Element$alignTop = $mdgriffith$elm_ui$Internal$Model$AlignY($mdgriffith$elm_ui$Internal$Model$Top);
 var $elm$html$Html$Attributes$stringProperty = F2(
 	function (key, string) {
 		return A2(
@@ -8387,31 +8474,6 @@ var $elm$html$Html$Attributes$stringProperty = F2(
 	});
 var $elm$html$Html$Attributes$class = $elm$html$Html$Attributes$stringProperty('className');
 var $elm$html$Html$div = _VirtualDom_node('div');
-var $mdgriffith$elm_ui$Internal$Model$Fill = function (a) {
-	return {$: 'Fill', a: a};
-};
-var $mdgriffith$elm_ui$Element$fill = $mdgriffith$elm_ui$Internal$Model$Fill(1);
-var $mdgriffith$elm_ui$Internal$Model$Height = function (a) {
-	return {$: 'Height', a: a};
-};
-var $mdgriffith$elm_ui$Element$height = $mdgriffith$elm_ui$Internal$Model$Height;
-var $mdgriffith$elm_ui$Internal$Model$Attr = function (a) {
-	return {$: 'Attr', a: a};
-};
-var $mdgriffith$elm_ui$Element$htmlAttribute = $mdgriffith$elm_ui$Internal$Model$Attr;
-var $mdgriffith$elm_ui$Internal$Style$classes = {above: 'a', active: 'atv', alignBottom: 'ab', alignCenterX: 'cx', alignCenterY: 'cy', alignContainerBottom: 'acb', alignContainerCenterX: 'accx', alignContainerCenterY: 'accy', alignContainerRight: 'acr', alignLeft: 'al', alignRight: 'ar', alignTop: 'at', alignedHorizontally: 'ah', alignedVertically: 'av', any: 's', behind: 'bh', below: 'b', bold: 'w7', borderDashed: 'bd', borderDotted: 'bdt', borderNone: 'bn', borderSolid: 'bs', capturePointerEvents: 'cpe', clip: 'cp', clipX: 'cpx', clipY: 'cpy', column: 'c', container: 'ctr', contentBottom: 'cb', contentCenterX: 'ccx', contentCenterY: 'ccy', contentLeft: 'cl', contentRight: 'cr', contentTop: 'ct', cursorPointer: 'cptr', cursorText: 'ctxt', focus: 'fcs', fullSize: 'fs', grid: 'g', hasBehind: 'hbh', heightContent: 'hc', heightFill: 'hf', heightFillPortion: 'hfp', hover: 'hv', imageContainer: 'ic', inFront: 'fr', inputMultiline: 'iml', inputText: 'it', italic: 'i', nearby: 'nb', noTextSelection: 'notxt', onLeft: 'ol', onRight: 'or', opaque: 'oq', overflowHidden: 'oh', page: 'pg', paragraph: 'p', passPointerEvents: 'ppe', root: 'ui', row: 'r', scrollbars: 'sb', scrollbarsX: 'sbx', scrollbarsY: 'sby', seButton: 'sbt', single: 'e', sizeByCapital: 'cap', spaceEvenly: 'sev', strike: 'sk', text: 't', textCenter: 'tc', textExtraBold: 'w8', textExtraLight: 'w2', textHeavy: 'w9', textJustify: 'tj', textJustifyAll: 'tja', textLeft: 'tl', textLight: 'w3', textMedium: 'w5', textNormalWeight: 'w4', textRight: 'tr', textSemiBold: 'w6', textThin: 'w1', textUnitalicized: 'tun', transition: 'ts', transparent: 'clr', underline: 'u', widthContent: 'wc', widthExact: 'we', widthFill: 'wf', widthFillPortion: 'wfp', wrapped: 'wrp'};
-var $mdgriffith$elm_ui$Internal$Model$htmlClass = function (cls) {
-	return $mdgriffith$elm_ui$Internal$Model$Attr(
-		$elm$html$Html$Attributes$class(cls));
-};
-var $mdgriffith$elm_ui$Internal$Model$OnlyDynamic = F2(
-	function (a, b) {
-		return {$: 'OnlyDynamic', a: a, b: b};
-	});
-var $mdgriffith$elm_ui$Internal$Model$StaticRootAndDynamic = F2(
-	function (a, b) {
-		return {$: 'StaticRootAndDynamic', a: a, b: b};
-	});
 var $mdgriffith$elm_ui$Internal$Model$Unkeyed = function (a) {
 	return {$: 'Unkeyed', a: a};
 };
@@ -8420,6 +8482,7 @@ var $mdgriffith$elm_ui$Internal$Model$asEl = $mdgriffith$elm_ui$Internal$Model$A
 var $mdgriffith$elm_ui$Internal$Model$Generic = {$: 'Generic'};
 var $mdgriffith$elm_ui$Internal$Model$div = $mdgriffith$elm_ui$Internal$Model$Generic;
 var $mdgriffith$elm_ui$Internal$Model$NoNearbyChildren = {$: 'NoNearbyChildren'};
+var $mdgriffith$elm_ui$Internal$Style$classes = {above: 'a', active: 'atv', alignBottom: 'ab', alignCenterX: 'cx', alignCenterY: 'cy', alignContainerBottom: 'acb', alignContainerCenterX: 'accx', alignContainerCenterY: 'accy', alignContainerRight: 'acr', alignLeft: 'al', alignRight: 'ar', alignTop: 'at', alignedHorizontally: 'ah', alignedVertically: 'av', any: 's', behind: 'bh', below: 'b', bold: 'w7', borderDashed: 'bd', borderDotted: 'bdt', borderNone: 'bn', borderSolid: 'bs', capturePointerEvents: 'cpe', clip: 'cp', clipX: 'cpx', clipY: 'cpy', column: 'c', container: 'ctr', contentBottom: 'cb', contentCenterX: 'ccx', contentCenterY: 'ccy', contentLeft: 'cl', contentRight: 'cr', contentTop: 'ct', cursorPointer: 'cptr', cursorText: 'ctxt', focus: 'fcs', fullSize: 'fs', grid: 'g', hasBehind: 'hbh', heightContent: 'hc', heightFill: 'hf', heightFillPortion: 'hfp', hover: 'hv', imageContainer: 'ic', inFront: 'fr', inputMultiline: 'iml', inputText: 'it', italic: 'i', nearby: 'nb', noTextSelection: 'notxt', onLeft: 'ol', onRight: 'or', opaque: 'oq', overflowHidden: 'oh', page: 'pg', paragraph: 'p', passPointerEvents: 'ppe', root: 'ui', row: 'r', scrollbars: 'sb', scrollbarsX: 'sbx', scrollbarsY: 'sby', seButton: 'sbt', single: 'e', sizeByCapital: 'cap', spaceEvenly: 'sev', strike: 'sk', text: 't', textCenter: 'tc', textExtraBold: 'w8', textExtraLight: 'w2', textHeavy: 'w9', textJustify: 'tj', textJustifyAll: 'tja', textLeft: 'tl', textLight: 'w3', textMedium: 'w5', textNormalWeight: 'w4', textRight: 'tr', textSemiBold: 'w6', textThin: 'w1', textUnitalicized: 'tun', transition: 'ts', transparent: 'clr', underline: 'u', widthContent: 'wc', widthExact: 'we', widthFill: 'wf', widthFillPortion: 'wfp', wrapped: 'wrp'};
 var $mdgriffith$elm_ui$Internal$Model$columnClass = $mdgriffith$elm_ui$Internal$Style$classes.any + (' ' + $mdgriffith$elm_ui$Internal$Style$classes.column);
 var $mdgriffith$elm_ui$Internal$Model$gridClass = $mdgriffith$elm_ui$Internal$Style$classes.any + (' ' + $mdgriffith$elm_ui$Internal$Style$classes.grid);
 var $mdgriffith$elm_ui$Internal$Model$pageClass = $mdgriffith$elm_ui$Internal$Style$classes.any + (' ' + $mdgriffith$elm_ui$Internal$Style$classes.page);
@@ -10849,17 +10912,6 @@ var $mdgriffith$elm_ui$Internal$Model$renderNullAdjustmentRule = F2(
 var $mdgriffith$elm_ui$Internal$Model$adjust = F3(
 	function (size, height, vertical) {
 		return {height: height / size, size: size, vertical: vertical};
-	});
-var $elm$core$List$filter = F2(
-	function (isGood, list) {
-		return A3(
-			$elm$core$List$foldr,
-			F2(
-				function (x, xs) {
-					return isGood(x) ? A2($elm$core$List$cons, x, xs) : xs;
-				}),
-			_List_Nil,
-			list);
 	});
 var $elm$core$List$maximum = function (list) {
 	if (list.b) {
@@ -13531,6 +13583,61 @@ var $mdgriffith$elm_ui$Internal$Model$element = F4(
 				$mdgriffith$elm_ui$Internal$Model$NoNearbyChildren,
 				$elm$core$List$reverse(attributes)));
 	});
+var $mdgriffith$elm_ui$Internal$Model$Height = function (a) {
+	return {$: 'Height', a: a};
+};
+var $mdgriffith$elm_ui$Element$height = $mdgriffith$elm_ui$Internal$Model$Height;
+var $mdgriffith$elm_ui$Internal$Model$Content = {$: 'Content'};
+var $mdgriffith$elm_ui$Element$shrink = $mdgriffith$elm_ui$Internal$Model$Content;
+var $mdgriffith$elm_ui$Internal$Model$Width = function (a) {
+	return {$: 'Width', a: a};
+};
+var $mdgriffith$elm_ui$Element$width = $mdgriffith$elm_ui$Internal$Model$Width;
+var $mdgriffith$elm_ui$Element$el = F2(
+	function (attrs, child) {
+		return A4(
+			$mdgriffith$elm_ui$Internal$Model$element,
+			$mdgriffith$elm_ui$Internal$Model$asEl,
+			$mdgriffith$elm_ui$Internal$Model$div,
+			A2(
+				$elm$core$List$cons,
+				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$shrink),
+				A2(
+					$elm$core$List$cons,
+					$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$shrink),
+					attrs)),
+			$mdgriffith$elm_ui$Internal$Model$Unkeyed(
+				_List_fromArray(
+					[child])));
+	});
+var $mdgriffith$elm_ui$Internal$Model$Fill = function (a) {
+	return {$: 'Fill', a: a};
+};
+var $mdgriffith$elm_ui$Element$fill = $mdgriffith$elm_ui$Internal$Model$Fill(1);
+var $mdgriffith$elm_ui$Internal$Model$Attr = function (a) {
+	return {$: 'Attr', a: a};
+};
+var $mdgriffith$elm_ui$Element$htmlAttribute = $mdgriffith$elm_ui$Internal$Model$Attr;
+var $mdgriffith$elm_ui$Internal$Model$InFront = {$: 'InFront'};
+var $mdgriffith$elm_ui$Internal$Model$Nearby = F2(
+	function (a, b) {
+		return {$: 'Nearby', a: a, b: b};
+	});
+var $mdgriffith$elm_ui$Element$inFront = function (element) {
+	return A2($mdgriffith$elm_ui$Internal$Model$Nearby, $mdgriffith$elm_ui$Internal$Model$InFront, element);
+};
+var $mdgriffith$elm_ui$Internal$Model$htmlClass = function (cls) {
+	return $mdgriffith$elm_ui$Internal$Model$Attr(
+		$elm$html$Html$Attributes$class(cls));
+};
+var $mdgriffith$elm_ui$Internal$Model$OnlyDynamic = F2(
+	function (a, b) {
+		return {$: 'OnlyDynamic', a: a, b: b};
+	});
+var $mdgriffith$elm_ui$Internal$Model$StaticRootAndDynamic = F2(
+	function (a, b) {
+		return {$: 'StaticRootAndDynamic', a: a, b: b};
+	});
 var $mdgriffith$elm_ui$Internal$Model$AllowHover = {$: 'AllowHover'};
 var $mdgriffith$elm_ui$Internal$Model$Layout = {$: 'Layout'};
 var $mdgriffith$elm_ui$Internal$Model$Rgba = F4(
@@ -13814,55 +13921,14 @@ var $author$project$Ui$overrides = A3(
 		]));
 var $elm$virtual_dom$VirtualDom$style = _VirtualDom_style;
 var $elm$html$Html$Attributes$style = $elm$virtual_dom$VirtualDom$style;
-var $author$project$Model$EditorFillTypeSignatures = function (a) {
-	return {$: 'EditorFillTypeSignatures', a: a};
-};
-var $author$project$Model$EditorGoTo = F2(
-	function (a, b) {
-		return {$: 'EditorGoTo', a: a, b: b};
-	});
-var $mdgriffith$elm_ui$Internal$Model$AlignY = function (a) {
-	return {$: 'AlignY', a: a};
-};
-var $mdgriffith$elm_ui$Internal$Model$Bottom = {$: 'Bottom'};
-var $mdgriffith$elm_ui$Element$alignBottom = $mdgriffith$elm_ui$Internal$Model$AlignY($mdgriffith$elm_ui$Internal$Model$Bottom);
-var $mdgriffith$elm_ui$Internal$Model$AlignX = function (a) {
-	return {$: 'AlignX', a: a};
-};
-var $mdgriffith$elm_ui$Internal$Model$Left = {$: 'Left'};
-var $mdgriffith$elm_ui$Element$alignLeft = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$Left);
-var $mdgriffith$elm_ui$Internal$Model$Right = {$: 'Right'};
-var $mdgriffith$elm_ui$Element$alignRight = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$Right);
-var $mdgriffith$elm_ui$Internal$Model$Transparency = F2(
-	function (a, b) {
-		return {$: 'Transparency', a: a, b: b};
-	});
-var $mdgriffith$elm_ui$Internal$Flag$transparency = $mdgriffith$elm_ui$Internal$Flag$flag(0);
-var $mdgriffith$elm_ui$Element$alpha = function (o) {
-	var transparency = function (x) {
-		return 1 - x;
-	}(
-		A2(
-			$elm$core$Basics$min,
-			1.0,
-			A2($elm$core$Basics$max, 0.0, o)));
+var $mdgriffith$elm_ui$Element$Background$color = function (clr) {
 	return A2(
 		$mdgriffith$elm_ui$Internal$Model$StyleClass,
-		$mdgriffith$elm_ui$Internal$Flag$transparency,
-		A2(
-			$mdgriffith$elm_ui$Internal$Model$Transparency,
-			'transparency-' + $mdgriffith$elm_ui$Internal$Model$floatClass(transparency),
-			transparency));
-};
-var $mdgriffith$elm_ui$Internal$Flag$borderColor = $mdgriffith$elm_ui$Internal$Flag$flag(28);
-var $mdgriffith$elm_ui$Element$Border$color = function (clr) {
-	return A2(
-		$mdgriffith$elm_ui$Internal$Model$StyleClass,
-		$mdgriffith$elm_ui$Internal$Flag$borderColor,
+		$mdgriffith$elm_ui$Internal$Flag$bgColor,
 		A3(
 			$mdgriffith$elm_ui$Internal$Model$Colored,
-			'bc-' + $mdgriffith$elm_ui$Internal$Model$formatColorClass(clr),
-			'border-color',
+			'bg-' + $mdgriffith$elm_ui$Internal$Model$formatColorClass(clr),
+			'background-color',
 			clr));
 };
 var $mdgriffith$elm_ui$Element$rgb = F3(
@@ -13884,63 +13950,11 @@ var $author$project$Ui$colors = {
 	primary: A3($mdgriffith$elm_ui$Element$rgb, 0, 0.5, 0.25),
 	white: A3($mdgriffith$elm_ui$Element$rgb, 1, 1, 1)
 };
-var $author$project$Ui$border = {
-	dark: {
-		dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.dark),
-		light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.light),
-		medium: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.medium)
-	},
-	grey: {
-		dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.dark),
-		light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.light),
-		medium: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.medium)
-	},
-	light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.light),
-	primary: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.primary)
+var $author$project$Ui$background = {
+	black: $mdgriffith$elm_ui$Element$Background$color($author$project$Ui$colors.black),
+	dark: $mdgriffith$elm_ui$Element$Background$color($author$project$Ui$colors.dark.dark),
+	white: $mdgriffith$elm_ui$Element$Background$color($author$project$Ui$colors.white)
 };
-var $mdgriffith$elm_ui$Internal$Model$AsColumn = {$: 'AsColumn'};
-var $mdgriffith$elm_ui$Internal$Model$asColumn = $mdgriffith$elm_ui$Internal$Model$AsColumn;
-var $mdgriffith$elm_ui$Internal$Model$Content = {$: 'Content'};
-var $mdgriffith$elm_ui$Element$shrink = $mdgriffith$elm_ui$Internal$Model$Content;
-var $mdgriffith$elm_ui$Internal$Model$Width = function (a) {
-	return {$: 'Width', a: a};
-};
-var $mdgriffith$elm_ui$Element$width = $mdgriffith$elm_ui$Internal$Model$Width;
-var $mdgriffith$elm_ui$Element$column = F2(
-	function (attrs, children) {
-		return A4(
-			$mdgriffith$elm_ui$Internal$Model$element,
-			$mdgriffith$elm_ui$Internal$Model$asColumn,
-			$mdgriffith$elm_ui$Internal$Model$div,
-			A2(
-				$elm$core$List$cons,
-				$mdgriffith$elm_ui$Internal$Model$htmlClass($mdgriffith$elm_ui$Internal$Style$classes.contentTop + (' ' + $mdgriffith$elm_ui$Internal$Style$classes.contentLeft)),
-				A2(
-					$elm$core$List$cons,
-					$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$shrink),
-					A2(
-						$elm$core$List$cons,
-						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$shrink),
-						attrs))),
-			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
-	});
-var $mdgriffith$elm_ui$Element$el = F2(
-	function (attrs, child) {
-		return A4(
-			$mdgriffith$elm_ui$Internal$Model$element,
-			$mdgriffith$elm_ui$Internal$Model$asEl,
-			$mdgriffith$elm_ui$Internal$Model$div,
-			A2(
-				$elm$core$List$cons,
-				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$shrink),
-				A2(
-					$elm$core$List$cons,
-					$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$shrink),
-					attrs)),
-			$mdgriffith$elm_ui$Internal$Model$Unkeyed(
-				_List_fromArray(
-					[child])));
-	});
 var $mdgriffith$elm_ui$Element$Font$color = function (fontColor) {
 	return A2(
 		$mdgriffith$elm_ui$Internal$Model$StyleClass,
@@ -13969,37 +13983,168 @@ var $author$project$Ui$font = {
 	info: $mdgriffith$elm_ui$Element$htmlAttribute(
 		$elm$html$Html$Attributes$class('info'))
 };
-var $author$project$Model$ErrorMenuUpdated = function (a) {
-	return {$: 'ErrorMenuUpdated', a: a};
-};
-var $mdgriffith$elm_ui$Internal$Model$Below = {$: 'Below'};
-var $mdgriffith$elm_ui$Internal$Model$Nearby = F2(
-	function (a, b) {
-		return {$: 'Nearby', a: a, b: b};
+var $gingko$time_distance$Time$Distance$I18n$en = F3(
+	function (_v0, tense, distanceId) {
+		var withAffix = _v0.withAffix;
+		var toStr = $elm$core$String$fromInt;
+		var maybeAffix = function (str) {
+			var _v2 = _Utils_Tuple2(withAffix, tense);
+			if (_v2.a) {
+				if (_v2.b.$ === 'Past') {
+					var _v3 = _v2.b;
+					return str + ' ago';
+				} else {
+					var _v4 = _v2.b;
+					return 'in ' + str;
+				}
+			} else {
+				return str;
+			}
+		};
+		return maybeAffix(
+			function () {
+				switch (distanceId.$) {
+					case 'LessThanXSeconds':
+						var i = distanceId.a;
+						return (i === 1) ? 'less than 1 second' : ('less than ' + (toStr(i) + ' seconds'));
+					case 'HalfAMinute':
+						return 'half a minute';
+					case 'LessThanXMinutes':
+						var i = distanceId.a;
+						return (i === 1) ? 'less than a minute' : ('less than ' + (toStr(i) + ' minutes'));
+					case 'XMinutes':
+						var i = distanceId.a;
+						return (i === 1) ? '1 minute' : (toStr(i) + ' minutes');
+					case 'AboutXHours':
+						var i = distanceId.a;
+						return (i === 1) ? 'about 1 hour' : ('about ' + (toStr(i) + ' hours'));
+					case 'XDays':
+						var i = distanceId.a;
+						return (i === 1) ? '1 day' : (toStr(i) + ' days');
+					case 'AboutXMonths':
+						var i = distanceId.a;
+						return (i === 1) ? 'about 1 month' : ('about ' + (toStr(i) + ' months'));
+					case 'XMonths':
+						var i = distanceId.a;
+						return (i === 1) ? '1 month' : (toStr(i) + ' months');
+					case 'AboutXYears':
+						var i = distanceId.a;
+						return (i === 1) ? 'about 1 year' : ('about ' + (toStr(i) + ' years'));
+					case 'OverXYears':
+						var i = distanceId.a;
+						return (i === 1) ? 'over 1 year' : ('over ' + (toStr(i) + ' years'));
+					default:
+						var i = distanceId.a;
+						return (i === 1) ? 'almost 1 year' : ('almost ' + (toStr(i) + ' years'));
+				}
+			}());
 	});
-var $mdgriffith$elm_ui$Element$below = function (element) {
-	return A2($mdgriffith$elm_ui$Internal$Model$Nearby, $mdgriffith$elm_ui$Internal$Model$Below, element);
+var $gingko$time_distance$Time$Distance$Types$Future = {$: 'Future'};
+var $gingko$time_distance$Time$Distance$Types$Past = {$: 'Past'};
+var $gingko$time_distance$Time$Distance$Types$AboutXHours = function (a) {
+	return {$: 'AboutXHours', a: a};
 };
+var $gingko$time_distance$Time$Distance$Types$LessThanXMinutes = function (a) {
+	return {$: 'LessThanXMinutes', a: a};
+};
+var $gingko$time_distance$Time$Distance$Types$XDays = function (a) {
+	return {$: 'XDays', a: a};
+};
+var $gingko$time_distance$Time$Distance$Types$XMinutes = function (a) {
+	return {$: 'XMinutes', a: a};
+};
+var $elm$core$Basics$abs = function (n) {
+	return (n < 0) ? (-n) : n;
+};
+var $gingko$time_distance$Time$Distance$minutes_in_almost_two_days = 2520;
+var $gingko$time_distance$Time$Distance$minutes_in_day = 1440;
+var $gingko$time_distance$Time$Distance$minutes_in_month = 43200;
+var $gingko$time_distance$Time$Distance$minutes_in_two_months = 86400;
+var $gingko$time_distance$Time$Distance$Types$AboutXYears = function (a) {
+	return {$: 'AboutXYears', a: a};
+};
+var $gingko$time_distance$Time$Distance$Types$AlmostXYears = function (a) {
+	return {$: 'AlmostXYears', a: a};
+};
+var $gingko$time_distance$Time$Distance$Types$OverXYears = function (a) {
+	return {$: 'OverXYears', a: a};
+};
+var $elm$core$Basics$modBy = _Basics_modBy;
+var $gingko$time_distance$Time$Distance$Types$XMonths = function (a) {
+	return {$: 'XMonths', a: a};
+};
+var $gingko$time_distance$Time$Distance$upToOneYear = function (minutes) {
+	var nearestMonth = $elm$core$Basics$round(minutes / $gingko$time_distance$Time$Distance$minutes_in_month);
+	return $gingko$time_distance$Time$Distance$Types$XMonths(nearestMonth);
+};
+var $gingko$time_distance$Time$Distance$moreThanTwoMonths = function (minutes) {
+	var months = (minutes / $gingko$time_distance$Time$Distance$minutes_in_month) | 0;
+	if (months < 12) {
+		return $gingko$time_distance$Time$Distance$upToOneYear(minutes);
+	} else {
+		var years = $elm$core$Basics$floor(months / 12);
+		var monthsSinceStartOfYear = A2($elm$core$Basics$modBy, 12, months);
+		return (monthsSinceStartOfYear < 3) ? $gingko$time_distance$Time$Distance$Types$AboutXYears(years) : ((monthsSinceStartOfYear < 9) ? $gingko$time_distance$Time$Distance$Types$OverXYears(years) : $gingko$time_distance$Time$Distance$Types$AlmostXYears(years + 1));
+	}
+};
+var $gingko$time_distance$Time$Distance$upToOneDay = function (minutes) {
+	var hours = $elm$core$Basics$round(minutes / 60);
+	return $gingko$time_distance$Time$Distance$Types$AboutXHours(hours);
+};
+var $gingko$time_distance$Time$Distance$Types$HalfAMinute = {$: 'HalfAMinute'};
+var $gingko$time_distance$Time$Distance$Types$LessThanXSeconds = function (a) {
+	return {$: 'LessThanXSeconds', a: a};
+};
+var $gingko$time_distance$Time$Distance$upToOneMinute = function (seconds) {
+	return (seconds < 5) ? $gingko$time_distance$Time$Distance$Types$LessThanXSeconds(5) : ((seconds < 10) ? $gingko$time_distance$Time$Distance$Types$LessThanXSeconds(10) : ((seconds < 20) ? $gingko$time_distance$Time$Distance$Types$LessThanXSeconds(20) : ((seconds < 40) ? $gingko$time_distance$Time$Distance$Types$HalfAMinute : ((seconds < 60) ? $gingko$time_distance$Time$Distance$Types$LessThanXMinutes(1) : $gingko$time_distance$Time$Distance$Types$XMinutes(1)))));
+};
+var $gingko$time_distance$Time$Distance$upToOneMonth = function (minutes) {
+	var days = $elm$core$Basics$round(minutes / $gingko$time_distance$Time$Distance$minutes_in_day);
+	return $gingko$time_distance$Time$Distance$Types$XDays(days);
+};
+var $gingko$time_distance$Time$Distance$Types$AboutXMonths = function (a) {
+	return {$: 'AboutXMonths', a: a};
+};
+var $gingko$time_distance$Time$Distance$upToTwoMonths = function (minutes) {
+	var months = $elm$core$Basics$round(minutes / $gingko$time_distance$Time$Distance$minutes_in_month);
+	return $gingko$time_distance$Time$Distance$Types$AboutXMonths(months);
+};
+var $gingko$time_distance$Time$Distance$calculateDistance = F3(
+	function (includeSeconds, s1, s2) {
+		var seconds = ($elm$core$Basics$abs(s2 - s1) / 1000) | 0;
+		var minutes = $elm$core$Basics$round(seconds / 60);
+		return (includeSeconds && (minutes < 2)) ? $gingko$time_distance$Time$Distance$upToOneMinute(seconds) : ((!minutes) ? $gingko$time_distance$Time$Distance$Types$LessThanXMinutes(1) : ((minutes < 2) ? $gingko$time_distance$Time$Distance$Types$XMinutes(minutes) : ((minutes < 45) ? $gingko$time_distance$Time$Distance$Types$XMinutes(minutes) : ((minutes < 90) ? $gingko$time_distance$Time$Distance$Types$AboutXHours(1) : ((_Utils_cmp(minutes, $gingko$time_distance$Time$Distance$minutes_in_day) < 0) ? $gingko$time_distance$Time$Distance$upToOneDay(minutes) : ((_Utils_cmp(minutes, $gingko$time_distance$Time$Distance$minutes_in_almost_two_days) < 0) ? $gingko$time_distance$Time$Distance$Types$XDays(1) : ((_Utils_cmp(minutes, $gingko$time_distance$Time$Distance$minutes_in_month) < 0) ? $gingko$time_distance$Time$Distance$upToOneMonth(minutes) : ((_Utils_cmp(minutes, $gingko$time_distance$Time$Distance$minutes_in_two_months) < 0) ? $gingko$time_distance$Time$Distance$upToTwoMonths(minutes) : $gingko$time_distance$Time$Distance$moreThanTwoMonths(minutes)))))))));
+	});
+var $elm$time$Time$posixToMillis = function (_v0) {
+	var millis = _v0.a;
+	return millis;
+};
+var $gingko$time_distance$Time$Distance$inWordsWithConfig = F4(
+	function (config, locale, otherTime, currentTime) {
+		var otherSeconds = $elm$time$Time$posixToMillis(otherTime);
+		var currentSeconds = $elm$time$Time$posixToMillis(currentTime);
+		var distance = A3($gingko$time_distance$Time$Distance$calculateDistance, true, otherSeconds, currentSeconds);
+		var tense = function () {
+			var _v0 = A2($elm$core$Basics$compare, currentSeconds, otherSeconds);
+			if (_v0.$ === 'GT') {
+				return $gingko$time_distance$Time$Distance$Types$Past;
+			} else {
+				return $gingko$time_distance$Time$Distance$Types$Future;
+			}
+		}();
+		return A3(locale, config, tense, distance);
+	});
+var $gingko$time_distance$Time$Distance$inWords = F2(
+	function (otherTime, currentTime) {
+		return A4(
+			$gingko$time_distance$Time$Distance$inWordsWithConfig,
+			{withAffix: true},
+			$gingko$time_distance$Time$Distance$I18n$en,
+			otherTime,
+			currentTime);
+	});
 var $mdgriffith$elm_ui$Internal$Model$Empty = {$: 'Empty'};
 var $mdgriffith$elm_ui$Element$none = $mdgriffith$elm_ui$Internal$Model$Empty;
-var $elm$virtual_dom$VirtualDom$Normal = function (a) {
-	return {$: 'Normal', a: a};
-};
-var $elm$virtual_dom$VirtualDom$on = _VirtualDom_on;
-var $elm$html$Html$Events$on = F2(
-	function (event, decoder) {
-		return A2(
-			$elm$virtual_dom$VirtualDom$on,
-			event,
-			$elm$virtual_dom$VirtualDom$Normal(decoder));
-	});
-var $elm$html$Html$Events$onClick = function (msg) {
-	return A2(
-		$elm$html$Html$Events$on,
-		'click',
-		$elm$json$Json$Decode$succeed(msg));
-};
-var $mdgriffith$elm_ui$Element$Events$onClick = A2($elm$core$Basics$composeL, $mdgriffith$elm_ui$Internal$Model$Attr, $elm$html$Html$Events$onClick);
 var $author$project$Ui$mapSpacing = F2(
 	function (fn, sp) {
 		return {
@@ -14067,6 +14212,140 @@ var $author$project$Ui$pad = {
 		},
 		$author$project$Ui$spaceValues)
 };
+var $mdgriffith$elm_ui$Internal$Flag$borderRound = $mdgriffith$elm_ui$Internal$Flag$flag(17);
+var $mdgriffith$elm_ui$Element$Border$rounded = function (radius) {
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$borderRound,
+		A3(
+			$mdgriffith$elm_ui$Internal$Model$Single,
+			'br-' + $elm$core$String$fromInt(radius),
+			'border-radius',
+			$elm$core$String$fromInt(radius) + 'px'));
+};
+var $author$project$Ui$rounded = {
+	full: $mdgriffith$elm_ui$Element$Border$rounded(10000),
+	md: $mdgriffith$elm_ui$Element$Border$rounded(5)
+};
+var $mdgriffith$elm_ui$Internal$Model$Text = function (a) {
+	return {$: 'Text', a: a};
+};
+var $mdgriffith$elm_ui$Element$text = function (content) {
+	return $mdgriffith$elm_ui$Internal$Model$Text(content);
+};
+var $author$project$Main$viewLastUpdated = function (model) {
+	var _v0 = _Utils_Tuple2(model.now, model.lastUpdated);
+	if ((_v0.a.$ === 'Just') && (_v0.b.$ === 'Just')) {
+		var now = _v0.a.a;
+		var lastUpdate = _v0.b.a;
+		return A2(
+			$mdgriffith$elm_ui$Element$el,
+			_List_fromArray(
+				[$author$project$Ui$pad.xy.lg.sm, $author$project$Ui$font.dark.light, $author$project$Ui$background.black, $author$project$Ui$rounded.md]),
+			$mdgriffith$elm_ui$Element$text(
+				'Last updated ' + A2($gingko$time_distance$Time$Distance$inWords, lastUpdate, now)));
+	} else {
+		return $mdgriffith$elm_ui$Element$none;
+	}
+};
+var $author$project$Model$EditorFillTypeSignatures = function (a) {
+	return {$: 'EditorFillTypeSignatures', a: a};
+};
+var $author$project$Model$EditorGoTo = F2(
+	function (a, b) {
+		return {$: 'EditorGoTo', a: a, b: b};
+	});
+var $mdgriffith$elm_ui$Internal$Model$Transparency = F2(
+	function (a, b) {
+		return {$: 'Transparency', a: a, b: b};
+	});
+var $mdgriffith$elm_ui$Internal$Flag$transparency = $mdgriffith$elm_ui$Internal$Flag$flag(0);
+var $mdgriffith$elm_ui$Element$alpha = function (o) {
+	var transparency = function (x) {
+		return 1 - x;
+	}(
+		A2(
+			$elm$core$Basics$min,
+			1.0,
+			A2($elm$core$Basics$max, 0.0, o)));
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$transparency,
+		A2(
+			$mdgriffith$elm_ui$Internal$Model$Transparency,
+			'transparency-' + $mdgriffith$elm_ui$Internal$Model$floatClass(transparency),
+			transparency));
+};
+var $mdgriffith$elm_ui$Internal$Flag$borderColor = $mdgriffith$elm_ui$Internal$Flag$flag(28);
+var $mdgriffith$elm_ui$Element$Border$color = function (clr) {
+	return A2(
+		$mdgriffith$elm_ui$Internal$Model$StyleClass,
+		$mdgriffith$elm_ui$Internal$Flag$borderColor,
+		A3(
+			$mdgriffith$elm_ui$Internal$Model$Colored,
+			'bc-' + $mdgriffith$elm_ui$Internal$Model$formatColorClass(clr),
+			'border-color',
+			clr));
+};
+var $author$project$Ui$border = {
+	dark: {
+		dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.dark),
+		light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.light),
+		medium: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.dark.medium)
+	},
+	grey: {
+		dark: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.dark),
+		light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.light),
+		medium: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.medium)
+	},
+	light: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.grey.light),
+	primary: $mdgriffith$elm_ui$Element$Border$color($author$project$Ui$colors.primary)
+};
+var $mdgriffith$elm_ui$Internal$Model$AsColumn = {$: 'AsColumn'};
+var $mdgriffith$elm_ui$Internal$Model$asColumn = $mdgriffith$elm_ui$Internal$Model$AsColumn;
+var $mdgriffith$elm_ui$Element$column = F2(
+	function (attrs, children) {
+		return A4(
+			$mdgriffith$elm_ui$Internal$Model$element,
+			$mdgriffith$elm_ui$Internal$Model$asColumn,
+			$mdgriffith$elm_ui$Internal$Model$div,
+			A2(
+				$elm$core$List$cons,
+				$mdgriffith$elm_ui$Internal$Model$htmlClass($mdgriffith$elm_ui$Internal$Style$classes.contentTop + (' ' + $mdgriffith$elm_ui$Internal$Style$classes.contentLeft)),
+				A2(
+					$elm$core$List$cons,
+					$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$shrink),
+					A2(
+						$elm$core$List$cons,
+						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$shrink),
+						attrs))),
+			$mdgriffith$elm_ui$Internal$Model$Unkeyed(children));
+	});
+var $author$project$Model$ErrorMenuUpdated = function (a) {
+	return {$: 'ErrorMenuUpdated', a: a};
+};
+var $mdgriffith$elm_ui$Internal$Model$Below = {$: 'Below'};
+var $mdgriffith$elm_ui$Element$below = function (element) {
+	return A2($mdgriffith$elm_ui$Internal$Model$Nearby, $mdgriffith$elm_ui$Internal$Model$Below, element);
+};
+var $elm$virtual_dom$VirtualDom$Normal = function (a) {
+	return {$: 'Normal', a: a};
+};
+var $elm$virtual_dom$VirtualDom$on = _VirtualDom_on;
+var $elm$html$Html$Events$on = F2(
+	function (event, decoder) {
+		return A2(
+			$elm$virtual_dom$VirtualDom$on,
+			event,
+			$elm$virtual_dom$VirtualDom$Normal(decoder));
+	});
+var $elm$html$Html$Events$onClick = function (msg) {
+	return A2(
+		$elm$html$Html$Events$on,
+		'click',
+		$elm$json$Json$Decode$succeed(msg));
+};
+var $mdgriffith$elm_ui$Element$Events$onClick = A2($elm$core$Basics$composeL, $mdgriffith$elm_ui$Internal$Model$Attr, $elm$html$Html$Events$onClick);
 var $elm$core$Basics$pi = _Basics_pi;
 var $author$project$Main$plural = F3(
 	function (_int, singular, pluralForm) {
@@ -14095,21 +14374,6 @@ var $mdgriffith$elm_ui$Element$rotate = function (angle) {
 			$mdgriffith$elm_ui$Internal$Model$Rotate,
 			_Utils_Tuple3(0, 0, 1),
 			angle));
-};
-var $mdgriffith$elm_ui$Internal$Flag$borderRound = $mdgriffith$elm_ui$Internal$Flag$flag(17);
-var $mdgriffith$elm_ui$Element$Border$rounded = function (radius) {
-	return A2(
-		$mdgriffith$elm_ui$Internal$Model$StyleClass,
-		$mdgriffith$elm_ui$Internal$Flag$borderRound,
-		A3(
-			$mdgriffith$elm_ui$Internal$Model$Single,
-			'br-' + $elm$core$String$fromInt(radius),
-			'border-radius',
-			$elm$core$String$fromInt(radius) + 'px'));
-};
-var $author$project$Ui$rounded = {
-	full: $mdgriffith$elm_ui$Element$Border$rounded(10000),
-	md: $mdgriffith$elm_ui$Element$Border$rounded(5)
 };
 var $mdgriffith$elm_ui$Internal$Model$AsRow = {$: 'AsRow'};
 var $mdgriffith$elm_ui$Internal$Model$asRow = $mdgriffith$elm_ui$Internal$Model$AsRow;
@@ -14154,35 +14418,14 @@ var $author$project$Ui$space = A2($author$project$Ui$mapSpacing, $mdgriffith$elm
 var $elm$core$List$sum = function (numbers) {
 	return A3($elm$core$List$foldl, $elm$core$Basics$add, 0, numbers);
 };
-var $mdgriffith$elm_ui$Internal$Model$Text = function (a) {
-	return {$: 'Text', a: a};
-};
-var $mdgriffith$elm_ui$Element$text = function (content) {
-	return $mdgriffith$elm_ui$Internal$Model$Text(content);
-};
 var $author$project$Ui$transition = $mdgriffith$elm_ui$Element$htmlAttribute(
 	A2($elm$html$Html$Attributes$style, 'transition', 'transform 100ms, opacity 100ms'));
-var $mdgriffith$elm_ui$Element$Background$color = function (clr) {
-	return A2(
-		$mdgriffith$elm_ui$Internal$Model$StyleClass,
-		$mdgriffith$elm_ui$Internal$Flag$bgColor,
-		A3(
-			$mdgriffith$elm_ui$Internal$Model$Colored,
-			'bg-' + $mdgriffith$elm_ui$Internal$Model$formatColorClass(clr),
-			'background-color',
-			clr));
-};
-var $author$project$Ui$background = {
-	black: $mdgriffith$elm_ui$Element$Background$color($author$project$Ui$colors.black),
-	dark: $mdgriffith$elm_ui$Element$Background$color($author$project$Ui$colors.dark.dark),
-	white: $mdgriffith$elm_ui$Element$Background$color($author$project$Ui$colors.white)
-};
 var $author$project$Main$isEditorVisible = F2(
 	function (file, visible) {
 		return A2(
 			$elm$core$List$any,
 			function (e) {
-				return _Utils_eq(e.fileName, file.path);
+				return _Utils_eq(e.filepath, file.path);
 			},
 			visible);
 	});
@@ -14309,15 +14552,6 @@ var $author$project$Main$foundErrorsMenu = F2(
 					]));
 		}
 	});
-var $elm$core$List$head = function (list) {
-	if (list.b) {
-		var x = list.a;
-		var xs = list.b;
-		return $elm$core$Maybe$Just(x);
-	} else {
-		return $elm$core$Maybe$Nothing;
-	}
-};
 var $mdgriffith$elm_ui$Internal$Flag$fontWeight = $mdgriffith$elm_ui$Internal$Flag$flag(13);
 var $mdgriffith$elm_ui$Element$Font$bold = A2($mdgriffith$elm_ui$Internal$Model$Class, $mdgriffith$elm_ui$Internal$Flag$fontWeight, $mdgriffith$elm_ui$Internal$Style$classes.bold);
 var $author$project$Ui$header = {
@@ -14341,10 +14575,6 @@ var $author$project$Ui$header = {
 				]),
 			$mdgriffith$elm_ui$Element$text(str));
 	}
-};
-var $mdgriffith$elm_ui$Internal$Model$InFront = {$: 'InFront'};
-var $mdgriffith$elm_ui$Element$inFront = function (element) {
-	return A2($mdgriffith$elm_ui$Internal$Model$Nearby, $mdgriffith$elm_ui$Internal$Model$InFront, element);
 };
 var $elm$core$List$partition = F2(
 	function (pred, list) {
@@ -14514,8 +14744,6 @@ var $author$project$Ui$Card$view = F2(
 				$author$project$Ui$Card$viewHeader(options),
 				content));
 	});
-var $mdgriffith$elm_ui$Internal$Model$Top = {$: 'Top'};
-var $mdgriffith$elm_ui$Element$alignTop = $mdgriffith$elm_ui$Internal$Model$AlignY($mdgriffith$elm_ui$Internal$Model$Top);
 var $author$project$VSCode$SyntaxColors$declaration = $mdgriffith$elm_ui$Element$htmlAttribute(
 	A2($elm$html$Html$Attributes$style, 'color', '#72aaca'));
 var $author$project$Explainer$isCapitalized = function (str) {
@@ -15528,7 +15756,7 @@ var $author$project$Navigator$view = function (nodes) {
 };
 var $author$project$Editor$overlap = F2(
 	function (one, two) {
-		return ((_Utils_cmp(one.start.row, two.start.row) > -1) && (_Utils_cmp(one.start.row, two.end.row) < 1)) ? true : (((_Utils_cmp(one.end.row, two.start.row) > -1) && (_Utils_cmp(one.end.row, two.end.row) < 1)) ? true : false);
+		return ((_Utils_cmp(one.start.line, two.start.line) > -1) && (_Utils_cmp(one.start.line, two.end.line) < 1)) ? true : (((_Utils_cmp(one.end.line, two.start.line) > -1) && (_Utils_cmp(one.end.line, two.end.line) < 1)) ? true : false);
 	});
 var $author$project$Editor$visible = F2(
 	function (rng, viewing) {
@@ -15539,21 +15767,12 @@ var $author$project$Editor$visible = F2(
 			},
 			viewing);
 	});
-var $author$project$Main$isCursorPresent = F3(
-	function (editors, path, region) {
-		return A2(
-			$elm$core$List$any,
-			function (e) {
-				return _Utils_eq(e.fileName, path) ? A2($author$project$Editor$visible, region, e.selections) : false;
-			},
-			editors);
-	});
 var $author$project$Main$isRegionVisible = F3(
 	function (editors, path, region) {
 		return A2(
 			$elm$core$List$any,
 			function (e) {
-				return _Utils_eq(e.fileName, path) ? A2($author$project$Editor$visible, region, e.ranges) : false;
+				return _Utils_eq(e.filepath, path) ? A2($author$project$Editor$visible, region, e.regions) : false;
 			},
 			editors);
 	});
@@ -15579,7 +15798,7 @@ var $author$project$Main$colorAttribute = function (maybeColor) {
 	}
 };
 var $author$project$Editor$regionToString = function (region) {
-	return $elm$core$String$fromInt(region.start.row) + (':' + $elm$core$String$fromInt(region.end.row));
+	return $elm$core$String$fromInt(region.start.line) + (':' + $elm$core$String$fromInt(region.end.line));
 };
 var $author$project$Elm$ProjectStatus$fileKey = F3(
 	function (file, problem, index) {
@@ -15700,7 +15919,7 @@ var $author$project$Main$viewIssueDetails = F5(
 			{
 				highlight: cursorPresent,
 				hint: $elm$core$Maybe$Just(
-					_Utils_eq(issue.region.start.row, issue.region.end.row) ? ('line ' + $elm$core$String$fromInt(issue.region.start.row)) : ('lines ' + ($elm$core$String$fromInt(issue.region.start.row) + ('–' + $elm$core$String$fromInt(issue.region.end.row))))),
+					_Utils_eq(issue.region.start.line, issue.region.end.line) ? ('line ' + $elm$core$String$fromInt(issue.region.start.line)) : ('lines ' + ($elm$core$String$fromInt(issue.region.start.line) + ('–' + $elm$core$String$fromInt(issue.region.end.line))))),
 				onClick: expanded ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(
 					A2($author$project$Model$EditorGoTo, file.path, issue.region)),
 				title: $elm$core$String$trim(issue.title)
@@ -15751,7 +15970,7 @@ var $author$project$Main$viewFileErrorDetails = F2(
 						$author$project$Main$viewIssueDetails,
 						model.errorCodeExpanded,
 						A3($author$project$Main$isRegionVisible, model.visible, file.path, issue.region),
-						A3($author$project$Main$isCursorPresent, model.visible, file.path, issue.region),
+						A3($author$project$Main$isRegionVisible, model.visible, file.path, issue.region),
 						file,
 						issue);
 				},
@@ -15810,181 +16029,6 @@ var $author$project$Main$viewGlobalError = function (global) {
 				A2($elm$core$List$map, $author$project$Main$viewExpandedText, global.problem.message))
 			]));
 };
-var $gingko$time_distance$Time$Distance$I18n$en = F3(
-	function (_v0, tense, distanceId) {
-		var withAffix = _v0.withAffix;
-		var toStr = $elm$core$String$fromInt;
-		var maybeAffix = function (str) {
-			var _v2 = _Utils_Tuple2(withAffix, tense);
-			if (_v2.a) {
-				if (_v2.b.$ === 'Past') {
-					var _v3 = _v2.b;
-					return str + ' ago';
-				} else {
-					var _v4 = _v2.b;
-					return 'in ' + str;
-				}
-			} else {
-				return str;
-			}
-		};
-		return maybeAffix(
-			function () {
-				switch (distanceId.$) {
-					case 'LessThanXSeconds':
-						var i = distanceId.a;
-						return (i === 1) ? 'less than 1 second' : ('less than ' + (toStr(i) + ' seconds'));
-					case 'HalfAMinute':
-						return 'half a minute';
-					case 'LessThanXMinutes':
-						var i = distanceId.a;
-						return (i === 1) ? 'less than a minute' : ('less than ' + (toStr(i) + ' minutes'));
-					case 'XMinutes':
-						var i = distanceId.a;
-						return (i === 1) ? '1 minute' : (toStr(i) + ' minutes');
-					case 'AboutXHours':
-						var i = distanceId.a;
-						return (i === 1) ? 'about 1 hour' : ('about ' + (toStr(i) + ' hours'));
-					case 'XDays':
-						var i = distanceId.a;
-						return (i === 1) ? '1 day' : (toStr(i) + ' days');
-					case 'AboutXMonths':
-						var i = distanceId.a;
-						return (i === 1) ? 'about 1 month' : ('about ' + (toStr(i) + ' months'));
-					case 'XMonths':
-						var i = distanceId.a;
-						return (i === 1) ? '1 month' : (toStr(i) + ' months');
-					case 'AboutXYears':
-						var i = distanceId.a;
-						return (i === 1) ? 'about 1 year' : ('about ' + (toStr(i) + ' years'));
-					case 'OverXYears':
-						var i = distanceId.a;
-						return (i === 1) ? 'over 1 year' : ('over ' + (toStr(i) + ' years'));
-					default:
-						var i = distanceId.a;
-						return (i === 1) ? 'almost 1 year' : ('almost ' + (toStr(i) + ' years'));
-				}
-			}());
-	});
-var $gingko$time_distance$Time$Distance$Types$Future = {$: 'Future'};
-var $gingko$time_distance$Time$Distance$Types$Past = {$: 'Past'};
-var $gingko$time_distance$Time$Distance$Types$AboutXHours = function (a) {
-	return {$: 'AboutXHours', a: a};
-};
-var $gingko$time_distance$Time$Distance$Types$LessThanXMinutes = function (a) {
-	return {$: 'LessThanXMinutes', a: a};
-};
-var $gingko$time_distance$Time$Distance$Types$XDays = function (a) {
-	return {$: 'XDays', a: a};
-};
-var $gingko$time_distance$Time$Distance$Types$XMinutes = function (a) {
-	return {$: 'XMinutes', a: a};
-};
-var $elm$core$Basics$abs = function (n) {
-	return (n < 0) ? (-n) : n;
-};
-var $gingko$time_distance$Time$Distance$minutes_in_almost_two_days = 2520;
-var $gingko$time_distance$Time$Distance$minutes_in_day = 1440;
-var $gingko$time_distance$Time$Distance$minutes_in_month = 43200;
-var $gingko$time_distance$Time$Distance$minutes_in_two_months = 86400;
-var $gingko$time_distance$Time$Distance$Types$AboutXYears = function (a) {
-	return {$: 'AboutXYears', a: a};
-};
-var $gingko$time_distance$Time$Distance$Types$AlmostXYears = function (a) {
-	return {$: 'AlmostXYears', a: a};
-};
-var $gingko$time_distance$Time$Distance$Types$OverXYears = function (a) {
-	return {$: 'OverXYears', a: a};
-};
-var $elm$core$Basics$modBy = _Basics_modBy;
-var $gingko$time_distance$Time$Distance$Types$XMonths = function (a) {
-	return {$: 'XMonths', a: a};
-};
-var $gingko$time_distance$Time$Distance$upToOneYear = function (minutes) {
-	var nearestMonth = $elm$core$Basics$round(minutes / $gingko$time_distance$Time$Distance$minutes_in_month);
-	return $gingko$time_distance$Time$Distance$Types$XMonths(nearestMonth);
-};
-var $gingko$time_distance$Time$Distance$moreThanTwoMonths = function (minutes) {
-	var months = (minutes / $gingko$time_distance$Time$Distance$minutes_in_month) | 0;
-	if (months < 12) {
-		return $gingko$time_distance$Time$Distance$upToOneYear(minutes);
-	} else {
-		var years = $elm$core$Basics$floor(months / 12);
-		var monthsSinceStartOfYear = A2($elm$core$Basics$modBy, 12, months);
-		return (monthsSinceStartOfYear < 3) ? $gingko$time_distance$Time$Distance$Types$AboutXYears(years) : ((monthsSinceStartOfYear < 9) ? $gingko$time_distance$Time$Distance$Types$OverXYears(years) : $gingko$time_distance$Time$Distance$Types$AlmostXYears(years + 1));
-	}
-};
-var $gingko$time_distance$Time$Distance$upToOneDay = function (minutes) {
-	var hours = $elm$core$Basics$round(minutes / 60);
-	return $gingko$time_distance$Time$Distance$Types$AboutXHours(hours);
-};
-var $gingko$time_distance$Time$Distance$Types$HalfAMinute = {$: 'HalfAMinute'};
-var $gingko$time_distance$Time$Distance$Types$LessThanXSeconds = function (a) {
-	return {$: 'LessThanXSeconds', a: a};
-};
-var $gingko$time_distance$Time$Distance$upToOneMinute = function (seconds) {
-	return (seconds < 5) ? $gingko$time_distance$Time$Distance$Types$LessThanXSeconds(5) : ((seconds < 10) ? $gingko$time_distance$Time$Distance$Types$LessThanXSeconds(10) : ((seconds < 20) ? $gingko$time_distance$Time$Distance$Types$LessThanXSeconds(20) : ((seconds < 40) ? $gingko$time_distance$Time$Distance$Types$HalfAMinute : ((seconds < 60) ? $gingko$time_distance$Time$Distance$Types$LessThanXMinutes(1) : $gingko$time_distance$Time$Distance$Types$XMinutes(1)))));
-};
-var $gingko$time_distance$Time$Distance$upToOneMonth = function (minutes) {
-	var days = $elm$core$Basics$round(minutes / $gingko$time_distance$Time$Distance$minutes_in_day);
-	return $gingko$time_distance$Time$Distance$Types$XDays(days);
-};
-var $gingko$time_distance$Time$Distance$Types$AboutXMonths = function (a) {
-	return {$: 'AboutXMonths', a: a};
-};
-var $gingko$time_distance$Time$Distance$upToTwoMonths = function (minutes) {
-	var months = $elm$core$Basics$round(minutes / $gingko$time_distance$Time$Distance$minutes_in_month);
-	return $gingko$time_distance$Time$Distance$Types$AboutXMonths(months);
-};
-var $gingko$time_distance$Time$Distance$calculateDistance = F3(
-	function (includeSeconds, s1, s2) {
-		var seconds = ($elm$core$Basics$abs(s2 - s1) / 1000) | 0;
-		var minutes = $elm$core$Basics$round(seconds / 60);
-		return (includeSeconds && (minutes < 2)) ? $gingko$time_distance$Time$Distance$upToOneMinute(seconds) : ((!minutes) ? $gingko$time_distance$Time$Distance$Types$LessThanXMinutes(1) : ((minutes < 2) ? $gingko$time_distance$Time$Distance$Types$XMinutes(minutes) : ((minutes < 45) ? $gingko$time_distance$Time$Distance$Types$XMinutes(minutes) : ((minutes < 90) ? $gingko$time_distance$Time$Distance$Types$AboutXHours(1) : ((_Utils_cmp(minutes, $gingko$time_distance$Time$Distance$minutes_in_day) < 0) ? $gingko$time_distance$Time$Distance$upToOneDay(minutes) : ((_Utils_cmp(minutes, $gingko$time_distance$Time$Distance$minutes_in_almost_two_days) < 0) ? $gingko$time_distance$Time$Distance$Types$XDays(1) : ((_Utils_cmp(minutes, $gingko$time_distance$Time$Distance$minutes_in_month) < 0) ? $gingko$time_distance$Time$Distance$upToOneMonth(minutes) : ((_Utils_cmp(minutes, $gingko$time_distance$Time$Distance$minutes_in_two_months) < 0) ? $gingko$time_distance$Time$Distance$upToTwoMonths(minutes) : $gingko$time_distance$Time$Distance$moreThanTwoMonths(minutes)))))))));
-	});
-var $elm$time$Time$posixToMillis = function (_v0) {
-	var millis = _v0.a;
-	return millis;
-};
-var $gingko$time_distance$Time$Distance$inWordsWithConfig = F4(
-	function (config, locale, otherTime, currentTime) {
-		var otherSeconds = $elm$time$Time$posixToMillis(otherTime);
-		var currentSeconds = $elm$time$Time$posixToMillis(currentTime);
-		var distance = A3($gingko$time_distance$Time$Distance$calculateDistance, true, otherSeconds, currentSeconds);
-		var tense = function () {
-			var _v0 = A2($elm$core$Basics$compare, currentSeconds, otherSeconds);
-			if (_v0.$ === 'GT') {
-				return $gingko$time_distance$Time$Distance$Types$Past;
-			} else {
-				return $gingko$time_distance$Time$Distance$Types$Future;
-			}
-		}();
-		return A3(locale, config, tense, distance);
-	});
-var $gingko$time_distance$Time$Distance$inWords = F2(
-	function (otherTime, currentTime) {
-		return A4(
-			$gingko$time_distance$Time$Distance$inWordsWithConfig,
-			{withAffix: true},
-			$gingko$time_distance$Time$Distance$I18n$en,
-			otherTime,
-			currentTime);
-	});
-var $author$project$Main$viewLastUpdated = function (model) {
-	var _v0 = _Utils_Tuple2(model.now, model.lastUpdated);
-	if ((_v0.a.$ === 'Just') && (_v0.b.$ === 'Just')) {
-		var now = _v0.a.a;
-		var lastUpdate = _v0.b.a;
-		return A2(
-			$mdgriffith$elm_ui$Element$el,
-			_List_fromArray(
-				[$author$project$Ui$pad.xy.lg.sm, $author$project$Ui$font.dark.light, $author$project$Ui$background.black, $author$project$Ui$rounded.md]),
-			$mdgriffith$elm_ui$Element$text(
-				'Last updated ' + A2($gingko$time_distance$Time$Distance$inWords, lastUpdate, now)));
-	} else {
-		return $mdgriffith$elm_ui$Element$none;
-	}
-};
 var $author$project$Main$viewMetric = F3(
 	function (name, viewer, vals) {
 		if (!vals.b) {
@@ -15997,37 +16041,6 @@ var $author$project$Main$viewMetric = F3(
 				A2($elm$core$List$map, viewer, vals));
 		}
 	});
-var $elm$core$String$endsWith = _String_endsWith;
-var $author$project$Editor$moduleName = function (editor) {
-	return A2(
-		$elm$core$Maybe$withDefault,
-		editor.fileName,
-		$elm$core$List$head(
-			$elm$core$List$reverse(
-				A2($elm$core$String$split, '/', editor.fileName))));
-};
-var $author$project$Main$viewVisible = function (model) {
-	return A2(
-		$mdgriffith$elm_ui$Element$el,
-		_List_fromArray(
-			[$author$project$Ui$pad.xy.lg.sm, $author$project$Ui$font.dark.light, $author$project$Ui$background.black, $author$project$Ui$rounded.md]),
-		$mdgriffith$elm_ui$Element$text(
-			A2(
-				$elm$core$String$join,
-				', ',
-				A2(
-					$elm$core$List$map,
-					$author$project$Editor$moduleName,
-					A2(
-						$elm$core$List$filter,
-						A2(
-							$elm$core$Basics$composeL,
-							$elm$core$String$endsWith('.elm'),
-							function ($) {
-								return $.fileName;
-							}),
-						model.visible)))));
-};
 var $mdgriffith$elm_ui$Internal$Model$CenterX = {$: 'CenterX'};
 var $mdgriffith$elm_ui$Element$centerX = $mdgriffith$elm_ui$Internal$Model$AlignX($mdgriffith$elm_ui$Internal$Model$CenterX);
 var $mdgriffith$elm_ui$Internal$Model$CenterY = {$: 'CenterY'};
@@ -16106,7 +16119,7 @@ var $author$project$Main$visibleWarnings = F2(
 		return A2(
 			$elm$core$Maybe$withDefault,
 			_List_Nil,
-			A2($elm$core$Dict$get, activeEditor.fileName, warnings));
+			A2($elm$core$Dict$get, activeEditor.filepath, warnings));
 	});
 var $author$project$Main$viewWarningsOrStatus = function (model) {
 	var activeWarnings = A2(
@@ -16165,7 +16178,7 @@ var $author$project$Main$viewOverview = function (model) {
 						_List_Nil,
 						_List_fromArray(
 							[
-								_Utils_eq(signature.region.start.row, signature.region.end.row) ? A2(
+								_Utils_eq(signature.region.start.line, signature.region.end.line) ? A2(
 								$mdgriffith$elm_ui$Element$el,
 								_List_fromArray(
 									[
@@ -16175,7 +16188,7 @@ var $author$project$Main$viewOverview = function (model) {
 										$mdgriffith$elm_ui$Element$px(50))
 									]),
 								$mdgriffith$elm_ui$Element$text(
-									$elm$core$String$fromInt(signature.region.start.row))) : A2(
+									$elm$core$String$fromInt(signature.region.start.line))) : A2(
 								$mdgriffith$elm_ui$Element$row,
 								_List_fromArray(
 									[
@@ -16187,10 +16200,10 @@ var $author$project$Main$viewOverview = function (model) {
 								_List_fromArray(
 									[
 										$mdgriffith$elm_ui$Element$text(
-										$elm$core$String$fromInt(signature.region.start.row)),
+										$elm$core$String$fromInt(signature.region.start.line)),
 										$mdgriffith$elm_ui$Element$text(':'),
 										$mdgriffith$elm_ui$Element$text(
-										$elm$core$String$fromInt(signature.region.end.row))
+										$elm$core$String$fromInt(signature.region.end.line))
 									])),
 								A2(
 								$mdgriffith$elm_ui$Element$el,
@@ -16220,13 +16233,13 @@ var $author$project$Main$viewOverview = function (model) {
 				[$author$project$Ui$space.md]),
 			_List_fromArray(
 				[
-					$author$project$Ui$header.three(editor.fileName),
+					$author$project$Ui$header.three(editor.filepath),
 					A2(
 					$mdgriffith$elm_ui$Element$el,
 					_List_fromArray(
 						[
 							$mdgriffith$elm_ui$Element$Events$onClick(
-							$author$project$Model$EditorFillTypeSignatures(editor.fileName)),
+							$author$project$Model$EditorFillTypeSignatures(editor.filepath)),
 							$author$project$Ui$pad.sm,
 							$author$project$Ui$border.primary,
 							$mdgriffith$elm_ui$Element$Border$width(1),
@@ -16240,7 +16253,7 @@ var $author$project$Main$viewOverview = function (model) {
 						[$author$project$Ui$space.md]),
 					A2(
 						$elm$core$List$map,
-						viewTypeSignature(editor.fileName),
+						viewTypeSignature(editor.filepath),
 						signatures))
 				]));
 	};
@@ -16248,8 +16261,8 @@ var $author$project$Main$viewOverview = function (model) {
 		$elm$core$List$foldl,
 		F2(
 			function (project, gathered) {
-				var globals = gathered.globals;
 				var errs = gathered.errs;
+				var globals = gathered.globals;
 				switch (project.$) {
 					case 'NoData':
 						return gathered;
@@ -16295,25 +16308,7 @@ var $author$project$Main$viewOverview = function (model) {
 				$author$project$Ui$space.lg,
 				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
 				$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-				$author$project$Ui$pad.xl,
-				$mdgriffith$elm_ui$Element$inFront(
-				A2(
-					$mdgriffith$elm_ui$Element$el,
-					_List_fromArray(
-						[$mdgriffith$elm_ui$Element$alignBottom, $mdgriffith$elm_ui$Element$alignRight]),
-					$mdgriffith$elm_ui$Element$text('NEW'))),
-				$mdgriffith$elm_ui$Element$inFront(
-				A2(
-					$mdgriffith$elm_ui$Element$el,
-					_List_fromArray(
-						[$mdgriffith$elm_ui$Element$alignBottom, $mdgriffith$elm_ui$Element$alignRight]),
-					$author$project$Main$viewLastUpdated(model))),
-				$mdgriffith$elm_ui$Element$inFront(
-				A2(
-					$mdgriffith$elm_ui$Element$el,
-					_List_fromArray(
-						[$mdgriffith$elm_ui$Element$alignBottom, $mdgriffith$elm_ui$Element$alignLeft]),
-					$author$project$Main$viewVisible(model)))
+				$author$project$Ui$pad.xl
 			]),
 		_List_fromArray(
 			[
@@ -16393,6 +16388,61 @@ var $author$project$Main$viewOverview = function (model) {
 			}()
 			]));
 };
+var $author$project$Main$viewServerStatus = function (server) {
+	var _v0 = server.status;
+	switch (_v0.$) {
+		case 'Disconnected':
+			return A2(
+				$mdgriffith$elm_ui$Element$el,
+				_List_fromArray(
+					[$author$project$Ui$pad.xy.lg.md]),
+				$mdgriffith$elm_ui$Element$text('Disconnected'));
+		case 'Connecting':
+			return A2(
+				$mdgriffith$elm_ui$Element$el,
+				_List_fromArray(
+					[$author$project$Ui$pad.xy.lg.md]),
+				$mdgriffith$elm_ui$Element$text('Connecting'));
+		default:
+			var info = _v0.a;
+			return A2(
+				$mdgriffith$elm_ui$Element$el,
+				_List_fromArray(
+					[$author$project$Ui$pad.xy.lg.md]),
+				$mdgriffith$elm_ui$Element$text(info.host + (':' + info.port_)));
+	}
+};
+var $elm$core$String$endsWith = _String_endsWith;
+var $author$project$Editor$moduleName = function (editor) {
+	return A2(
+		$elm$core$Maybe$withDefault,
+		editor.filepath,
+		$elm$core$List$head(
+			$elm$core$List$reverse(
+				A2($elm$core$String$split, '/', editor.filepath))));
+};
+var $author$project$Main$viewVisible = function (model) {
+	return A2(
+		$mdgriffith$elm_ui$Element$el,
+		_List_fromArray(
+			[$author$project$Ui$pad.xy.lg.sm, $author$project$Ui$font.dark.light, $author$project$Ui$background.black, $author$project$Ui$rounded.md]),
+		$mdgriffith$elm_ui$Element$text(
+			A2(
+				$elm$core$String$join,
+				', ',
+				A2(
+					$elm$core$List$map,
+					$author$project$Editor$moduleName,
+					A2(
+						$elm$core$List$filter,
+						A2(
+							$elm$core$Basics$composeL,
+							$elm$core$String$endsWith('.elm'),
+							function ($) {
+								return $.filepath;
+							}),
+						model.visible)))));
+};
 var $author$project$Main$view = function (model) {
 	return A2(
 		$elm$html$Html$div,
@@ -16411,7 +16461,25 @@ var $author$project$Main$view = function (model) {
 						$mdgriffith$elm_ui$Element$htmlAttribute(
 						$elm$html$Html$Attributes$class('base')),
 						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-						$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill)
+						$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
+						$mdgriffith$elm_ui$Element$inFront(
+						A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$mdgriffith$elm_ui$Element$alignTop, $mdgriffith$elm_ui$Element$alignRight]),
+							$author$project$Main$viewServerStatus(model.server))),
+						$mdgriffith$elm_ui$Element$inFront(
+						A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$mdgriffith$elm_ui$Element$alignBottom, $mdgriffith$elm_ui$Element$alignRight]),
+							$author$project$Main$viewLastUpdated(model))),
+						$mdgriffith$elm_ui$Element$inFront(
+						A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[$mdgriffith$elm_ui$Element$alignBottom, $mdgriffith$elm_ui$Element$alignLeft]),
+							$author$project$Main$viewVisible(model)))
 					]),
 				function () {
 					var _v0 = model.viewing;

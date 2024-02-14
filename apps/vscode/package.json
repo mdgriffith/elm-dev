@@ -14,7 +14,8 @@
   ],
   "activationEvents": [
     "onLanguage:elm",
-    "onCommand:elm.projectPanel"
+    "onCommand:elm.projectPanel",
+    "onCommand:elm.connect"
   ],
   "main": "./out/extension.js",
   "contributes": {

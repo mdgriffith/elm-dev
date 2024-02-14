@@ -3,13 +3,9 @@ import * as log from "./utils/log";
 import * as JSONSafe from "./utils/json";
 import * as Question from "./watchtower/question";
 import { ElmProjectPane } from "./panel/panel";
-import * as ChildProcess from "child_process";
-import * as Interactive from "./interactive";
 
 import * as PanelMsg from "./panel/messages";
-import * as path from "path";
 import * as EditorCoords from "./utils/editorCoords";
-import * as feature from "./watchtower/feature";
 import * as SignatureCodeLens from "./watchtower/codelensProvider";
 import * as ElmDevDiagnostics from "./watchtower/diagnostics";
 
@@ -21,6 +17,10 @@ type Msg =
   | {
       msg: "Watched";
       details: Watching[];
+    }
+  | {
+      msg: "EditorVisibilityChanged";
+      details: { visible: PanelMsg.EditorVisibility[] };
     };
 
 type Watching = { path: String; warnings: Boolean; docs: Boolean };
@@ -86,24 +86,13 @@ export class Watchtower {
   private connection;
   private editsSinceSave: vscode.TextDocumentChangeEvent[];
   private trackEditsSinceSave: boolean;
-  private retry;
 
   // The core model of our Elm project
   private elmEditorVisibility: {
-    active: PanelMsg.EditorVisibility | null;
     visible: PanelMsg.EditorVisibility[];
   };
   private elmStatus: PanelMsg.ProjectStatus[];
   private elmWarninigs: { warnings: Question.Warning[]; filepath: string };
-  private elmCallGraph: {
-    filepath: string;
-    callgraph: PanelMsg.CallGraphNode[];
-  };
-  private elmExplanation: {
-    filepath: string;
-    explanation: PanelMsg.Explanation;
-  };
-  private elmDocs;
 
   // Providers and diagnostics
   public codelensProvider: SignatureCodeLens.SignatureCodeLensProvider;
@@ -112,14 +101,13 @@ export class Watchtower {
   public statusbar: vscode.StatusBarItem;
 
   private send(msg: Msg) {
-    const self = this;
     if (this.connection?.connected) {
-      log.obj("SENDING", msg);
+      log.log("SENDING: " + JSON.stringify(msg));
       this.connection.sendUTF(JSON.stringify(msg));
     } else {
       log.obj("SKIPPING (not connected)", msg);
-      self.diagnostics.clear();
-      self.codelensProvider.clear();
+      this.diagnostics.clear();
+      this.codelensProvider.clear();
       this.connect();
     }
   }
@@ -136,8 +124,6 @@ export class Watchtower {
       vscode.StatusBarAlignment.Right,
       10
     );
-
-    self.statusbar.command = "elm.projectPanel";
 
     self.connect();
 
@@ -176,51 +162,47 @@ export class Watchtower {
     */
     vscode.window.onDidChangeVisibleTextEditors((_) => {
       self.refreshWatching();
-      if (vscode.window.activeTextEditor && feature.callgraph) {
-        self.askCallGraph(vscode.window.activeTextEditor.document.fileName);
-      }
     });
 
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
     });
 
-    vscode.window.onDidChangeTextEditorSelection((selection) => {
-      if (
-        feature.explain &&
-        selection.selections.length == 1 &&
-        selection.selections[0].isEmpty &&
-        selection.textEditor.document.fileName.endsWith(".elm")
-      ) {
-        const point = selection.selections[0].anchor;
-        self.askExplanation(
-          selection.textEditor.document.fileName,
-          point.line - 1,
-          point.character - 1
-        );
-      }
+    // vscode.window.onDidChangeTextEditorSelection((selection) => {
+    //   // if (
+    //   //   feature.explain &&
+    //   //   selection.selections.length == 1 &&
+    //   //   selection.selections[0].isEmpty &&
+    //   //   selection.textEditor.document.fileName.endsWith(".elm")
+    //   // ) {
+    //   //   const point = selection.selections[0].anchor;
+    //   //   self.askExplanation(
+    //   //     selection.textEditor.document.fileName,
+    //   //     point.line - 1,
+    //   //     point.character - 1
+    //   //   );
+    //   // }
+    //   // self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
+    // });
 
-      self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
-    });
-
-    vscode.window.onDidChangeTextEditorVisibleRanges((visibleRanges) => {
-      self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
-    });
-
+    // vscode.window.onDidChangeTextEditorVisibleRanges((visibleRanges) => {
+    //   self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
+    // });
+    // Send up an initial visibility message
     self.editorVisibilityUpdated(PanelMsg.sendEditorVisibility());
   }
 
-  private connect() {
+  connect() {
     const self = this;
     if (this.connection?.connected) {
       return;
     }
-    this.statusDanger("Elm Dev connecting...");
-    // self.startServer();
+    this.statusConnecting();
+
     socketConnect({
       url: Question.urls.websocket,
       onJoin: (connection) => {
-        self.status("Open Elm Dev");
+        self.statusNoErrors();
         self.onJoin(connection);
       },
       onConnectionFailed: (err) => {
@@ -232,177 +214,78 @@ export class Watchtower {
     });
   }
 
-  private statusFromErrorCount(errorCount) {
-    if (errorCount < 1) {
-      return;
-    }
-    const plural = errorCount == 1 ? "" : "s";
-    if (ElmProjectPane.isOpen()) {
-      this.statusDanger(`${errorCount} Elm error${plural}`);
-    } else {
-      this.statusDanger(`Click to view ${errorCount} Elm error${plural}`);
-    }
-  }
-
-  private statusFromWarningCount(warningCount) {
-    if (warningCount < 1) {
-      return;
-    }
-    const plural = warningCount == 1 ? "" : "s";
-    if (ElmProjectPane.isOpen()) {
-      this.statusWarning(`${warningCount} Elm suggestion${plural}`);
-    } else {
-      this.statusWarning(
-        `Click to view ${warningCount} Elm suggestion${plural}`
-      );
-    }
-  }
-
   private statusNoErrors() {
-    if (ElmProjectPane.isOpen()) {
-      this.status(`Open Elm Dev`);
-    } else {
-      this.status(`Open Elm Dev`);
-    }
+    this.statusbar.text = `Open Elm Dev`;
+    this.statusbar.show();
+    // @ts-ignore
+    this.statusbar.backgroundColor = null;
+    this.statusbar.command = "elm.projectPanel";
   }
 
-  private statusDanger(message: string) {
-    this.statusbar.text = message;
+  private statusConnecting() {
+    this.statusbar.text = "Connecting to Elm Dev";
+    this.statusbar.show();
+    this.statusbar.command = null;
+  }
+
+  private statusUnableToConnect() {
+    this.statusbar.text = "Unable to connect to Elm Dev";
     this.statusbar.show();
 
+    // @ts-ignore
     this.statusbar.backgroundColor = new vscode.ThemeColor(
       "statusBarItem.errorBackground"
     );
   }
 
-  private statusWarning(message: string) {
+  private statusDanger(errorCount: number) {
+    if (errorCount < 1) {
+      return;
+    }
+
+    const plural = errorCount == 1 ? "" : "s";
+    const message = `${errorCount} Elm error${plural}`;
     this.statusbar.text = message;
     this.statusbar.show();
 
+    // @ts-ignore
+    this.statusbar.backgroundColor = new vscode.ThemeColor(
+      "statusBarItem.errorBackground"
+    );
+    this.statusbar.command = "elm.projectPanel";
+  }
+
+  private statusWarning(warningCount: number) {
+    if (warningCount < 1) {
+      return;
+    }
+    const plural = warningCount == 1 ? "" : "s";
+    const message = `${warningCount} Elm suggestion${plural}`;
+    this.statusbar.text = message;
+    this.statusbar.show();
+    this.statusbar.command = "elm.projectPanel";
+
+    // @ts-ignore
     this.statusbar.backgroundColor = new vscode.ThemeColor(
       "statusBarItem.warningBackground"
     );
-  }
-
-  private status(message: string) {
-    this.statusbar.text = message;
-    this.statusbar.show();
-
-    this.statusbar.backgroundColor = null;
-  }
-
-  private startServer() {
-    Question.ask(
-      Question.questions.serverHealth,
-      (resp) => {
-        log.log("Elm Dev server is already running!");
-      },
-      (err) => {
-        log.log("Elm Dev server is not running, starting watchtower 2");
-        try {
-          const elmDev = ChildProcess.spawn(path.join(__dirname, "elm-dev"), [
-            "start",
-            `--port=${Question.port}`,
-          ]);
-          // log.obj("ELM DEV", elmDev);
-          elmDev.on("close", function (code) {
-            //Here you can get the exit code of the script
-
-            log.log("THE GOOD TIMES ARE OVER code: " + code);
-          });
-
-          elmDev.stdout.setEncoding("utf8");
-          elmDev.stdout.on("data", function (data) {
-            //Here is where the output goes
-
-            log.log("elmout: " + data.toString());
-
-            // data=data.toString();
-            // scriptOutput+=data;
-          });
-
-          elmDev.stderr.setEncoding("utf8");
-          elmDev.stderr.on("data", function (data) {
-            //Here is where the error output goes
-            log.log("elmerr: " + data.toString());
-          });
-        } catch (watchTowerErr) {
-          log.log("Bundled Elm Dev failed to auto-start");
-          log.log(watchTowerErr);
-        }
-      }
-    );
+    this.statusbar.command = "elm.projectPanel";
   }
 
   private refreshWatching() {
-    const self = this;
     const items = getWatchedItems();
     if (items.length != 0) {
-      self.send({ msg: "Watched", details: items });
+      this.send({ msg: "Watched", details: items });
     } else {
-      self.statusNoErrors();
+      this.statusNoErrors();
     }
-  }
-
-  private askExplanation(filepath: string, line: number, char: number) {
-    const self = this;
-    Question.ask(
-      Question.questions.explain(filepath, line, char),
-      (resp) => {
-        log.log(JSON.stringify(resp));
-        self.elmExplanation = { filepath: filepath, explanation: resp };
-        ElmProjectPane.send(PanelMsg.explanation(self.elmExplanation));
-      },
-      (err) => {
-        log.log("Issue retrieving callgraph");
-      }
-    );
-  }
-
-  private askCallGraph(filepath: string) {
-    const self = this;
-    Question.ask(
-      Question.questions.callgraph(filepath),
-      (resp) => {
-        self.elmCallGraph = { filepath: filepath, callgraph: resp };
-        ElmProjectPane.send(PanelMsg.callgraph(self.elmCallGraph));
-      },
-      (err) => {
-        log.log("Issue retrieving callgraph");
-      }
-    );
   }
 
   private onConnectionFailed(error) {
-    const self = this;
-    this.retry = setTimeout(function () {
-      // log.log("Reattempting connection");
-      self.statusDanger("Unable to connect to Elm Dev");
-      socketConnect({
-        url: Question.urls.websocket,
-        onJoin: (connection) => {
-          self.statusNoErrors();
-          self.onJoin(connection);
-        },
-        onConnectionFailed: (err) => {
-          self.onConnectionFailed(err);
-        },
-        receive: (msg) => {
-          self.receive(msg);
-        },
-      });
-    }, 10000);
-  }
-
-  private cancelRetry() {
-    if (this.retry) {
-      clearTimeout(this.retry);
-      this.retry = null;
-    }
+    this.statusUnableToConnect();
   }
 
   private onJoin(connection) {
-    this.cancelRetry();
     this.connection = connection;
     log.log("Connected!");
 
@@ -427,7 +310,6 @@ export class Watchtower {
     switch (msg["msg"]) {
       case "Status": {
         self.elmStatus = msg.details;
-        self.diagnostics.clear();
         for (const project of msg["details"]) {
           if ("errors" in project.status) {
             for (const error of project.status["errors"]) {
@@ -450,13 +332,14 @@ export class Watchtower {
                   relatedInformation: [],
                 });
               }
-              self.statusFromErrorCount(problems.length);
+              self.statusDanger(problems.length);
 
               self.diagnostics.set(uri, problems);
             }
           } else if ("compiled" in project.status) {
             // success
             self.statusNoErrors();
+            self.diagnostics.clear();
           } else {
             // Global error
             log.log(
@@ -469,7 +352,7 @@ export class Watchtower {
       case "Warnings": {
         self.elmWarninigs = msg.details;
 
-        self.statusFromWarningCount(msg.details.warnings.length);
+        self.statusWarning(msg.details.warnings.length);
         self.codelensProvider.setSignaturesFromWarnings(
           msg.details.filepath,
           msg.details.warnings,
@@ -479,16 +362,6 @@ export class Watchtower {
       }
       case "Docs": {
         log.log("New docs received!");
-        // log.log(msg.details.filepath);
-        // log.log(msg.details.docs[0].name);
-
-        self.elmDocs = msg.details.docs;
-
-        // Turn off the interactive stuff while we get everything working smoothly
-        // Interactive.generate(msg.details.docs, (interactiveJs) => {
-        //   log.log("Interactive compiled!");
-        //   ElmProjectPane.send(PanelMsg.interactiveCodeRefreshed(interactiveJs));
-        // });
 
         break;
       }
@@ -516,20 +389,17 @@ export class Watchtower {
     if (self.elmEditorVisibility) {
       msgs.push(PanelMsg.visibility(self.elmEditorVisibility));
     }
-    if (self.elmCallGraph) {
-      msgs.push(PanelMsg.callgraph(self.elmCallGraph));
-    }
-    if (self.elmExplanation) {
-      msgs.push(PanelMsg.explanation(self.elmExplanation));
-    }
 
     ElmProjectPane.createOrShow(extensionPath, msgs);
   }
 
-  editorVisibilityUpdated(visibility) {
-    const self = this;
-    self.elmEditorVisibility = visibility.details;
+  editorVisibilityUpdated(visibility: {
+    msg: "EditorVisibilityChanged";
+    details: { visible: PanelMsg.EditorVisibility[] };
+  }) {
+    this.elmEditorVisibility = visibility.details;
     ElmProjectPane.send(visibility);
+    this.send(visibility);
   }
 
   setup() {
