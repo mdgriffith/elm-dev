@@ -53,7 +53,11 @@ data Info =
 info :: FilePath -> FilePath -> IO Info
 info root path = do
     loaded <- Ext.CompileProxy.loadSingle root path
-    let (Ext.CompileProxy.Single source maybeWarnings interfaces canonical compiled) = Ext.Dev.Warnings.addUnusedImports loaded
+    let (Ext.CompileProxy.Single source maybeWarnings interfaces canonical compiled) =
+            Ext.Dev.Warnings.addAliasOptionsToWarnings
+                        (Ext.Dev.Warnings.addUnusedDeclarations
+                            (Ext.Dev.Warnings.addUnusedImports loaded)
+                        )
     let docs = case compiled of
                     Just (Right artifacts) ->
                         case  Ext.Dev.Docs.fromArtifacts artifacts of

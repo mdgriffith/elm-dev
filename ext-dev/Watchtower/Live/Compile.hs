@@ -168,22 +168,21 @@ recompileFile mClients ( top, remain, projCache@(Client.ProjectCache proj@(Ext.D
 
 
 sendInfo ::  STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
-sendInfo mClients ( top, remain , projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot entrypoints) cache)) =
-    do
-        (Ext.Dev.Info warnings docs) <- Ext.Dev.info projectRoot top
+sendInfo mClients ( top, remain , projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot entrypoints) cache)) = do
+    (Ext.Dev.Info warnings docs) <- Ext.Dev.info projectRoot top
 
-        case warnings of
-          Nothing -> pure ()
-          
-          Just (sourceMod, warns) ->
-            Client.broadcast mClients
-              (Client.Warnings top (Reporting.Render.Type.Localizer.fromModule sourceMod) warns)
+    case warnings of
+      Nothing -> pure ()
+      
+      Just (sourceMod, warns) ->
+        Client.broadcast mClients
+          (Client.Warnings top (Reporting.Render.Type.Localizer.fromModule sourceMod) warns)
 
-        case docs of
-          Nothing -> pure ()
+    -- case docs of
+    --   Nothing -> pure ()
 
-          Just docs ->
-            Client.broadcast mClients
-              (Client.Docs top [ docs ])
+    --   Just docs ->
+    --     Client.broadcast mClients
+    --       (Client.Docs top [ docs ])
 
   

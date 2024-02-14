@@ -117,7 +117,9 @@ data Outgoing
 
 data ViewingInEditorDetails = ViewingInEditorDetails 
   { _viewingFilepath :: FilePath
-  , _viewingRegion :: Ann.Region
+  , _viewingRegions :: [Ann.Region]
+  , _viewingActiveEditor :: Bool
+  , _unsavedChanges :: Bool
   }
   deriving (Show)
 
@@ -325,19 +327,24 @@ encodeOutgoing out =
 
       EditorViewing details ->
         Json.Encode.object
-          [ "msg" ==> Json.Encode.string (Json.String.fromChars "EditorViewing"),
+          [ "msg" ==> Json.Encode.string (Json.String.fromChars "EditorVisibilityChanged"),
             "details"
-              ==> Json.Encode.list
-                    ( \detail ->
-                        Json.Encode.object
-                          [ "filepath"
-                              ==> Json.Encode.string
-                                (Json.String.fromChars (_viewingFilepath detail)),
-                            "region"
-                              ==> Watchtower.Editor.encodeRegion (_viewingRegion detail)
-                          ]
-                    )
-                    details
+              ==> Json.Encode.object
+                    [ "visible" ==> 
+                          Json.Encode.list
+                              ( \detail ->
+                                  Json.Encode.object
+                                    [ "filepath"
+                                        ==> Json.Encode.string
+                                          (Json.String.fromChars (_viewingFilepath detail))
+                                    , "regions"
+                                        ==> Json.Encode.list Watchtower.Editor.encodeRegion (_viewingRegions detail)
+                                    , "active" ==> Json.Encode.bool (_viewingActiveEditor detail)
+                                    , "unsavedChanges" ==> Json.Encode.bool (_unsavedChanges detail)
+                                    ]
+                              )
+                              details
+                    ]
           ]
 
       EditorJumpTo path region ->
@@ -378,14 +385,18 @@ decodeIncoming =
                        <$> Json.Decode.field "details" 
                             decodeWatched
 
-              "EditorViewingUpdated" ->
+              "EditorVisibilityChanged" ->
                     EditorViewingUpdated
                       <$> Json.Decode.field "details"
-                          (Json.Decode.list
-                              (ViewingInEditorDetails
-                                  <$> Json.Decode.field "filepath" (Json.String.toChars <$> Json.Decode.string)
-                                  <*> Json.Decode.field "region" Watchtower.Editor.decodeRegion
-                              )
+                          (Json.Decode.field "visible"
+                            (Json.Decode.list
+                                (ViewingInEditorDetails
+                                    <$> Json.Decode.field "filepath" (Json.String.toChars <$> Json.Decode.string)
+                                    <*> Json.Decode.field "regions" (Json.Decode.list Watchtower.Editor.decodeRegion)
+                                    <*> Json.Decode.field "active" Json.Decode.bool
+                                    <*> Json.Decode.field "unsavedChanges" Json.Decode.bool
+                                )
+                            )
                           )
 
               "EditorJumpToRequested" ->
