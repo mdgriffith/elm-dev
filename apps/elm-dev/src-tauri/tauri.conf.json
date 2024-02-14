@@ -11,6 +11,7 @@
     "version": "0.0.0"
   },
   "tauri": {
+    "macOSPrivateApi": true,
     "systemTray": {
       "iconPath": "icons/icon.png",
       "iconAsTemplate": true
@@ -24,6 +25,20 @@
       "http": {
         "all": true,
         "request": true
+      },
+      "os": {
+        "all": true
+      },
+      "window": {
+        "all": false,
+        "close": true,
+        "hide": true,
+        "show": true,
+        "maximize": true,
+        "minimize": true,
+        "unmaximize": true,
+        "unminimize": true,
+        "startDragging": true
       }
     },
     "bundle": {
@@ -48,8 +63,10 @@
         "title": "Elm Dev",
         "width": 800,
         "height": 1200,
-        "titleBarStyle": "Transparent",
-        "alwaysOnTop": true
+        "titleBarStyle": "Overlay",
+        "alwaysOnTop": true,
+        "decorations": false,
+        "transparent": true
       }
     ]
   }

@@ -7,6 +7,7 @@ module Model exposing
 import Dict exposing (Dict)
 import Editor
 import Elm.ProjectStatus
+import Flags
 import Http
 import Json.Decode as Decode
 import Json.Encode
@@ -18,6 +19,7 @@ import Time
 
 type alias Model =
     { server : Ports.Server
+    , flags : Maybe Flags.Flags
 
     -- editor
     , active : Maybe Editor.Editor
@@ -37,7 +39,6 @@ type alias Model =
     , callgraph : Dict FilePath (List Ports.CallGraphNode)
     , facts : Dict FilePath (List Ports.Fact)
     }
-
 
 
 type alias FilePath =

@@ -538,18 +538,9 @@ incomingDecoder =
                             )
 
                     _ ->
-                        let
-                            _ =
-                                Debug.log "UNRECOGNIZED INCOMING MSG" msg
-                        in
                         Decode.value
                             |> Decode.andThen
                                 (\val ->
-                                    -- let
-                                    --     _ =
-                                    --         Debug.log "    "
-                                    --             (Json.Encode.encode 4 val)
-                                    -- in
                                     Decode.fail "UNRECOGNIZED INCOMING MSG"
                                 )
             )

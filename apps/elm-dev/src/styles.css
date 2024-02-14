@@ -6,6 +6,8 @@
 
   color: #0f0f0f;
   background-color: #f6f6f6;
+  /* background-color: transparent; */
+  border-radius: 10px;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -106,4 +108,25 @@ button {
   button:active {
     background-color: #0f0f0f69;
   }
+}
+
+/* Tauri header stuff */
+
+.titlebar {
+  height: 30px;
+  /* background: #329ea3; */
+  user-select: none;
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+.titlebar-button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 30px;
+  height: 30px;
+}
+.titlebar-button:hover {
+  background: #5bbec3;
 }

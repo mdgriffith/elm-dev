@@ -9,9 +9,11 @@ import Element.Events as Events
 import Element.Keyed as Keyed
 import Elm.ProjectStatus
 import Explainer
+import Flags
 import Html
 import Html.Attributes
 import Json.Decode as Decode
+import Json.Encode
 import Model exposing (..)
 import Navigator
 import Ports
@@ -21,12 +23,13 @@ import Time
 import Time.Distance
 import Ui
 import Ui.Card
+import Ui.WindowHeader
 
 
-main : Program () Model Msg
+main : Program Json.Encode.Value Model Msg
 main =
     Browser.element
-        { init = \_ -> init
+        { init = init
         , update = update
         , view = view
         , subscriptions =
@@ -39,9 +42,12 @@ main =
         }
 
 
-init : ( Model, Cmd Msg )
-init =
+init : Json.Encode.Value -> ( Model, Cmd Msg )
+init flagsJson =
     ( { server = { status = Ports.Disconnected }
+      , flags =
+            Decode.decodeValue Flags.decoder flagsJson
+                |> Result.toMaybe
       , active = Nothing
       , visible = []
       , projects = []
@@ -60,12 +66,13 @@ init =
 
 
 panelLog =
-    Debug.log "Panel"
+    -- Debug.log "Msg"
+    identity
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case Debug.log "MSG" msg of
+    case panelLog msg of
         Incoming (Err err) ->
             let
                 _ =
@@ -197,7 +204,7 @@ update msg model =
         AnswerReceived (Err err) ->
             let
                 _ =
-                    Debug.log "PANEL: HTTP, Answer error" err
+                    panelLog err
             in
             ( model
             , Cmd.none
@@ -240,6 +247,8 @@ view model =
     Html.div
         [ Html.Attributes.style "width" "100vw"
         , Html.Attributes.style "height" "100vh"
+        , Html.Attributes.style "background-color" "#f5f5f5"
+        , Html.Attributes.style "border-radius" "50px"
         ]
         [ Ui.overrides
         , Ui.layout
@@ -268,9 +277,12 @@ view model =
                     (viewVisible model)
                 )
             ]
-            (case model.viewing of
-                Overview ->
-                    viewOverview model
+            (Ui.column [ Ui.width Ui.fill, Ui.height Ui.fill ]
+                [ Ui.WindowHeader.view
+                , case model.viewing of
+                    Overview ->
+                        viewOverview model
+                ]
             )
         ]
 
