@@ -77,14 +77,17 @@ update msg model =
 
         Incoming (Ok editorMsg) ->
             case editorMsg of
-                Ports.VisibleEditorsUpdated visible ->
+                Ports.VisibleEditorsUpdated { visible } ->
                     let
                         _ =
                             panelLog "VisibleEditorsUpdated"
                     in
                     ( { model
-                        | visible = visible.visible
-                        , active = visible.active
+                        | visible = visible
+                        , active =
+                            visible
+                                |> List.filter .active
+                                |> List.head
                       }
                     , Cmd.none
                     )
@@ -325,9 +328,9 @@ viewOverview model =
         viewSignatureGroup ( editor, signatures ) =
             Ui.column
                 [ Ui.space.md ]
-                [ Ui.header.three editor.fileName
+                [ Ui.header.three editor.filepath
                 , Ui.el
-                    [ Events.onClick (EditorFillTypeSignatures editor.fileName)
+                    [ Events.onClick (EditorFillTypeSignatures editor.filepath)
                     , Ui.pad.sm
                     , Ui.border.primary
                     , Border.width 1
@@ -336,7 +339,7 @@ viewOverview model =
                     ]
                     (Ui.text "Add all missing typesignatures")
                 , Ui.column [ Ui.space.md ]
-                    (List.map (viewTypeSignature editor.fileName) signatures)
+                    (List.map (viewTypeSignature editor.filepath) signatures)
                 ]
 
         viewTypeSignature : String -> Question.TypeSignature -> Ui.Element Msg
@@ -352,13 +355,13 @@ viewOverview model =
                 , Ui.space.sm
                 ]
                 [ Ui.row []
-                    [ if signature.region.start.row == signature.region.end.row then
+                    [ if signature.region.start.line == signature.region.end.line then
                         Ui.el
                             [ Ui.font.cyan
                             , Ui.alpha 0.5
                             , Ui.width (Ui.px 50)
                             ]
-                            (Ui.text (String.fromInt signature.region.start.row))
+                            (Ui.text (String.fromInt signature.region.start.line))
 
                       else
                         Ui.row
@@ -366,9 +369,9 @@ viewOverview model =
                             , Ui.alpha 0.5
                             , Ui.width (Ui.px 50)
                             ]
-                            [ Ui.text (String.fromInt signature.region.start.row)
+                            [ Ui.text (String.fromInt signature.region.start.line)
                             , Ui.text ":"
-                            , Ui.text (String.fromInt signature.region.end.row)
+                            , Ui.text (String.fromInt signature.region.end.line)
                             ]
                     , Ui.el [ Ui.font.cyan ]
                         (Ui.text (signature.name ++ " : "))
@@ -470,6 +473,7 @@ viewOverview model =
         ]
 
 
+viewWarningsOrStatus : Model -> Ui.Element Msg
 viewWarningsOrStatus model =
     let
         activeWarnings =
@@ -583,7 +587,7 @@ viewWarning warning =
 
 visibleWarnings warnings activeEditor =
     warnings
-        |> Dict.get activeEditor.fileName
+        |> Dict.get activeEditor.filepath
         |> Maybe.withDefault []
 
 
@@ -637,7 +641,7 @@ viewVisible model =
         ]
         (Ui.text
             (model.visible
-                |> List.filter (String.endsWith ".elm" << .fileName)
+                |> List.filter (String.endsWith ".elm" << .filepath)
                 |> List.map Editor.moduleName
                 |> String.join ", "
             )
@@ -730,7 +734,7 @@ isEditorVisible : Elm.ProjectStatus.File -> List Editor.Editor -> Bool
 isEditorVisible file visible =
     List.any
         (\e ->
-            e.fileName == file.path
+            e.filepath == file.path
         )
         visible
 
@@ -777,7 +781,8 @@ viewFileErrorDetails model file =
                 viewIssueDetails
                     model.errorCodeExpanded
                     (isRegionVisible model.visible file.path issue.region)
-                    (isCursorPresent model.visible file.path issue.region)
+                    -- (isCursorPresent model.visible file.path issue.region)
+                    (isRegionVisible model.visible file.path issue.region)
                     file
                     issue
             )
@@ -789,8 +794,8 @@ isRegionVisible : List Editor.Editor -> String -> Editor.Region -> Bool
 isRegionVisible editors path region =
     List.any
         (\e ->
-            if e.fileName == path then
-                Editor.visible region e.ranges
+            if e.filepath == path then
+                Editor.visible region e.regions
 
             else
                 False
@@ -798,17 +803,17 @@ isRegionVisible editors path region =
         editors
 
 
-isCursorPresent : List Editor.Editor -> String -> Editor.Region -> Bool
-isCursorPresent editors path region =
-    List.any
-        (\e ->
-            if e.fileName == path then
-                Editor.visible region e.selections
 
-            else
-                False
-        )
-        editors
+-- isCursorPresent : List Editor.Editor -> String -> Editor.Region -> Bool
+-- isCursorPresent editors path region =
+--     List.any
+--         (\e ->
+--             if e.filepath == path then
+--                 Editor.visible region e.selections
+--             else
+--                 False
+--         )
+--         editors
 
 
 viewIssueDetails errorCodeExpanded expanded cursorPresent file issue =
@@ -816,14 +821,14 @@ viewIssueDetails errorCodeExpanded expanded cursorPresent file issue =
         { title = String.trim issue.title
         , hint =
             Just <|
-                if issue.region.start.row == issue.region.end.row then
-                    "line " ++ String.fromInt issue.region.start.row
+                if issue.region.start.line == issue.region.end.line then
+                    "line " ++ String.fromInt issue.region.start.line
 
                 else
                     "lines "
-                        ++ String.fromInt issue.region.start.row
+                        ++ String.fromInt issue.region.start.line
                         ++ "–"
-                        ++ String.fromInt issue.region.end.row
+                        ++ String.fromInt issue.region.end.line
         , highlight = cursorPresent
         , onClick =
             if expanded then
@@ -873,7 +878,7 @@ viewIssueDetails errorCodeExpanded expanded cursorPresent file issue =
 
 
 onlyActiveFile viewing fileIssue =
-    (Just fileIssue.path == Maybe.map .fileName viewing)
+    (Just fileIssue.path == Maybe.map .filepath viewing)
         || (viewing == Nothing)
 
 

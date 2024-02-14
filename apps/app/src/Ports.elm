@@ -41,8 +41,7 @@ outgoing out =
 
 type Incoming
     = VisibleEditorsUpdated
-        { active : Maybe Editor.Editor
-        , visible : List Editor.Editor
+        { visible : List Editor.Editor
         }
     | ProjectsStatusUpdated (List Elm.ProjectStatus.Status)
     | WarningsUpdated
@@ -466,15 +465,9 @@ incomingDecoder =
 
                     "EditorVisibilityChanged" ->
                         Decode.field "details"
-                            (Decode.map2
-                                (\active vis ->
-                                    VisibleEditorsUpdated
-                                        { active = active
-                                        , visible = vis
-                                        }
-                                )
-                                (Decode.field "active"
-                                    (Decode.nullable Editor.decodeEditor)
+                            (Decode.map
+                                (\vis ->
+                                    VisibleEditorsUpdated { visible = vis }
                                 )
                                 (Decode.field "visible"
                                     (Decode.list Editor.decodeEditor)

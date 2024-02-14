@@ -7,10 +7,12 @@ import Json.Encode as Encode
 
 
 type alias Editor =
-    { fileName : String
+    { filepath : String
     , unsavedChanges : Bool
-    , ranges : List Range
-    , selections : List Range
+    , regions : List Range
+
+    -- , selections : List Range
+    , active : Bool
     }
 
 
@@ -49,28 +51,28 @@ type alias Region =
 
 
 type alias Position =
-    { row : Int
-    , col : Int
+    { line : Int
+    , column : Int
     }
 
 
 moduleName : Editor -> String
 moduleName editor =
-    editor.fileName
+    editor.filepath
         |> String.split "/"
         |> List.reverse
         |> List.head
-        |> Maybe.withDefault editor.fileName
+        |> Maybe.withDefault editor.filepath
 
 
 regionToString : Region -> String
 regionToString region =
-    String.fromInt region.start.row ++ ":" ++ String.fromInt region.end.row
+    String.fromInt region.start.line ++ ":" ++ String.fromInt region.end.line
 
 
 visibleRanges : List Editor -> List Range
 visibleRanges editors =
-    List.concatMap .ranges editors
+    List.concatMap .regions editors
 
 
 
@@ -88,8 +90,8 @@ encodeRegion region =
 encodePosition : Position -> Encode.Value
 encodePosition pos =
     Encode.object
-        [ ( "line", Encode.int pos.row )
-        , ( "column", Encode.int pos.col )
+        [ ( "line", Encode.int pos.line )
+        , ( "column", Encode.int pos.column )
         ]
 
 
@@ -100,10 +102,11 @@ encodePosition pos =
 decodeEditor : Decode.Decoder Editor
 decodeEditor =
     Decode.map4 Editor
-        (Decode.field "fileName" Decode.string)
+        (Decode.field "filepath" Decode.string)
         (Decode.field "unsavedChanges" Decode.bool)
-        (Decode.field "ranges" (Decode.list decodeRegion))
-        (Decode.field "selections" (Decode.list decodeRegion))
+        (Decode.field "regions" (Decode.list decodeRegion))
+        -- (Decode.field "selections" (Decode.list decodeRegion))
+        (Decode.field "active" Decode.bool)
 
 
 decodeWorkspaceFolder =
@@ -153,10 +156,10 @@ below rng viewing =
 
 
 overlap one two =
-    if one.start.row >= two.start.row && one.start.row <= two.end.row then
+    if one.start.line >= two.start.line && one.start.line <= two.end.line then
         True
 
-    else if one.end.row >= two.start.row && one.end.row <= two.end.row then
+    else if one.end.line >= two.start.line && one.end.line <= two.end.line then
         True
 
     else
@@ -164,8 +167,8 @@ overlap one two =
 
 
 belowRange shouldBeBelow two =
-    shouldBeBelow.start.row > two.end.row
+    shouldBeBelow.start.line > two.end.line
 
 
 aboveRange shouldBeAbove two =
-    shouldBeAbove.end.row < two.start.row
+    shouldBeAbove.end.line < two.start.line

@@ -111,7 +111,7 @@ type ErrType
 
 inEditor : File -> Editor.Editor -> Bool
 inEditor file editor =
-    file.path == editor.fileName
+    file.path == editor.filepath
 
 
 
@@ -190,7 +190,7 @@ fileError =
         (Decode.field "name" Decode.string)
         (Decode.field "problems"
             (Decode.map
-                (List.sortBy (.region >> .start >> .row))
+                (List.sortBy (.region >> .start >> .line))
                 (Decode.list decodeProblem)
             )
         )
