@@ -1,4 +1,8 @@
-module Flags exposing (Flags, Platform, decoder)
+module Flags exposing
+    ( Flags
+    , Platform(..)
+    , decoder
+    )
 
 import Json.Decode as Decode
 

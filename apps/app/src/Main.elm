@@ -73,6 +73,21 @@ panelLog =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case panelLog msg of
+        WindowMinimizeClicked ->
+            ( model
+            , Ports.outgoing Ports.WindowMinimize
+            )
+
+        WindowMaximizeClicked ->
+            ( model
+            , Ports.outgoing Ports.WindowMaximize
+            )
+
+        WindowCloseClicked ->
+            ( model
+            , Ports.outgoing Ports.WindowClose
+            )
+
         Incoming (Err err) ->
             let
                 _ =
@@ -248,20 +263,14 @@ view model =
         [ Html.Attributes.style "width" "100vw"
         , Html.Attributes.style "height" "100vh"
         , Html.Attributes.style "background-color" "#f5f5f5"
-        , Html.Attributes.style "border-radius" "50px"
+        , Html.Attributes.style "color" "black"
+        , Html.Attributes.style "border-radius" "10px"
         ]
         [ Ui.overrides
         , Ui.layout
             [ Ui.htmlAttribute (Html.Attributes.class "base")
             , Ui.width Ui.fill
             , Ui.height Ui.fill
-            , Ui.inFront
-                (Ui.el
-                    [ Ui.alignTop
-                    , Ui.alignRight
-                    ]
-                    (viewServerStatus model.server)
-                )
             , Ui.inFront
                 (Ui.el
                     [ Ui.alignBottom
@@ -279,6 +288,15 @@ view model =
             ]
             (Ui.column [ Ui.width Ui.fill, Ui.height Ui.fill ]
                 [ Ui.WindowHeader.view
+                    { onMinimize = WindowMinimizeClicked
+                    , onMaximize = WindowMaximizeClicked
+                    , onClose = WindowCloseClicked
+                    , title = viewServerStatus model.server
+                    , platform =
+                        model.flags
+                            |> Maybe.map .platform
+                            |> Maybe.withDefault Flags.Mac
+                    }
                 , case model.viewing of
                     Overview ->
                         viewOverview model

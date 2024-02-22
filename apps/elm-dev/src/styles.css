@@ -4,9 +4,9 @@
   line-height: 24px;
   font-weight: 400;
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-  /* background-color: transparent; */
+  /* color: #0f0f0f; */
+  /* background-color: #f6f6f6; */
+  background-color: transparent;
   border-radius: 10px;
 
   font-synthesis: none;
@@ -113,12 +113,8 @@ button {
 /* Tauri header stuff */
 
 .titlebar {
-  height: 30px;
   /* background: #329ea3; */
   user-select: none;
-  display: flex;
-  justify-content: flex-end;
-  width: 100%;
 }
 .titlebar-button {
   display: inline-flex;

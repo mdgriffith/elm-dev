@@ -5,7 +5,7 @@ module Ui exposing
     , when, whenJust, precise, rounded, noAttr
     , overrides
     , maybeAttr
-    , header, showLive, transition
+    , colors, header, showLive, transition
     )
 
 {-|

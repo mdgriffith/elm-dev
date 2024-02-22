@@ -4,6 +4,7 @@ import * as Question from "../../app/interop/watchtower/question";
 import * as Message from "../../app/interop/messages";
 import * as JSONSafe from "../../app/interop/utils/json";
 import { platform } from "@tauri-apps/api/os";
+import { appWindow } from "@tauri-apps/api/window";
 
 async function boot() {
   const platformString = await platform();
@@ -21,6 +22,15 @@ async function boot() {
       case "Jump":
         break;
       case "FillTypeSignatures":
+        break;
+      case "WindowMinimize":
+        appWindow.minimize();
+        break;
+      case "WindowMaximize":
+        appWindow.toggleMaximize();
+        break;
+      case "WindowClose":
+        appWindow.close();
         break;
       default:
         console.log("Unknown message", message);

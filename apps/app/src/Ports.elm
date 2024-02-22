@@ -399,6 +399,9 @@ type Outgoing
     = ConnectToServer
     | Goto Editor.Location
     | FillTypeSignatures String
+    | WindowMinimize
+    | WindowMaximize
+    | WindowClose
 
 
 encodeOutgoing : Outgoing -> Json.Encode.Value
@@ -429,6 +432,15 @@ encodeOutgoing out =
                         ]
                   )
                 ]
+
+        WindowMinimize ->
+            Json.Encode.object [ ( "msg", Json.Encode.string "WindowMinimize" ) ]
+
+        WindowMaximize ->
+            Json.Encode.object [ ( "msg", Json.Encode.string "WindowMaximize" ) ]
+
+        WindowClose ->
+            Json.Encode.object [ ( "msg", Json.Encode.string "WindowClose" ) ]
 
 
 incomingDecoder : Decode.Decoder Incoming

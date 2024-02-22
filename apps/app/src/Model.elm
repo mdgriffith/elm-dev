@@ -60,3 +60,7 @@ type Msg
     | ErrorMenuUpdated Bool
     | ErrorCodeToggled Elm.ProjectStatus.CodeReferenceKey Bool
     | CurrentTime Time.Posix
+      -- Window messages
+    | WindowMaximizeClicked
+    | WindowMinimizeClicked
+    | WindowCloseClicked
