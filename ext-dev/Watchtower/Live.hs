@@ -78,6 +78,7 @@ initWith root =
 discoverProjects :: FilePath -> IO [Client.ProjectCache]
 discoverProjects root = do
   projects <- Ext.Dev.Project.discover root
+
   let projectTails = fmap (getProjectShorthand root) projects
   Ext.Log.log Ext.Log.Live (("👁️  found projects\n" ++ root) <> formatList projectTails)
   Monad.foldM initializeProject [] projects
