@@ -10,12 +10,16 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "^1.5.2"
+    "@tauri-apps/api": "2.0.0-rc.2",
+    "@tauri-apps/plugin-http": "2.0.0-rc.1",
+    "@tauri-apps/plugin-os": "2.0.0-rc.0",
+    "@tauri-apps/plugin-positioner": "2.0.0-rc.0",
+    "@tauri-apps/plugin-shell": "2.0.0-rc.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^1.5.8",
-    "vite": "^5.0.0",
+    "@tauri-apps/cli": "2.0.0-rc.5",
     "typescript": "^5.0.2",
+    "vite": "^5.0.0",
     "vite-plugin-elm": "^3.0.0"
   }
 }

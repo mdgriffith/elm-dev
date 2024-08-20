@@ -2,60 +2,26 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build",
-    "devPath": "http://localhost:1420",
-    "distDir": "../dist",
-    "withGlobalTauri": true
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420"
   },
-  "package": {
-    "productName": "Elm Dev",
-    "version": "0.0.0"
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
   },
-  "tauri": {
+  "productName": "Elm Dev",
+  "version": "0.0.0",
+  "identifier": "com.tauri.dev",
+  "plugins": {},
+  "app": {
     "macOSPrivateApi": true,
-    "systemTray": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
-    },
-    "allowlist": {
-      "all": false,
-      "shell": {
-        "all": false,
-        "open": true
-      },
-      "http": {
-        "all": true,
-        "request": true
-      },
-      "os": {
-        "all": true
-      },
-      "window": {
-        "all": false,
-        "close": true,
-        "hide": true,
-        "show": true,
-        "maximize": true,
-        "minimize": true,
-        "unmaximize": true,
-        "unminimize": true,
-        "startDragging": true
-      }
-    },
-    "bundle": {
-      "active": true,
-      "targets": "all",
-      "identifier": "com.tauri.dev",
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/icon.icns",
-        "icons/icon.ico"
-      ]
-    },
-    "security": {
-      "csp": null
-    },
     "windows": [
       {
         "fullscreen": false,
@@ -68,6 +34,14 @@
         "decorations": false,
         "transparent": true
       }
-    ]
+    ],
+    "withGlobalTauri": true,
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    },
+    "security": {
+      "csp": null
+    }
   }
 }

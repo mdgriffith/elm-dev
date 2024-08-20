@@ -1,0 +1,31 @@
+{
+  "identifier": "migrated",
+  "description": "permissions that were migrated from v1",
+  "local": true,
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "shell:allow-open",
+    "http:default",
+    "os:allow-platform",
+    "os:allow-version",
+    "os:allow-os-type",
+    "os:allow-family",
+    "os:allow-arch",
+    "os:allow-exe-extension",
+    "os:allow-locale",
+    "os:allow-hostname",
+    "shell:default",
+    "os:default",
+    "http:default",
+    "positioner:default"
+  ]
+}
