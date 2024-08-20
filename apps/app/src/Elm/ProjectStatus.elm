@@ -4,7 +4,6 @@ module Elm.ProjectStatus exposing (..)
 
 import Editor
 import Json.Decode as Decode
-import Set
 
 
 successful : List Status -> Bool

@@ -19,7 +19,6 @@ import Navigator
 import Ports
 import Question
 import Set exposing (Set)
-import Time
 import Time.Distance
 import Ui
 import Ui.Card
@@ -54,7 +53,7 @@ init flagsJson =
       , projectsVersion = 0
       , now = Nothing
       , lastUpdated = Nothing
-      , viewing = Overview
+      , viewing = ViewingProjectList
       , warnings = Dict.empty
       , errorMenuVisible = False
       , errorCodeExpanded = Set.empty
@@ -65,9 +64,9 @@ init flagsJson =
     )
 
 
+panelLog : a -> a
 panelLog =
-    -- Debug.log "Msg"
-    identity
+    Debug.log "Msg"
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -114,16 +113,13 @@ update msg model =
                     , Cmd.none
                     )
 
-                Ports.ProjectsStatusUpdated statuses ->
+                Ports.ProjectsStatusUpdated projects ->
                     let
-                        success =
-                            Elm.ProjectStatus.successful statuses
-
                         _ =
                             panelLog "ProjectsStatusUpdated"
                     in
                     ( { model
-                        | projects = statuses
+                        | projects = projects
                         , projectsVersion = model.projectsVersion + 1
                         , errorMenuVisible = False
                         , errorCodeExpanded = Set.empty
@@ -170,7 +166,12 @@ update msg model =
 
                 Ports.ServerStatusUpdated server ->
                     ( { model | server = server }
-                    , Cmd.none
+                    , case server.status of
+                        Ports.Connected _ ->
+                            Ports.outgoing Ports.RequestProjectList
+
+                        _ ->
+                            Cmd.none
                     )
 
         ErrorMenuUpdated new ->
@@ -298,8 +299,16 @@ view model =
                             |> Maybe.withDefault Flags.Mac
                     }
                 , case model.viewing of
-                    Overview ->
-                        viewOverview model
+                    Model.ViewingProjectList ->
+                        viewProjects model
+                            |> Ui.el
+                                [ Ui.width Ui.fill
+                                , Ui.height Ui.fill
+                                , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
+                                ]
+
+                    Model.ViewingProject project ->
+                        viewProject model project
                 ]
             )
         ]
@@ -327,33 +336,71 @@ viewServerStatus server =
                 (Ui.text (info.host ++ ":" ++ info.port_))
 
 
-viewOverview : Model -> Ui.Element Msg
-viewOverview model =
+viewProjects : Model -> Ui.Element Msg
+viewProjects model =
+    Ui.column [ Ui.spacing 24, Ui.padding 24 ]
+        [ Ui.text ("Projects (" ++ String.fromInt (List.length model.projects) ++ ")")
+        , Ui.column [ Ui.spacing 24, Ui.padding 24 ]
+            (List.map viewProjectCard model.projects)
+        ]
+
+
+viewProjectCard : Elm.ProjectStatus.Project -> Ui.Element Msg
+viewProjectCard project =
+    Ui.column
+        [ Ui.spacing 12
+        , Ui.padding 16
+        , Ui.rounded.md
+        , Ui.border.grey.dark
+        , Border.width 1
+        , Ui.pointer
+        , Events.onClick (Model.View (Model.ViewingProject project))
+        ]
+        [ Ui.text project.root
+        , viewProjectStatus project.status
+        ]
+
+
+viewProjectStatus : Elm.ProjectStatus.Status -> Ui.Element Msg
+viewProjectStatus status =
+    case status of
+        Elm.ProjectStatus.NoData ->
+            Ui.text "No data"
+
+        Elm.ProjectStatus.Success ->
+            Ui.text "Success"
+
+        Elm.ProjectStatus.GlobalError globe ->
+            Ui.text "Global error"
+
+        Elm.ProjectStatus.CompilerError { errors } ->
+            Ui.text "Compiler error"
+
+
+viewProject : Model -> Elm.ProjectStatus.Project -> Ui.Element Msg
+viewProject model project =
     let
         found =
-            List.foldl
-                (\project ({ globals, errs } as gathered) ->
-                    case project of
-                        Elm.ProjectStatus.NoData ->
-                            gathered
+            case project.status of
+                Elm.ProjectStatus.NoData ->
+                    { globals = []
+                    , errs = []
+                    }
 
-                        Elm.ProjectStatus.Success ->
-                            gathered
+                Elm.ProjectStatus.Success ->
+                    { globals = []
+                    , errs = []
+                    }
 
-                        Elm.ProjectStatus.GlobalError globe ->
-                            { globals = globe :: globals
-                            , errs = errs
-                            }
+                Elm.ProjectStatus.GlobalError globe ->
+                    { globals = [ globe ]
+                    , errs = []
+                    }
 
-                        Elm.ProjectStatus.CompilerError { errors } ->
-                            { globals = globals
-                            , errs = errors ++ errs
-                            }
-                )
-                { globals = []
-                , errs = []
-                }
-                model.projects
+                Elm.ProjectStatus.CompilerError { errors } ->
+                    { globals = []
+                    , errs = errors
+                    }
 
         viewSignatureGroup ( editor, signatures ) =
             Ui.column
@@ -443,8 +490,15 @@ viewOverview model =
         , Ui.width Ui.fill
         , Ui.height Ui.fill
         , Ui.pad.xl
-
-        -- , Ui.htmlAttribute (Html.Attributes.style "overflow" "auto")
+        , Ui.inFront
+            (Ui.el
+                [ Ui.alignLeft
+                , Ui.alignTop
+                , Ui.pointer
+                , Events.onClick (Model.View ViewingProjectList)
+                ]
+                (Ui.text "< Back")
+            )
         ]
         [ Ui.row [ Ui.width Ui.fill ]
             [ Ui.el [ Ui.font.cyan ]

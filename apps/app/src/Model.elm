@@ -10,7 +10,6 @@ import Elm.ProjectStatus
 import Flags
 import Http
 import Json.Decode as Decode
-import Json.Encode
 import Ports
 import Question
 import Set exposing (Set)
@@ -24,7 +23,7 @@ type alias Model =
     -- editor
     , active : Maybe Editor.Editor
     , visible : List Editor.Editor
-    , projects : List Elm.ProjectStatus.Status
+    , projects : List Elm.ProjectStatus.Project
     , projectsVersion : Int
 
     -- local UI state
@@ -46,7 +45,8 @@ type alias FilePath =
 
 
 type Viewing
-    = Overview
+    = ViewingProjectList
+    | ViewingProject Elm.ProjectStatus.Project
 
 
 type Msg

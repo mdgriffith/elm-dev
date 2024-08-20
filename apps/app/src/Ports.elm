@@ -43,7 +43,7 @@ type Incoming
     = VisibleEditorsUpdated
         { visible : List Editor.Editor
         }
-    | ProjectsStatusUpdated (List Elm.ProjectStatus.Status)
+    | ProjectsStatusUpdated (List Elm.ProjectStatus.Project)
     | WarningsUpdated
         { filepath : String
         , warnings : List Warning
@@ -397,6 +397,7 @@ type Warning
 
 type Outgoing
     = ConnectToServer
+    | RequestProjectList
     | Goto Editor.Location
     | FillTypeSignatures String
     | WindowMinimize
@@ -410,6 +411,11 @@ encodeOutgoing out =
         ConnectToServer ->
             Json.Encode.object
                 [ ( "msg", Json.Encode.string "ConnectToServer" )
+                ]
+
+        RequestProjectList ->
+            Json.Encode.object
+                [ ( "msg", Json.Encode.string "RequestProjectList" )
                 ]
 
         Goto location ->
@@ -473,7 +479,11 @@ incomingDecoder =
 
                     "Status" ->
                         Decode.map ProjectsStatusUpdated
-                            (Decode.field "details" (Decode.list (Decode.map .status Elm.ProjectStatus.decodeProject)))
+                            (Decode.field "details"
+                                (Decode.list
+                                    Elm.ProjectStatus.decodeProject
+                                )
+                            )
 
                     "EditorVisibilityChanged" ->
                         Decode.field "details"

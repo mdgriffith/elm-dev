@@ -23,25 +23,28 @@ view :
     -> Ui.Element msg
 view options =
     if isWindows options.platform then
-        Ui.row [ Ui.width Ui.fill, Ui.padding 8 ]
+        Ui.row
+            [ Ui.width Ui.fill
+            , Ui.htmlAttribute (Attr.style "user-select" "none")
+            ]
             [ options.title
             , viewWindowBar options
             ]
 
     else if isMac options.platform then
-        Ui.row [ Ui.width Ui.fill, Ui.padding 8 ]
+        Ui.row [ Ui.width Ui.fill ]
             [ viewMacBar options
             , options.title
             ]
 
     else if isLinux options.platform then
-        Ui.row [ Ui.width Ui.fill, Ui.padding 8 ]
+        Ui.row [ Ui.width Ui.fill ]
             [ options.title
             , viewWindowBar options
             ]
 
     else
-        Ui.row [ Ui.width Ui.fill, Ui.padding 8 ]
+        Ui.row [ Ui.width Ui.fill ]
             [ options.title
             ]
 
@@ -65,6 +68,7 @@ viewMacBar : { a | onClose : msg, onMaximize : msg, onMinimize : msg } -> Elemen
 viewMacBar options =
     Ui.row
         [ Ui.spacing 8
+        , Ui.padding 8
         , Ui.alignTop
         , Ui.width Ui.fill
         , Ui.htmlAttribute (Attr.attribute "data-tauri-drag-region" "")

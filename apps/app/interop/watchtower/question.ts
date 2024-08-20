@@ -37,6 +37,7 @@ type Position = {
 
 type Question =
   | { msg: "Discover"; directory: String }
+  | { msg: "ProjectList" }
   | { msg: "ServerHealth" }
   | { msg: "Warnings"; filepath: String }
   | { msg: "CallGraph"; filepath: String }
@@ -47,8 +48,13 @@ const serverHealth: Question = {
   msg: "ServerHealth",
 };
 
+const projectList: Question = {
+  msg: "ProjectList",
+};
+
 export const questions = {
-  serverHealth: serverHealth,
+  serverHealth,
+  projectList,
   discover: (dir: String): Question => {
     return {
       msg: "Discover",
@@ -168,6 +174,10 @@ export class ElmDev {
       case "ServerHealth": {
         this.get("/health", onSuccess, onError);
 
+        break;
+      }
+      case "ProjectList": {
+        this.get("/status", onSuccess, onError);
         break;
       }
       case "Discover": {

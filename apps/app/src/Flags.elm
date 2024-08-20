@@ -46,6 +46,9 @@ platformDecoder =
                     "darwin" ->
                         Decode.succeed Mac
 
+                    "macos" ->
+                        Decode.succeed Mac
+
                     "vscode" ->
                         Decode.succeed VSCode
 
