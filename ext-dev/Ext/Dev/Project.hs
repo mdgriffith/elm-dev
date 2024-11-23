@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 
 module Ext.Dev.Project
@@ -52,8 +51,6 @@ defaultImports =
       "Basics"
     ]
 
--- |
---  ModuelName -> Path
 lookupModulePath :: Elm.Details.Details -> ModuleName.Raw -> Maybe FilePath
 lookupModulePath details canModuleName =
   details
@@ -115,20 +112,21 @@ Entrypoints:
 -}
 data Project = Project
   { _root :: FilePath,
+    _projectRoot :: FilePath,
     _entrypoints :: [FilePath]
   }
   deriving (Show)
 
 equal :: Project -> Project -> Bool
-equal (Project root1 _) (Project root2 _) =
+equal (Project root1 _ _) (Project root2 _ _) =
   root1 == root2
 
 getRoot :: Project -> FilePath
-getRoot (Project root _) =
+getRoot (Project root _ _) =
   root
 
 contains :: FilePath -> Project -> Bool
-contains path (Project root _) =
+contains path (Project root _ _) =
   root `List.isPrefixOf` path
 
 {- Recursively find files named elm.json.
@@ -148,8 +146,8 @@ Ultimately we want to:
 
 -}
 discover :: FilePath -> IO [Project]
-discover =
-  searchProjectHelp []
+discover projectBase =
+  searchProjectHelp projectBase [] projectBase
 
 shouldSkip :: FilePath -> Bool
 shouldSkip path =
@@ -169,15 +167,15 @@ listDirectoriesSafe path = Exception.try $ do
     then Dir.listDirectory path
     else return []
 
-searchProjectHelp :: [Project] -> FilePath -> IO [Project]
-searchProjectHelp projs root = do
+searchProjectHelp :: FilePath -> [Project] -> FilePath -> IO [Project]
+searchProjectHelp projectRoot projs root = do
   if shouldSkip root
     then pure projs
     else do
       elmJsonExists <- Dir.doesFileExist (root </> "elm.json")
       newProjects <-
         if elmJsonExists
-          then (: projs) <$> createProject root
+          then (: projs) <$> createProject projectRoot root
           else pure projs
 
       dirResult <- listDirectoriesSafe root
@@ -185,7 +183,7 @@ searchProjectHelp projs root = do
         Right dirNames -> do
           let paths = map (root </>) dirNames
           dirs <- Monad.filterM Dir.doesDirectoryExist paths
-          Monad.foldM searchProjectHelp newProjects dirs
+          Monad.foldM (searchProjectHelp projectRoot) newProjects dirs
         Left err -> do
           _ <- Ext.Log.log Ext.Log.Live ("Error " <> show err)
           pure newProjects
@@ -197,30 +195,32 @@ searchProjectHelp projs root = do
  Otherwise, if this is an application, we look for a `Main.elm`
 
 -}
-createProject :: FilePath -> IO Project
-createProject root = do
-  outlineResult <- Elm.Outline.read root
+createProject :: FilePath -> FilePath -> IO Project
+createProject projectRoot elmJsonRoot = do
+  outlineResult <- Elm.Outline.read elmJsonRoot
   case outlineResult of
     Right (Elm.Outline.App _) -> do
-      maybeElmMain <- findFirstFileNamed "Main.elm" root
+      maybeElmMain <- findFirstFileNamed "Main.elm" elmJsonRoot
       case maybeElmMain of
         Nothing ->
-          pure (Project root [])
+          pure (Project elmJsonRoot projectRoot [])
         Just main -> do
-          pure (Project root [main])
+          pure (Project elmJsonRoot projectRoot [main])
     Right (Elm.Outline.Pkg pkg) -> do
       case Elm.Outline._pkg_exposed pkg of
         Elm.Outline.ExposedList rawModNameList ->
           pure
             ( Project
-                root
-                (rawModuleNameToPackagePath root <$> rawModNameList)
+                elmJsonRoot
+                projectRoot
+                (rawModuleNameToPackagePath elmJsonRoot <$> rawModNameList)
             )
         Elm.Outline.ExposedDict dict ->
           pure
             ( Project
-                root
-                (concatMap (\(_, modList) -> rawModuleNameToPackagePath root <$> modList) dict)
+                elmJsonRoot
+                projectRoot
+                (concatMap (\(_, modList) -> rawModuleNameToPackagePath elmJsonRoot <$> modList) dict)
             )
     Left err -> do
       _ <-
@@ -228,7 +228,7 @@ createProject root = do
           Ext.Log.Live
           ( "Elm Outline Error: " <> Exit.toString (Exit.toOutlineReport err)
           )
-      pure (Project root [])
+      pure (Project elmJsonRoot projectRoot [])
 
 rawModuleNameToPackagePath :: FilePath -> ModuleName.Raw -> FilePath
 rawModuleNameToPackagePath root modul =
@@ -262,6 +262,7 @@ decodeProject :: Json.Decode.Decoder x Project
 decodeProject =
   Project
     <$> Json.Decode.field "root" decodeFilePath
+    <*> Json.Decode.field "projectRoot" decodeFilePath
     <*> Json.Decode.field "entrypoints" (Json.Decode.list decodeFilePath)
 
 decodeFilePath :: Json.Decode.Decoder x FilePath
@@ -278,9 +279,10 @@ decodeFilePath =
     <$> (Json.String.toChars <$> Json.Decode.string)
 
 encodeProjectJson :: Project -> Json.Encode.Value
-encodeProjectJson (Project elmJson entrypoints) =
+encodeProjectJson (Project elmJson projectRoot entrypoints) =
   Json.Encode.object
     [ "root" ==> Json.Encode.string (Json.String.fromChars elmJson),
+      "projectRoot" ==> Json.Encode.string (Json.String.fromChars projectRoot),
       "entrypoints"
         ==> Json.Encode.list
           (Json.Encode.string . Json.String.fromChars)

@@ -111,24 +111,37 @@ websocket state =
     [ ("/ws", websocket_ state)
     ]
 
+isSuccess :: Either Json.Encode.Value Json.Encode.Value -> Bool
+isSuccess (Left _) = True
+isSuccess (Right _) = False
+
+flattenJsonStatus :: Either Json.Encode.Value Json.Encode.Value -> Json.Encode.Value
+flattenJsonStatus (Left json) = json
+flattenJsonStatus (Right json) = json
+
 websocket_ :: Client.State -> Snap ()
-websocket_ state@(Client.State mClients projects) = do
+websocket_ state@(Client.State mClients mProjects) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
       let onJoined clientId totalClients = do
-            -- statuses <-
-            --   Monad.foldM
-            --     ( \gathered (ProjectCache proj cache) ->
-            --         do
-            --           jsonStatus <- Ext.Sentry.getCompileResult cache
-            --           pure $ addProjectStatusIfErr proj jsonStatus gathered
-            --     )
-            --     []
-            --     projects
-            Ext.Log.log Ext.Log.Live "💪  Joined"
-            -- pure $ Just $ builderToString $ encodeOutgoing (ElmStatus statuses)
-            pure Nothing
+            projects <- STM.readTVarIO mProjects
+            statuses <-
+              Monad.foldM
+                ( \gathered (Client.ProjectCache proj sentry) -> do
+                    jsonStatusResult <- Ext.Sentry.getCompileResult sentry
+                    let projectStatus =
+                          Client.ProjectStatus
+                            proj
+                            (isSuccess jsonStatusResult)
+                            (flattenJsonStatus jsonStatusResult)
+                    pure $ projectStatus : gathered
+                )
+                []
+                projects
+
+            Ext.Log.log Ext.Log.Live ("💪  Joined, reporting project statuses: " <> show (length projects))
+            pure $ Just $ Client.builderToString $ Client.encodeOutgoing (Client.ElmStatus statuses)
 
       Watchtower.Websocket.runWebSocketsSnap $
         Watchtower.Websocket.socketHandler
@@ -147,10 +160,11 @@ error404 =
     modifyResponse $ setContentType "text/html; charset=utf-8"
     writeBuilder $ Develop.Generate.Help.makePageHtml "NotFound" Nothing
 
+receive :: Client.State -> Client.ClientId -> T.Text -> IO ()
 receive state clientId text = do
   case Json.Decode.fromByteString Client.decodeIncoming (T.encodeUtf8 text) of
     Left err -> do
-      Ext.Log.log Ext.Log.Live $ (T.unpack "Error decoding!" <> T.unpack text)
+      Ext.Log.log Ext.Log.Live $ T.unpack "Error decoding!" <> T.unpack text
       pure ()
     Right action -> do
       receiveAction state clientId action
@@ -160,13 +174,13 @@ receiveAction state@(Client.State mClients mProjects) senderClientId incoming =
   case incoming of
     Client.Changed fileChanged ->
       do
-        Ext.Log.log Ext.Log.Live ("👀 file changed: " <> (FilePath.takeFileName fileChanged))
+        Ext.Log.log Ext.Log.Live ("👀 file changed: " <> FilePath.takeFileName fileChanged)
         Watchtower.Live.Compile.recompile state [fileChanged]
     Client.Watched watching ->
       do
         Ext.Log.log
           Ext.Log.Live
-          ("👀 watch changed" <> ("\n    " ++ List.intercalate "\n    " (fmap FilePath.takeFileName ((Map.keys watching)))))
+          ("👀 watch changed" <> ("\n    " ++ List.intercalate "\n    " (fmap FilePath.takeFileName (Map.keys watching))))
 
         maybePreviouslyWatching <- Client.getClientData senderClientId state
 
@@ -224,23 +238,21 @@ receiveAction state@(Client.State mClients mProjects) senderClientId incoming =
 
       Watchtower.Live.Compile.recompile state (Map.keys watching)
     Client.EditorViewingUpdated viewingList -> do
-      Ext.Log.log Ext.Log.Live ("👀 editor viewing updated: " ++ (show viewingList))
+      Ext.Log.log Ext.Log.Live ("👀 editor viewing updated: " ++ show viewingList)
       broadCastToEveryoneNotMe
         state
         senderClientId
         (Client.EditorViewing viewingList)
     Client.EditorJumpToRequested file position -> do
-      Ext.Log.log Ext.Log.Live ("👀 editor jump to requested: " ++ (show file) ++ " " ++ (show position))
+      Ext.Log.log Ext.Log.Live ("👀 editor jump to requested: " ++ show file ++ " " ++ show position)
       broadCastToEveryoneNotMe
         state
         senderClientId
         (Client.EditorJumpTo file position)
 
 broadCastToEveryoneNotMe :: Client.State -> Client.ClientId -> Client.Outgoing -> IO ()
-broadCastToEveryoneNotMe (Client.State mClients _) myClientId outgoing =
+broadCastToEveryoneNotMe (Client.State mClients _) myClientId =
   Client.broadcastToMany
     mClients
-    ( \client ->
-        not (Watchtower.Websocket.matchId myClientId client)
+    ( not . Watchtower.Websocket.matchId myClientId
     )
-    outgoing
