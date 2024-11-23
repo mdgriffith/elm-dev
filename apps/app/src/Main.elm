@@ -110,7 +110,23 @@ update msg model =
                                 |> List.filter .active
                                 |> List.head
                       }
-                    , Cmd.none
+                    , List.filterMap
+                        (\editor ->
+                            if String.endsWith ".elm" editor.filepath then
+                                let
+                                    _ =
+                                        panelLog ("Asking for callgraph: " ++ editor.filepath)
+                                in
+                                Just
+                                    (Question.ask.callgraph editor.filepath
+                                        |> Cmd.map AnswerReceived
+                                    )
+
+                            else
+                                Nothing
+                        )
+                        visible
+                        |> Cmd.batch
                     )
 
                 Ports.ProjectsStatusUpdated projects ->
@@ -140,13 +156,13 @@ update msg model =
                     , Cmd.none
                     )
 
-                Ports.CallGraphReceived { filepath, callgraph } ->
+                Ports.CallGraphReceived callgraph ->
                     let
                         _ =
-                            panelLog "Callgraph received!"
+                            panelLog ("Callgraph received! " ++ callgraph.filepath)
                     in
                     ( { model
-                        | callgraph = Dict.insert filepath callgraph model.callgraph
+                        | callgraph = Dict.insert callgraph.filepath callgraph.nodes model.callgraph
                         , lastUpdated = model.now
                       }
                     , Cmd.none
@@ -230,6 +246,23 @@ update msg model =
             case answer of
                 Question.MissingTypeSignatures path missing ->
                     ( model
+                    , Cmd.none
+                    )
+
+                Question.Health health ->
+                    ( model
+                    , Cmd.none
+                    )
+
+                Question.Status status ->
+                    ( model
+                    , Cmd.none
+                    )
+
+                Question.CallGraph callgraph ->
+                    ( { model
+                        | callgraph = Dict.insert callgraph.filepath callgraph.nodes model.callgraph
+                      }
                     , Cmd.none
                     )
 
@@ -357,7 +390,10 @@ viewProjectCard project =
         , Events.onClick (Model.View (Model.ViewingProject project))
         ]
         [ Ui.text project.root
+        , Ui.text project.projectRoot
         , viewProjectStatus project.status
+        , Ui.row []
+            (List.map Ui.text project.entrypoints)
         ]
 
 
@@ -505,6 +541,16 @@ viewProject model project =
                 (Ui.text visibleFileNames)
             , foundErrorsMenu model found
             ]
+        , Dict.toList model.callgraph
+            |> Debug.log "callgraph"
+            |> List.map
+                (\( filepath, callgraph ) ->
+                    Ui.column [ Ui.width Ui.fill ]
+                        [ Ui.text filepath
+                        , Navigator.view callgraph
+                        ]
+                )
+            |> Ui.column [ Ui.width Ui.fill, Ui.htmlAttribute (Html.Attributes.id "graph") ]
 
         -- , viewMetric "Missing typesignatures"
         --     viewSignatureGroup

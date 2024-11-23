@@ -28,6 +28,7 @@ successful statuses =
 
 type alias Project =
     { root : String
+    , projectRoot : String
     , entrypoints : List String
     , status : Status
     }
@@ -120,11 +121,10 @@ inEditor file editor =
 
 decodeProject : Decode.Decoder Project
 decodeProject =
-    Decode.map3 Project
+    Decode.map4 Project
         (Decode.field "root" Decode.string)
-        -- disabled for now, it's not being reported
-        -- (Decode.field "entrypoints" (Decode.succeed []))
-        (Decode.succeed [])
+        (Decode.field "projectRoot" Decode.string)
+        (Decode.field "entrypoints" (Decode.list Decode.string))
         (Decode.field "status" decodeStatus)
 
 

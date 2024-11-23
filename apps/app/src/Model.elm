@@ -6,6 +6,7 @@ module Model exposing
 
 import Dict exposing (Dict)
 import Editor
+import Elm.CallGraph
 import Elm.ProjectStatus
 import Flags
 import Http
@@ -35,7 +36,7 @@ type alias Model =
     , warnings : Dict FilePath (List Ports.Warning)
     , errorMenuVisible : Bool
     , errorCodeExpanded : Set Elm.ProjectStatus.CodeReferenceKey
-    , callgraph : Dict FilePath (List Ports.CallGraphNode)
+    , callgraph : Dict FilePath (List Elm.CallGraph.Node)
     , facts : Dict FilePath (List Ports.Fact)
     }
 

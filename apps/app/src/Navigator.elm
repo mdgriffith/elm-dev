@@ -2,18 +2,13 @@ module Navigator exposing (..)
 
 {-| -}
 
-import Dict
 import Element as Ui
-import Element.Border as Border
-import Element.Events as Events
-import Element.Font as Font
-import Element.Keyed as Keyed
-import Html.Attributes
+import Elm.CallGraph
 import Ports
 import Ui
 
 
-view : List Ports.CallGraphNode -> Ui.Element msg
+view : List Elm.CallGraph.Node -> Ui.Element msg
 view nodes =
     -- Ui.column
     --     [ Ui.width Ui.fill
@@ -41,7 +36,7 @@ viewNode node =
                 node.calls
                     |> List.filterMap
                         (\call ->
-                            if List.member call.callType [ Ports.TopLevel ] then
+                            if List.member call.callType [ Elm.CallGraph.TopLevel ] then
                                 Just (Ui.text call.id)
 
                             else
@@ -60,11 +55,14 @@ viewNode node =
 idToFnName : String -> String
 idToFnName id =
     id
-        |> String.split "."
-        |> List.reverse
-        |> List.take 1
-        |> String.join ""
-        |> sanitizeFnName
+
+
+
+-- |> String.split "."
+-- |> List.reverse
+-- |> List.take 1
+-- |> String.join ""
+-- |> sanitizeFnName
 
 
 sanitizeFnName : String -> String
@@ -97,39 +95,52 @@ sanitizeFnName name =
 --         |> Dict.fromList
 
 
-toMermaid : List Ports.CallGraphNode -> String
+toMermaid : List Elm.CallGraph.Node -> String
 toMermaid nodes =
     let
-        -- idDict =
-        --     toIdDict nodes
         toSimpleId id =
-            -- Dict.get id idDict
-            --     |> Maybe.withDefault id
             idToFnName id
 
         nodeToMermaid node =
-            let
-                calls =
-                    node.calls
-                        |> List.filterMap
-                            (\call ->
-                                case call.callType of
-                                    Ports.TopLevel ->
-                                        Just (toSimpleId call.id)
-
-                                    _ ->
-                                        Nothing
-                            )
-            in
-            case calls of
-                [] ->
-                    []
-
-                _ ->
-                    calls
-                        |> List.map
-                            (\call ->
-                                toSimpleId node.id ++ " --> " ++ toSimpleId call
-                            )
+            node.calls
+                |> List.map
+                    (\call ->
+                        toSimpleId node.id ++ " --> " ++ toSimpleId call.id ++ parens (callTypeToString call.callType)
+                    )
     in
     "stateDiagram-v2\n    " ++ String.join "\n    " (List.concatMap nodeToMermaid nodes)
+
+
+parens : String -> String
+parens s =
+    " (" ++ s ++ ")"
+
+
+{-| type CallType
+= Local
+| TopLevel
+| Foreign
+| Constructor
+| Debug
+| Operator
+-}
+callTypeToString : Elm.CallGraph.CallType -> String
+callTypeToString callType =
+    case callType of
+        Elm.CallGraph.Local ->
+            "local"
+
+        Elm.CallGraph.TopLevel ->
+            "top-level"
+
+        Elm.CallGraph.Foreign ->
+            "foreign"
+
+        Elm.CallGraph.Constructor ->
+            "constructor"
+
+        Elm.CallGraph.Debug ->
+            "debug"
+
+        Elm.CallGraph.Operator ->
+            "operator"

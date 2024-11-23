@@ -45,7 +45,7 @@ pub fn run() {
 
             let height = match maybe_monitor {
                 None => 900,
-                Some(monitor) => monitor.size().height,
+                Some(monitor) => monitor.size().height - 60,
             };
 
             // Set window position and size.
