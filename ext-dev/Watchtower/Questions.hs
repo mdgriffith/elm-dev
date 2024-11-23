@@ -2,56 +2,50 @@
 
 module Watchtower.Questions where
 
+import qualified Build
 import Control.Applicative ((<$>), (<*>))
-import Control.Monad.Trans (MonadIO (liftIO))
 import qualified Control.Concurrent.STM as STM
-import qualified Control.Monad as Monad
 import qualified Control.Exception as Exception
+import qualified Control.Monad as Monad
+import Control.Monad.Trans (MonadIO (liftIO))
 import qualified Data.ByteString as BS
-import qualified Data.NonEmptyList as NE
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Char8
-
 import Data.Function ((&))
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
+import qualified Data.NonEmptyList as NE
 import qualified Develop.Generate.Help
+import qualified Elm.Docs as Docs
 import qualified Ext.Common
+import qualified Ext.CompileProxy
+import qualified Ext.Dev
+import qualified Ext.Dev.CallGraph
+import qualified Ext.Dev.Docs
+import qualified Ext.Dev.Explain
+import qualified Ext.Dev.Find
+import qualified Ext.Dev.InScope
+import qualified Ext.Dev.Project
+import qualified Ext.Log
+import qualified Ext.Project.Find
 import qualified Ext.Sentry
 import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Reporting.Annotation
-import qualified System.FilePath as Path
-
 import qualified Reporting.Doc
+import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type
 import qualified Reporting.Render.Type.Localizer
 import qualified Reporting.Warning as Warning
-import qualified Reporting.Exit as Exit
-
-import qualified Elm.Docs as Docs
-
 import Snap.Core hiding (path)
 import qualified Snap.Util.CORS
+import qualified Stuff
+import qualified System.FilePath as Path
+import qualified Terminal.Dev.Error
+import qualified Terminal.Dev.Out as Out
 import qualified Watchtower.Editor
 import qualified Watchtower.Live
-import qualified Ext.Dev.Project
 import qualified Watchtower.Live.Client as Client
-import qualified Stuff
-
-import qualified Build
-import qualified Ext.Dev
-import qualified Ext.Dev.Docs
-import qualified Ext.Dev.Find
-import qualified Ext.Dev.Explain
-import qualified Ext.Dev.CallGraph
-import qualified Ext.Dev.InScope
-import qualified Ext.Project.Find
-import qualified Terminal.Dev.Out as Out
-import qualified Terminal.Dev.Error
-import qualified Ext.CompileProxy
-import qualified Ext.Log
-
 
 -- One off questions and answers you might have/want.
 data Question
@@ -68,19 +62,17 @@ data Question
   | TimingParse FilePath
   | ServerHealth
 
-data DocsType 
-    = FromFile FilePath
-    | ForPackage PackageDetails
-    | ForProject FilePath
+data DocsType
+  = FromFile FilePath
+  | ForPackage PackageDetails
+  | ForProject FilePath
 
-data PackageDetails =
-  PackageDetails 
-    { _owner :: String
-    , _package :: String
-    , _version :: String
-    , _page :: PackagePage
-    }
-
+data PackageDetails = PackageDetails
+  { _owner :: String,
+    _package :: String,
+    _version :: String,
+    _page :: PackagePage
+  }
 
 data PackagePage = ReadMe | DocsJson
 
@@ -90,13 +82,12 @@ pageToFile page =
     ReadMe -> "README.md"
     DocsJson -> "docs.json"
 
-
 serve :: Watchtower.Live.State -> Snap ()
 serve state =
   do
     route
-      [ ("/docs/:owner/:package/:version/:readme", docsHandler state)
-      , ("/:action", actionHandler state)
+      [ ("/docs/:owner/:package/:version/:readme", docsHandler state),
+        ("/:action", actionHandler state)
       ]
 
 questionHandler :: Watchtower.Live.State -> Question -> Snap ()
@@ -107,13 +98,10 @@ questionHandler state question =
 
       writeBuilder answer
 
-
 unpackStringList string =
-    fmap 
-      (Data.ByteString.Char8.unpack) 
-      (Data.ByteString.Char8.split ',' string)
-
-
+  fmap
+    (Data.ByteString.Char8.unpack)
+    (Data.ByteString.Char8.split ',' string)
 
 docsHandler :: Watchtower.Live.State -> Snap ()
 docsHandler state =
@@ -124,17 +112,13 @@ docsHandler state =
     maybeReadme <- getParam "readme"
     case (maybeOwner, maybePackage, maybeVersion, maybeReadme) of
       (Just owner, Just package, Just version, Just "docs.json") -> do
-          let details = PackageDetails (Data.ByteString.Char8.unpack owner) (Data.ByteString.Char8.unpack package) (Data.ByteString.Char8.unpack version) DocsJson
-          questionHandler state (Docs (ForPackage details))
-      
+        let details = PackageDetails (Data.ByteString.Char8.unpack owner) (Data.ByteString.Char8.unpack package) (Data.ByteString.Char8.unpack version) DocsJson
+        questionHandler state (Docs (ForPackage details))
       (Just owner, Just package, Just version, Just "README.md") -> do
-          let details = PackageDetails (Data.ByteString.Char8.unpack owner) (Data.ByteString.Char8.unpack package) (Data.ByteString.Char8.unpack version) ReadMe
-          questionHandler state (Docs (ForPackage details))
-
+        let details = PackageDetails (Data.ByteString.Char8.unpack owner) (Data.ByteString.Char8.unpack package) (Data.ByteString.Char8.unpack version) ReadMe
+        questionHandler state (Docs (ForPackage details))
       _ ->
-          writeBS "Wha??"
-
-     
+        writeBS "Wha??"
 
 actionHandler :: Watchtower.Live.State -> Snap ()
 actionHandler state =
@@ -143,7 +127,6 @@ actionHandler state =
     case maybeAction of
       Just "status" ->
         questionHandler state Status
-
       Just "docs" ->
         do
           maybeFiles <- getQueryParam "file"
@@ -151,18 +134,14 @@ actionHandler state =
           case maybeEntryPoint of
             Just entrypoint ->
               questionHandler state (Docs (ForProject (Data.ByteString.Char8.unpack entrypoint)))
-
             Nothing ->
               case maybeFiles of
                 Nothing ->
                   writeBS "Needs a file or an entrypoint parameter"
-
                 Just fileString -> do
                   questionHandler state (Docs (FromFile (Data.ByteString.Char8.unpack fileString)))
-
       Just "health" ->
         questionHandler state ServerHealth
-
       Just "warnings" ->
         do
           maybeFile <- getQueryParam "file"
@@ -171,7 +150,6 @@ actionHandler state =
               writeBS "Needs a file parameter"
             Just file -> do
               questionHandler state (Warnings (Data.ByteString.Char8.unpack file))
-
       Just "parse" ->
         do
           maybeFile <- getQueryParam "file"
@@ -180,7 +158,6 @@ actionHandler state =
               writeBS "Needs a file parameter"
             Just file -> do
               questionHandler state (TimingParse (Data.ByteString.Char8.unpack file))
-
       Just "discover" ->
         do
           maybeFile <- getQueryParam "dir"
@@ -189,7 +166,6 @@ actionHandler state =
               writeBS "Needs a directory parameter"
             Just file -> do
               questionHandler state (Discover (Data.ByteString.Char8.unpack file))
-      
       Just "callgraph" ->
         do
           maybeFile <- getQueryParam "file"
@@ -198,7 +174,6 @@ actionHandler state =
               writeBS "Needs a file parameter"
             Just file -> do
               questionHandler state (CallGraph (Data.ByteString.Char8.unpack file))
-      
       Just "scope" ->
         do
           maybeFile <- getQueryParam "file"
@@ -207,7 +182,6 @@ actionHandler state =
               writeBS "Needs a file parameter"
             Just file -> do
               questionHandler state (InScopeFile (Data.ByteString.Char8.unpack file))
-      
       Just "project" ->
         do
           maybeFile <- getQueryParam "file"
@@ -216,7 +190,6 @@ actionHandler state =
               writeBS "Needs a file parameter"
             Just file -> do
               questionHandler state (InScopeProject (Data.ByteString.Char8.unpack file))
-
       Just "definition" ->
         do
           maybeLocation <- getPointLocation
@@ -225,7 +198,6 @@ actionHandler state =
               writeBS "Needs location"
             Just location ->
               questionHandler state (FindDefinitionPlease location)
-      
       Just "explain" ->
         do
           maybeLocation <- getPointLocation
@@ -282,45 +254,36 @@ getPosition =
                 _ ->
                   Nothing
           )
-            <$> maybeRow <*> maybeCol
+            <$> maybeRow
+            <*> maybeCol
 
     pure (Maybe.fromMaybe Nothing position)
-
-
-
 
 ask :: Watchtower.Live.State -> Question -> IO Data.ByteString.Builder.Builder
 ask state question =
   case question of
-    ServerHealth -> 
+    ServerHealth ->
       pure (Json.Encode.encodeUgly (Json.Encode.chars "Roger dodger, ready to roll, in the pipe, five-by-five."))
-
     Status ->
       allProjectStatuses state
-
-    
     Docs (ForProject entrypoint) -> do
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
         Nothing ->
           pure (Out.asJsonUgly (Left Terminal.Dev.Error.CouldNotFindRoot))
-        
         Just root -> do
           let moduleNames = NE.List (Name.fromChars entrypoint) []
           compilationResult <- Ext.CompileProxy.loadAndEnsureCompiled root (Just moduleNames)
           case compilationResult of
             Left err ->
               pure (Out.asJsonUgly (Left (Terminal.Dev.Error.CompilationError err)))
-            
             Right details -> do
-              maybeDocs <-  Ext.CompileProxy.compileToDocs root moduleNames details
+              maybeDocs <- Ext.CompileProxy.compileToDocs root moduleNames details
               case maybeDocs of
                 Left err ->
                   pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor err)))
-                
                 Right docs ->
                   pure (Out.asJsonUgly (Right (Docs.encode docs)))
-
     Docs (FromFile path) ->
       do
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
@@ -328,34 +291,28 @@ ask state question =
         case maybeDocs of
           Nothing ->
             pure (Json.Encode.encodeUgly (Json.Encode.chars "Docs are not available"))
-
           Just docs ->
-            pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [ docs ])))
-               
-
+            pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [docs])))
     Docs (ForPackage (PackageDetails owner package version page)) ->
       do
         elmHome <- Stuff.getElmHome
         let filepath = elmHome Path.</> "0.19.1" Path.</> "packages" Path.</> owner Path.</> package Path.</> version Path.</> pageToFile page
         Data.ByteString.Builder.byteString <$> BS.readFile filepath
-        
-                        
     TimingParse path ->
       do
         Ext.Log.log Ext.Log.Questions $ "Parsing: " ++ show path
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-        Ext.Common.track "parsing"
-          (do
+        Ext.Common.track
+          "parsing"
+          ( do
               result <- Ext.CompileProxy.parse root path
               case result of
                 Right _ ->
-                    Ext.Log.log Ext.Log.Questions $ "parsed succssfully"
-
+                  Ext.Log.log Ext.Log.Questions $ "parsed succssfully"
                 Left _ ->
-                    Ext.Log.log Ext.Log.Questions $ "parsing failed"
+                  Ext.Log.log Ext.Log.Questions $ "parsing failed"
           )
         pure (Json.Encode.encodeUgly (Json.Encode.chars "The parser has been run, my liege"))
-
     Warnings path ->
       do
         Ext.Log.log Ext.Log.Questions $ "Warnings: " ++ show path
@@ -364,59 +321,50 @@ ask state question =
 
         let jsonResult = case eitherErrorOrWarnings of
               Right (mod, warnings) ->
-                  Json.Encode.encodeUgly
-                    (Json.Encode.list
-                        (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
-                        warnings
-                    )
+                Json.Encode.encodeUgly
+                  ( Json.Encode.list
+                      (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                      warnings
+                  )
               Left () ->
-                  Json.Encode.encodeUgly (Json.Encode.chars "Parser error")
+                Json.Encode.encodeUgly (Json.Encode.chars "Parser error")
 
         pure jsonResult
-
     InScopeProject file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Scope: " ++ show file
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot file state)
         maybeScope <- Ext.Dev.InScope.project root file
         case maybeScope of
-            Nothing ->
-                pure (Json.Encode.encodeUgly (Json.Encode.chars "No scope"))
-
-            Just scope ->
-                pure (Json.Encode.encodeUgly (Ext.Dev.InScope.encodeProjectScope scope))
-
+          Nothing ->
+            pure (Json.Encode.encodeUgly (Json.Encode.chars "No scope"))
+          Just scope ->
+            pure (Json.Encode.encodeUgly (Ext.Dev.InScope.encodeProjectScope scope))
     InScopeFile file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Scope: " ++ show file
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot file state)
         maybeScope <- Ext.Dev.InScope.file root file
         case maybeScope of
-            Nothing ->
-                pure (Json.Encode.encodeUgly (Json.Encode.chars "No scope"))
-
-            Just scope ->
-                pure (Json.Encode.encodeUgly (Ext.Dev.InScope.encodeFileScope scope))
-
-
+          Nothing ->
+            pure (Json.Encode.encodeUgly (Json.Encode.chars "No scope"))
+          Just scope ->
+            pure (Json.Encode.encodeUgly (Ext.Dev.InScope.encodeFileScope scope))
     CallGraph file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Callgraph: " ++ show file
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot file state)
         maybeCallgraph <- Ext.Dev.CallGraph.callgraph root file
         case maybeCallgraph of
-            Nothing ->
-                pure (Json.Encode.encodeUgly (Json.Encode.chars "No callgraph"))
-
-            Just callgraph ->
-                pure (Json.Encode.encodeUgly (Ext.Dev.CallGraph.encode callgraph))
-
+          Nothing ->
+            pure (Json.Encode.encodeUgly (Json.Encode.chars "No callgraph"))
+          Just callgraph ->
+            pure (Json.Encode.encodeUgly (Ext.Dev.CallGraph.encode callgraph))
     Discover dir ->
       do
         Ext.Log.log Ext.Log.Questions $ "Discover: " ++ show dir
         Ext.Dev.Project.discover dir
           & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Ext.Dev.Project.encodeProjectJson projects))
-
     Explain location ->
       let path =
             case location of
@@ -430,12 +378,10 @@ ask state question =
                 Json.Encode.null
                   & Json.Encode.encodeUgly
                   & pure
-
               Just explanation ->
                 Ext.Dev.Explain.encode explanation
                   & Json.Encode.encodeUgly
                   & pure
-
     FindDefinitionPlease location ->
       let path =
             case location of
@@ -445,48 +391,36 @@ ask state question =
             root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
             Ext.Dev.Find.definition root location
               & fmap Json.Encode.encodeUgly
-
     FindAllInstancesPlease location ->
-      pure (Data.ByteString.Builder.byteString ("NOTDONE"))
+      pure (Data.ByteString.Builder.byteString "NOTDONE")
 
+isSuccess :: Either Json.Encode.Value Json.Encode.Value -> Bool
+isSuccess (Left _) = True
+isSuccess (Right _) = False
 
+flattenJsonStatus :: Either Json.Encode.Value Json.Encode.Value -> Json.Encode.Value
+flattenJsonStatus (Left json) = json
+flattenJsonStatus (Right json) = json
 
+allProjectStatuses :: Client.State -> IO Data.ByteString.Builder.Builder
 allProjectStatuses (Client.State clients mProjects) =
-    do
-      projects <- STM.readTVarIO mProjects
-      projectStatuses <-
-          Monad.foldM
-            (\gathered (Client.ProjectCache proj sentry) ->
-              do
-                result <- Ext.Sentry.getCompileResult sentry
-                pure
-                  (Json.Encode.object
-                    [ "project" ==> Ext.Dev.Project.encodeProjectJson proj
-                    , "success" ==>
-                        (case result of
-                            Right _ ->
-                              Json.Encode.bool True
-                            Left _ ->
-                              Json.Encode.bool False
-                        )
-                    , "status" ==>
-                        (case result of
-                            Right json ->
-                              json
-                            Left json ->
-                              json
-                        )
-                    ] : gathered
-                  )
-            )
-            []
-            projects
-
-      pure
-        (Json.Encode.encode
-          (Json.Encode.list
-              (\a -> a)
-              projectStatuses
-          )
+  do
+    projects <- STM.readTVarIO mProjects
+    projectStatuses <-
+      Monad.foldM
+        ( \gathered (Client.ProjectCache proj sentry) -> do
+            jsonStatusResult <- Ext.Sentry.getCompileResult sentry
+            let projectStatus =
+                  Client.ProjectStatus
+                    proj
+                    (isSuccess jsonStatusResult)
+                    (flattenJsonStatus jsonStatusResult)
+            pure $ projectStatus : gathered
         )
+        []
+        projects
 
+    pure
+      ( Client.encodeOutgoing
+          (Client.ElmStatus projectStatuses)
+      )

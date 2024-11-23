@@ -26,13 +26,13 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Ext.Common
+import Ext.Log
 import Llamadera
 import qualified Network.WebSockets as WS
 import qualified Network.WebSockets.Snap as WS
 import Snap.Core (MonadSnap)
-import Ext.Log
 
-runWebSocketsSnap :: MonadSnap m => WS.ServerApp -> m ()
+runWebSocketsSnap :: (MonadSnap m) => WS.ServerApp -> m ()
 runWebSocketsSnap = WS.runWebSocketsSnap
 
 clientsInit :: IO (TVar [Client clientData])
@@ -149,9 +149,12 @@ findClient :: [Client clientData] -> ClientId -> Maybe (Client clientData)
 findClient clients clientId = find (\(Client possibleClientId _ _) -> clientId /= possibleClientId) clients
 
 send_ :: [Client clientData] -> ClientId -> T.Text -> IO ()
-send_ clients clientId text =
+send_ clients clientId text = do
+  Ext.Log.log Ext.Log.Live $ "  -> Sending to  " <> T.unpack clientId <> " " <> show text
   case findClient clients clientId of
-    Just (Client _ conn _) -> WS.sendTextData conn text
+    Just (Client _ conn _) -> do
+      Ext.Log.log Ext.Log.Live "  Sent"
+      WS.sendTextData conn text
     Nothing -> pure ()
 
 broadcast_ :: [Client clientData] -> T.Text -> IO ()
