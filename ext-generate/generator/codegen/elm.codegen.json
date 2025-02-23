@@ -1,0 +1,21 @@
+{
+  "elm-codegen-version": "0.4.1",
+  "codegen-helpers": {
+    "packages": {
+      "elm/core": "1.0.5",
+      "elm/url": "1.0.0",
+      "elm/browser": "1.0.2",
+      "elm/json": "1.1.3",
+      "elm/html": "1.0.0",
+      "elm/http": "2.0.0",
+      "dillonkearns/elm-markdown": "7.0.1",
+      "lydell/elm-app-url": "1.0.2"
+    },
+    "local": [
+      "../app/templates/toSrc/",
+      "../app/templates/toHidden/",
+      "../app/templates/customizable/",
+      "/Users/griff/projects/elm-ui/docs.json"
+    ]
+  }
+}

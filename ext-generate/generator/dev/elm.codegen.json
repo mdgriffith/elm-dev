@@ -1,0 +1,25 @@
+{
+  "elm-codegen-version": "0.4.1",
+  "codegen-helpers": {
+    "packages": {
+      "elm/core": "1.0.5",
+      "elm/url": "1.0.0",
+      "elm/browser": "1.0.2",
+      "elm/json": "1.1.3",
+      "elm/html": "1.0.0",
+      "elm/http": "2.0.0",
+      "mdgriffith/elm-codegen": "4.0.1",
+      "dillonkearns/elm-markdown": "7.0.1",
+      "lydell/elm-app-url": "1.0.2",
+      "elm/parser": "1.1.0"
+    },
+    "local": [
+      "/Users/mattgriffith/projects/mdgriffith/elm-ui/docs.json",
+      "./engine/Ui/Theme/Input.elm",
+      "../../plugins/app/templates/toCopy/App/Page.elm",
+      "../../plugins/app/templates/toCopy/App/Effect.elm",
+      "../../plugins/app/templates/toCopy/App/Sub.elm",
+      "../../plugins/app/templates/toCopy/App/View.elm"
+    ]
+  }
+}
