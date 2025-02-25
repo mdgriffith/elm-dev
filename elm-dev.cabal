@@ -275,6 +275,12 @@ Executable elm-dev
         Ext.Log
         Ext.Sanity
 
+        Gen.Commands
+        Gen.Javascript
+        Gen.Config
+        Gen.Templates
+        Gen.Templates.Loader
+
 
         Util
         Llamadera
@@ -309,6 +315,7 @@ Executable elm-dev
         network,
           -- >= 2.4 && < 2.7,
         parsec,
+        temporary,
         process,
         raw-strings-qq,
         scientific,
