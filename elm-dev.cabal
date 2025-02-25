@@ -344,4 +344,5 @@ Executable elm-dev
         stm,
         unicode-show,
         websockets,
-        websockets-snap
+        websockets-snap,
+        aeson
