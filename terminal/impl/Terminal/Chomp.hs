@@ -226,7 +226,7 @@ chompRequiredArgs numChunks args =
 
 
 chompArg :: Int -> Parser a -> Chomper ArgError a
-chompArg numChunks parser@(Parser singular _ _ _ toExamples) =
+chompArg numChunks parser@(Parser singular _ _ _ toExamples _) =
   Chomper $ \suggest chunks ok err ->
     case chunks of
       [] ->
@@ -246,7 +246,7 @@ chompArg numChunks parser@(Parser singular _ _ _ toExamples) =
 
 
 suggestArg :: Parser a -> Int -> Int -> Maybe (IO [String])
-suggestArg (Parser _ _ _ toSuggestions _) numChunks targetIndex =
+suggestArg (Parser _ _ _ toSuggestions _ _) numChunks targetIndex =
   if numChunks <= targetIndex then
     Just (toSuggestions "")
   else
@@ -258,7 +258,7 @@ suggestArg (Parser _ _ _ toSuggestions _) numChunks targetIndex =
 
 
 tryToParse :: Suggest -> Parser a -> Int -> String -> (Suggest, Either Expectation a)
-tryToParse suggest (Parser singular _ parse toSuggestions toExamples) index string =
+tryToParse suggest (Parser singular _ parse toSuggestions toExamples _) index string =
   let
     newSuggest =
       makeSuggestion suggest $ \targetIndex ->
@@ -332,7 +332,7 @@ chompOnOffFlag flagName =
 
 
 chompNormalFlag :: String -> Parser a -> Chomper FlagError (Maybe a)
-chompNormalFlag flagName parser@(Parser singular _ _ _ toExamples) =
+chompNormalFlag flagName parser@(Parser singular _ _ _ toExamples _) =
   Chomper $ \suggest chunks ok err ->
     case findFlag flagName chunks of
       Nothing ->

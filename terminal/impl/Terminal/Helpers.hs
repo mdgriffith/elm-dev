@@ -3,6 +3,7 @@ module Terminal.Helpers
   ( version
   , elmFile
   , package
+  , elmModule
   )
   where
 
@@ -13,6 +14,7 @@ import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Utf8 as Utf8
 import qualified System.FilePath as FP
+import qualified Elm.ModuleName
 
 import Terminal (Parser(..))
 import qualified Deps.Registry as Registry
@@ -21,6 +23,7 @@ import qualified Elm.Version as V
 import qualified Parse.Primitives as P
 import qualified Stuff
 import qualified Reporting.Suggest as Suggest
+import qualified Data.Name as Name
 
 
 
@@ -35,6 +38,7 @@ version =
     , _parser = parseVersion
     , _suggest = suggestVersion
     , _examples = return . exampleVersions
+    , _choices = Nothing
     }
 
 
@@ -79,6 +83,7 @@ elmFile =
     , _parser = parseElmFile
     , _suggest = \_ -> return []
     , _examples = exampleElmFiles
+    , _choices = Nothing
     }
 
 
@@ -107,6 +112,7 @@ package =
     , _parser = parsePackage
     , _suggest = suggestPackages
     , _examples = examplePackages
+    , _choices = Nothing
     }
 
 
@@ -146,3 +152,53 @@ examplePackages given =
           Just (Registry.Registry _ versions) ->
             map Pkg.toChars $ take 4 $
               Suggest.sort given Pkg.toChars (Map.keys versions)
+
+
+elmModule :: Parser Elm.ModuleName.Raw
+elmModule =
+  Parser
+    { _singular = "elm module"
+    , _plural = "elm modules"
+    , _parser = parseElmModule
+    , _suggest = \_ -> return ["Ui.Button"]
+    , _examples = \_ -> return ["Main", "Style.Button"]
+    , _choices = Nothing
+    }
+
+
+
+trimWhitespace :: String -> String
+trimWhitespace = reverse . dropWhile Char.isSpace . reverse . dropWhile Char.isSpace
+
+
+isValidElmPiece :: String -> Bool
+isValidElmPiece [] = False  -- An empty string doesn't meet the criteria
+isValidElmPiece (x:xs) = Char.isUpper x && all isValidChar xs
+  where
+    isValidChar c = Char.isAlphaNum c || c == '_'
+   
+parseElmModule :: String -> Maybe Elm.ModuleName.Raw
+parseElmModule charsRaw =
+  let 
+      chars = trimWhitespace charsRaw
+  in
+  if length chars == 0 then
+    Nothing
+  else
+    let 
+        pieces = splitOn '.' chars
+    in
+    if all isValidElmPiece pieces then
+      Just (Name.fromChars chars)
+    else
+      Nothing
+
+splitOn :: Eq a => a -> [a] -> [[a]]
+splitOn delimiter = go
+  where
+    go [] = []
+    go xs = 
+        let (before, remainder) = break (== delimiter) xs
+        in before : case remainder of
+                      [] -> []
+                      _:after -> go after

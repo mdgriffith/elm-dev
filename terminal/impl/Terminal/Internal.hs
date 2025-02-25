@@ -9,6 +9,8 @@ module Terminal.Internal
   , Args(..)
   , CompleteArgs(..)
   , RequiredArgs(..)
+  , ArgChoices(..)
+  , ArgChoice(..)
   )
   where
 
@@ -71,8 +73,18 @@ data Parser a =
     , _parser :: String -> Maybe a
     , _suggest :: String -> IO [String]
     , _examples :: String -> IO [String]
+    , _choices :: Maybe ArgChoices
     }
 
+data ArgChoices =
+    ArgChoices [ArgChoice]
+  | ArgDynamicChoices (IO [ArgChoice])
+
+data ArgChoice =
+  ArgChoice
+    { _choiceValue :: String
+    , _choiceDescription :: String
+    }
 
 
 -- ARGS

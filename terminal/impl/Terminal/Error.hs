@@ -135,10 +135,10 @@ argsToDoc command args =
     Exactly required ->
       argsToDocHelp command required []
 
-    Multiple required (Parser _ plural _ _ _) ->
+    Multiple required (Parser _ plural _ _ _ _) ->
       argsToDocHelp command required ["zero or more " ++ plural]
 
-    Optional required (Parser singular _ _ _ _) ->
+    Optional required (Parser singular _ _ _ _ _) ->
       argsToDocHelp command required ["optional " ++ singular]
 
 
@@ -149,7 +149,7 @@ argsToDocHelp command args names =
       P.hang 4 $ P.hsep $ map P.text $
         command : map toToken names
 
-    Required others (Parser singular _ _ _ _) ->
+    Required others (Parser singular _ _ _ _ _) ->
       argsToDocHelp command others (singular : names)
 
 
@@ -169,7 +169,7 @@ flagsToDocs flags docs =
         flagDoc =
           P.vcat $
             case flag of
-              Flag name (Parser singular _ _ _ _) description ->
+              Flag name (Parser singular _ _ _ _ _) description ->
                 [ P.dullcyan $ P.text $ "--" ++ name ++ "=" ++ toToken singular
                 , P.indent 4 $ reflow description
                 ]
@@ -451,7 +451,7 @@ getNearbyFlagsHelp unknown flag =
       , "--" ++ flagName
       )
 
-    Flag flagName (Parser singular _ _ _ _) _ ->
+    Flag flagName (Parser singular _ _ _ _ _) _ ->
       ( Suggest.distance unknown flagName
       , "--" ++ flagName ++ "=" ++ toToken singular
       )

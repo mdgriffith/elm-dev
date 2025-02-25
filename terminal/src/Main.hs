@@ -118,6 +118,7 @@ interpreter =
     , _parser = Just
     , _suggest = \_ -> return []
     , _examples = \_ -> return ["node","nodejs"]
+    , _choices = Nothing
     }
 
 
@@ -157,6 +158,7 @@ port_ =
     , _parser = readMaybe
     , _suggest = \_ -> return []
     , _examples = \_ -> return ["3000","8000"]
+    , _choices = Nothing
     }
 
 
