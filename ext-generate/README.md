@@ -1,5 +1,6 @@
 # The Generation Extension
 
+Welcome to Elm Dev
 
   elm-prefab ${Chalk.green("init")} ................ create a new project
   elm-prefab ${Chalk.green("generate")}.................... generate code
