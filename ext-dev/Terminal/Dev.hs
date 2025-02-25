@@ -4,7 +4,7 @@
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Terminal.Dev where
+module Terminal.Dev (main) where
 
 import Terminal
 import Text.Read (readMaybe)
@@ -76,15 +76,25 @@ import qualified Terminal.Dev.Out
 import qualified Terminal.Dev.Error
 import qualified Terminal.Helpers
 
+
 import qualified Make
 import qualified Build
 import qualified BackgroundWriter
 import Json.Encode ((==>))
 
+import qualified Gen.Commands
+
+
 main :: IO ()
 main =
   Terminal.app intro outro
-    [ server
+    [ Gen.Commands.initialize
+    , Gen.Commands.make
+    , Gen.Commands.add
+    , Gen.Commands.customize
+      
+    -- More dev-focused commands
+    , server
     , docs
     , warnings
     -- , find
@@ -104,12 +114,9 @@ intro :: P.Doc
 intro =
   P.vcat
     [ P.fillSep
-        [ "Hi,","thank","you","for","trying","out"
-        , P.green "Elm Dev."
-        , " I hope you like it!"
+        [ "Welcome to"
+        , P.yellow "Elm Dev!"
         ]
-    , ""
-
     ]
 
 
@@ -229,6 +236,7 @@ entrypoints_ =
     , _parser = parseEntrypoints
     , _suggest = \_ -> return []
     , _examples = \_ -> return ["Main, Style.Button"]
+    , _choices = Nothing
     }
 
 parseEntrypoints :: String -> Maybe (NE.List Elm.ModuleName.Raw)
@@ -248,6 +256,7 @@ output_ =
     , _parser = parseJsonOutput
     , _suggest = \_ -> return []
     , _examples = \_ -> return ["out.json"]
+    , _choices = Nothing
     }
 
 parseJsonOutput :: String -> Maybe FilePath
@@ -327,6 +336,7 @@ elmModuleList =
     , _parser = parseElmModule
     , _suggest = \_ -> return ["Ui.Button"]
     , _examples = exampleModules
+    , _choices = Nothing
     }
 
 
@@ -493,6 +503,7 @@ port_ =
     , _parser = readMaybe
     , _suggest = \_ -> return []
     , _examples = \_ -> return ["51213"]
+    , _choices = Nothing
     }
 
 
@@ -506,11 +517,12 @@ reflow string =
 dir :: Parser FilePath
 dir =
   Parser
-    { _singular = "elm project directory"
-    , _plural = "elm project directories"
+    { _singular = "dir"
+    , _plural = "directories"
     , _parser = parseDir
     , _suggest = \_ -> return []
     , _examples = exampleProjectDir
+    , _choices = Nothing
     }
 
 
@@ -638,6 +650,7 @@ elmFileOrModule =
     , _parser = parseElmFile
     , _suggest = \_ -> return []
     , _examples = exampleFilesOrModules
+    , _choices = Nothing
     }
 
 
@@ -812,6 +825,7 @@ typeUsage =
     , _parser = parseExact "type"
     , _suggest = \_ -> return [ "type" ]
     , _examples = \_ -> return ["type"]
+    , _choices = Nothing
     }
 
 
