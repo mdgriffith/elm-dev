@@ -345,4 +345,5 @@ Executable elm-dev
         unicode-show,
         websockets,
         websockets-snap,
-        aeson
+        aeson,
+        aeson-pretty

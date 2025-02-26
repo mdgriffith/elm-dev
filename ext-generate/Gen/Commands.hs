@@ -7,6 +7,11 @@ import qualified Text.PrettyPrint.ANSI.Leijen as P
 import qualified Terminal.Helpers
 import qualified Elm.ModuleName
 import qualified Gen.Javascript
+import qualified Gen.Config as Config
+import qualified Data.Aeson.Encode.Pretty as Aeson
+import qualified Data.ByteString.Lazy as BS
+import System.FilePath ((</>))
+import Data.Text (pack)
 
 
 -- INIT COMMAND
@@ -133,7 +138,19 @@ data CustomizeCommand
 -- RUNNERS (These need to be implemented)
 runInit :: () -> () -> IO ()
 runInit () () = 
-    do  putStrLn "Initializing project..."
+    do  defaultConfig <- return $ Config.Config
+            { Config.configPackageManager = Just Config.Bun
+            , Config.configSrc = Just (pack "src")
+            , Config.configJs = Just (pack "generated")
+            , Config.configApp = Nothing
+            , Config.configAssets = Nothing
+            , Config.configTheme = Nothing
+            , Config.configGraphQL = Nothing
+            , Config.configDocs = Nothing
+            }
+        
+        BS.writeFile "elm.generate.json" (Aeson.encodePretty defaultConfig)
+        putStrLn "Created elm.generate.json with default configuration"
 
 runMake :: () -> () -> IO ()
 runMake () () =
