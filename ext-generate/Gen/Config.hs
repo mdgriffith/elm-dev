@@ -13,6 +13,8 @@ module Gen.Config
     , ThemeConfig(..)
     , GraphQLConfig(..)
     , DocsConfig(..)
+    , defaultTheme
+    , defaultDocs
     ) where
 
 import qualified Data.ByteString as BS
@@ -184,6 +186,16 @@ data DocsConfig = DocsConfig
 instance FromJSON DocsConfig
 instance ToJSON DocsConfig
 
+
+defaultDocs :: DocsConfig
+defaultDocs = DocsConfig
+    { docsSrc = "docs"
+    , docsModules = Nothing
+    , docsGuides = Nothing
+    }
+
+
+
 data PackageManager
     = NPM
     | Yarn
@@ -259,3 +271,68 @@ instance ToJSON AppConfig
 -- | Main entry point for parsing configuration
 -- parse :: BS.ByteString -> Either String Config
 -- parse = eitherDecodeStrict
+
+defaultTheme :: ThemeConfig
+defaultTheme = ThemeConfig
+    { themeTarget = Just ElmUI
+    , themeColors = Just defaultColors
+    , themeSpacing = Just $ Map.fromList
+        [ ("xs", 4)
+        , ("sm", 8)
+        , ("md", 16)
+        , ("lg", 32)
+        , ("xl", 64)
+        ]
+    , themeTypography = Just [defaultFont]
+    , themeBorders = Just defaultBorders
+    }
+
+defaultColors :: ColorsTheme
+defaultColors = ColorsTheme
+    { colorsPalette = Just $ Map.fromList
+        [ ("black", "#000000")
+        , ("white", "#FFFFFF")
+        , ("gray-100", "#F3F4F6")
+        , ("gray-500", "#6B7280")
+        , ("gray-900", "#111827")
+        , ("blue-500", "#3B82F6")
+        ]
+    , colorsAliases = Just defaultColorAliases
+    , colorsText = Just $ StyleString "gray-900"
+    , colorsBackground = Just $ StyleString "white"
+    , colorsBorder = Just $ StyleString "gray-100"
+    }
+
+defaultColorAliases :: ColorAliasTheme
+defaultColorAliases = ColorAliasTheme
+    { aliasNeutral = "gray-500"
+    , aliasPrimary = "blue-500"
+    , aliasFocus = Just "blue-500"
+    , aliasSuccess = Nothing
+    , aliasError = Nothing
+    }
+
+defaultFont :: Font
+defaultFont = Font
+    { fontFamily = ["system-ui", "sans-serif"]
+    , fontCapitalSizing = Nothing
+    , fontSizes = Map.fromList
+        [ ("sm", FontDetails 14 (Just 1.5) Nothing Nothing Nothing Nothing)
+        , ("base", FontDetails 16 (Just 1.5) Nothing Nothing Nothing Nothing)
+        , ("lg", FontDetails 18 (Just 1.5) Nothing Nothing Nothing Nothing)
+        ]
+    }
+
+defaultBorders :: BorderConfig
+defaultBorders = BorderConfig
+    { borderRadius = Just $ Map.fromList
+        [ ("sm", 4)
+        , ("md", 6)
+        , ("lg", 8)
+        ]
+    , borderWidth = Just $ Map.fromList
+        [ ("thin", 1)
+        , ("medium", 2)
+        , ("thick", 4)
+        ]
+    }
