@@ -4,6 +4,8 @@ module Terminal.Helpers
   , elmFile
   , package
   , elmModule
+  , urlPattern
+  , PageParams(..)
   )
   where
 
@@ -15,6 +17,8 @@ import qualified Data.Map as Map
 import qualified Data.Utf8 as Utf8
 import qualified System.FilePath as FP
 import qualified Elm.ModuleName
+import qualified Data.String as String
+import qualified Control.Monad as Monad
 
 import Terminal (Parser(..))
 import qualified Deps.Registry as Registry
@@ -154,6 +158,8 @@ examplePackages given =
               Suggest.sort given Pkg.toChars (Map.keys versions)
 
 
+
+
 elmModule :: Parser Elm.ModuleName.Raw
 elmModule =
   Parser
@@ -202,3 +208,75 @@ splitOn delimiter = go
         in before : case remainder of
                       [] -> []
                       _:after -> go after
+
+
+data PageParams = PageParams 
+  { url :: String
+  , elmModuleName :: String 
+  }
+
+urlPattern :: Parser PageParams
+urlPattern =
+    Parser
+        { _singular = "url pattern"
+        , _plural = "url patterns"
+        , _parser = parseUrlPattern
+        , _suggest = \_ -> return ["/my/path", "/my/path/:id/details"]
+        , _examples = \_ -> return ["/my/path", "/my/path/:id/details", "/my/path/:id/details?{name,age}"]
+        , _choices = Nothing
+        }
+
+parseUrlPattern :: String -> Maybe PageParams
+parseUrlPattern input = do
+    -- Check if starts with slash
+    Monad.guard (startsWith "/" input)
+    
+    -- Split into path and query parts
+    let (pathPart, queryPart) = case break (== '?') input of
+            (path, "") -> (path, "")
+            (path, _:query) -> (path, query)
+    
+    -- Validate query params if present
+    Monad.when (not $ null queryPart) $ do
+        Monad.guard (startsWith "{" queryPart && endsWith "}" queryPart)
+        let paramsStr = take (length queryPart - 2) (drop 1 queryPart)
+        let params = splitOn ',' paramsStr
+        Monad.guard (all isValidPiece params)
+    
+    -- Process path pieces
+    let pieces = filter (not . null) $ splitOn '/' pathPart
+    Monad.guard (not $ null pieces) -- Ensure there's at least one piece after the slash
+    Monad.guard (all isValidPathPiece pieces)
+    
+    -- Build module name from non-variable pieces
+    let moduleNameParts = filter (not . isVarPiece) pieces
+    Monad.guard (not $ null moduleNameParts) -- Ensure there's at least one regular piece
+    let elmModule = List.intercalate "." (map capitalize moduleNameParts)
+    
+    return $ PageParams input elmModule
+  where
+    isValidPathPiece piece =
+        if isVarPiece piece
+        then isValidPiece (drop 1 piece) -- drop the ':' and validate rest
+        else isValidPiece piece
+    
+    isVarPiece = startsWith ":"
+    
+    isValidPiece str = 
+        not (null str) &&
+        all isValidChar str &&
+        not (Char.isDigit $ head str) -- can't start with number
+    
+    isValidChar c = 
+        Char.isAlphaNum c || c == '_' || c == '-'
+    
+    capitalize "" = ""
+    capitalize (x:xs) = Char.toUpper x : xs
+    
+    startsWith c str = case str of
+        [] -> False
+        (x:_) -> x == head c
+        
+    endsWith c str = case reverse str of
+        [] -> False
+        (x:_) -> x == last c
