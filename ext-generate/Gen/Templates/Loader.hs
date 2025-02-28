@@ -23,6 +23,14 @@ data Target = ToJs
             | OneOff
             deriving (Show, Eq, Lift)
 
+toFilePath :: Target -> String
+toFilePath ToJs = "js"
+toFilePath ToRoot = ""
+toFilePath ToHidden = ".hidden"
+toFilePath ToSrc = "src"
+toFilePath Customizable = "custom"
+toFilePath OneOff = "src"
+
 data Template = Template 
     { target :: Target
     , content :: BS.ByteString
