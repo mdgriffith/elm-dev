@@ -25,7 +25,6 @@ import Gen.Result
 import Gen.Tuple
 import Gen.Url
 import Options.App
-import Options.Route
 import Press.Generate.Regions
 import Press.Model exposing (..)
 
@@ -341,7 +340,7 @@ toPageKey pages =
                                                                 Just pageRoute ->
                                                                     let
                                                                         vars =
-                                                                            Options.Route.toUrlVariables pageRoute
+                                                                            Options.App.toUrlVariables pageRoute
                                                                     in
                                                                     case vars of
                                                                         [] ->

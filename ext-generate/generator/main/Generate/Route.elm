@@ -19,7 +19,7 @@ import Gen.List
 import Gen.Maybe
 import Gen.String
 import Gen.Url
-import Options.Route
+import Options.App
 import Parser exposing ((|.), (|=))
 import Set exposing (Set)
 
@@ -30,8 +30,8 @@ import Set exposing (Set)
   - Catchall path tails should be last
 
 -}
-routeOrder : Options.Route.UrlPattern -> ( Int, List ( Int, String ) )
-routeOrder (Options.Route.UrlPattern pattern) =
+routeOrder : Options.App.UrlPattern -> ( Int, List ( Int, String ) )
+routeOrder (Options.App.UrlPattern pattern) =
     ( if pattern.includePathTail then
         1
 
@@ -40,10 +40,10 @@ routeOrder (Options.Route.UrlPattern pattern) =
     , List.map
         (\piece ->
             case piece of
-                Options.Route.Token token ->
+                Options.App.Token token ->
                     ( 0, token )
 
-                Options.Route.Variable name ->
+                Options.App.Variable name ->
                     ( 1, name )
         )
         pattern.path
@@ -62,7 +62,7 @@ type Error
         , nameTwo : String
         , patternTwo : String
         }
-    | ParserError Options.Route.ParserError
+    | ParserError Options.App.ParserError
     | Unreachable
         { name : String
         , pattern : String
@@ -109,7 +109,7 @@ errorToDetails error =
             }
 
 
-checkForErrors : List Options.Route.ParsedPage -> Result (List Error) (List Options.Route.Page)
+checkForErrors : List Options.App.ParsedPage -> Result (List Error) (List Options.App.Page)
 checkForErrors routes =
     List.foldl (check routes)
         { collisions = Set.empty
@@ -130,15 +130,15 @@ maybeToList maybe =
 
 
 check :
-    List Options.Route.ParsedPage
-    -> Options.Route.ParsedPage
+    List Options.App.ParsedPage
+    -> Options.App.ParsedPage
     ->
         { collisions : Set String
-        , result : Result (List Error) (List Options.Route.Page)
+        , result : Result (List Error) (List Options.App.Page)
         }
     ->
         { collisions : Set String
-        , result : Result (List Error) (List Options.Route.Page)
+        , result : Result (List Error) (List Options.App.Page)
         }
 check allRoutes route cursor =
     let
@@ -146,12 +146,12 @@ check allRoutes route cursor =
             List.foldl
                 (\redirect ( reds, pErrors ) ->
                     case redirect of
-                        Options.Route.UrlParsedPattern pattern ->
-                            ( Options.Route.UrlPattern pattern :: reds
+                        Options.App.UrlParsedPattern pattern ->
+                            ( Options.App.UrlPattern pattern :: reds
                             , pErrors
                             )
 
-                        Options.Route.UrlError err ->
+                        Options.App.UrlError err ->
                             ( reds
                             , ParserError err :: pErrors
                             )
@@ -169,7 +169,7 @@ check allRoutes route cursor =
             case foundErrors of
                 [] ->
                     case route.url of
-                        Options.Route.UrlParsedPattern pattern ->
+                        Options.App.UrlParsedPattern pattern ->
                             let
                                 fieldCollisions =
                                     maybeToList (checkForFieldCollisions newRoute)
@@ -179,7 +179,7 @@ check allRoutes route cursor =
 
                                 newRoute =
                                     { id = route.id
-                                    , url = Options.Route.UrlPattern pattern
+                                    , url = Options.App.UrlPattern pattern
                                     , redirectFrom = redirectRoutes
                                     }
 
@@ -196,7 +196,7 @@ check allRoutes route cursor =
                                 , result = Err newErrors
                                 }
 
-                        Options.Route.UrlError err ->
+                        Options.App.UrlError err ->
                             { collisions = cursor.collisions
                             , result = Err (ParserError err :: foundErrors)
                             }
@@ -212,18 +212,18 @@ check allRoutes route cursor =
 -- {-|
 -- A path is unreachable if
 -- -}
--- checkForUnreachable : Options.Route.Page -> List Error -> List Error
+-- checkForUnreachable : Options.App.Page -> List Error -> List Error
 -- checkForUnreachable route errors =
 --     let
---         (Options.Route.UrlPattern { path, queryParams }) =
+--         (Options.App.UrlPattern { path, queryParams }) =
 --             route.url
 --         ( _, collisionsFound ) =
 --             List.foldl
 --                 (\piece ( found, collisions ) ->
 --                     case piece of
---                         Options.Route.Token _ ->
+--                         Options.App.Token _ ->
 --                             ( found, collisions )
---                         Options.Route.Variable name ->
+--                         Options.App.Variable name ->
 --                             ( found, collisions )
 --                 )
 --                 ( queryParams.specificFields
@@ -242,8 +242,8 @@ check allRoutes route cursor =
 
 
 checkForOverlaps :
-    List Options.Route.Page
-    -> Options.Route.Page
+    List Options.App.Page
+    -> Options.App.Page
     -> Set String
     -> ( Set String, List Error )
 checkForOverlaps routes route alreadyOverlapping =
@@ -258,7 +258,7 @@ checkForOverlaps routes route alreadyOverlapping =
     /:token/:two
 
 -}
-isOverlapping : Options.Route.Page -> Options.Route.Page -> ( Set String, List Error ) -> ( Set String, List Error )
+isOverlapping : Options.App.Page -> Options.App.Page -> ( Set String, List Error ) -> ( Set String, List Error )
 isOverlapping route otherRoute ( alreadyOverlapping, errors ) =
     if
         (route.id == otherRoute.id)
@@ -269,10 +269,10 @@ isOverlapping route otherRoute ( alreadyOverlapping, errors ) =
 
     else
         let
-            (Options.Route.UrlPattern one) =
+            (Options.App.UrlPattern one) =
                 route.url
 
-            (Options.Route.UrlPattern two) =
+            (Options.App.UrlPattern two) =
                 otherRoute.url
         in
         if List.length one.path /= List.length two.path then
@@ -291,22 +291,22 @@ isOverlapping route otherRoute ( alreadyOverlapping, errors ) =
                                     [] ->
                                         ( overlap, [] )
 
-                                    (Options.Route.Token secondToken) :: rest ->
+                                    (Options.App.Token secondToken) :: rest ->
                                         case piece of
-                                            Options.Route.Token token ->
+                                            Options.App.Token token ->
                                                 ( token == secondToken, rest )
 
-                                            Options.Route.Variable name ->
+                                            Options.App.Variable name ->
                                                 ( False
                                                 , rest
                                                 )
 
-                                    (Options.Route.Variable _) :: rest ->
+                                    (Options.App.Variable _) :: rest ->
                                         case piece of
-                                            Options.Route.Variable _ ->
+                                            Options.App.Variable _ ->
                                                 ( True, rest )
 
-                                            Options.Route.Token token ->
+                                            Options.App.Token token ->
                                                 ( False
                                                 , rest
                                                 )
@@ -331,20 +331,20 @@ isOverlapping route otherRoute ( alreadyOverlapping, errors ) =
                 ( alreadyOverlapping, errors )
 
 
-checkForFieldCollisions : Options.Route.Page -> Maybe Error
+checkForFieldCollisions : Options.App.Page -> Maybe Error
 checkForFieldCollisions route =
     let
-        (Options.Route.UrlPattern { path, queryParams }) =
+        (Options.App.UrlPattern { path, queryParams }) =
             route.url
 
         ( _, collisionsFound ) =
             List.foldl
                 (\piece ( found, collisions ) ->
                     case piece of
-                        Options.Route.Token _ ->
+                        Options.App.Token _ ->
                             ( found, collisions )
 
-                        Options.Route.Variable name ->
+                        Options.App.Variable name ->
                             if Set.member name found then
                                 ( found
                                 , Set.insert name collisions
@@ -372,7 +372,7 @@ checkForFieldCollisions route =
                 }
 
 
-generate : List Options.Route.ParsedPage -> Result (List Error) Elm.File
+generate : List Options.App.ParsedPage -> Result (List Error) Elm.File
 generate parsedRoutes =
     case checkForErrors parsedRoutes of
         Err errs ->
@@ -410,30 +410,30 @@ generate parsedRoutes =
                     ]
 
 
-hasVars : List Options.Route.UrlPiece -> Bool
+hasVars : List Options.App.UrlPiece -> Bool
 hasVars pieces =
     List.any
         (\piece ->
             case piece of
-                Options.Route.Token _ ->
+                Options.App.Token _ ->
                     False
 
-                Options.Route.Variable _ ->
+                Options.App.Variable _ ->
                     True
         )
         pieces
 
 
-hasNoParams : Options.Route.QueryParams -> Bool
+hasNoParams : Options.App.QueryParams -> Bool
 hasNoParams params =
     Set.isEmpty params.specificFields
         && not params.includeCatchAll
 
 
-paramType : Options.Route.Page -> Type.Annotation
+paramType : Options.App.Page -> Type.Annotation
 paramType route =
     let
-        (Options.Route.UrlPattern { queryParams, includePathTail, path }) =
+        (Options.App.UrlPattern { queryParams, includePathTail, path }) =
             route.url
     in
     if hasNoParams queryParams && not includePathTail && not (hasVars path) then
@@ -461,10 +461,10 @@ paramType route =
                 [ List.filterMap
                     (\piece ->
                         case piece of
-                            Options.Route.Token _ ->
+                            Options.App.Token _ ->
                                 Nothing
 
-                            Options.Route.Variable name ->
+                            Options.App.Variable name ->
                                 Just ( name, Type.string )
                     )
                     path
@@ -480,7 +480,7 @@ paramType route =
             )
 
 
-urlToId : List Options.Route.Page -> List Elm.Declaration
+urlToId : List Options.App.Page -> List Elm.Declaration
 urlToId routes =
     [ Elm.declaration "toId"
         (Elm.fn (Elm.Arg.varWith "route" (Type.named [] "Route"))
@@ -525,23 +525,23 @@ urlToId routes =
     ]
 
 
-getParamVariableList : Options.Route.Page -> List String
+getParamVariableList : Options.App.Page -> List String
 getParamVariableList page =
     case page.url of
-        Options.Route.UrlPattern { path } ->
+        Options.App.UrlPattern { path } ->
             List.filterMap
                 (\piece ->
                     case piece of
-                        Options.Route.Token _ ->
+                        Options.App.Token _ ->
                             Nothing
 
-                        Options.Route.Variable name ->
+                        Options.App.Variable name ->
                             Just name
                 )
                 path
 
 
-urlEncoder : List Options.Route.Page -> List Elm.Declaration
+urlEncoder : List Options.App.Page -> List Elm.Declaration
 urlEncoder routes =
     [ Elm.declaration "toString"
         (Elm.fn (Elm.Arg.varWith "route" (Type.named [] "Route"))
@@ -557,7 +557,7 @@ urlEncoder routes =
                                     )
                                     (\params ->
                                         let
-                                            (Options.Route.UrlPattern { path, includePathTail, queryParams }) =
+                                            (Options.App.UrlPattern { path, includePathTail, queryParams }) =
                                                 individualRoute.url
                                         in
                                         renderPath path includePathTail queryParams params
@@ -572,7 +572,7 @@ urlEncoder routes =
     ]
 
 
-renderPath : List Options.Route.UrlPiece -> Bool -> Options.Route.QueryParams -> Elm.Expression -> Elm.Expression
+renderPath : List Options.App.UrlPiece -> Bool -> Options.App.QueryParams -> Elm.Expression -> Elm.Expression
 renderPath path includePathTail queryParams paramValues =
     let
         base =
@@ -580,10 +580,10 @@ renderPath path includePathTail queryParams paramValues =
                 |> List.map
                     (\piece ->
                         case piece of
-                            Options.Route.Token token ->
+                            Options.App.Token token ->
                                 Elm.string token
 
-                            Options.Route.Variable var ->
+                            Options.App.Variable var ->
                                 Elm.get var paramValues
                     )
                 |> Elm.list
@@ -675,7 +675,7 @@ wrapList fields =
                 )
 
 
-sameRoute : List Options.Route.Page -> Elm.Declaration
+sameRoute : List Options.App.Page -> Elm.Declaration
 sameRoute routes =
     if List.length routes <= 1 then
         Elm.declaration "sameRouteBase"
@@ -726,7 +726,7 @@ sameRoute routes =
             |> Elm.expose
 
 
-urlParser : List Options.Route.Page -> List Elm.Declaration
+urlParser : List Options.App.Page -> List Elm.Declaration
 urlParser routes =
     [ Elm.declaration "parse"
         (Elm.fn (Elm.Arg.varWith "url" Gen.Url.annotation_.url)
@@ -776,7 +776,7 @@ getList field appUrlParams =
     ]
 
 
-parseAppUrl : List Options.Route.Page -> Elm.Declaration
+parseAppUrl : List Options.App.Page -> Elm.Declaration
 parseAppUrl unsorted =
     let
         paths =
@@ -809,12 +809,12 @@ parseAppUrl unsorted =
 
 
 toUrlPatterns :
-    Options.Route.Page
+    Options.App.Page
     ->
         List
-            { page : Options.Route.Page
+            { page : Options.App.Page
             , redirect : Bool
-            , pattern : Options.Route.UrlPattern
+            , pattern : Options.App.UrlPattern
             }
 toUrlPatterns page =
     { page = page
@@ -834,9 +834,9 @@ toUrlPatterns page =
 toBranchPattern :
     Elm.Expression
     ->
-        { page : Options.Route.Page
+        { page : Options.App.Page
         , redirect : Bool
-        , pattern : Options.Route.UrlPattern
+        , pattern : Options.App.UrlPattern
         }
     -> Elm.Case.Branch
 toBranchPattern appUrl routeInfo =
@@ -844,7 +844,7 @@ toBranchPattern appUrl routeInfo =
         page =
             routeInfo.page
 
-        (Options.Route.UrlPattern pattern) =
+        (Options.App.UrlPattern pattern) =
             routeInfo.pattern
 
         toResult route =
@@ -863,10 +863,10 @@ toBranchPattern appUrl routeInfo =
                             List.filterMap
                                 (\token ->
                                     case token of
-                                        Options.Route.Token _ ->
+                                        Options.App.Token _ ->
                                             Nothing
 
-                                        Options.Route.Variable varname ->
+                                        Options.App.Variable varname ->
                                             Just ( varname, Elm.val varname )
                                 )
                                 pattern.path
@@ -905,10 +905,10 @@ toBranchPattern appUrl routeInfo =
                             List.filterMap
                                 (\token ->
                                     case token of
-                                        Options.Route.Token _ ->
+                                        Options.App.Token _ ->
                                             Nothing
 
-                                        Options.Route.Variable varname ->
+                                        Options.App.Variable varname ->
                                             Just ( varname, Elm.val varname )
                                 )
                                 pattern.path
@@ -938,11 +938,11 @@ toBranchPattern appUrl routeInfo =
             identity
 
 
-toTokenPattern : Options.Route.UrlPiece -> Elm.Arg Elm.Expression
+toTokenPattern : Options.App.UrlPiece -> Elm.Arg Elm.Expression
 toTokenPattern token =
     case token of
-        Options.Route.Token string ->
+        Options.App.Token string ->
             Elm.Arg.string string
 
-        Options.Route.Variable varname ->
+        Options.App.Variable varname ->
             Elm.Arg.var varname
