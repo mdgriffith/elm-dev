@@ -159,8 +159,6 @@ runInit :: () -> () -> IO ()
 runInit () () = 
     do  defaultConfig <- return $ Config.Config
             { Config.configPackageManager = Just Config.Bun
-            , Config.configSrc = Just (pack "src")
-            , Config.configJs = Just (pack "generated")
             , Config.configApp = Nothing
             , Config.configAssets = Nothing
             , Config.configTheme = Nothing
@@ -210,8 +208,7 @@ runAdd cmd () = do
                     
                     -- Write to file
                     cwd <- System.Directory.getCurrentDirectory
-                    let srcPath = fromMaybe "src" (Config.configSrc configResult)
-                    let targetPath = cwd </> Text.unpack srcPath </> "Page" </> Text.unpack pageName <.> "elm"
+                    let targetPath = cwd </> Text.unpack Config.src </> "Page" </> Text.unpack pageName <.> "elm"
                     TIO.writeFile targetPath newContents
                     
                     -- Update config
@@ -249,8 +246,7 @@ runAdd cmd () = do
                         
                         -- Write to file
                         cwd <- System.Directory.getCurrentDirectory
-                        let srcPath = fromMaybe "src" (Config.configSrc configResult)
-                        let targetPath = cwd </> Text.unpack srcPath </> "Store" </> Text.unpack storeName <.> "elm"
+                        let targetPath = cwd </> Text.unpack Config.src </> "Store" </> Text.unpack storeName <.> "elm"
                         TIO.writeFile targetPath newContents
                         
                         putStrLn $ "Created new store: " ++ Text.unpack storeName
@@ -276,8 +272,7 @@ runAdd cmd () = do
                         
                         -- Write to file
                         cwd <- System.Directory.getCurrentDirectory
-                        let srcPath = fromMaybe "src" (Config.configSrc configResult)
-                        let targetPath = cwd </> Text.unpack srcPath </> "Effect" </> Text.unpack effectName <.> "elm"
+                        let targetPath = cwd </> Text.unpack Config.src </> "Effect" </> Text.unpack effectName <.> "elm"
                         TIO.writeFile targetPath newContents
                         
                         putStrLn $ "Created new effect: " ++ Text.unpack effectName
@@ -314,7 +309,6 @@ runCustomize (Customize firstModule restModules) () = do
                 return config
 
     let modules = firstModule : restModules
-    let srcPath = fromMaybe "src" (Config.configSrc configResult)
     cwd <- System.Directory.getCurrentDirectory
 
     -- Process each module
@@ -339,7 +333,7 @@ runCustomize (Customize firstModule restModules) () = do
             Just template -> do
                 -- Write template to configSrc folder
                 let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
-                let targetPath = cwd </> Text.unpack srcPath </> moduleFilePath
+                let targetPath = cwd </> Text.unpack Config.src </> moduleFilePath
                 TIO.writeFile targetPath contents
                 
                 -- Check and remove corresponding file in ToHidden directory

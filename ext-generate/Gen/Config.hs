@@ -15,6 +15,7 @@ module Gen.Config
     , DocsConfig(..)
     , defaultTheme
     , defaultDocs
+    , src
     ) where
 
 import qualified Data.ByteString as BS
@@ -26,11 +27,13 @@ import GHC.Generics
 import Data.Maybe (catMaybes)
 import Control.Applicative ((<|>))
 
+
+src :: Text
+src = "src"
+
 -- | Main configuration type
 data Config = Config
     { configPackageManager :: Maybe PackageManager
-    , configSrc :: Maybe Text
-    , configJs :: Maybe Text
     , configApp :: Maybe AppConfig
     , configAssets :: Maybe (Map.Map Text AssetConfig)
     , configTheme :: Maybe ThemeConfig
@@ -41,8 +44,6 @@ data Config = Config
 instance FromJSON Config where
     parseJSON = withObject "Config" $ \v -> Config
         <$> v .:? "packageManager"
-        <*> v .:? "src"
-        <*> v .:? "js"
         <*> v .:? "app"
         <*> v .:? "assets"
         <*> v .:? "theme"
@@ -52,8 +53,6 @@ instance FromJSON Config where
 instance ToJSON Config where
     toJSON Config{..} = object $ catMaybes
         [ ("packageManager",) . toJSON <$> configPackageManager
-        , ("src",) . toJSON <$> configSrc
-        , ("js",) . toJSON <$> configJs
         , ("app",) . toJSON <$> configApp
         , ("assets",) . toJSON <$> configAssets
         , ("theme",) . toJSON <$> configTheme
