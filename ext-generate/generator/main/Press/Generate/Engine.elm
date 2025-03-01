@@ -76,16 +76,11 @@ generate stores allPageDefinitions =
             (let
                 routeVariants =
                     pageUsages
-                        |> List.filterMap
+                        |> List.map
                             (\pageInfo ->
-                                if pageInfo.elmModuleIsPresent then
-                                    Elm.variantWith pageInfo.id
-                                        [ Type.named pageInfo.moduleName "Model"
-                                        ]
-                                        |> Just
-
-                                else
-                                    Nothing
+                                Elm.variantWith pageInfo.id
+                                    [ Type.named pageInfo.moduleName "Model"
+                                    ]
                             )
              in
              Elm.variantWith "PageError_" [ Gen.App.Page.Error.annotation_.error ]
@@ -276,28 +271,21 @@ toPageLimit pages =
                     (pages
                         |> List.map
                             (\pageInfo ->
-                                if pageInfo.elmModuleIsPresent then
-                                    let
-                                        pageConfig =
-                                            Elm.value
-                                                { importFrom = pageInfo.moduleName
-                                                , name = "page"
-                                                , annotation = Nothing
-                                                }
-                                    in
-                                    toPageBranch pageInfo
-                                        (\_ ->
-                                            Elm.apply
-                                                Gen.App.Page.values_.toInternalDetails
-                                                [ pageConfig ]
-                                                |> Elm.get ".pageCacheLimit"
-                                        )
-
-                                else
-                                    toPageBranch pageInfo
-                                        (\params ->
-                                            Elm.int 1
-                                        )
+                                let
+                                    pageConfig =
+                                        Elm.value
+                                            { importFrom = pageInfo.moduleName
+                                            , name = "page"
+                                            , annotation = Nothing
+                                            }
+                                in
+                                toPageBranch pageInfo
+                                    (\_ ->
+                                        Elm.apply
+                                            Gen.App.Page.values_.toInternalDetails
+                                            [ pageConfig ]
+                                            |> Elm.get ".pageCacheLimit"
+                                    )
                             )
                     )
                     |> Elm.withType Type.int
@@ -315,74 +303,67 @@ toPageKey pages =
                     (pages
                         |> List.map
                             (\pageInfo ->
-                                if pageInfo.elmModuleIsPresent then
-                                    let
-                                        pageModule =
-                                            pageInfo.moduleName
+                                let
+                                    pageModule =
+                                        pageInfo.moduleName
 
-                                        pageConfig =
-                                            Elm.value
-                                                { importFrom = pageModule
-                                                , name = "page"
-                                                , annotation = Nothing
-                                                }
-                                    in
-                                    toPageBranch pageInfo
-                                        (\params ->
-                                            Elm.Let.letIn
-                                                (\pageDetails ->
-                                                    Elm.Case.maybe (Elm.get "toKey" pageDetails)
-                                                        { nothing =
-                                                            case pageInfo.route of
-                                                                Nothing ->
-                                                                    Elm.string pageInfo.id
+                                    pageConfig =
+                                        Elm.value
+                                            { importFrom = pageModule
+                                            , name = "page"
+                                            , annotation = Nothing
+                                            }
+                                in
+                                toPageBranch pageInfo
+                                    (\params ->
+                                        Elm.Let.letIn
+                                            (\pageDetails ->
+                                                Elm.Case.maybe (Elm.get "toKey" pageDetails)
+                                                    { nothing =
+                                                        case pageInfo.route of
+                                                            Nothing ->
+                                                                Elm.string pageInfo.id
 
-                                                                Just pageRoute ->
-                                                                    let
-                                                                        vars =
-                                                                            Options.App.toUrlVariables pageRoute
-                                                                    in
-                                                                    case vars of
-                                                                        [] ->
-                                                                            Elm.string pageInfo.id
+                                                            Just pageRoute ->
+                                                                let
+                                                                    vars =
+                                                                        Options.App.toUrlVariables pageRoute
+                                                                in
+                                                                case vars of
+                                                                    [] ->
+                                                                        Elm.string pageInfo.id
 
-                                                                        first :: remaining ->
-                                                                            Elm.Op.append
-                                                                                (Elm.string (pageInfo.id ++ "/"))
-                                                                                (List.foldl
-                                                                                    (\field acc ->
-                                                                                        Elm.Op.append
-                                                                                            acc
-                                                                                            (Elm.Op.append
-                                                                                                (Elm.string "/")
-                                                                                                (Elm.get field params)
-                                                                                            )
-                                                                                    )
-                                                                                    (Elm.get first params)
-                                                                                    remaining
+                                                                    first :: remaining ->
+                                                                        Elm.Op.append
+                                                                            (Elm.string (pageInfo.id ++ "/"))
+                                                                            (List.foldl
+                                                                                (\field acc ->
+                                                                                    Elm.Op.append
+                                                                                        acc
+                                                                                        (Elm.Op.append
+                                                                                            (Elm.string "/")
+                                                                                            (Elm.get field params)
+                                                                                        )
                                                                                 )
-                                                        , just =
-                                                            ( "toKey"
-                                                            , \toKey ->
-                                                                Elm.Op.append
-                                                                    (Elm.string pageInfo.id)
-                                                                    (Elm.apply toKey [ params ])
-                                                            )
-                                                        }
+                                                                                (Elm.get first params)
+                                                                                remaining
+                                                                            )
+                                                    , just =
+                                                        ( "toKey"
+                                                        , \toKey ->
+                                                            Elm.Op.append
+                                                                (Elm.string pageInfo.id)
+                                                                (Elm.apply toKey [ params ])
+                                                        )
+                                                    }
+                                            )
+                                            |> Elm.Let.value "pageDetails"
+                                                (Elm.apply
+                                                    Gen.App.Page.values_.toInternalDetails
+                                                    [ pageConfig ]
                                                 )
-                                                |> Elm.Let.value "pageDetails"
-                                                    (Elm.apply
-                                                        Gen.App.Page.values_.toInternalDetails
-                                                        [ pageConfig ]
-                                                    )
-                                                |> Elm.Let.toExpression
-                                        )
-
-                                else
-                                    toPageBranch pageInfo
-                                        (\params ->
-                                            Elm.string pageInfo.id
-                                        )
+                                            |> Elm.Let.toExpression
+                                    )
                             )
                     )
                     |> Elm.withType Type.string
@@ -394,19 +375,13 @@ msgType stores pageUsages =
     let
         pageVariants =
             pageUsages
-                |> List.filterMap
+                |> List.map
                     (\pageInfo ->
-                        if pageInfo.elmModuleIsPresent then
-                            Just
-                                (Elm.variantWith
-                                    (types.toPageMsg pageInfo.id)
-                                    [ types.pageId
-                                    , Type.named pageInfo.moduleName "Msg"
-                                    ]
-                                )
-
-                        else
-                            Nothing
+                        Elm.variantWith
+                            (types.toPageMsg pageInfo.id)
+                            [ types.pageId
+                            , Type.named pageInfo.moduleName "Msg"
+                            ]
                     )
 
         storeVariants =
@@ -1003,7 +978,7 @@ viewPageModel pages =
                                                 (Elm.val "Loading")
                                                 [ loadingPageId ]
                                         )
-                                    :: List.filterMap (routeToView stores regionId pageId) pages
+                                    :: List.map (routeToView stores regionId pageId) pages
                                 )
                         )
                     }
@@ -1018,75 +993,70 @@ viewPageModel pages =
 
 
 routeToView stores regionId pageId pageInfo =
-    if pageInfo.elmModuleIsPresent then
-        let
-            stateKey =
-                pageInfo.id
+    let
+        stateKey =
+            pageInfo.id
 
-            pageModule =
-                pageInfo.moduleName
+        pageModule =
+            pageInfo.moduleName
 
-            pageMsgTypeName =
-                types.toPageMsg pageInfo.id
-        in
-        Just <|
-            Elm.Case.branch
-                (Elm.Arg.customType stateKey identity
-                    |> Elm.Arg.item (Elm.Arg.varWith "pageModel" (Type.named pageModule "Model"))
+        pageMsgTypeName =
+            types.toPageMsg pageInfo.id
+    in
+    Elm.Case.branch
+        (Elm.Arg.customType stateKey identity
+            |> Elm.Arg.item (Elm.Arg.varWith "pageModel" (Type.named pageModule "Model"))
+        )
+        (\pageState ->
+            Press.Model.withPageHelper
+                (Elm.value
+                    { importFrom = pageModule
+                    , name = "page"
+                    , annotation = Nothing
+                    }
                 )
-                (\pageState ->
-                    Press.Model.withPageHelper
-                        (Elm.value
-                            { importFrom = pageModule
-                            , name = "page"
-                            , annotation = Nothing
-                            }
-                        )
-                        "view"
-                        (\pageView ->
-                            Elm.Let.letIn
-                                (\pageViewResult ->
-                                    Elm.Case.result pageViewResult
-                                        { err =
-                                            ( "pageError"
-                                            , \pageError ->
-                                                Elm.apply
-                                                    (Elm.val "Error")
-                                                    [ pageError ]
-                                            )
-                                        , ok =
-                                            ( "pageViewSuccess"
-                                            , \pageViewSuccess ->
-                                                Elm.apply (Elm.val "View")
-                                                    [ Gen.App.View.call_.map
-                                                        (Elm.fn
-                                                            (Elm.Arg.var "innerMsg")
-                                                            (\innerMsg ->
-                                                                Elm.apply
-                                                                    (Elm.val pageMsgTypeName)
-                                                                    [ pageId
-                                                                    , innerMsg
-                                                                    ]
-                                                            )
-                                                        )
-                                                        pageViewSuccess
-                                                    ]
-                                            )
-                                        }
-                                )
-                                |> Elm.Let.value "pageViewResult"
-                                    (Elm.apply pageView
-                                        [ regionId
-                                        , stores
-                                        , pageState
-                                        ]
+                "view"
+                (\pageView ->
+                    Elm.Let.letIn
+                        (\pageViewResult ->
+                            Elm.Case.result pageViewResult
+                                { err =
+                                    ( "pageError"
+                                    , \pageError ->
+                                        Elm.apply
+                                            (Elm.val "Error")
+                                            [ pageError ]
                                     )
-                                |> Elm.Let.toExpression
+                                , ok =
+                                    ( "pageViewSuccess"
+                                    , \pageViewSuccess ->
+                                        Elm.apply (Elm.val "View")
+                                            [ Gen.App.View.call_.map
+                                                (Elm.fn
+                                                    (Elm.Arg.var "innerMsg")
+                                                    (\innerMsg ->
+                                                        Elm.apply
+                                                            (Elm.val pageMsgTypeName)
+                                                            [ pageId
+                                                            , innerMsg
+                                                            ]
+                                                    )
+                                                )
+                                                pageViewSuccess
+                                            ]
+                                    )
+                                }
                         )
+                        |> Elm.Let.value "pageViewResult"
+                            (Elm.apply pageView
+                                [ regionId
+                                , stores
+                                , pageState
+                                ]
+                            )
+                        |> Elm.Let.toExpression
                 )
-
-    else
-        Nothing
+        )
 
 
 getSubscriptions : List Options.App.Store -> List Options.App.PageUsage -> Elm.Declaration
@@ -1198,7 +1168,7 @@ pageModelToSubscription config model pages current pageId =
                     |> Elm.Arg.item (Elm.Arg.varWith "pageId_" types.pageId)
                 )
                 (\_ -> Gen.Listen.none)
-            :: List.filterMap
+            :: List.map
                 (pageInfoToSubscriptioon config model pageId)
                 pages
         )
@@ -1209,44 +1179,39 @@ pageInfoToSubscriptioon :
     -> Elm.Expression
     -> Elm.Expression
     -> Options.App.PageUsage
-    -> Maybe Elm.Case.Branch
+    -> Elm.Case.Branch
 pageInfoToSubscriptioon config model pageId pageInfo =
-    if pageInfo.elmModuleIsPresent then
-        let
-            stateKey =
-                pageInfo.id
+    let
+        stateKey =
+            pageInfo.id
 
-            pageModule =
-                pageInfo.moduleName
+        pageModule =
+            pageInfo.moduleName
 
-            pageMsgTypeName =
-                types.toPageMsg pageInfo.id
-        in
-        Just <|
-            Elm.Case.branch
-                (Elm.Arg.customType stateKey identity
-                    |> Elm.Arg.item (Elm.Arg.varWith "pageModel" (Type.named pageModule "Model"))
+        pageMsgTypeName =
+            types.toPageMsg pageInfo.id
+    in
+    Elm.Case.branch
+        (Elm.Arg.customType stateKey identity
+            |> Elm.Arg.item (Elm.Arg.varWith "pageModel" (Type.named pageModule "Model"))
+        )
+        (\pageState ->
+            Press.Model.withPageHelper
+                (Elm.value
+                    { importFrom = pageModule
+                    , name = "page"
+                    , annotation = Nothing
+                    }
                 )
-                (\pageState ->
-                    Press.Model.withPageHelper
-                        (Elm.value
-                            { importFrom = pageModule
-                            , name = "page"
-                            , annotation = Nothing
-                            }
-                        )
-                        "subscriptions"
-                        (\pageSubs ->
-                            Elm.apply pageSubs
-                                [ Elm.get "stores" model
-                                , pageState
-                                ]
-                                |> Gen.Listen.call_.map
-                                    (Elm.apply (Elm.val pageMsgTypeName)
-                                        [ pageId ]
-                                    )
-                        )
+                "subscriptions"
+                (\pageSubs ->
+                    Elm.apply pageSubs
+                        [ Elm.get "stores" model
+                        , pageState
+                        ]
+                        |> Gen.Listen.call_.map
+                            (Elm.apply (Elm.val pageMsgTypeName)
+                                [ pageId ]
+                            )
                 )
-
-    else
-        Nothing
+        )

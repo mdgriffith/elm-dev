@@ -109,7 +109,7 @@ errorToDetails error =
             }
 
 
-checkForErrors : List Options.App.ParsedPage -> Result (List Error) (List Options.App.Page)
+checkForErrors : List Options.App.Route -> Result (List Error) (List Options.App.Page)
 checkForErrors routes =
     List.foldl (check routes)
         { collisions = Set.empty
@@ -130,8 +130,8 @@ maybeToList maybe =
 
 
 check :
-    List Options.App.ParsedPage
-    -> Options.App.ParsedPage
+    List Options.App.Route
+    -> Options.App.Route
     ->
         { collisions : Set String
         , result : Result (List Error) (List Options.App.Page)
@@ -372,7 +372,7 @@ checkForFieldCollisions route =
                 }
 
 
-generate : List Options.App.ParsedPage -> Result (List Error) Elm.File
+generate : List Options.App.Route -> Result (List Error) Elm.File
 generate parsedRoutes =
     case checkForErrors parsedRoutes of
         Err errs ->
@@ -398,7 +398,7 @@ generate parsedRoutes =
                     , Elm.group
                         (List.map
                             (\route ->
-                                Elm.alias (String.join "_" (String.split "." route.id) ++ "_Params")
+                                Elm.alias (Options.App.toParamTypeString route.id)
                                     (paramType route)
                                     |> Elm.expose
                             )

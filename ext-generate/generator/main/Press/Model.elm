@@ -824,18 +824,17 @@ preloadPage routes =
         )
 
 
+toPageBranch : Options.App.PageUsage -> (Elm.Expression -> Elm.Expression) -> Elm.Case.Branch
 toPageBranch pageInfo toBranchBody =
-    case pageInfo.paramType of
-        Nothing ->
-            Elm.Case.branch (Elm.Arg.customType (String.replace "." "" pageInfo.id) ())
-                (\_ -> toBranchBody (Elm.record []))
-
-        Just paramType ->
-            Elm.Case.branch
-                (Elm.Arg.customType (String.replace "." "" pageInfo.id) identity
-                    |> Elm.Arg.item (Elm.Arg.varWith "params" Type.unit)
-                )
-                toBranchBody
+    let
+        paramType =
+            String.join "_" (String.split "." pageInfo.id) ++ "_Params"
+    in
+    Elm.Case.branch
+        (Elm.Arg.customType (String.replace "." "" pageInfo.id) identity
+            |> Elm.Arg.item (Elm.Arg.varWith "params" Type.unit)
+        )
+        toBranchBody
 
 
 getPageInit :
@@ -854,67 +853,62 @@ getPageInit pages =
                 (pages
                     |> List.map
                         (\pageInfo ->
-                            if pageInfo.elmModuleIsPresent then
-                                let
-                                    pageModule =
-                                        pageInfo.moduleName
+                            let
+                                pageModule =
+                                    pageInfo.moduleName
 
-                                    pageMsgTypeName =
-                                        types.toPageMsg pageInfo.id
+                                pageMsgTypeName =
+                                    types.toPageMsg pageInfo.id
 
-                                    pageConfig =
-                                        Elm.value
-                                            { importFrom = pageModule
-                                            , name = "page"
-                                            , annotation = Nothing
-                                            }
-                                in
-                                toPageBranch pageInfo
-                                    (\params ->
-                                        Elm.Let.letIn
-                                            (\pageDetails pageKey ->
-                                                Elm.apply
-                                                    (Elm.apply
-                                                        Gen.App.Page.values_.mapInitPlan
-                                                        [ Elm.record
-                                                            [ ( "onModel", Elm.val pageInfo.id )
-                                                            , ( "onMsg"
-                                                              , Elm.apply
-                                                                    (Elm.val pageMsgTypeName)
-                                                                    [ pageId ]
-                                                              )
-                                                            ]
-                                                        ]
-                                                    )
-                                                    [ Elm.apply
-                                                        (Elm.get "init" pageDetails)
-                                                        [ pageId
-                                                        , params
-                                                        , stores
-                                                        , getPage pageKey
-                                                            pageInfo.id
-                                                            cache
-                                                            { nothing = Elm.nothing
-                                                            , just = Elm.just
-                                                            }
+                                pageConfig =
+                                    Elm.value
+                                        { importFrom = pageModule
+                                        , name = "page"
+                                        , annotation = Nothing
+                                        }
+                            in
+                            toPageBranch pageInfo
+                                (\params ->
+                                    Elm.Let.letIn
+                                        (\pageDetails pageKey ->
+                                            Elm.apply
+                                                (Elm.apply
+                                                    Gen.App.Page.values_.mapInitPlan
+                                                    [ Elm.record
+                                                        [ ( "onModel", Elm.val pageInfo.id )
+                                                        , ( "onMsg"
+                                                          , Elm.apply
+                                                                (Elm.val pageMsgTypeName)
+                                                                [ pageId ]
+                                                          )
                                                         ]
                                                     ]
+                                                )
+                                                [ Elm.apply
+                                                    (Elm.get "init" pageDetails)
+                                                    [ pageId
+                                                    , params
+                                                    , stores
+                                                    , getPage pageKey
+                                                        pageInfo.id
+                                                        cache
+                                                        { nothing = Elm.nothing
+                                                        , just = Elm.just
+                                                        }
+                                                    ]
+                                                ]
+                                        )
+                                        |> Elm.Let.value "pageDetails"
+                                            (Elm.apply
+                                                Gen.App.Page.values_.toInternalDetails
+                                                [ pageConfig ]
                                             )
-                                            |> Elm.Let.value "pageDetails"
-                                                (Elm.apply
-                                                    Gen.App.Page.values_.toInternalDetails
-                                                    [ pageConfig ]
-                                                )
-                                            |> Elm.Let.value "pageKey"
-                                                (Elm.apply (Elm.val "toPageKey")
-                                                    [ pageId ]
-                                                )
-                                            |> Elm.Let.toExpression
-                                    )
-
-                            else
-                                toPageBranch pageInfo
-                                    (\_ -> Gen.App.Page.notFound)
+                                        |> Elm.Let.value "pageKey"
+                                            (Elm.apply (Elm.val "toPageKey")
+                                                [ pageId ]
+                                            )
+                                        |> Elm.Let.toExpression
+                                )
                         )
                 )
                 |> Elm.withType
@@ -1048,85 +1042,81 @@ updatePageBranches pages config shared model =
     pages
         |> List.filterMap
             (\pageInfo ->
-                if pageInfo.elmModuleIsPresent then
-                    let
-                        stateKey =
-                            pageInfo.id
+                let
+                    stateKey =
+                        pageInfo.id
 
-                        pageModule =
-                            pageInfo.moduleName
+                    pageModule =
+                        pageInfo.moduleName
 
-                        pageMsgTypeName =
-                            types.toPageMsg pageInfo.id
-                    in
-                    Just <|
-                        Elm.Case.branch
-                            (Elm.Arg.customType pageMsgTypeName Tuple.pair
-                                |> Elm.Arg.item (Elm.Arg.varWith "pageId" types.pageId)
-                                |> Elm.Arg.item (Elm.Arg.varWith "pageMsg" (Type.named pageModule "Msg"))
-                            )
-                            (\( pageId, pageMsg ) ->
-                                let
-                                    pageKey =
-                                        Elm.apply
-                                            (Elm.val "toPageKey")
-                                            [ pageId ]
-                                in
-                                getPage pageKey
-                                    stateKey
-                                    (Elm.get "states" model)
-                                    { nothing = Elm.tuple model effectNone
-                                    , just =
-                                        \pageState ->
-                                            let
-                                                updated =
-                                                    withPageHelper
-                                                        (Elm.value
-                                                            { importFrom = pageModule
-                                                            , name = "page"
-                                                            , annotation = Nothing
-                                                            }
-                                                        )
-                                                        "update"
-                                                        (\pageUpdate ->
-                                                            Elm.apply pageUpdate
-                                                                [ shared
-                                                                , pageMsg
-                                                                , pageState
+                    pageMsgTypeName =
+                        types.toPageMsg pageInfo.id
+                in
+                Just <|
+                    Elm.Case.branch
+                        (Elm.Arg.customType pageMsgTypeName Tuple.pair
+                            |> Elm.Arg.item (Elm.Arg.varWith "pageId" types.pageId)
+                            |> Elm.Arg.item (Elm.Arg.varWith "pageMsg" (Type.named pageModule "Msg"))
+                        )
+                        (\( pageId, pageMsg ) ->
+                            let
+                                pageKey =
+                                    Elm.apply
+                                        (Elm.val "toPageKey")
+                                        [ pageId ]
+                            in
+                            getPage pageKey
+                                stateKey
+                                (Elm.get "states" model)
+                                { nothing = Elm.tuple model effectNone
+                                , just =
+                                    \pageState ->
+                                        let
+                                            updated =
+                                                withPageHelper
+                                                    (Elm.value
+                                                        { importFrom = pageModule
+                                                        , name = "page"
+                                                        , annotation = Nothing
+                                                        }
+                                                    )
+                                                    "update"
+                                                    (\pageUpdate ->
+                                                        Elm.apply pageUpdate
+                                                            [ shared
+                                                            , pageMsg
+                                                            , pageState
+                                                            ]
+                                                    )
+                                        in
+                                        Elm.Let.letIn
+                                            (\( innerPageModel, pageEffect ) ->
+                                                let
+                                                    pageModel =
+                                                        Elm.apply (Elm.val stateKey)
+                                                            [ innerPageModel ]
+                                                in
+                                                Elm.tuple
+                                                    (model
+                                                        |> Elm.updateRecord
+                                                            [ ( "states", setState pageKey pageModel model )
+                                                            ]
+                                                    )
+                                                    (pageEffect
+                                                        |> effectMap
+                                                            (Elm.apply
+                                                                (Elm.val pageMsgTypeName)
+                                                                [ pageId
                                                                 ]
-                                                        )
-                                            in
-                                            Elm.Let.letIn
-                                                (\( innerPageModel, pageEffect ) ->
-                                                    let
-                                                        pageModel =
-                                                            Elm.apply (Elm.val stateKey)
-                                                                [ innerPageModel ]
-                                                    in
-                                                    Elm.tuple
-                                                        (model
-                                                            |> Elm.updateRecord
-                                                                [ ( "states", setState pageKey pageModel model )
-                                                                ]
-                                                        )
-                                                        (pageEffect
-                                                            |> effectMap
-                                                                (Elm.apply
-                                                                    (Elm.val pageMsgTypeName)
-                                                                    [ pageId
-                                                                    ]
-                                                                )
-                                                        )
-                                                )
-                                                |> Elm.Let.unpack
-                                                    (Elm.Arg.tuple (Elm.Arg.var "updatedPage") (Elm.Arg.var "pageEffect"))
-                                                    updated
-                                                |> Elm.Let.toExpression
-                                    }
-                            )
-
-                else
-                    Nothing
+                                                            )
+                                                    )
+                                            )
+                                            |> Elm.Let.unpack
+                                                (Elm.Arg.tuple (Elm.Arg.var "updatedPage") (Elm.Arg.var "pageEffect"))
+                                                updated
+                                            |> Elm.Let.toExpression
+                                }
+                        )
             )
 
 

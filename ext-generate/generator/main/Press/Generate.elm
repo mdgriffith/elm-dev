@@ -46,9 +46,6 @@ generate options =
     let
         routes =
             List.filterMap .route options.pages
-
-        pages =
-            List.map populateParamType options.pages
     in
     case Generate.Route.generate routes of
         Err err ->
@@ -56,21 +53,11 @@ generate options =
 
         Ok routeFile ->
             Ok
-                (Press.Generate.Engine.generate options.stores pages
+                (Press.Generate.Engine.generate options.stores options.pages
                     :: generatePageId options.pages
                     :: routeFile
                     :: generateStores options.stores
                 )
-
-
-toParamTypeString : { page | id : String } -> String
-toParamTypeString page =
-    String.join "_" (String.split "." page.id) ++ "_Params"
-
-
-populateParamType : Options.App.PageUsage -> Options.App.PageUsage
-populateParamType page =
-    { page | paramType = Just (toParamTypeString page) }
 
 
 generateStores : List Options.App.Store -> List Elm.File
@@ -111,7 +98,9 @@ generatePageId pageUsages =
 
                         else
                             Just
-                                (Elm.variantWith (String.replace "." "" page.id) [ Type.named [] (toParamTypeString page) ])
+                                (Elm.variantWith (String.replace "." "" page.id)
+                                    [ Type.named [] (Options.App.toParamTypeString page.id) ]
+                                )
                     )
                     pageUsages
                 )
@@ -127,24 +116,24 @@ generatePageId pageUsages =
                             case page.route of
                                 Nothing ->
                                     Elm.alias
-                                        (toParamTypeString page)
+                                        (Options.App.toParamTypeString page.id)
                                         (Type.record [])
 
                                 Just parsedRoute ->
                                     case Generate.Route.checkForErrors [ parsedRoute ] of
                                         Err _ ->
                                             Elm.alias
-                                                (toParamTypeString page)
+                                                (Options.App.toParamTypeString page.id)
                                                 (Type.record [])
 
                                         Ok [ route ] ->
                                             Elm.alias
-                                                (toParamTypeString page)
-                                                (Type.named [ "App", "Route" ] (toParamTypeString page))
+                                                (Options.App.toParamTypeString page.id)
+                                                (Type.named [ "App", "Route" ] (Options.App.toParamTypeString page.id))
 
                                         _ ->
                                             Elm.alias
-                                                (toParamTypeString page)
+                                                (Options.App.toParamTypeString page.id)
                                                 (Type.record [])
                 )
                 pageUsages
@@ -174,7 +163,7 @@ generatePageId pageUsages =
                                                                 |> Elm.Arg.item
                                                                     (Elm.Arg.varWith "params"
                                                                         (Type.named [ "App", "Route" ]
-                                                                            (toParamTypeString pageRoute)
+                                                                            (Options.App.toParamTypeString pageRoute.id)
                                                                         )
                                                                     )
                                                             )

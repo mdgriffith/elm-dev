@@ -1,6 +1,7 @@
 module Options.App exposing
     ( Options, decode
-    , Route, Store
+    , Route, Store, Page
+    , toParamTypeString
     , toUrlVariables, ParserError, QueryParams, UrlParsedPattern(..), UrlPattern(..), UrlPatternDetails, UrlPiece(..)
     , PageUsage
     )
@@ -9,9 +10,9 @@ module Options.App exposing
 
 @docs Options, decode
 
-@docs Route, Store
+@docs Route, Store, Page
 
-@docs Pageusage
+@docs Pageusage, toParamTypeString
 
 @docs toUrlVariables, ParserError, QueryParams, UrlParsedPattern, UrlPattern, UrlPatternDetails, UrlPiece, decode, toUrlVariables
 
@@ -31,12 +32,7 @@ type alias Options =
 type alias PageUsage =
     { id : String
     , moduleName : List String
-    , value : String
-    , paramType : Maybe String
-    , elmModuleIsPresent : Bool
     , urlOnly : Bool
-
-    --
     , route : Maybe Route
     }
 
@@ -44,6 +40,15 @@ type alias PageUsage =
 type alias Store =
     { id : String
     }
+
+
+type alias PageId =
+    String
+
+
+toParamTypeString : PageId -> String
+toParamTypeString id =
+    String.join "_" (String.split "." id) ++ "_Params"
 
 
 decode : Json.Decode.Decoder Options
@@ -62,18 +67,9 @@ decodeStore =
 decodePageUsages : Json.Decode.Decoder (List PageUsage)
 decodePageUsages =
     Json.Decode.list
-        (Json.Decode.map7 PageUsage
+        (Json.Decode.map4 PageUsage
             (Json.Decode.field "id" Json.Decode.string)
             (Json.Decode.field "moduleName" (Json.Decode.list Json.Decode.string))
-            (Json.Decode.field "value" Json.Decode.string)
-            (Json.Decode.field "paramType"
-                (Json.Decode.oneOf
-                    [ Json.Decode.map Just Json.Decode.string
-                    , Json.Decode.null Nothing
-                    ]
-                )
-            )
-            (Json.Decode.field "elmModuleIsPresent" Json.Decode.bool)
             (Json.Decode.field "urlOnly" Json.Decode.bool)
             (Json.Decode.maybe (Json.Decode.field "route" decodeRoute))
         )
@@ -83,6 +79,13 @@ type alias Route =
     { id : String
     , url : UrlParsedPattern
     , redirectFrom : List UrlParsedPattern
+    }
+
+
+type alias Page =
+    { id : String
+    , url : UrlPattern
+    , redirectFrom : List UrlPattern
     }
 
 
