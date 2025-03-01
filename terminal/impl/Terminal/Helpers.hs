@@ -5,7 +5,9 @@ module Terminal.Helpers
   , package
   , elmModule
   , urlPattern
+  , elmModuleOrPath
   , PageParams(..)
+  , ElmModuleOrFilePath(..)
   )
   where
 
@@ -159,6 +161,29 @@ examplePackages given =
 
 
 
+data ElmModuleOrFilePath
+  = ElmModule Elm.ModuleName.Raw
+  | FilePath FilePath
+
+elmModuleOrPath :: Parser ElmModuleOrFilePath
+elmModuleOrPath =
+  Parser
+    { _singular = "elm module or file path"
+    , _plural = "elm modules or file paths"
+    , _parser = parseElmModuleOrPath
+    , _suggest = \_ -> return ["Ui.Button", "src/Ui/Button.elm"]
+    , _examples = \_ -> return ["Main", "Style.Button", "src/Main.elm"]
+    , _choices = Nothing
+    }
+  where
+    parseElmModuleOrPath :: String -> Maybe ElmModuleOrFilePath
+    parseElmModuleOrPath input =
+      case parseElmModule input of
+        Just moduleName -> Just (ElmModule moduleName)
+        Nothing -> Just (FilePath input)
+
+
+
 
 elmModule :: Parser Elm.ModuleName.Raw
 elmModule =
@@ -280,3 +305,7 @@ parseUrlPattern input = do
     endsWith c str = case reverse str of
         [] -> False
         (x:_) -> x == last c
+
+instance Show ElmModuleOrFilePath where
+    show (ElmModule moduleName) = Elm.ModuleName.toChars moduleName
+    show (FilePath path) = path
