@@ -26,6 +26,9 @@ import qualified Gen.Templates
 import qualified Gen.Templates.Loader
 import Data.Function ((&))
 import qualified Data.Text.Encoding
+import System.Directory (doesFileExist, removeFile)
+import Control.Monad (when)
+import qualified System.FilePath as FP
 
 
 -- INIT COMMAND
@@ -142,13 +145,13 @@ customize =
         "Run this command with an optional Elm module name (e.g., 'My.Module')"
 
     customizeFlags = Terminal.noFlags
-    customizeArgs = Terminal.oneOrMoreWith Customize (Terminal.Helpers.elmModule)
+    customizeArgs = Terminal.oneOrMoreWith Customize (Terminal.Helpers.elmModuleOrPath)
   in
   Terminal.Command "customize" (Terminal.Common summary) details example customizeArgs customizeFlags runCustomize
 
 
 data CustomizeCommand
-  = Customize Elm.ModuleName.Raw [Elm.ModuleName.Raw]
+  = Customize Terminal.Helpers.ElmModuleOrFilePath [Terminal.Helpers.ElmModuleOrFilePath]
 
 
 -- RUNNERS (These need to be implemented)
@@ -301,9 +304,53 @@ runAdd cmd () = do
                     putStrLn "Added theme section to config"
 
 runCustomize :: CustomizeCommand -> () -> IO ()
-runCustomize maybeModule () =
-    do  putStrLn "Initializing project..."
+runCustomize (Customize firstModule restModules) () = do
+    -- Read config to get source directory
+    configResult <- BS.readFile "elm.generate.json" >>= \contents ->
+        case eitherDecodeStrict (BS.toStrict contents) :: Either String Config.Config of
+            Left err -> 
+                fail $ "Failed to parse elm.generate.json: " ++ err
+            Right config -> 
+                return config
 
+    let modules = firstModule : restModules
+    let srcPath = fromMaybe "src" (Config.configSrc configResult)
+    cwd <- System.Directory.getCurrentDirectory
+
+    -- Process each module
+    mapM_ (\moduleOrPath -> do
+        -- Convert moduleOrPath to a file path
+        let moduleFilePath = case moduleOrPath of
+                Terminal.Helpers.ElmModule moduleName ->
+                    foldr (</>) "" $ words $ map (\c -> if c == '.' then ' ' else c) (Elm.ModuleName.toChars moduleName)  <.> "elm"
+                    
+                Terminal.Helpers.FilePath path ->
+                    path
+
+        -- Find matching customizable template
+        let maybeTemplate = Data.List.find (\t -> 
+                Gen.Templates.Loader.target t == Gen.Templates.Loader.Customizable &&
+                Text.pack moduleFilePath == Text.pack (Gen.Templates.Loader.filename t)) 
+                Gen.Templates.templates
+
+        case maybeTemplate of
+            Nothing -> 
+                putStrLn $ "No customizable : " ++ show moduleOrPath
+            Just template -> do
+                -- Write template to configSrc folder
+                let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
+                let targetPath = cwd </> Text.unpack srcPath </> moduleFilePath
+                TIO.writeFile targetPath contents
+                
+                -- Check and remove corresponding file in ToHidden directory
+                let hiddenPath = cwd </> ".elm-generate" </> moduleFilePath
+                hiddenExists <- System.Directory.doesFileExist hiddenPath
+                when hiddenExists $ do
+                    System.Directory.removeFile hiddenPath
+                    putStrLn $ "Removed hidden template: " ++ hiddenPath
+                
+                putStrLn $ "Customized template written to: " ++ targetPath
+        ) modules
 
 
 reflow :: String -> P.Doc
