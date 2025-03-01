@@ -5,11 +5,9 @@ module Gen.Javascript where
 
 import qualified Language.Haskell.TH
 import qualified Data.FileEmbed
-import Language.Haskell.TH.Syntax
 import System.Process (readCreateProcess, shell)
 import Control.Exception (try, SomeException)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as C8
 import System.IO.Temp (withSystemTempFile)
 import System.FilePath ((</>))
 
@@ -23,8 +21,8 @@ generatorJs =
 
 -- | Execute embedded JavaScript using Bun
 
-run :: BS.ByteString -> IO (Either String String)
-run jsCode = withSystemTempFile "embedded.js" $ \tempPath handle -> do
+run :: BS.ByteString -> BS.ByteString ->  IO (Either String String)
+run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
     -- Write the embedded code to a temporary file
     BS.hPut handle jsCode
     -- Execute using Bun
