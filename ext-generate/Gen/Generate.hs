@@ -2,6 +2,7 @@
 module Gen.Generate (generate) where
 
 import qualified Gen.Config as Config
+import qualified Gen.RunConfig as RunConfig
 import qualified Gen.Javascript as Javascript
 import qualified Gen.Templates.Loader as Loader
 import qualified Gen.Templates as Templates
@@ -17,11 +18,19 @@ import Data.Maybe (fromMaybe)
 import Control.Monad (forM_)
 import Data.Function ((&))
 
+
 -- | Main generation function
 generate :: Config.Config -> IO (Either String String)
 generate config = do
     updatedConfig <- syncPages config
-    Javascript.run Javascript.generatorJs (BS.toStrict (Aeson.encodePretty updatedConfig))
+    cwd <- Dir.getCurrentDirectory
+
+    -- Convert Config to RunConfig and then run Javascript generator
+    runConfig <- RunConfig.toRunConfig cwd config
+    Javascript.run Javascript.generatorJs (BS.toStrict (Aeson.encodePretty runConfig))
+
+
+
 
 -- | Synchronize pages between filesystem and config
 syncPages :: Config.Config -> IO Config.Config
@@ -38,11 +47,11 @@ syncPages config = do
     
     -- Create files for configured pages that don't exist
     forM_ (Map.toList configuredPages) $ \(pageId, _) -> do
-        let filePath = "src" </> "Page" </> Text.unpack pageId <> ".elm"
+        let filePath = Text.unpack Config.src </> "Page" </> Text.unpack pageId <> ".elm"
         fileExists <- Dir.doesFileExist filePath
         when (not fileExists) $ do
             -- Create directory if it doesn't exist
-            Dir.createDirectoryIfMissing True ("src" </> "Page")
+            Dir.createDirectoryIfMissing True (Text.unpack Config.src </> "Page")
             -- Create file from template
             case pageTemplate of
                 Just tmpl -> do
@@ -62,7 +71,7 @@ syncPages config = do
   where
     findPageFiles :: IO [FilePath]
     findPageFiles = do
-        let pageDir = "src" </> "Page"
+        let pageDir = Text.unpack Config.src </> "Page"
         dirExists <- Dir.doesDirectoryExist pageDir
         if dirExists
             then do
