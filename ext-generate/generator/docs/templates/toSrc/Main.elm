@@ -4,7 +4,7 @@ module Main exposing (main)
 
 import App
 import App.Page.Id
-import App.Resources
+import App.Stores
 import App.View.Id
 import Browser
 import Effect exposing (Effect)
@@ -29,7 +29,7 @@ main : App.App Model Msg
 main =
     App.app
         { init =
-            \resources flags url ->
+            \stores flags url ->
                 ( {}
                 , Effect.batch
                     [ Effect.Nav.toUrl url
@@ -40,12 +40,12 @@ main =
         , onUrlRequest = UrlRequested
         , update = update
         , subscriptions =
-            \resources model ->
+            \stores model ->
                 Listen.none
         , toCmd = toCmd
         , toSub = toSub
         , view =
-            \resources toAppMsg model regions ->
+            \stores toAppMsg model regions ->
                 case regions.primary of
                     Nothing ->
                         { title = "Nothing"
@@ -70,17 +70,17 @@ main =
                         }
 
                     Just (App.View page) ->
-                        view resources toAppMsg model regions page
+                        view stores toAppMsg model regions page
         }
 
 
-toSub : App.Resources.Resources -> App.SubOptions Msg -> Model -> Listen.Listen (App.Msg Msg) -> Sub (App.Msg Msg)
-toSub resources options model sub =
+toSub : App.Stores.Stores -> App.SubOptions Msg -> Model -> Listen.Listen (App.Msg Msg) -> Sub (App.Msg Msg)
+toSub stores options model sub =
     Listen.toSubscription options sub
 
 
-toCmd : App.Resources.Resources -> App.CmdOptions Msg -> Model -> Effect.Effect (App.Msg Msg) -> Cmd (App.Msg Msg)
-toCmd resources options model effect =
+toCmd : App.Stores.Stores -> App.CmdOptions Msg -> Model -> Effect.Effect (App.Msg Msg) -> Cmd (App.Msg Msg)
+toCmd stores options model effect =
     Effect.toCmd options
         (\urlBase ->
             case urlBase of
@@ -106,7 +106,7 @@ heightWindow =
     Attr.style "height" "100vh"
 
 
-view resources toAppMsg model regions innerView =
+view stores toAppMsg model regions innerView =
     { title = innerView.title
     , body =
         [ stylesheet
@@ -535,8 +535,8 @@ type Msg
     | UrlRequested Browser.UrlRequest
 
 
-update : App.Resources.Resources -> Msg -> Model -> ( Model, Effect Msg )
-update resources msg model =
+update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect Msg )
+update stores msg model =
     case msg of
         UrlRequested (Browser.Internal url) ->
             ( model, Effect.Nav.pushUrl (Url.toString url) )

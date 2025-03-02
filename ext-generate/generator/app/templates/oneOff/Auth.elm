@@ -1,17 +1,17 @@
-module Resource.Auth exposing
-    ( resource, isAuthenticated
+module Store.Auth exposing
+    ( store, isAuthenticated
     , Authenticated(..), Model, Msg(..)
     )
 
 {-|
 
-@docs resource, isAuthenticated
+@docs store, isAuthenticated
 
 @docs Authenticated, Model, Msg
 
 -}
 
-import App.Resource
+import App.Store
 import Broadcast
 import Effect
 import Json.Decode as Decode
@@ -56,9 +56,9 @@ type Msg
     | AuthenticationReceived Tokens
 
 
-resource : App.Resource.Resource Msg Model
-resource =
-    App.Resource.resource
+store : App.Store.Store Msg Model
+store =
+    App.Store.store
         { init =
             \flags url maybeCachedModel ->
                 let
@@ -106,7 +106,7 @@ resource =
         , subscriptions = \_ -> Listen.none
         }
         -- Persist the modle to local storage
-        |> App.Resource.withLocalStorage
+        |> App.Store.withLocalStorage
             { decoder = decoder
             , encode = encode
             }

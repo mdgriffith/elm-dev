@@ -8,7 +8,7 @@ module Page.Guide exposing (page, Model, Msg)
 
 import App.Page
 import App.Page.Id
-import App.Resources
+import App.Stores
 import App.View
 import App.View.Id
 import Docs.Guides
@@ -30,7 +30,7 @@ type Msg
     = ReplaceMe
 
 
-page : App.Page.Page App.Resources.Resources App.Page.Id.Guide_Params Msg Model
+page : App.Page.Page App.Stores.Stores App.Page.Id.Guide_Params Msg Model
 page =
     App.Page.page
         { init = init
@@ -40,7 +40,7 @@ page =
         }
 
 
-init : App.Page.Id.Id -> App.Page.Id.Guide_Params -> App.Resources.Resources -> Maybe Model -> App.Page.Init Msg Model
+init : App.Page.Id.Id -> App.Page.Id.Guide_Params -> App.Stores.Stores -> Maybe Model -> App.Page.Init Msg Model
 init pageId params shared maybeCached =
     App.Page.init { guide = lookupGuide (String.join "/" params.path_) }
 
@@ -50,17 +50,17 @@ lookupGuide path =
     List.head (List.filter (\guide -> guide.path == path) Docs.Guides.all_)
 
 
-update : App.Resources.Resources -> Msg -> Model -> ( Model, Effect Msg )
+update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect Msg )
 update shared msg model =
     ( model, Effect.none )
 
 
-subscriptions : App.Resources.Resources -> Model -> Listen Msg
+subscriptions : App.Stores.Stores -> Model -> Listen Msg
 subscriptions shared model =
     Listen.none
 
 
-view : App.View.Id.Id -> App.Resources.Resources -> Model -> App.View.View Msg
+view : App.View.Id.Id -> App.Stores.Stores -> Model -> App.View.View Msg
 view viewId shared model =
     { title = "Guides"
     , body =

@@ -8,7 +8,7 @@ module Page.Package exposing (page, Model, Msg)
 
 import App.Page
 import App.Page.Id
-import App.Resources
+import App.Stores
 import App.View
 import App.View.Id
 import Broadcast
@@ -39,7 +39,7 @@ type Msg
     | TypeClicked String
 
 
-page : App.Page.Page App.Resources.Resources App.Page.Id.Package_Params Msg Model
+page : App.Page.Page App.Stores.Stores App.Page.Id.Package_Params Msg Model
 page =
     App.Page.page
         { init = init
@@ -49,7 +49,7 @@ page =
         }
 
 
-init : App.Page.Id.Id -> App.Page.Id.Package_Params -> App.Resources.Resources -> Maybe Model -> App.Page.Init Msg Model
+init : App.Page.Id.Id -> App.Page.Id.Package_Params -> App.Stores.Stores -> Maybe Model -> App.Page.Init Msg Model
 init pageId params shared maybeCached =
     let
         key =
@@ -86,7 +86,7 @@ init pageId params shared maybeCached =
                 }
 
 
-update : App.Resources.Resources -> Msg -> Model -> ( Model, Effect Msg )
+update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect Msg )
 update shared msg model =
     case msg of
         ModuleClicked name ->
@@ -105,7 +105,7 @@ update shared msg model =
             )
 
 
-subscriptions : App.Resources.Resources -> Model -> Listen Msg
+subscriptions : App.Stores.Stores -> Model -> Listen Msg
 subscriptions shared model =
     Listen.none
 
@@ -129,7 +129,7 @@ getModule modules name =
         modules
 
 
-view : App.View.Id.Id -> App.Resources.Resources -> Model -> App.View.View Msg
+view : App.View.Id.Id -> App.Stores.Stores -> Model -> App.View.View Msg
 view viewId shared model =
     { title = model.name
     , body =

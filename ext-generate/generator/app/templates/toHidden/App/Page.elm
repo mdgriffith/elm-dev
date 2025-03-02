@@ -24,7 +24,7 @@ These are used internally and you shouldn't need to worry about them!
 
 import App.Page.Error
 import App.Page.Id
-import App.Resources
+import App.Stores
 import App.View
 import App.View.Id
 import Effect
@@ -44,12 +44,12 @@ type Page shared params msg model
 
 {-| -}
 page :
-    { init : App.Page.Id.Id -> params -> App.Resources.Resources -> Maybe model -> Init msg model
-    , update : App.Resources.Resources -> msg -> model -> ( model, Effect.Effect msg )
-    , subscriptions : App.Resources.Resources -> model -> Listen.Listen msg
-    , view : App.View.Id.Id -> App.Resources.Resources -> model -> App.View.View msg
+    { init : App.Page.Id.Id -> params -> App.Stores.Stores -> Maybe model -> Init msg model
+    , update : App.Stores.Stores -> msg -> model -> ( model, Effect.Effect msg )
+    , subscriptions : App.Stores.Stores -> model -> Listen.Listen msg
+    , view : App.View.Id.Id -> App.Stores.Stores -> model -> App.View.View msg
     }
-    -> Page App.Resources.Resources params msg model
+    -> Page App.Stores.Stores params msg model
 page options =
     Page
         { toKey = Nothing
@@ -85,40 +85,40 @@ withPageCacheLimit limit (Page options) =
 
 {-| -}
 withGuard :
-    (resources -> Result App.Page.Error.Error newResources)
-    -> Page newResources params msg model
-    -> Page resources params msg model
-withGuard toResources (Page options) =
+    (stores -> Result App.Page.Error.Error newStores)
+    -> Page newStores params msg model
+    -> Page stores params msg model
+withGuard toStores (Page options) =
     Page
         { toKey = options.toKey
         , pageCacheLimit = options.pageCacheLimit
         , init =
-            \pageId params resources maybeModel ->
-                case toResources resources of
+            \pageId params stores maybeModel ->
+                case toStores stores of
                     Err err ->
                         Error err
 
                     Ok newShared ->
                         options.init pageId params newShared maybeModel
         , update =
-            \resources msg model ->
-                case toResources resources of
+            \stores msg model ->
+                case toStores stores of
                     Err err ->
                         ( model, Effect.none )
 
                     Ok newShared ->
                         options.update newShared msg model
         , subscriptions =
-            \resources model ->
-                case toResources resources of
+            \stores model ->
+                case toStores stores of
                     Err err ->
                         Listen.none
 
                     Ok newShared ->
                         options.subscriptions newShared model
         , view =
-            \region resources model ->
-                case toResources resources of
+            \region stores model ->
+                case toStores stores of
                     Err err ->
                         Err err
 

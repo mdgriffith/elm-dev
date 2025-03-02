@@ -13,7 +13,7 @@ module Page.{{name}} exposing
 import Effect
 import App.Page
 import App.Page.Id
-import App.Resources
+import App.Stores
 import Listen
 import App.View
 import App.View.Id
@@ -30,28 +30,28 @@ type Msg
     = ReplaceMe
 
 
-page : App.Page.Page App.Resources.Resources App.Page.Id.{{name_underscored}}_Params Msg Model
+page : App.Page.Page App.Stores.Stores App.Page.Id.{{name_underscored}}_Params Msg Model
 page =
     App.Page.page
         { init = init
         , update = update
-        , subscriptions = \resources model -> Listen.none
+        , subscriptions = \stores model -> Listen.none
         , view = view
         }
 
 
-init : App.Page.Id.Id -> App.Page.Id.{{name_underscored}}_Params -> App.Resources.Resources -> Maybe Model -> App.Page.Init Msg Model
-init pageId urlParams resources maybeCached =
+init : App.Page.Id.Id -> App.Page.Id.{{name_underscored}}_Params -> App.Stores.Stores -> Maybe Model -> App.Page.Init Msg Model
+init pageId urlParams stores maybeCached =
     App.Page.init {}
 
 
-update : App.Resources.Resources -> Msg -> Model -> ( Model, Effect.Effect Msg )
-update resources msg model =
+update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect.Effect Msg )
+update stores msg model =
     ( model, Effect.none )
 
 
-view : App.View.Id.Id -> App.Resources.Resources -> Model -> App.View.View Msg
-view viewId resources model =
+view : App.View.Id.Id -> App.Stores.Stores -> Model -> App.View.View Msg
+view viewId stores model =
    { title = "{{name}}"
    , body = Html.text "{{name}}"
    }
