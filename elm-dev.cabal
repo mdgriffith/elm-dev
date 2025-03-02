@@ -281,6 +281,7 @@ Executable elm-dev
         Gen.Templates
         Gen.Templates.Loader
         Gen.Generate
+        Gen.RunConfig
 
 
         Util

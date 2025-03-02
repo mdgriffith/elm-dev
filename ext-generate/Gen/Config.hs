@@ -10,7 +10,7 @@ module Gen.Config
     , AppConfig(..)
     , PageConfig(..)
     , AssetConfig(..)
-    , ThemeConfig(..)
+    , Theme(..)
     , GraphQLConfig(..)
     , DocsConfig(..)
     , defaultTheme
@@ -36,7 +36,7 @@ data Config = Config
     { configPackageManager :: Maybe PackageManager
     , configApp :: Maybe AppConfig
     , configAssets :: Maybe (Map.Map Text AssetConfig)
-    , configTheme :: Maybe ThemeConfig
+    , configTheme :: Maybe Theme
     , configGraphQL :: Maybe GraphQLConfig
     , configDocs :: Maybe DocsConfig
     } deriving (Generic)
@@ -68,7 +68,7 @@ data AssetConfig = AssetConfig
 instance FromJSON AssetConfig
 instance ToJSON AssetConfig
 
-data ThemeConfig = ThemeConfig
+data Theme = Theme
     { themeTarget :: Maybe ThemeTarget
     , themeColors :: Maybe ColorsTheme
     , themeSpacing :: Maybe (Map.Map Text Int)
@@ -76,8 +76,8 @@ data ThemeConfig = ThemeConfig
     , themeBorders :: Maybe BorderConfig
     } deriving (Generic)
 
-instance FromJSON ThemeConfig
-instance ToJSON ThemeConfig
+instance FromJSON Theme
+instance ToJSON Theme
 
 data ColorsTheme = ColorsTheme
     { colorsPalette :: Maybe (Map.Map Text Text)
@@ -271,8 +271,8 @@ instance ToJSON AppConfig
 -- parse :: BS.ByteString -> Either String Config
 -- parse = eitherDecodeStrict
 
-defaultTheme :: ThemeConfig
-defaultTheme = ThemeConfig
+defaultTheme :: Theme
+defaultTheme = Theme
     { themeTarget = Just ElmUI
     , themeColors = Just defaultColors
     , themeSpacing = Just $ Map.fromList
