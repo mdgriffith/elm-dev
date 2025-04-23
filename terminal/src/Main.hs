@@ -25,14 +25,14 @@ import qualified Publish
 import qualified Repl
 
 
-import qualified Terminal.Dev
+import qualified MainDev
 
 -- MAIN
 
 
 main :: IO ()
 main =
-  Terminal.Dev.main
+  MainDev.main
 
 
 intro :: P.Doc
