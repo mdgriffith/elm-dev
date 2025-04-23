@@ -236,6 +236,9 @@ Executable elm-dev
         Terminal.Dev.Args
         Terminal.Dev.Error
         Terminal.Dev.Out
+        Terminal.Colors
+        CommandParser
+        MainDev
 
         -- Watchtower
         Watchtower.Editor
