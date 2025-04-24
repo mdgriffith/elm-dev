@@ -11,6 +11,7 @@ import qualified Terminal.Helpers
 import qualified Elm.ModuleName
 import qualified Gen.Javascript
 import qualified Data.Name as Name
+import qualified Data.List as List
 import qualified Gen.Config as Config
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteString.Lazy as BS
@@ -18,7 +19,7 @@ import qualified Data.ByteString
 import System.FilePath ((</>))
 import Data.Text (pack)
 import Data.Aeson (eitherDecodeStrict)
-import qualified System.Directory (getCurrentDirectory)
+import qualified System.Directory (getCurrentDirectory, createDirectoryIfMissing)
 import qualified Data.Text as Text
 import qualified Data.List (find)
 import qualified Data.Text.IO as TIO
@@ -32,6 +33,7 @@ import qualified Data.Text.Encoding
 import System.Directory (doesFileExist, removeFile)
 import Control.Monad (when)
 import qualified System.FilePath as FP
+import qualified Terminal.Colors
 
 -- Flag types
 data InitFlags = InitFlags
@@ -343,26 +345,45 @@ customize = CommandParser.command ["customize"] "Customize project components" c
     -- Find matching customizable template
     let maybeTemplate = Data.List.find (\t -> 
             Gen.Templates.Loader.target t == Gen.Templates.Loader.Customizable &&
-            Text.pack moduleFilePath == Text.pack (Gen.Templates.Loader.filename t)) 
+            moduleName == Gen.Templates.Loader.elmModuleName t)
             Gen.Templates.templates
 
     case maybeTemplate of
-        Nothing -> 
-            putStrLn $ "No customizable template found for: " ++ moduleName
+        Nothing -> do
+            let customizableTemplates = List.sortBy (\a b -> compare (Gen.Templates.Loader.elmModuleName a) (Gen.Templates.Loader.elmModuleName b)) $ 
+                                            filter (\t -> Gen.Templates.Loader.target t == Gen.Templates.Loader.Customizable) Gen.Templates.templates
+            putStrLn $ "I wasn't able to find  " ++ Terminal.Colors.yellow moduleName
+            putStrLn "Available customizable templates:\n"
+            mapM_ (\t -> putStrLn $ "  " ++ Terminal.Colors.green (Gen.Templates.Loader.elmModuleName t)) customizableTemplates
+            
         Just template -> do
             -- Write template to configSrc folder
             let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
             let targetPath = cwd </> Text.unpack Config.src </> moduleFilePath
-            TIO.writeFile targetPath contents
-            
-            -- Check and remove corresponding file in ToHidden directory
-            let hiddenPath = cwd </> ".elm-generate" </> moduleFilePath
-            hiddenExists <- System.Directory.doesFileExist hiddenPath
-            when hiddenExists $ do
-                System.Directory.removeFile hiddenPath
-                putStrLn $ "Removed hidden template: " ++ hiddenPath
-            
-            putStrLn $ "Customized template written to: " ++ targetPath
+            let relativePath = Text.unpack Config.src </> moduleFilePath
+
+            -- Check if file already exists
+            targetExists <- System.Directory.doesFileExist targetPath
+            when targetExists $ do
+                putStrLn $ "\n  File already exists at " ++ Terminal.Colors.yellow relativePath
+                putStrLn "  Are you already customizing this file?"
+                putStrLn "  If you want it to be regenerated, delete it and run the command again."
+
+            when (not targetExists) $ do
+              -- Create the directory if it doesn't exist
+              System.Directory.createDirectoryIfMissing True (FP.takeDirectory targetPath)
+              TIO.writeFile targetPath contents
+              
+              -- Check and remove corresponding file in ToHidden directory
+              let hiddenPath = cwd </> ".elm-generate" </> moduleFilePath
+              hiddenExists <- System.Directory.doesFileExist hiddenPath
+              when hiddenExists $ do
+                  System.Directory.removeFile hiddenPath
+              
+              putStrLn ""
+              putStrLn $ "  " ++ Terminal.Colors.green relativePath ++ " is now in your project!"
+              putStrLn ""
+              putStrLn "Customize away!"
 
 
 reflow :: String -> P.Doc
