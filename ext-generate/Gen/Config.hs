@@ -198,12 +198,23 @@ defaultDocs = DocsConfig
 data PackageManager
     = NPM
     | Yarn
-    | PNpm
+    | PNPM
     | Bun
     deriving (Generic)
 
-instance FromJSON PackageManager
-instance ToJSON PackageManager
+instance FromJSON PackageManager where
+    parseJSON = withText "PackageManager" $ \case
+        "npm" -> pure NPM
+        "yarn" -> pure Yarn
+        "pnpm" -> pure PNPM
+        "bun" -> pure Bun
+        _ -> fail "Invalid package manager"
+
+instance ToJSON PackageManager where
+    toJSON NPM = String "npm"
+    toJSON Yarn = String "yarn"
+    toJSON PNPM = String "pnpm"
+    toJSON Bun = String "bun"
 
 data ThemeTarget
     = Html
