@@ -362,7 +362,7 @@ run showHelp commands = do
     findRun (Run action:_) = Just action
     
     printHelp :: [Command] -> ParsedArgs -> IO ()
-    printHelp cmds parsed = putStrLn $ showHelp (collectMetadata cmds parsed) (parsedCommands parsed)
+    printHelp cmds parsed = putStr $ showHelp (collectMetadata cmds parsed) (parsedCommands parsed)
 
 -- | Collect metadata from all commands
 collectMetadata :: [Command] -> ParsedArgs -> [CommandMetadata]
