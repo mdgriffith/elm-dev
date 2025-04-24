@@ -8,7 +8,7 @@ module Gen.Templates.Loader
 
 
 import qualified Data.ByteString as BS
-import System.FilePath (splitPath, (</>))
+import System.FilePath (splitPath, (</>), dropExtension)
 import qualified System.Directory as Dir
 import Control.Monad (forM)
 import Data.List (intercalate, isPrefixOf)
@@ -37,6 +37,7 @@ data Template = Template
     , plugin :: String
     , dir :: String
     , filename :: String
+    , elmModuleName :: String
     } deriving (Show, Lift)
 
 -- Convert Target to directory name
@@ -44,12 +45,13 @@ targetToDir :: Target -> String
 targetToDir = map toLower . show
 
 -- Parse directory path into Template components
-parseTemplatePath :: FilePath -> Maybe (String, Target, String, String)
+parseTemplatePath :: FilePath -> Maybe (String, Target, String, String, String)
 parseTemplatePath path = case filter (not . null) $ splitPath path of
     (plugin':_:target':rest) -> do
         target <- parseTarget (init target') -- init removes trailing slash
         let (dirs, file) = splitDirAndFile rest
-        return (init plugin', target, dirs, file)
+        let elmModuleName = intercalate "." $ map (filter (/= '/')) $ init rest ++ [dropExtension file]
+        return (init plugin', target, dirs, file, elmModuleName)
     _ -> Nothing
   where
     parseTarget :: String -> Maybe Target
@@ -93,7 +95,7 @@ readTemplates base targetDir = do
 
 
         case parseTemplatePath filePath of
-            Just (pluginName, targetType, dirPath, fname) -> do
+            Just (pluginName, targetType, dirPath, fname, elmModuleName) -> do
                 content <- BS.readFile path
                 return $ Template 
                     { target = targetType
@@ -101,6 +103,7 @@ readTemplates base targetDir = do
                     , plugin = pluginName
                     , dir = dirPath
                     , filename = fname
+                    , elmModuleName = elmModuleName
                     }
             Nothing -> error $ "Invalid template path structure: " ++ path ++ " for base " ++ base ++ " for filePath " ++ filePath
 
