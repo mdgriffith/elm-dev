@@ -353,7 +353,6 @@ run showHelp commands = do
     case findRun results of
       Just action -> action ()
       Nothing -> do
-        putStrLn "Unknown command or invalid arguments."
         printHelp commands parsed
   where
     findRun :: [CommandResult] -> Maybe (() -> IO ())

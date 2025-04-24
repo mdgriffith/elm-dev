@@ -353,6 +353,11 @@ main = do
         let 
             joinArgs [] = ""
             joinArgs argList = " " ++ Data.List.intercalate " " argList
+            
+            -- Filter commands that match the givenCommand prefix
+            filteredCommands = if null givenCommand 
+                then commands 
+                else filter (\cmd -> Data.List.isPrefixOf givenCommand (CommandParser.cmdName cmd)) commands
         in
         unlines
           [ "" 
@@ -360,7 +365,7 @@ main = do
           , ""
           ] ++
           -- Group commands by their group (if any)
-          let groupedCommands = Data.List.groupBy (\a b -> CommandParser.cmdGroup a == CommandParser.cmdGroup b) commands
+          let groupedCommands = Data.List.groupBy (\a b -> CommandParser.cmdGroup a == CommandParser.cmdGroup b) filteredCommands
               formatCommand (CommandParser.CommandMetadata name argList group desc) =
                     formatCommandWithEllipsis
                       ("  elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name) ++ Terminal.Colors.grey (joinArgs argList))
