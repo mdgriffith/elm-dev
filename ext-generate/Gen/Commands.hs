@@ -56,8 +56,14 @@ initialize = CommandParser.command ["init"] "Create a new Elm project" Nothing C
 
 -- MAKE COMMAND
 make :: CommandParser.Command
-make = CommandParser.command ["make"] "Build your Elm project" Nothing CommandParser.noArg CommandParser.noFlag $ \() () -> do
-    putStrLn "Initializing project..."
+make = CommandParser.command ["make"] "Build your Elm project" Nothing parseMakeArgs parseMakeFlags runMake
+  where
+    outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
+    parseMakeFlags = CommandParser.parseFlag outputFlag
+    parseMakeArgs =
+       CommandParser.parseArgList (CommandParser.arg "module")
+    runMake modules _ = do
+        putStrLn "Initializing project..."
 
 
 addGroup :: Maybe String
