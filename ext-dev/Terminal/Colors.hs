@@ -20,4 +20,4 @@ cyan str = "\ESC[36m" ++ str ++ "\ESC[0m"
 
 -- | Wrap a string in grey color
 grey :: String -> String
-grey str = "\ESC[37m" ++ str ++ "\ESC[0m" 
+grey str = "\ESC[90m" ++ str ++ "\ESC[0m" 

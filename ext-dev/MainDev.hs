@@ -126,7 +126,7 @@ docsCommand :: CommandParser.Command
 docsCommand = CommandParser.command ["inspect", "docs"] "Report the docs.json" inspectGroup parseDocsArgs parseDocsFlags runDocs
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
-    parseDocsArgs = CommandParser.parseArgList (CommandParser.arg "path")
+    parseDocsArgs = CommandParser.parseArgList pathOrModuleName
     parseDocsFlags = CommandParser.parseFlag outputFlag
     runDocs (path, _) maybeOutput = do
       let actualPath = case path of
@@ -146,11 +146,14 @@ docsCommand = CommandParser.command ["inspect", "docs"] "Report the docs.json" i
             Just docs ->
               Terminal.Dev.Out.json maybeOutput (Right (Docs.encode (Data.Map.singleton (Docs._name docs) docs)))
 
+pathOrModuleName = CommandParser.arg "My.Module"
+
+
 warningsCommand :: CommandParser.Command
 warningsCommand = CommandParser.command ["inspect", "warnings"] "Report warnings" inspectGroup parseWarningsArgs parseWarningsFlags runWarnings
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
-    parseWarningsArgs = CommandParser.parseArgList (CommandParser.arg "path")
+    parseWarningsArgs = CommandParser.parseArgList pathOrModuleName
     parseWarningsFlags = CommandParser.parseFlag outputFlag
     runWarnings (path, _) maybeOutput = do
       let actualPath = case path of
@@ -203,7 +206,7 @@ importsCommand = CommandParser.command ["inspect", "imports"] "Report all import
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
     entrypointsFlag = CommandParser.flagWithArg "entrypoints" "Comma-separated list of entrypoint modules" parseModuleList
-    parseImportsArgs = CommandParser.parseArgList (CommandParser.arg "path")
+    parseImportsArgs = CommandParser.parseArgList pathOrModuleName
     parseImportsFlags = CommandParser.parseFlag2 outputFlag entrypointsFlag
     runImports (path, _) (maybeOutput, maybeEntrypoints) = do
       if null path then
@@ -228,7 +231,7 @@ usageCommand = CommandParser.command ["inspect", "usage"] "Module usage" inspect
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
     entrypointsFlag = CommandParser.flagWithArg "entrypoints" "Comma-separated list of entrypoint modules" parseModuleList
-    parseUsageArgs = CommandParser.parseArgList (CommandParser.arg "path")
+    parseUsageArgs = CommandParser.parseArgList pathOrModuleName
     parseUsageFlags = CommandParser.parseFlag2 outputFlag entrypointsFlag
     runUsage (path, _) (maybeOutput, maybeEntrypoints) = do
       let actualPath = case path of
@@ -277,11 +280,13 @@ entrypointsCommand = CommandParser.command ["inspect", "entrypoints"] "Report en
               Terminal.Dev.Out.json maybeOutput
                 (Right (Json.Encode.list Ext.Dev.EntryPoints.encode entry))
 
+elmModuleName = CommandParser.arg "Module.value"
+
 explainCommand :: CommandParser.Command
 explainCommand = CommandParser.command ["inspect", "definition"] "Explain a definition" inspectGroup parseExplainArgs parseExplainFlags runExplain
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
-    parseExplainArgs = CommandParser.parseArgList (CommandParser.arg "path")
+    parseExplainArgs = CommandParser.parseArgList elmModuleName
     parseExplainFlags = CommandParser.parseFlag outputFlag
     runExplain (path, _) maybeOutput = do
       let actualPath = case path of
@@ -358,7 +363,7 @@ main = do
           let groupedCommands = Data.List.groupBy (\a b -> CommandParser.cmdGroup a == CommandParser.cmdGroup b) commands
               formatCommand (CommandParser.CommandMetadata name argList group desc) =
                     formatCommandWithEllipsis
-                      ("  elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name) ++ joinArgs argList)
+                      ("  elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name) ++ Terminal.Colors.grey (joinArgs argList))
                       desc
               formatGroup cmds = case CommandParser.cmdGroup (head cmds) of
                 Just group -> ["", group ++ ":", ""] ++ map formatCommand cmds
@@ -375,11 +380,11 @@ main = do
     , Gen.Commands.addTheme
     , Gen.Commands.customize
     , serverCommand
+    , entrypointsCommand
     , docsCommand
     , warningsCommand
     , importsCommand
     , usageCommand
-    , entrypointsCommand
     , explainCommand
     ]
 
