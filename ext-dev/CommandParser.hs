@@ -87,8 +87,11 @@ command ::
     -> (ParsedArgs -> Either String (flags, ParsedArgs))
     -> (args -> flags -> IO ()) -> Command
 command commandPieces desc group (ArgParser commandArgs parseCommandArgs) parseCommandFlags run = \parsedArgs -> 
-  if commandPieces == parsedCommands parsedArgs then
-    case parseCommandArgs parsedArgs of
+  if isPrefixOf commandPieces (parsedCommands parsedArgs) then
+    let remainingCommands = drop (length commandPieces) (parsedCommands parsedArgs)
+        newParsedArgs = parsedArgs { parsedCommands = remainingCommands }
+    in
+    case parseCommandArgs newParsedArgs of
       Left err -> Run (\() -> putStrLn err)
       Right (args, remainingArgs) ->
         case parseCommandFlags remainingArgs of
@@ -113,7 +116,6 @@ type Command = ParsedArgs -> CommandResult
 -- | Structured parsed arguments
 data ParsedArgs = ParsedArgs
   { parsedFlags :: [(String, Maybe String)] -- (flag name, optional value)
-  , parsedPositional :: [String]            -- Positional arguments
   , parsedCommands :: [String]              -- Command path taken
   } deriving (Show)
 
@@ -145,7 +147,7 @@ flagWithArg long desc parse = Flag
 
 -- | Create an empty ParsedArgs
 emptyArgs :: ParsedArgs
-emptyArgs = ParsedArgs [] [] []
+emptyArgs = ParsedArgs [] []
 
 -- | Check if a string is a flag (starts with - or --)
 isFlag :: String -> Bool
@@ -173,7 +175,7 @@ parseArgs args =
   let (cmdPath, restArgs) = span (not . isFlag) args
       -- Then parse flags and positional args
       (flags, positional) = parseFlags restArgs []
-  in ParsedArgs flags positional cmdPath
+  in ParsedArgs flags (cmdPath ++ positional)
   where
     parseFlags :: [String] -> [(String, Maybe String)] -> ([(String, Maybe String)], [String])
     parseFlags [] acc = (acc, [])
@@ -223,11 +225,11 @@ noArg = ArgParser [] (\parsed -> Right ((), parsed))
 
 parseArg :: Arg arg -> ArgParser arg
 parseArg arg = ArgParser [singleArgName arg] (\parsed -> 
-  case parsedPositional parsed of
+  case parsedCommands parsed of
     [] -> Left $ "Missing required argument: " ++ argName arg
     [value] -> 
       case argParse arg value of
-        Just v -> Right (v, parsed { parsedPositional = [] })
+        Just v -> Right (v, parsed { parsedCommands = [] })
         Nothing -> Left $ "Invalid value for arg: " ++ argName arg
     _ -> Left $ "Expected exactly one argument, but got multiple: " ++ argName arg
   )
@@ -256,8 +258,8 @@ parseArgList arg = ArgParser [listArgName arg] (\parsed ->
   case runArgParser (parseArg arg) parsed of
     Left err -> Left err
     Right (value1, parsed1) -> do
-      let (values, remaining) = parseOptionalArgs arg (parsedPositional parsed1)
-      Right ((value1, values), parsed1 { parsedPositional = remaining })
+      let (values, remaining) = parseOptionalArgs arg (parsedCommands parsed1)
+      Right ((value1, values), parsed1 { parsedCommands = remaining })
   )
   where
     parseOptionalArgs :: Arg arg -> [String] -> ([arg], [String])
@@ -344,7 +346,7 @@ run showHelp commands = do
   -- Special case for help command
   if not (null args) && (head args == "help" || head args == "--help" || head args == "-h") then
     let helpArgs = if length args > 1 then tail args else []
-        helpParsed = ParsedArgs [] [] helpArgs
+        helpParsed = ParsedArgs [] helpArgs
     in printHelp commands helpParsed >> exitSuccess
   else do
     let parsed = parseArgs args
