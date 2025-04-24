@@ -1,13 +1,14 @@
 module CommandParser (
+  command,
   Flag(..),
-  ArgInfo(..),
+  Arg,
   CommandMetadata(..),
   CommandResult(..),
   Command,
   ParsedArgs(..),
-  parseArgs,
-  runCommands,
+  run,
   -- Flag parsing functions
+  noFlag,
   parseFlag,
   parseFlag2,
   parseFlag3,
@@ -16,21 +17,45 @@ module CommandParser (
   flag,
   flagWithArg,
   -- Common flags
-  helpFlag
+  helpFlag,
+  -- Argument constructors
+  noArg,
+  arg,
+  argWith,
+  parseArg,
+  parseArg2,
+  parseArgList,
 ) where
 
 {-- Command line parser!
 
 This is a simpler command parser than the one within the elm compiler.
 
+The parser distinguishes between three types of arguments:
 
+1. Commands: The initial non-flag arguments that form the command path
+2. Flags: Arguments starting with '-' or '--' that can have optional values
+3. Positional args: Remaining non-flag arguments after commands and flags
+
+Example:
+  elm-dev server --port 3000 src/Main.elm
+
+  Commands: ["server"]           <- Initial non-flag arguments
+  Flags: [("--port", "3000")]   <- Arguments starting with - or --
+  Positional: ["src/Main.elm"]  <- Remaining non-flag arguments
+
+  ┌─────────┐  ┌───────────────┐  ┌───────────────┐
+  │ Commands│  │     Flags     │  │  Positional   │
+  ├─────────┤  ├───────────────┤  ├───────────────┤
+  │ server  │  │ --port 3000   │  │ src/Main.elm  │
+  └─────────┘  └───────────────┘  └───────────────┘
 
 --}
 
 
 import System.Environment (getArgs)
 import System.Exit (exitSuccess)
-import Data.List (intercalate, partition, (\\))
+import Data.List (intercalate, partition, (\\), isPrefixOf)
 import Data.Maybe (catMaybes, isJust, fromMaybe)
 import Data.Either (Either(..))
 
@@ -47,20 +72,36 @@ data Flag a = Flag
   , flagParse :: Maybe String -> Maybe a
   }
 
--- | Information about positional arguments
-data ArgInfo = ArgInfo
-  { argName :: String            -- Argument name for help text
-  , argDesc :: String            -- Argument description
-  , argOptional :: Bool          -- Whether the argument is optional
-  } deriving (Show, Eq)
-
 -- | Command metadata for help text
 data CommandMetadata = CommandMetadata
-  { cmdName :: String            -- Command name
+  { cmdName :: [String]            -- Command name
+  , cmdGroup :: Maybe String
   , cmdDesc :: String            -- Command description
-  , cmdArgs :: [ArgInfo]         -- Positional arguments
-  , cmdSubcommands :: [CommandMetadata] -- Subcommands
   } deriving (Show)
+
+
+command ::
+    [String]
+    -> String
+    -> Maybe String
+    -> (ParsedArgs -> Either String (args, ParsedArgs))
+    -> (ParsedArgs -> Either String (flags, ParsedArgs))
+    -> (args -> flags -> IO ()) -> Command
+command commandPieces desc group parseCommandArgs parseCommandFlags run = \parsedArgs -> 
+  if commandPieces == parsedCommands parsedArgs then
+    case parseCommandArgs parsedArgs of
+      Left err -> Run (\() -> putStrLn err)
+      Right (args, remainingArgs) ->
+        case parseCommandFlags remainingArgs of
+          Left err -> Run (\() -> putStrLn err)
+          Right (flags, _) -> 
+            Run (\() -> run args flags)
+  else
+    NotMe (CommandMetadata commandPieces group desc)
+
+
+
+
 
 -- | Result of attempting to parse a command
 data CommandResult 
@@ -149,72 +190,142 @@ parseArgs args =
               (flags, positional) = parseFlags remaining ((flagName, value):acc)
           in (flags, positional)
 
+
+data Arg a = Arg
+  { argName :: String
+  , argParse :: Maybe String -> Maybe a
+  }
+
+
+arg :: String -> Arg String
+arg name = Arg
+  { argName = name
+  , argParse = \maybeVal -> case maybeVal of
+      Nothing -> Nothing
+      Just val -> Just val
+  }
+
+
+argWith :: String -> (String -> Maybe a) -> Arg a
+argWith name parse = Arg
+  { argName = name
+  , argParse = \maybeVal -> case maybeVal of
+      Nothing -> Nothing
+      Just val -> parse val
+  }
+
+
+noArg :: ParsedArgs -> Either String ((), ParsedArgs)
+noArg parsed = Right ((), parsed)
+
+
+parseArg :: Arg arg -> ParsedArgs -> Either String (arg, ParsedArgs)
+parseArg arg parsed =
+  case parsedPositional parsed of
+    [] -> Left $ "Missing required argument: " ++ argName arg
+    [value] -> 
+      case argParse arg (Just value) of
+        Just v -> Right (v, parsed { parsedPositional = [] })
+        Nothing -> Left $ "Invalid value for arg: " ++ argName arg
+    _ -> Left $ "Expected exactly one argument, but got multiple: " ++ argName arg
+
+-- | Parse two arguments in sequence
+parseArg2 :: Arg one -> Arg two -> ParsedArgs -> Either String ((one, two), ParsedArgs)
+parseArg2 arg1 arg2 parsed =
+  case parseArg arg1 parsed of
+    Left err -> Left err
+    Right (value1, parsed1) ->
+      case parseArg arg2 parsed1 of
+        Left err -> Left err
+        Right (value2, parsed2) -> Right ((value1, value2), parsed2)
+
+-- | Parse one required argument followed by any number of optional arguments
+parseArgList :: Arg arg -> ParsedArgs -> Either String ((arg, [arg]), ParsedArgs)
+parseArgList arg parsed =
+  case parseArg arg parsed of
+    Left err -> Left err
+    Right (value1, parsed1) -> do
+      let (values, remaining) = parseOptionalArgs arg (parsedPositional parsed1)
+      Right ((value1, values), parsed1 { parsedPositional = remaining })
+  where
+    parseOptionalArgs :: Arg arg -> [String] -> ([arg], [String])
+    parseOptionalArgs _ [] = ([], [])
+    parseOptionalArgs arg (value:rest) =
+      case argParse arg (Just value) of
+        Just v -> 
+          let (vs, remaining) = parseOptionalArgs arg rest
+          in (v:vs, remaining)
+        Nothing -> ([], value:rest)
+
+noFlag :: ParsedArgs -> Either String ((), ParsedArgs)
+noFlag parsed = Right ((), parsed)
+
 -- | Parse a single flag, returning the parsed value
-parseFlag :: Flag a -> ParsedArgs -> Either String (Maybe a)
+parseFlag :: Flag a -> ParsedArgs -> Either String (Maybe a, ParsedArgs)
 parseFlag flag parsed =
   let matches = filter (\(name, _) -> findFlagName name flag) (parsedFlags parsed)
       remainingFlags = filter (\(name, _) -> not (findFlagName name flag)) (parsedFlags parsed)
       updatedParams = parsed { parsedFlags = remainingFlags }
   in
-  case matches of
-    [] -> Right Nothing
-    (_, value):_ -> 
-      case flagParse flag value of
-        Just v -> Right (Just v)
-        Nothing -> Left $ "Invalid value for flag: " ++ flagToName flag
+  if not (null remainingFlags)
+  then Left $ "Unknown flags: " ++ intercalate ", " (map fst remainingFlags)
+  else
+    case matches of
+      [] -> Right (Nothing, updatedParams)
+      (_, value):_ -> Right (flagParse flag value, updatedParams)
 
 
 -- | Parse two flags
-parseFlag2 :: Flag a -> Flag b -> ParsedArgs -> Either String (Maybe a, Maybe b)
+parseFlag2 :: Flag a -> Flag b -> ParsedArgs -> Either String ((Maybe a, Maybe b), ParsedArgs)
 parseFlag2 flag1 flag2 parsed = 
   case parseFlag flag1 parsed of
     Left err -> Left err
-    Right maybeA -> 
-      case parseFlag flag2 parsed of
+    Right (maybeA, parsed1) -> 
+      case parseFlag flag2 parsed1 of
         Left err -> Left err
-        Right maybeB -> 
-          if null (parsedFlags parsed)
-          then Right (maybeA, maybeB)
-          else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed)
+        Right (maybeB, parsed2) -> 
+          if null (parsedFlags parsed2)
+          then Right ((maybeA, maybeB), parsed2)
+          else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed2)
 
 -- | Parse three flags
-parseFlag3 :: Flag a -> Flag b -> Flag c -> ParsedArgs -> Either String (Maybe a, Maybe b, Maybe c)
+parseFlag3 :: Flag a -> Flag b -> Flag c -> ParsedArgs -> Either String ((Maybe a, Maybe b, Maybe c), ParsedArgs)
 parseFlag3 flag1 flag2 flag3 parsed =
   case parseFlag flag1 parsed of
     Left err -> Left err
-    Right maybeA ->
-      case parseFlag flag2 parsed of
+    Right (maybeA, parsed1) ->
+      case parseFlag flag2 parsed1 of
         Left err -> Left err
-        Right maybeB ->
-          case parseFlag flag3 parsed of
+        Right (maybeB, parsed2) ->
+          case parseFlag flag3 parsed2 of
             Left err -> Left err
-            Right maybeC ->
-              if null (parsedFlags parsed)
-              then Right (maybeA, maybeB, maybeC)
-              else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed)
+            Right (maybeC, parsed3) ->
+              if null (parsedFlags parsed3)
+              then Right ((maybeA, maybeB, maybeC), parsed3)
+              else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed3)
 
 -- | Parse four flags
-parseFlag4 :: Flag a -> Flag b -> Flag c -> Flag d -> ParsedArgs -> Either String (Maybe a, Maybe b, Maybe c, Maybe d)
+parseFlag4 :: Flag a -> Flag b -> Flag c -> Flag d -> ParsedArgs -> Either String ((Maybe a, Maybe b, Maybe c, Maybe d), ParsedArgs)
 parseFlag4 flag1 flag2 flag3 flag4 parsed =
   case parseFlag flag1 parsed of
     Left err -> Left err
-    Right maybeA ->
-      case parseFlag flag2 parsed of
+    Right (maybeA, parsed1) ->
+      case parseFlag flag2 parsed1 of
         Left err -> Left err
-        Right maybeB ->
-          case parseFlag flag3 parsed of
+        Right (maybeB, parsed2) ->
+          case parseFlag flag3 parsed2 of
             Left err -> Left err
-            Right maybeC ->
-              case parseFlag flag4 parsed of
+            Right (maybeC, parsed3) ->
+              case parseFlag flag4 parsed3 of
                 Left err -> Left err
-                Right maybeD ->
-                  if null (parsedFlags parsed)
-                  then Right (maybeA, maybeB, maybeC, maybeD)
-                  else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed)
+                Right (maybeD, parsed4) ->
+                  if null (parsedFlags parsed4)
+                  then Right ((maybeA, maybeB, maybeC, maybeD), parsed4)
+                  else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed4)
 
 -- | Run a list of commands with parsed arguments
-runCommands :: ([CommandMetadata] -> [String] -> String) -> [Command] -> IO ()
-runCommands showHelp commands = do
+run :: ([CommandMetadata] -> [String] -> String) -> [Command] -> IO ()
+run showHelp commands = do
   args <- getArgs
   
   -- Special case for help command
