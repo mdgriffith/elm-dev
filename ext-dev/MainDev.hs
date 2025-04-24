@@ -6,7 +6,7 @@
 
 module MainDev (main) where
 
-import CommandParser
+import qualified CommandParser
 import qualified System.IO as IO
 import qualified System.Exit as Exit
 import qualified System.Process as Process
@@ -66,6 +66,7 @@ import Json.Encode ((==>))
 import qualified Gen.Commands
 import qualified Text.Read
 import qualified Terminal.Colors
+import qualified Data.List
 
 -- Helper functions
 parseMaybeInt :: String -> Maybe Int
@@ -107,273 +108,202 @@ splitOn delimiter = go
 trimWhitespace :: String -> String
 trimWhitespace = reverse . dropWhile Char.isSpace . reverse . dropWhile Char.isSpace
 
--- Command metadata
-serverMetadata :: CommandMetadata
-serverMetadata = CommandMetadata
-  { cmdName = "server"
-  , cmdDesc = "Start the Elm Dev server"
-  , cmdArgs = []
-  , cmdSubcommands = []
-  }
-
-docsMetadata :: CommandMetadata
-docsMetadata = CommandMetadata
-  { cmdName = "docs"
-  , cmdDesc = "Report the docs.json for the given package or local file"
-  , cmdArgs = []
-  , cmdSubcommands = []
-  }
-
-warningsMetadata :: CommandMetadata
-warningsMetadata = CommandMetadata
-  { cmdName = "warnings"
-  , cmdDesc = "Report missing type annotations and unused code"
-  , cmdArgs = []
-  , cmdSubcommands = []
-  }
-
-importsMetadata :: CommandMetadata
-importsMetadata = CommandMetadata
-  { cmdName = "imports"
-  , cmdDesc = "Given a file, report everything it imports"
-  , cmdArgs = []
-  , cmdSubcommands = []
-  }
-
-usageMetadata :: CommandMetadata
-usageMetadata = CommandMetadata
-  { cmdName = "usage"
-  , cmdDesc = "Given a file, report all modules that use it in your project"
-  , cmdArgs = []
-  , cmdSubcommands = []
-  }
-
-entrypointsMetadata :: CommandMetadata
-entrypointsMetadata = CommandMetadata
-  { cmdName = "entrypoints"
-  , cmdDesc = "Given a directory with an elm.json, report all entrypoints for the project"
-  , cmdArgs = []
-  , cmdSubcommands = []
-  }
-
-explainMetadata :: CommandMetadata
-explainMetadata = CommandMetadata
-  { cmdName = "explain"
-  , cmdDesc = "Given a qualified value, explain it's definition"
-  , cmdArgs = []
-  , cmdSubcommands = []
-  }
+inspectGroup :: Maybe String
+inspectGroup = Just "inspect"
 
 -- Command handlers
 serverCommand :: CommandParser.Command
-serverCommand args = case CommandParser.parsedCommands args of
-  ["server"] -> CommandParser.Run $ \() -> do
-    case CommandParser.parseFlag portFlag args of
-      Left err -> putStrLn err
-      Right maybePort -> Watchtower.Server.serve Nothing (Watchtower.Server.Flags maybePort)
-  _ -> CommandParser.NotMe serverMetadata
+serverCommand = CommandParser.command ["server"] "Start the Elm Dev server" inspectGroup CommandParser.noArg parseServerFlags runServer
   where
     portFlag = CommandParser.flagWithArg "port" "Port to run the server on" parseMaybeInt
+    parseServerFlags = CommandParser.parseFlag portFlag
+    runServer _ maybePort = Watchtower.Server.serve Nothing (Watchtower.Server.Flags maybePort)
 
 docsCommand :: CommandParser.Command
-docsCommand args = case CommandParser.parsedCommands args of
-  ["docs"] -> CommandParser.Run $ \() -> do
-    case CommandParser.parseFlag outputFlag args of
-      Left err -> putStrLn err
-      Right maybeOutput -> do
-        let path = case CommandParser.parsedPositional args of
-              [] -> "."
-              (p:_) -> p
-        maybeRoot <- Stuff.findRoot
-        case maybeRoot of
-          Nothing ->
-            Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
-          
-          Just root -> do
-            maybeDocs <- Ext.Dev.docs root path
-            case maybeDocs of
-              Nothing ->
-                Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindModule)
-              
-              Just docs ->
-                Terminal.Dev.Out.json maybeOutput (Right (Docs.encode (Data.Map.singleton (Docs._name docs) docs)))
-  _ -> CommandParser.NotMe docsMetadata
+docsCommand = CommandParser.command ["docs"] "Report the docs.json for the given package or local file" inspectGroup parseDocsArgs parseDocsFlags runDocs
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
+    parseDocsArgs = CommandParser.parseArgList (CommandParser.arg "path")
+    parseDocsFlags = CommandParser.parseFlag outputFlag
+    runDocs (path, _) maybeOutput = do
+      let actualPath = case path of
+            "" -> "."
+            p -> p
+      maybeRoot <- Stuff.findRoot
+      case maybeRoot of
+        Nothing ->
+          Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindRoot)
+        
+        Just root -> do
+          maybeDocs <- Ext.Dev.docs root actualPath
+          case maybeDocs of
+            Nothing ->
+              Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindModule)
+            
+            Just docs ->
+              Terminal.Dev.Out.json maybeOutput (Right (Docs.encode (Data.Map.singleton (Docs._name docs) docs)))
 
 warningsCommand :: CommandParser.Command
-warningsCommand args = case CommandParser.parsedCommands args of
-  ["warnings"] -> CommandParser.Run $ \() -> do
-    case CommandParser.parseFlag outputFlag args of
-      Left err -> putStrLn err
-      Right maybeOutput -> do
-        let path = case CommandParser.parsedPositional args of
-              [] -> "."
-              (p:_) -> p
-        compilationCheckResult <- loadAndEnsureCompiled (Just (NE.singleton (Name.fromChars path)))
-        case compilationCheckResult of
-          Left err ->
-            Terminal.Dev.Out.json maybeOutput (Left err)
-          
-          Right details -> do
-            moduleResult <- Terminal.Dev.Args.modul path
-            case moduleResult of
-              Left err ->
-                Terminal.Dev.Out.json maybeOutput (Left err)
-              
-              Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
-                eitherWarnings <- Ext.Dev.warnings root modulePath
-                case eitherWarnings of
-                  Left err ->
-                    Terminal.Dev.Out.json maybeOutput
-                      (Right 
-                        (Json.Encode.list id 
-                          [ Json.Encode.object
-                              [ "filepath" ==> Json.Encode.string (Json.String.fromChars modulePath)
-                              , "module" ==> Json.Encode.name moduleName
-                              , "warnings" ==> Json.Encode.list id []
-                              ]
-                          ]
-                        )
-                      )
-                  
-                  Right (mod, warningList) ->
-                    Terminal.Dev.Out.json maybeOutput
-                      (Right 
-                        (Json.Encode.list id 
-                          [ Json.Encode.object
-                              [ "filepath" ==> Json.Encode.string (Json.String.fromChars modulePath)
-                              , "module" ==> Json.Encode.name moduleName
-                              , "warnings" ==> Json.Encode.list
-                                  (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
-                                  warningList
-                              ]
-                          ]
-                        )
-                      )
-  _ -> CommandParser.NotMe warningsMetadata
+warningsCommand = CommandParser.command ["warnings"] "Report missing type annotations and unused code" inspectGroup parseWarningsArgs parseWarningsFlags runWarnings
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
-
-importsCommand :: CommandParser.Command
-importsCommand args = case CommandParser.parsedCommands args of
-  ["imports"] -> CommandParser.Run $ \() -> do
-    case CommandParser.parseFlag2 outputFlag entrypointsFlag args of
-      Left err -> putStrLn err
-      Right (maybeOutput, maybeEntrypoints) -> do
-        let paths = CommandParser.parsedPositional args
-        if null paths then
-          Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindModule)
-        else do
-          result <- loadAndEnsureCompiled maybeEntrypoints
-          case result of
+    parseWarningsArgs = CommandParser.parseArgList (CommandParser.arg "path")
+    parseWarningsFlags = CommandParser.parseFlag outputFlag
+    runWarnings (path, _) maybeOutput = do
+      let actualPath = case path of
+            "" -> "."
+            p -> p
+      compilationCheckResult <- loadAndEnsureCompiled (Just (NE.singleton (Name.fromChars actualPath)))
+      case compilationCheckResult of
+        Left err ->
+          Terminal.Dev.Out.json maybeOutput (Left err)
+        
+        Right details -> do
+          moduleResult <- Terminal.Dev.Args.modul actualPath
+          case moduleResult of
             Left err ->
               Terminal.Dev.Out.json maybeOutput (Left err)
             
-            Right details -> do
-              let importSummary = Ext.Dev.Imports.getImportSummaryForMany details (fmap Name.fromChars paths)
-              Terminal.Dev.Out.json maybeOutput
-                (Right 
-                  (Ext.Dev.Imports.encodeSummary
-                      importSummary
-                  )
-                )
-  _ -> CommandParser.NotMe importsMetadata
+            Right (Terminal.Dev.Args.Module root (Terminal.Dev.Args.ModuleInfo moduleName modulePath) details) -> do
+              eitherWarnings <- Ext.Dev.warnings root modulePath
+              case eitherWarnings of
+                Left err ->
+                  Terminal.Dev.Out.json maybeOutput
+                    (Right 
+                      (Json.Encode.list id 
+                        [ Json.Encode.object
+                            [ "filepath" ==> Json.Encode.string (Json.String.fromChars modulePath)
+                            , "module" ==> Json.Encode.name moduleName
+                            , "warnings" ==> Json.Encode.list id []
+                            ]
+                        ]
+                      )
+                    )
+                
+                Right (mod, warningList) ->
+                  Terminal.Dev.Out.json maybeOutput
+                    (Right 
+                      (Json.Encode.list id 
+                        [ Json.Encode.object
+                            [ "filepath" ==> Json.Encode.string (Json.String.fromChars modulePath)
+                            , "module" ==> Json.Encode.name moduleName
+                            , "warnings" ==> Json.Encode.list
+                                (Watchtower.Live.encodeWarning (Reporting.Render.Type.Localizer.fromModule mod))
+                                warningList
+                            ]
+                        ]
+                      )
+                    )
+
+importsCommand :: CommandParser.Command
+importsCommand = CommandParser.command ["imports"] "Given a file, report everything it imports" inspectGroup parseImportsArgs parseImportsFlags runImports
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
     entrypointsFlag = CommandParser.flagWithArg "entrypoints" "Comma-separated list of entrypoint modules" parseModuleList
-
-usageCommand :: CommandParser.Command
-usageCommand args = case CommandParser.parsedCommands args of
-  ["usage"] -> CommandParser.Run $ \() -> do
-    case CommandParser.parseFlag2 outputFlag entrypointsFlag args of
-      Left err -> putStrLn err
-      Right (maybeOutput, maybeEntrypoints) -> do
-        let path = case CommandParser.parsedPositional args of
-              [] -> "."
-              (p:_) -> p
+    parseImportsArgs = CommandParser.parseArgList (CommandParser.arg "path")
+    parseImportsFlags = CommandParser.parseFlag2 outputFlag entrypointsFlag
+    runImports (path, _) (maybeOutput, maybeEntrypoints) = do
+      if null path then
+        Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindModule)
+      else do
         result <- loadAndEnsureCompiled maybeEntrypoints
         case result of
           Left err ->
             Terminal.Dev.Out.json maybeOutput (Left err)
           
           Right details -> do
-            usageSummary <- Ext.Dev.Usage.usageOfModule "." details (Name.fromChars path)
-            case usageSummary of
-              Nothing ->
-                Terminal.Dev.Out.json maybeOutput
-                  (Left Terminal.Dev.Error.CouldNotFindModule)
-              
-              Just summary ->
-                Terminal.Dev.Out.json maybeOutput
-                  (Right 
-                    (Ext.Dev.Usage.encode
-                        summary
-                    )
-                  )
-  _ -> CommandParser.NotMe usageMetadata
+            let importSummary = Ext.Dev.Imports.getImportSummaryForMany details [Name.fromChars path]
+            Terminal.Dev.Out.json maybeOutput
+              (Right 
+                (Ext.Dev.Imports.encodeSummary
+                    importSummary
+                )
+              )
+
+usageCommand :: CommandParser.Command
+usageCommand = CommandParser.command ["usage"] "Given a file, report all modules that use it in your project" inspectGroup parseUsageArgs parseUsageFlags runUsage
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
     entrypointsFlag = CommandParser.flagWithArg "entrypoints" "Comma-separated list of entrypoint modules" parseModuleList
+    parseUsageArgs = CommandParser.parseArgList (CommandParser.arg "path")
+    parseUsageFlags = CommandParser.parseFlag2 outputFlag entrypointsFlag
+    runUsage (path, _) (maybeOutput, maybeEntrypoints) = do
+      let actualPath = case path of
+            "" -> "."
+            p -> p
+      result <- loadAndEnsureCompiled maybeEntrypoints
+      case result of
+        Left err ->
+          Terminal.Dev.Out.json maybeOutput (Left err)
+        
+        Right details -> do
+          usageSummary <- Ext.Dev.Usage.usageOfModule "." details (Name.fromChars actualPath)
+          case usageSummary of
+            Nothing ->
+              Terminal.Dev.Out.json maybeOutput
+                (Left Terminal.Dev.Error.CouldNotFindModule)
+            
+            Just summary ->
+              Terminal.Dev.Out.json maybeOutput
+                (Right 
+                  (Ext.Dev.Usage.encode
+                      summary
+                  )
+                )
 
 entrypointsCommand :: CommandParser.Command
-entrypointsCommand args = case CommandParser.parsedCommands args of
-  ["entrypoints"] -> CommandParser.Run $ \() -> do
-    case CommandParser.parseFlag outputFlag args of
-      Left err -> putStrLn err
-      Right maybeOutput -> do
-        maybeRoot <- Stuff.findRoot
-        case maybeRoot of
-          Nothing ->
-            Terminal.Dev.Out.json maybeOutput
-              (Left (Terminal.Dev.Error.CouldNotFindRoot))
-          
-          Just root -> do
-            entryResult <- Ext.Dev.entrypoints root
-            case entryResult of
-              Left err ->
-                Terminal.Dev.Out.json maybeOutput
-                  (Left (Terminal.Dev.Error.CompilationError err))
-              
-              Right entry ->
-                Terminal.Dev.Out.json maybeOutput
-                  (Right (Json.Encode.list Ext.Dev.EntryPoints.encode entry))
-  _ -> CommandParser.NotMe entrypointsMetadata
+entrypointsCommand = CommandParser.command ["entrypoints"] "Given a directory with an elm.json, report all entrypoints for the project" inspectGroup CommandParser.noArg parseEntrypointsFlags runEntrypoints
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
+    parseEntrypointsFlags = CommandParser.parseFlag outputFlag
+    runEntrypoints _ maybeOutput = do
+      maybeRoot <- Stuff.findRoot
+      case maybeRoot of
+        Nothing ->
+          Terminal.Dev.Out.json maybeOutput
+            (Left (Terminal.Dev.Error.CouldNotFindRoot))
+        
+        Just root -> do
+          entryResult <- Ext.Dev.entrypoints root
+          case entryResult of
+            Left err ->
+              Terminal.Dev.Out.json maybeOutput
+                (Left (Terminal.Dev.Error.CompilationError err))
+            
+            Right entry ->
+              Terminal.Dev.Out.json maybeOutput
+                (Right (Json.Encode.list Ext.Dev.EntryPoints.encode entry))
 
 explainCommand :: CommandParser.Command
-explainCommand args = case CommandParser.parsedCommands args of
-  ["explain"] -> CommandParser.Run $ \() -> do
-    case CommandParser.parseFlag outputFlag args of
-      Left err -> putStrLn err
-      Right maybeOutput -> do
-        let path = case CommandParser.parsedPositional args of
-              [] -> "."
-              (p:_) -> p
-        valueResult <- Terminal.Dev.Args.value path
-        case valueResult of
-          Left err ->
-            Terminal.Dev.Out.json maybeOutput (Left err)
-          
-          Right (Terminal.Dev.Args.Value root modName valueName) -> do
-            compilationCheckResult <- Ext.CompileProxy.loadAndEnsureCompiled root (Just (NE.List modName []))
-            case mapError Terminal.Dev.Error.CompilationError compilationCheckResult of
-              Left err ->
-                Terminal.Dev.Out.json maybeOutput
-                  (Left err)
-              
-              Right details -> do
-                maybeFound <- Ext.Dev.Explain.explain details root modName valueName
-                case maybeFound of
-                  Nothing ->
-                    Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.CouldNotFindModule))
-                  
-                  Just definition ->
-                    Terminal.Dev.Out.json maybeOutput (Right (Ext.Dev.Explain.encode definition))
-  _ -> CommandParser.NotMe explainMetadata
+explainCommand = CommandParser.command ["explain"] "Given a qualified value, explain it's definition" inspectGroup parseExplainArgs parseExplainFlags runExplain
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
+    parseExplainArgs = CommandParser.parseArgList (CommandParser.arg "path")
+    parseExplainFlags = CommandParser.parseFlag outputFlag
+    runExplain (path, _) maybeOutput = do
+      let actualPath = case path of
+            "" -> "."
+            p -> p
+      valueResult <- Terminal.Dev.Args.value actualPath
+      case valueResult of
+        Left err ->
+          Terminal.Dev.Out.json maybeOutput (Left err)
+        
+        Right (Terminal.Dev.Args.Value root modName valueName) -> do
+          compilationCheckResult <- Ext.CompileProxy.loadAndEnsureCompiled root (Just (NE.List modName []))
+          case mapError Terminal.Dev.Error.CompilationError compilationCheckResult of
+            Left err ->
+              Terminal.Dev.Out.json maybeOutput
+                (Left err)
+            
+            Right details -> do
+              maybeFound <- Ext.Dev.Explain.explain details root modName valueName
+              case maybeFound of
+                Nothing ->
+                  Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.CouldNotFindModule))
+                
+                Just definition ->
+                  Terminal.Dev.Out.json maybeOutput (Right (Ext.Dev.Explain.encode definition))
 
 -- Helper functions
 loadAndEnsureCompiled :: Maybe (NE.List Elm.ModuleName.Raw) -> IO (Either Terminal.Dev.Error.Error Elm.Details.Details)
@@ -391,24 +321,50 @@ mapError :: (a -> c) -> Either a b -> Either c b
 mapError f (Left x) = Left (f x)
 mapError _ (Right x) = Right x
 
+formatCommandWithEllipsis :: String -> String -> String
+formatCommandWithEllipsis cmd desc =
+  let maxLength = 80
+      cmdLength = length cmd
+      descLength = length desc
+      minSpacing = 2  -- Minimum number of spaces between cmd and desc
+      availableSpace = maxLength - cmdLength - descLength
+      spacing = max minSpacing (availableSpace - 2)
+      dots = replicate spacing '.'
+  in cmd ++ " " ++ dots ++ " "  ++ desc
+
 -- Main function
 main :: IO ()
 main = do
 --   putStrLn "Welcome to Elm Dev!"
-  runCommands
+  CommandParser.run
     (\commands givenCommand -> 
         -- Show Help
         unlines
           [ "" 
           , "Welcome to Elm Dev"
           , ""
-          , "  elm-dev " ++ Terminal.Colors.green "server" ++ " [port] - Start the Elm Dev server"
-          , "  elm-dev " ++ Terminal.Colors.green "docs" ++ " [output] - Report the docs.json for the given package or local file"
-          , "  elm-dev " ++ Terminal.Colors.green "warnings" ++ " [output] - Report missing type annotations and unused code"
-          , "  elm-dev " ++ Terminal.Colors.green "imports" ++ " [output] - Given a file, report everything it imports"
-          ]
+          ] ++
+          -- Group commands by their group (if any)
+          let groupedCommands = Data.List.groupBy (\a b -> CommandParser.cmdGroup a == CommandParser.cmdGroup b) commands
+              formatCommand (CommandParser.CommandMetadata name group desc) =
+                    formatCommandWithEllipsis
+                      ("  elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name))
+                      desc
+              formatGroup cmds = case CommandParser.cmdGroup (head cmds) of
+                Just group -> ["", group ++ ":", ""] ++ map formatCommand cmds
+                Nothing -> map formatCommand cmds
+          in
+          concatMap (unlines . formatGroup) groupedCommands
     )
-    [ serverCommand
+    [ Gen.Commands.initialize
+    , Gen.Commands.make
+    , Gen.Commands.addPage
+    , Gen.Commands.addStore
+    , Gen.Commands.addEffect
+    , Gen.Commands.addDocs
+    , Gen.Commands.addTheme
+    , Gen.Commands.customize
+    , serverCommand
     , docsCommand
     , warningsCommand
     , importsCommand
@@ -416,6 +372,5 @@ main = do
     , entrypointsCommand
     , explainCommand
     ]
---   putStrLn "Happy hacking!"
 
 
