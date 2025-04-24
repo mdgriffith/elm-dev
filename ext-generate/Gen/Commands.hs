@@ -56,7 +56,7 @@ initialize = CommandParser.command ["init"] "Create a new Elm project" Nothing C
 
 -- MAKE COMMAND
 make :: CommandParser.Command
-make = CommandParser.command ["make"] "Build and compile your Elm project" Nothing CommandParser.noArg CommandParser.noFlag $ \() () -> do
+make = CommandParser.command ["make"] "Build your Elm project" Nothing CommandParser.noArg CommandParser.noFlag $ \() () -> do
     putStrLn "Initializing project..."
 
 

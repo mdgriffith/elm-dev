@@ -109,18 +109,21 @@ trimWhitespace :: String -> String
 trimWhitespace = reverse . dropWhile Char.isSpace . reverse . dropWhile Char.isSpace
 
 inspectGroup :: Maybe String
-inspectGroup = Just "inspect"
+inspectGroup = Just "Inspection"
+
+devGroup :: Maybe String
+devGroup = Just "Development"
 
 -- Command handlers
 serverCommand :: CommandParser.Command
-serverCommand = CommandParser.command ["server"] "Start the Elm Dev server" inspectGroup CommandParser.noArg parseServerFlags runServer
+serverCommand = CommandParser.command ["server"] "Start the Elm Dev server" devGroup CommandParser.noArg parseServerFlags runServer
   where
     portFlag = CommandParser.flagWithArg "port" "Port to run the server on" parseMaybeInt
     parseServerFlags = CommandParser.parseFlag portFlag
     runServer _ maybePort = Watchtower.Server.serve Nothing (Watchtower.Server.Flags maybePort)
 
 docsCommand :: CommandParser.Command
-docsCommand = CommandParser.command ["docs"] "Report the docs.json for the given package or local file" inspectGroup parseDocsArgs parseDocsFlags runDocs
+docsCommand = CommandParser.command ["inspect", "docs"] "Report the docs.json" inspectGroup parseDocsArgs parseDocsFlags runDocs
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
     parseDocsArgs = CommandParser.parseArgList (CommandParser.arg "path")
@@ -144,7 +147,7 @@ docsCommand = CommandParser.command ["docs"] "Report the docs.json for the given
               Terminal.Dev.Out.json maybeOutput (Right (Docs.encode (Data.Map.singleton (Docs._name docs) docs)))
 
 warningsCommand :: CommandParser.Command
-warningsCommand = CommandParser.command ["warnings"] "Report missing type annotations and unused code" inspectGroup parseWarningsArgs parseWarningsFlags runWarnings
+warningsCommand = CommandParser.command ["inspect", "warnings"] "Report warnings" inspectGroup parseWarningsArgs parseWarningsFlags runWarnings
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
     parseWarningsArgs = CommandParser.parseArgList (CommandParser.arg "path")
@@ -196,7 +199,7 @@ warningsCommand = CommandParser.command ["warnings"] "Report missing type annota
                     )
 
 importsCommand :: CommandParser.Command
-importsCommand = CommandParser.command ["imports"] "Given a file, report everything it imports" inspectGroup parseImportsArgs parseImportsFlags runImports
+importsCommand = CommandParser.command ["inspect", "imports"] "Report all imports" inspectGroup parseImportsArgs parseImportsFlags runImports
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
     entrypointsFlag = CommandParser.flagWithArg "entrypoints" "Comma-separated list of entrypoint modules" parseModuleList
@@ -221,7 +224,7 @@ importsCommand = CommandParser.command ["imports"] "Given a file, report everyth
               )
 
 usageCommand :: CommandParser.Command
-usageCommand = CommandParser.command ["usage"] "Given a file, report all modules that use it in your project" inspectGroup parseUsageArgs parseUsageFlags runUsage
+usageCommand = CommandParser.command ["inspect", "usage"] "Module usage" inspectGroup parseUsageArgs parseUsageFlags runUsage
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
     entrypointsFlag = CommandParser.flagWithArg "entrypoints" "Comma-separated list of entrypoint modules" parseModuleList
@@ -252,7 +255,7 @@ usageCommand = CommandParser.command ["usage"] "Given a file, report all modules
                 )
 
 entrypointsCommand :: CommandParser.Command
-entrypointsCommand = CommandParser.command ["entrypoints"] "Given a directory with an elm.json, report all entrypoints for the project" inspectGroup CommandParser.noArg parseEntrypointsFlags runEntrypoints
+entrypointsCommand = CommandParser.command ["inspect", "entrypoints"] "Report entrypoints" inspectGroup CommandParser.noArg parseEntrypointsFlags runEntrypoints
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
     parseEntrypointsFlags = CommandParser.parseFlag outputFlag
@@ -275,7 +278,7 @@ entrypointsCommand = CommandParser.command ["entrypoints"] "Given a directory wi
                 (Right (Json.Encode.list Ext.Dev.EntryPoints.encode entry))
 
 explainCommand :: CommandParser.Command
-explainCommand = CommandParser.command ["explain"] "Given a qualified value, explain it's definition" inspectGroup parseExplainArgs parseExplainFlags runExplain
+explainCommand = CommandParser.command ["inspect", "definition"] "Explain a definition" inspectGroup parseExplainArgs parseExplainFlags runExplain
   where
     outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
     parseExplainArgs = CommandParser.parseArgList (CommandParser.arg "path")
@@ -332,6 +335,9 @@ formatCommandWithEllipsis cmd desc =
       dots = replicate spacing '.'
   in cmd ++ " " ++ dots ++ " "  ++ desc
 
+
+
+
 -- Main function
 main :: IO ()
 main = do
@@ -339,6 +345,10 @@ main = do
   CommandParser.run
     (\commands givenCommand -> 
         -- Show Help
+        let 
+            joinArgs [] = ""
+            joinArgs argList = " " ++ Data.List.intercalate " " argList
+        in
         unlines
           [ "" 
           , "Welcome to Elm Dev"
@@ -346,9 +356,9 @@ main = do
           ] ++
           -- Group commands by their group (if any)
           let groupedCommands = Data.List.groupBy (\a b -> CommandParser.cmdGroup a == CommandParser.cmdGroup b) commands
-              formatCommand (CommandParser.CommandMetadata name group desc) =
+              formatCommand (CommandParser.CommandMetadata name argList group desc) =
                     formatCommandWithEllipsis
-                      ("  elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name))
+                      ("  elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name) ++ joinArgs argList)
                       desc
               formatGroup cmds = case CommandParser.cmdGroup (head cmds) of
                 Just group -> ["", group ++ ":", ""] ++ map formatCommand cmds

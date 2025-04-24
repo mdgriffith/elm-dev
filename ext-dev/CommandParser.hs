@@ -1,11 +1,9 @@
 module CommandParser (
   command,
-  Flag(..),
+  Flag,
   Arg,
   CommandMetadata(..),
-  CommandResult(..),
   Command,
-  ParsedArgs(..),
   run,
   -- Flag parsing functions
   noFlag,
@@ -75,6 +73,7 @@ data Flag a = Flag
 -- | Command metadata for help text
 data CommandMetadata = CommandMetadata
   { cmdName :: [String]            -- Command name
+  , cmdArgs :: [String]
   , cmdGroup :: Maybe String
   , cmdDesc :: String            -- Command description
   } deriving (Show)
@@ -84,10 +83,10 @@ command ::
     [String]
     -> String
     -> Maybe String
-    -> (ParsedArgs -> Either String (args, ParsedArgs))
+    -> ArgParser args
     -> (ParsedArgs -> Either String (flags, ParsedArgs))
     -> (args -> flags -> IO ()) -> Command
-command commandPieces desc group parseCommandArgs parseCommandFlags run = \parsedArgs -> 
+command commandPieces desc group (ArgParser commandArgs parseCommandArgs) parseCommandFlags run = \parsedArgs -> 
   if commandPieces == parsedCommands parsedArgs then
     case parseCommandArgs parsedArgs of
       Left err -> Run (\() -> putStrLn err)
@@ -97,7 +96,7 @@ command commandPieces desc group parseCommandArgs parseCommandFlags run = \parse
           Right (flags, _) -> 
             Run (\() -> run args flags)
   else
-    NotMe (CommandMetadata commandPieces group desc)
+    NotMe (CommandMetadata commandPieces commandArgs group desc)
 
 
 
@@ -193,69 +192,83 @@ parseArgs args =
 
 data Arg a = Arg
   { argName :: String
-  , argParse :: Maybe String -> Maybe a
+  , argParse :: String -> Maybe a
   }
 
 
 arg :: String -> Arg String
 arg name = Arg
   { argName = name
-  , argParse = \maybeVal -> case maybeVal of
-      Nothing -> Nothing
-      Just val -> Just val
+  , argParse = Just
   }
 
 
 argWith :: String -> (String -> Maybe a) -> Arg a
 argWith name parse = Arg
   { argName = name
-  , argParse = \maybeVal -> case maybeVal of
-      Nothing -> Nothing
-      Just val -> parse val
+  , argParse = parse
   }
 
+data ArgParser a = 
+    ArgParser
+        [String]
+        (ParsedArgs -> Either String (a, ParsedArgs))
 
-noArg :: ParsedArgs -> Either String ((), ParsedArgs)
-noArg parsed = Right ((), parsed)
 
+singleArgName :: Arg a -> String
+singleArgName arg = "<" ++ argName arg ++ ">"
 
-parseArg :: Arg arg -> ParsedArgs -> Either String (arg, ParsedArgs)
-parseArg arg parsed =
+noArg :: ArgParser ()
+noArg = ArgParser [] (\parsed -> Right ((), parsed))
+
+parseArg :: Arg arg -> ArgParser arg
+parseArg arg = ArgParser [singleArgName arg] (\parsed -> 
   case parsedPositional parsed of
     [] -> Left $ "Missing required argument: " ++ argName arg
     [value] -> 
-      case argParse arg (Just value) of
+      case argParse arg value of
         Just v -> Right (v, parsed { parsedPositional = [] })
         Nothing -> Left $ "Invalid value for arg: " ++ argName arg
     _ -> Left $ "Expected exactly one argument, but got multiple: " ++ argName arg
+  )
+
+runArgParser :: ArgParser a -> ParsedArgs -> Either String (a, ParsedArgs)
+runArgParser (ArgParser names parse) raw = 
+   parse raw
 
 -- | Parse two arguments in sequence
-parseArg2 :: Arg one -> Arg two -> ParsedArgs -> Either String ((one, two), ParsedArgs)
-parseArg2 arg1 arg2 parsed =
-  case parseArg arg1 parsed of
+parseArg2 :: Arg one -> Arg two -> ArgParser (one, two)
+parseArg2 arg1 arg2 = ArgParser [singleArgName arg1, singleArgName arg2] (\parsed -> 
+  case runArgParser (parseArg arg1) parsed of
     Left err -> Left err
     Right (value1, parsed1) ->
-      case parseArg arg2 parsed1 of
+      case runArgParser (parseArg arg2) parsed1 of
         Left err -> Left err
         Right (value2, parsed2) -> Right ((value1, value2), parsed2)
+   )
+
+listArgName :: Arg a -> String
+listArgName arg = "[" ++ argName arg ++ "]"
 
 -- | Parse one required argument followed by any number of optional arguments
-parseArgList :: Arg arg -> ParsedArgs -> Either String ((arg, [arg]), ParsedArgs)
-parseArgList arg parsed =
-  case parseArg arg parsed of
+parseArgList :: Arg arg -> ArgParser (arg, [arg])
+parseArgList arg = ArgParser [listArgName arg] (\parsed ->
+  case runArgParser (parseArg arg) parsed of
     Left err -> Left err
     Right (value1, parsed1) -> do
       let (values, remaining) = parseOptionalArgs arg (parsedPositional parsed1)
       Right ((value1, values), parsed1 { parsedPositional = remaining })
+  )
   where
     parseOptionalArgs :: Arg arg -> [String] -> ([arg], [String])
     parseOptionalArgs _ [] = ([], [])
     parseOptionalArgs arg (value:rest) =
-      case argParse arg (Just value) of
+      case argParse arg value of
         Just v -> 
           let (vs, remaining) = parseOptionalArgs arg rest
           in (v:vs, remaining)
         Nothing -> ([], value:rest)
+  
 
 noFlag :: ParsedArgs -> Either String ((), ParsedArgs)
 noFlag parsed = Right ((), parsed)
@@ -355,41 +368,6 @@ run showHelp commands = do
 collectMetadata :: [Command] -> ParsedArgs -> [CommandMetadata]
 collectMetadata commands parsed = 
   [meta | NotMe meta <- map (\cmd -> cmd parsed) commands]
-
--- -- | Show help text based on collected metadata
--- showHelp :: [CommandMetadata] -> [String] -> String
--- showHelp metadata cmdPath =
---   let appName = "myapp"  -- This would come from your app config
---       usage = "Usage: " ++ appName ++ 
---               (if null cmdPath then "" else " " ++ intercalate " " cmdPath) ++
---               " [FLAGS] [ARGS] [COMMAND]"
-      
---       description = case metadata of
---         (cmd:_) -> cmdDesc cmd
---         [] -> "Command line application"
-      
---       argsHelp =
---         let args = concatMap cmdArgs metadata
---         in if null args then ""
---            else "\n\nArguments:\n" ++ unlines (map formatArg args)
-      
---       commands = 
---         if null cmdPath 
---         then concatMap cmdSubcommands metadata
---         else []
-      
---       commandsHelp =
---         if null commands then ""
---         else "\n\nCommands:\n" ++ unlines (map formatCommand commands)
---   in
---       usage ++ "\n\n" ++ description ++ argsHelp ++ commandsHelp
---   where    
---     formatArg arg =
---       let optional = if argOptional arg then " (optional)" else ""
---       in "  " ++ argName arg ++ optional ++ "\t" ++ argDesc arg
-    
---     formatCommand cmd =
---       "  " ++ cmdName cmd ++ "\t" ++ cmdDesc cmd
 
 -- | Create a help flag
 helpFlag :: Flag Bool
