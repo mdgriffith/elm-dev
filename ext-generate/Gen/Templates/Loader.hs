@@ -36,6 +36,7 @@ data Template = Template
     , content :: BS.ByteString
     , plugin :: String
     , dir :: String
+    , templateName :: String
     , filename :: String
     , elmModuleName :: String
     } deriving (Show, Lift)
@@ -103,6 +104,7 @@ readTemplates base targetDir = do
                     , plugin = pluginName
                     , dir = dirPath
                     , filename = fname
+                    , templateName = dropExtension fname
                     , elmModuleName = elmModuleName
                     }
             Nothing -> error $ "Invalid template path structure: " ++ path ++ " for base " ++ base ++ " for filePath " ++ filePath
