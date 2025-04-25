@@ -11,6 +11,7 @@ import qualified Terminal.Helpers
 import qualified Elm.ModuleName
 import qualified Gen.Javascript
 import qualified Gen.Generate
+import qualified Gen.Config
 import qualified Data.Name as Name
 import qualified Data.Maybe as Maybe
 import qualified Data.List as List
@@ -48,14 +49,54 @@ initialize :: CommandParser.Command
 initialize = CommandParser.command ["init"] "Create a new Elm project" Nothing CommandParser.noArg CommandParser.noFlag $ \() () -> do
   let defaultConfig = Config.Config
         { Config.configPackageManager = Just Config.Bun
-        , Config.configApp = Nothing
-        , Config.configAssets = Nothing
+        , Config.configApp = Just $ Config.AppConfig {
+            Config.appPages = Map.singleton "Home" (Gen.Config.PageConfig "/" [] False)
+          }
+        , Config.configAssets = Just $ Map.singleton "Assets" $ Config.AssetConfig {
+            Config.assetSrc = "./public",
+            Config.assetOnServer = "assets"
+          }
         , Config.configTheme = Nothing
         , Config.configGraphQL = Nothing
         , Config.configDocs = Nothing
         }
+  -- elm.generate.json
   BS.writeFile "elm.generate.json" (Aeson.encodePretty defaultConfig)
+
+  -- Create Page/Home.elm
+  writeTemplate "Page" (Text.unpack Config.src) "Home"
+ 
+
+
   putStrLn "Created elm.generate.json with default configuration"
+
+
+
+writeTemplate :: String -> String -> String -> IO ()
+writeTemplate templateName src name = do
+    let maybeTemplate = Data.List.find (\t -> 
+            Gen.Templates.Loader.target t == Gen.Templates.Loader.OneOff && 
+            Gen.Templates.Loader.templateName t == templateName) Gen.Templates.templates
+    
+    case maybeTemplate of
+        Nothing -> 
+            fail "Could not find page template"
+
+        Just template -> do
+            -- Get template contents
+            let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
+            let fullModuleName = Text.pack (templateName ++ "." ++ name)
+            
+            -- Do replacements
+            let pageName = Text.pack name
+            let pageNameUnderscored = Text.replace "." "_" pageName
+            let newContents = contents
+                    & Text.replace "{{name}}" pageName
+                    & Text.replace "{{name_underscored}}" pageNameUnderscored
+
+            cwd <- System.Directory.getCurrentDirectory
+            let targetPath = cwd </> src </> templateName </> Text.unpack pageName <.> "elm"
+            TIO.writeFile targetPath newContents
 
 
 -- MAKE COMMAND
@@ -110,46 +151,24 @@ addPage = CommandParser.command ["add", "page"] "Add a new page" addGroup parseP
     runPage (url, name) _ = do
         configResult <- Gen.Generate.readConfigOrFail
 
-        -- Find the matching page template
-        let maybeTemplate = Data.List.find (\t -> 
-                Gen.Templates.Loader.target t == Gen.Templates.Loader.OneOff && 
-                Gen.Templates.Loader.plugin t == "app" && 
-                Gen.Templates.Loader.filename t == "Page.elm") Gen.Templates.templates
+        writeTemplate "Page" (Text.unpack Config.src) name
+        let urlText = Text.pack url
+
+        let fullModuleName = Text.pack ("Page." ++ name)
+
+        -- Update config
+        let updatedConfig = configResult {
+            Config.configApp = Just $ case Config.configApp configResult of
+                Nothing -> Config.AppConfig { 
+                    Config.appPages = Map.singleton urlText (Config.PageConfig fullModuleName [] False)
+                }
+                Just appConfig -> appConfig {
+                    Config.appPages = Map.insert urlText (Config.PageConfig fullModuleName [] False) (Config.appPages appConfig)
+                }
+        }
+        BS.writeFile "elm.generate.json" (Aeson.encodePretty updatedConfig)
         
-        case maybeTemplate of
-            Nothing -> 
-                fail "Could not find page template"
-            Just template -> do
-                -- Get template contents
-                let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
-                let urlText = Text.pack url
-                let fullModuleName = Text.pack ("Page." ++ name)
-                
-                -- Do replacements
-                let pageName = Text.pack name
-                let pageNameUnderscored = Text.replace "." "_" pageName
-                let newContents = contents
-                        & Text.replace "{{name}}" pageName
-                        & Text.replace "{{name_underscored}}" pageNameUnderscored
-                
-                -- Write to file
-                cwd <- System.Directory.getCurrentDirectory
-                let targetPath = cwd </> Text.unpack Config.src </> "Page" </> Text.unpack pageName <.> "elm"
-                TIO.writeFile targetPath newContents
-                
-                -- Update config
-                let updatedConfig = configResult {
-                        Config.configApp = Just $ case Config.configApp configResult of
-                            Nothing -> Config.AppConfig { 
-                                Config.appPages = Map.singleton urlText (Config.PageConfig fullModuleName [] False)
-                            }
-                            Just appConfig -> appConfig {
-                                Config.appPages = Map.insert urlText (Config.PageConfig fullModuleName [] False) (Config.appPages appConfig)
-                            }
-                    }
-                BS.writeFile "elm.generate.json" (Aeson.encodePretty updatedConfig)
-                
-                putStrLn $ "Created new page: " ++ Text.unpack pageName
+        putStrLn $ "Created new page: " ++ name
 
 -- Add Store Command
 addStore :: CommandParser.Command
@@ -157,32 +176,13 @@ addStore = CommandParser.command ["add", "store"] "Add a new store" addGroup elm
   where
 
     runStore :: Elm.ModuleName.Raw -> () -> IO ()
-    runStore name _ = do
+    runStore modName _ = do
         configResult <- Gen.Generate.readConfigOrFail
 
-        -- Find the matching store template
-        let maybeTemplate = Data.List.find (\t -> 
-                Gen.Templates.Loader.target t == Gen.Templates.Loader.OneOff && 
-                Gen.Templates.Loader.plugin t == "app" && 
-                Gen.Templates.Loader.filename t == "Store.elm") Gen.Templates.templates
-        
-        case maybeTemplate of
-            Nothing -> 
-                fail "Could not find store template"
-            Just template -> do
-                -- Get template contents
-                let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
-                
-                -- Do replacement
-                let storeName = Text.pack (Elm.ModuleName.toChars name)
-                let newContents = contents & Text.replace "{{name}}" storeName
-                
-                -- Write to file
-                cwd <- System.Directory.getCurrentDirectory
-                let targetPath = cwd </> Text.unpack Config.src </> "Store" </> Text.unpack storeName <.> "elm"
-                TIO.writeFile targetPath newContents
-                
-                putStrLn $ "Created new store: " ++ Text.unpack storeName
+        let storeName = Elm.ModuleName.toChars modName
+        writeTemplate "Store" (Text.unpack Config.src) storeName
+           
+        putStrLn $ "Created new store: " ++ storeName
 
 
 
@@ -229,32 +229,13 @@ addEffect = CommandParser.command ["add", "effect"] "Add a new effect" addGroup 
   where
    
     runEffect :: Elm.ModuleName.Raw -> () -> IO ()
-    runEffect name _ = do
+    runEffect modName _ = do
         configResult <- Gen.Generate.readConfigOrFail
+        let name = Elm.ModuleName.toChars modName
 
-        -- Find the matching effect template
-        let maybeTemplate = Data.List.find (\t -> 
-                Gen.Templates.Loader.target t == Gen.Templates.Loader.OneOff && 
-                Gen.Templates.Loader.plugin t == "app" && 
-                Gen.Templates.Loader.filename t == "Effect.elm") Gen.Templates.templates
-        
-        case maybeTemplate of
-            Nothing -> 
-                fail "Could not find effect template"
-            Just template -> do
-                -- Get template contents
-                let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
-                
-                -- Do replacement
-                let effectName = Text.pack (Elm.ModuleName.toChars name)
-                let newContents = contents & Text.replace "{{name}}" effectName
-                
-                -- Write to file
-                cwd <- System.Directory.getCurrentDirectory
-                let targetPath = cwd </> Text.unpack Config.src </> "Effect" </> Text.unpack effectName <.> "elm"
-                TIO.writeFile targetPath newContents
-                
-                putStrLn $ "Created new effect: " ++ Text.unpack effectName
+        writeTemplate "Effect" (Text.unpack Config.src) name
+         
+        putStrLn $ "Created new effect: " ++ name
 
 -- Add Docs Command
 addDocs :: CommandParser.Command
