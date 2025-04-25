@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Gen.Generate (generate) where
+module Gen.Generate (readConfig, readConfigOrFail, generate) where
 
 import qualified Gen.Config as Config
 import qualified Gen.RunConfig as RunConfig
@@ -7,6 +7,7 @@ import qualified Gen.Javascript as Javascript
 import qualified Gen.Templates.Loader as Loader
 import qualified Gen.Templates as Templates
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as Map
 import qualified System.Directory as Dir
 import qualified Data.Aeson.Encode.Pretty as Aeson
@@ -17,6 +18,24 @@ import qualified Data.Text.Encoding as Text
 import Data.Maybe (fromMaybe)
 import Control.Monad (forM_)
 import Data.Function ((&))
+import Data.Aeson (eitherDecodeStrict)
+import Control.Monad.IO.Class (liftIO)
+
+
+readConfig :: IO (Either String Config.Config)
+readConfig = do
+    config <- BSL.readFile "elm.generate.json"
+    return $ eitherDecodeStrict (BSL.toStrict config)
+
+
+readConfigOrFail :: IO Config.Config
+readConfigOrFail = do
+    configResult <- readConfig
+    case configResult of
+        Left err -> 
+            fail $ "Failed to parse elm.generate.json: " ++ err
+        Right config -> 
+            return config
 
 
 -- | Main generation function
