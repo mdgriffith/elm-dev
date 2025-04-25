@@ -158,12 +158,7 @@ addStore = CommandParser.command ["add", "store"] "Add a new store" addGroup elm
 
     runStore :: Elm.ModuleName.Raw -> () -> IO ()
     runStore name _ = do
-        configResult <- BS.readFile "elm.generate.json" >>= \contents ->
-            case eitherDecodeStrict (BS.toStrict contents) :: Either String Config.Config of
-                Left err -> 
-                    fail $ "Failed to parse elm.generate.json: " ++ err
-                Right config -> 
-                    return config
+        configResult <- Gen.Generate.readConfigOrFail
 
         -- Find the matching store template
         let maybeTemplate = Data.List.find (\t -> 
@@ -235,12 +230,7 @@ addEffect = CommandParser.command ["add", "effect"] "Add a new effect" addGroup 
    
     runEffect :: Elm.ModuleName.Raw -> () -> IO ()
     runEffect name _ = do
-        configResult <- BS.readFile "elm.generate.json" >>= \contents ->
-            case eitherDecodeStrict (BS.toStrict contents) :: Either String Config.Config of
-                Left err -> 
-                    fail $ "Failed to parse elm.generate.json: " ++ err
-                Right config -> 
-                    return config
+        configResult <- Gen.Generate.readConfigOrFail
 
         -- Find the matching effect template
         let maybeTemplate = Data.List.find (\t -> 
@@ -273,12 +263,7 @@ addDocs = CommandParser.command ["add", "docs"] "Add docs site" addGroup Command
 
     runDocs :: () -> () -> IO ()
     runDocs _ _ = do
-        configResult <- BS.readFile "elm.generate.json" >>= \contents ->
-            case eitherDecodeStrict (BS.toStrict contents) :: Either String Config.Config of
-                Left err -> 
-                    fail $ "Failed to parse elm.generate.json: " ++ err
-                Right config -> 
-                    return config
+        configResult <- Gen.Generate.readConfigOrFail
 
         case Config.configDocs configResult of
             Just _ ->
@@ -295,12 +280,7 @@ addTheme = CommandParser.command ["add", "theme"] "Add a theme" addGroup Command
 
     runTheme :: () -> () -> IO ()
     runTheme _ _ = do
-        configResult <- BS.readFile "elm.generate.json" >>= \contents ->
-            case eitherDecodeStrict (BS.toStrict contents) :: Either String Config.Config of
-                Left err -> 
-                    fail $ "Failed to parse elm.generate.json: " ++ err
-                Right config -> 
-                    return config
+        configResult <- Gen.Generate.readConfigOrFail
 
         case Config.configTheme configResult of
             Just _ ->
@@ -351,12 +331,7 @@ customizeGroup = Just "Move an elm-dev-controlled file into your project"
 customize :: CommandParser.Command
 customize = CommandParser.command ["customize"] "Customize project components" customizeGroup (CommandParser.parseArg (CommandParser.arg "module"))  CommandParser.noFlag $ \moduleName () -> do
     -- Read config to get source directory
-    configResult <- BS.readFile "elm.generate.json" >>= \contents ->
-        case eitherDecodeStrict (BS.toStrict contents) :: Either String Config.Config of
-            Left err -> 
-                fail $ "Failed to parse elm.generate.json: " ++ err
-            Right config -> 
-                return config
+    configResult <- Gen.Generate.readConfigOrFail
 
     cwd <- System.Directory.getCurrentDirectory
 
