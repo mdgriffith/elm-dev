@@ -10,12 +10,14 @@ import qualified Text.PrettyPrint.ANSI.Leijen as P
 import qualified Terminal.Helpers
 import qualified Elm.ModuleName
 import qualified Gen.Javascript
+import qualified Gen.Generate
 import qualified Data.Name as Name
+import qualified Data.Maybe as Maybe
 import qualified Data.List as List
 import qualified Gen.Config as Config
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteString.Lazy as BS
-import qualified Data.ByteString
+import qualified Make
 import System.FilePath ((</>))
 import Data.Text (pack)
 import Data.Aeson (eitherDecodeStrict)
@@ -59,13 +61,37 @@ initialize = CommandParser.command ["init"] "Create a new Elm project" Nothing C
 -- MAKE COMMAND
 make :: CommandParser.Command
 make = CommandParser.command ["make"] "Build your Elm project" Nothing parseMakeArgs parseMakeFlags runMake
-  where
-    outputFlag = CommandParser.flagWithArg "output" "Output file path" Just
-    parseMakeFlags = CommandParser.parseFlag outputFlag
+  where 
+    parseMakeFlags = CommandParser.parseFlag3
+                        (CommandParser.flag "debug" "Debug mode")
+                        (CommandParser.flag "optimize" "Make the code smaller and faster")
+                        (CommandParser.flagWithArg "output" "Output file path" Just)
     parseMakeArgs =
        CommandParser.parseArgList (CommandParser.arg "module")
-    runMake modules _ = do
-        putStrLn "Initializing project..."
+
+    runMake (fstModule, modules) (debug, optimize, output) = do
+        configResult <- Gen.Generate.readConfig
+        case configResult of
+            Right config -> do
+                generateResult <- Gen.Generate.generate config
+                case generateResult of
+                    Right result -> do 
+                        putStrLn $ "Generated: " ++ result
+                        Make.run 
+                            (fstModule : modules)
+                            (Make.Flags
+                                (fromMaybe False debug)
+                                (fromMaybe False optimize)
+                                (fmap Make.JS output)
+                                Nothing
+                                Nothing
+                            )
+                    Left err -> do
+                        putStrLn $ "Error: Failed to generate: " ++ err
+                        return ()
+            Left _ -> do
+                putStrLn "Error: No elm.generate.json config found"
+                return ()
 
 
 addGroup :: Maybe String
@@ -82,12 +108,7 @@ addPage = CommandParser.command ["add", "page"] "Add a new page" addGroup parseP
 
     runPage :: (String, String) -> () -> IO ()
     runPage (url, name) _ = do
-        configResult <- BS.readFile "elm.generate.json" >>= \contents ->
-            case eitherDecodeStrict (BS.toStrict contents) :: Either String Config.Config of
-                Left err -> 
-                    fail $ "Failed to parse elm.generate.json: " ++ err
-                Right config -> 
-                    return config
+        configResult <- Gen.Generate.readConfigOrFail
 
         -- Find the matching page template
         let maybeTemplate = Data.List.find (\t -> 
