@@ -20,6 +20,7 @@ import Control.Monad (forM_)
 import Data.Function ((&))
 import Data.Aeson (eitherDecodeStrict)
 import Control.Monad.IO.Class (liftIO)
+import Data.Aeson (object, (.=))
 
 
 readConfig :: IO (Either String Config.Config)
@@ -46,7 +47,11 @@ generate config = do
 
     -- Convert Config to RunConfig and then run Javascript generator
     runConfig <- RunConfig.toRunConfig cwd config
-    Javascript.run Javascript.generatorJs (BS.toStrict (Aeson.encodePretty runConfig))
+    let jsInput = object
+            [ "outputDir" .= ("elm-stuff/generated" :: String)
+            , "flags" .= runConfig
+            ]
+    Javascript.run Javascript.generatorJs (BS.toStrict (Aeson.encodePretty jsInput))
 
 
 
