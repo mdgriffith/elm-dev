@@ -17,6 +17,7 @@ module CommandParser (
   -- Common flags
   helpFlag,
   -- Argument constructors
+  ArgParser,
   noArg,
   arg,
   argWith,
@@ -271,6 +272,8 @@ parseArgList arg = ArgParser [listArgName arg] (\parsed ->
           in (v:vs, remaining)
         Nothing -> ([], value:rest)
   
+
+
 
 noFlag :: ParsedArgs -> Either String ((), ParsedArgs)
 noFlag parsed = Right ((), parsed)

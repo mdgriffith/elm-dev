@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Gen.Commands.Init (run) where
+module Gen.Commands.Init (flags, args, run) where
 
 
+import qualified CommandParser
 import qualified Gen.Config as Config
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteString.Lazy as BS
@@ -23,19 +24,34 @@ import qualified Data.NonEmptyList as NE
 import qualified Terminal.Colors
 import qualified Data.Utf8 as Utf8
 import qualified System.Process
+import Data.Maybe (fromMaybe)
 import System.Exit
 import qualified Control.Monad as Monad
 
 
 
+flags = CommandParser.parseFlag
+    (CommandParser.flagWithArg "package-manager" "The package manager to use"
+        (\str -> case str of
+            "npm" -> Just Config.NPM
+            "yarn" -> Just Config.Yarn
+            "pnpm" -> Just Config.PNPM
+            "bun" -> Just Config.Bun
+            _ -> Nothing
+        )
+    )
+
+args :: CommandParser.ArgParser ()
+args =
+    CommandParser.noArg
+
 
 
 -- INIT COMMAND
-run :: () -> () -> IO ()
-run () () = do
-  let pkgManager = Config.Bun
-
-
+run :: () -> Maybe Config.PackageManager -> IO ()
+run () maybePkgManager = do
+  let pkgManager = fromMaybe Config.Bun maybePkgManager
+  
   -- Create elm.generate.json
   let defaultConfig = Config.Config
         { Config.configPackageManager = Just pkgManager

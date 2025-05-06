@@ -40,14 +40,14 @@ import qualified System.FilePath as FP
 import qualified Terminal.Colors
 
 -- Flag types
-data InitFlags = InitFlags
+-- data InitFlags = InitFlags
 data MakeFlags = MakeFlags
 data AddFlags = AddFlags
 data CustomizeFlags = CustomizeFlags
 
 -- INIT COMMAND
 initialize :: CommandParser.Command
-initialize = CommandParser.command ["init"] "Create a new Elm project" Nothing CommandParser.noArg CommandParser.noFlag Gen.Commands.Init.run
+initialize = CommandParser.command ["init"] "Create a new Elm project" Nothing Gen.Commands.Init.args Gen.Commands.Init.flags Gen.Commands.Init.run
 
 
 -- MAKE COMMAND
