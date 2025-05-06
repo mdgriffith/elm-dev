@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Gen.Templates (templates, write) where
+module Gen.Templates (templates, write, writeGroup) where
 
 
 import qualified Gen.Templates.Loader
@@ -14,6 +14,7 @@ import qualified Data.List as List
 import qualified Data.Text.Encoding
 import System.FilePath ((</>), (<.>))
 import Data.Function ((&))
+import Control.Monad (forM_)
 
 
 
@@ -43,7 +44,7 @@ write templateName src name = do
         Just template -> do
             -- Get template contents
             let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
-            let fullModuleName = Text.pack (templateName ++ "." ++ name)
+            -- let fullModuleName = Text.pack (templateName ++ "." ++ name)
             
             -- Do replacements
             let pageName = Text.pack name
@@ -58,3 +59,20 @@ write templateName src name = do
             Dir.createDirectoryIfMissing True (cwd </> src)
             Dir.createDirectoryIfMissing True (cwd </> src </> templateName)
             TIO.writeFile targetPath newContents
+
+
+writeGroup :: Gen.Templates.Loader.Target -> String -> IO ()
+writeGroup target src = do
+    let matchingTemplates = List.filter (\t -> Gen.Templates.Loader.target t == target) Gen.Templates.templates
+    forM_ matchingTemplates $ \template -> do
+        -- Path
+        let targetDir = src </> Gen.Templates.Loader.dir template
+        Dir.createDirectoryIfMissing True targetDir
+
+        -- Contents
+        let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
+
+        -- Write
+        TIO.writeFile (targetDir </> Gen.Templates.Loader.filename template) contents
+        -- putStrLn (targetDir </> Gen.Templates.Loader.filename template)
+    
