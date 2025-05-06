@@ -16,13 +16,13 @@ import qualified Data.Name as Name
 import qualified Data.Maybe as Maybe
 import qualified Data.List as List
 import qualified Gen.Config as Config
+import qualified Gen.Commands.Init
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteString.Lazy as BS
 import qualified Make
 import System.FilePath ((</>))
 import Data.Text (pack)
 import Data.Aeson (eitherDecodeStrict)
-import qualified System.Directory (getCurrentDirectory, createDirectoryIfMissing)
 import qualified Data.Text as Text
 import qualified Data.List (find)
 import qualified Data.Text.IO as TIO
@@ -33,7 +33,8 @@ import qualified Gen.Templates
 import qualified Gen.Templates.Loader
 import Data.Function ((&))
 import qualified Data.Text.Encoding
-import System.Directory (doesFileExist, removeFile)
+import qualified System.Directory as Dir (doesFileExist, removeFile, getCurrentDirectory, createDirectoryIfMissing)
+import qualified Reporting.Exit as Exit
 import Control.Monad (when)
 import qualified System.FilePath as FP
 import qualified Terminal.Colors
@@ -46,57 +47,7 @@ data CustomizeFlags = CustomizeFlags
 
 -- INIT COMMAND
 initialize :: CommandParser.Command
-initialize = CommandParser.command ["init"] "Create a new Elm project" Nothing CommandParser.noArg CommandParser.noFlag $ \() () -> do
-  let defaultConfig = Config.Config
-        { Config.configPackageManager = Just Config.Bun
-        , Config.configApp = Just $ Config.AppConfig {
-            Config.appPages = Map.singleton "Home" (Gen.Config.PageConfig "/" [] False)
-          }
-        , Config.configAssets = Just $ Map.singleton "Assets" $ Config.AssetConfig {
-            Config.assetSrc = "./public",
-            Config.assetOnServer = "assets"
-          }
-        , Config.configTheme = Nothing
-        , Config.configGraphQL = Nothing
-        , Config.configDocs = Nothing
-        }
-  -- elm.generate.json
-  BS.writeFile "elm.generate.json" (Aeson.encodePretty defaultConfig)
-
-  -- Create Page/Home.elm
-  writeTemplate "Page" (Text.unpack Config.src) "Home"
- 
-
-
-  putStrLn "Created elm.generate.json with default configuration"
-
-
-
-writeTemplate :: String -> String -> String -> IO ()
-writeTemplate templateName src name = do
-    let maybeTemplate = Data.List.find (\t -> 
-            Gen.Templates.Loader.target t == Gen.Templates.Loader.OneOff && 
-            Gen.Templates.Loader.templateName t == templateName) Gen.Templates.templates
-    
-    case maybeTemplate of
-        Nothing -> 
-            fail "Could not find page template"
-
-        Just template -> do
-            -- Get template contents
-            let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
-            let fullModuleName = Text.pack (templateName ++ "." ++ name)
-            
-            -- Do replacements
-            let pageName = Text.pack name
-            let pageNameUnderscored = Text.replace "." "_" pageName
-            let newContents = contents
-                    & Text.replace "{{name}}" pageName
-                    & Text.replace "{{name_underscored}}" pageNameUnderscored
-
-            cwd <- System.Directory.getCurrentDirectory
-            let targetPath = cwd </> src </> templateName </> Text.unpack pageName <.> "elm"
-            TIO.writeFile targetPath newContents
+initialize = CommandParser.command ["init"] "Create a new Elm project" Nothing CommandParser.noArg CommandParser.noFlag Gen.Commands.Init.run
 
 
 -- MAKE COMMAND
@@ -151,7 +102,7 @@ addPage = CommandParser.command ["add", "page"] "Add a new page" addGroup parseP
     runPage (url, name) _ = do
         configResult <- Gen.Generate.readConfigOrFail
 
-        writeTemplate "Page" (Text.unpack Config.src) name
+        Gen.Templates.write "Page" (Text.unpack Config.src) name
         let urlText = Text.pack url
 
         let fullModuleName = Text.pack ("Page." ++ name)
@@ -180,7 +131,7 @@ addStore = CommandParser.command ["add", "store"] "Add a new store" addGroup elm
         configResult <- Gen.Generate.readConfigOrFail
 
         let storeName = Elm.ModuleName.toChars modName
-        writeTemplate "Store" (Text.unpack Config.src) storeName
+        Gen.Templates.write "Store" (Text.unpack Config.src) storeName
            
         putStrLn $ "Created new store: " ++ storeName
 
@@ -233,7 +184,7 @@ addEffect = CommandParser.command ["add", "effect"] "Add a new effect" addGroup 
         configResult <- Gen.Generate.readConfigOrFail
         let name = Elm.ModuleName.toChars modName
 
-        writeTemplate "Effect" (Text.unpack Config.src) name
+        Gen.Templates.write "Effect" (Text.unpack Config.src) name
          
         putStrLn $ "Created new effect: " ++ name
 
@@ -314,7 +265,7 @@ customize = CommandParser.command ["customize"] "Customize project components" c
     -- Read config to get source directory
     configResult <- Gen.Generate.readConfigOrFail
 
-    cwd <- System.Directory.getCurrentDirectory
+    cwd <- Dir.getCurrentDirectory
 
     -- Convert moduleName to a file path
     let moduleFilePath = foldr (</>) "" $ words $ map (\c -> if c == '.' then ' ' else c) moduleName <.> "elm"
@@ -340,7 +291,7 @@ customize = CommandParser.command ["customize"] "Customize project components" c
             let relativePath = Text.unpack Config.src </> moduleFilePath
 
             -- Check if file already exists
-            targetExists <- System.Directory.doesFileExist targetPath
+            targetExists <- Dir.doesFileExist targetPath
             when targetExists $ do
                 putStrLn $ "\n  File already exists at " ++ Terminal.Colors.yellow relativePath
                 putStrLn "  Are you already customizing this file?"
@@ -348,14 +299,14 @@ customize = CommandParser.command ["customize"] "Customize project components" c
 
             when (not targetExists) $ do
               -- Create the directory if it doesn't exist
-              System.Directory.createDirectoryIfMissing True (FP.takeDirectory targetPath)
+              Dir.createDirectoryIfMissing True (FP.takeDirectory targetPath)
               TIO.writeFile targetPath contents
               
               -- Check and remove corresponding file in ToHidden directory
               let hiddenPath = cwd </> ".elm-generate" </> moduleFilePath
-              hiddenExists <- System.Directory.doesFileExist hiddenPath
+              hiddenExists <- Dir.doesFileExist hiddenPath
               when hiddenExists $ do
-                  System.Directory.removeFile hiddenPath
+                  Dir.removeFile hiddenPath
               
               putStrLn ""
               putStrLn $ "  " ++ Terminal.Colors.green relativePath ++ " is now in your project!"

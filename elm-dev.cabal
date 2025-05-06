@@ -278,6 +278,7 @@ Executable elm-dev
         Ext.Sanity
 
         Gen.Commands
+        Gen.Commands.Init
         Gen.Javascript
         Gen.Config
         Gen.Templates
