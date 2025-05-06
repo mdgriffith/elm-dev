@@ -24,6 +24,9 @@ module Elm.Package
   , keyDecoder
   --
   , parser
+  --
+  , toName
+  , elm
   )
   where
 
