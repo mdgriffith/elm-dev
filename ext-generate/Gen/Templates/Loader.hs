@@ -66,8 +66,8 @@ parseTemplatePath path = case filter (not . null) $ splitPath path of
     
     splitDirAndFile :: [String] -> (String, String)
     splitDirAndFile [] = ("", "")
-    splitDirAndFile [file] = ("", init file)
-    splitDirAndFile paths = (intercalate "/" $ map init $ init paths, init $ last paths)
+    splitDirAndFile [file] = ("", file)
+    splitDirAndFile paths = (intercalate "/" $ map init $ init paths, last paths)
 
 -- Get all files recursively from a directory
 getFilesRecursive :: FilePath -> IO [FilePath]
