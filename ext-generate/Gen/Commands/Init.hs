@@ -17,24 +17,28 @@ import qualified Deps.Solver as Solver
 import qualified Elm.Outline as Outline
 import qualified Gen.Templates
 import qualified Data.Text.Encoding
-import qualified System.Directory as Dir (getCurrentDirectory, createDirectoryIfMissing)
+import qualified System.Directory as Dir (getCurrentDirectory, createDirectoryIfMissing, doesFileExist)
 import qualified Reporting.Exit as Exit
 import qualified Data.NonEmptyList as NE
 import qualified Terminal.Colors
 import qualified Data.Utf8 as Utf8
+import qualified System.Process
+import System.Exit
+import qualified Control.Monad as Monad
 
 
--- Flag types
-data InitFlags = InitFlags
-data MakeFlags = MakeFlags
-data AddFlags = AddFlags
-data CustomizeFlags = CustomizeFlags
+
+
 
 -- INIT COMMAND
 run :: () -> () -> IO ()
 run () () = do
+  let pkgManager = Config.Bun
+
+
+  -- Create elm.generate.json
   let defaultConfig = Config.Config
-        { Config.configPackageManager = Just Config.Bun
+        { Config.configPackageManager = Just pkgManager
         , Config.configApp = Just $ Config.AppConfig {
             Config.appPages = Map.singleton "Home" (Config.PageConfig "/" [] False)
           }
@@ -46,17 +50,13 @@ run () () = do
         , Config.configGraphQL = Nothing
         , Config.configDocs = Nothing
         }
-  -- elm.generate.json
   BS.writeFile "elm.generate.json" (Aeson.encodePretty defaultConfig)
-
 
   -- Create elm.json
   initResult <- initElmJson
 
-  -- Create package.json
-  let packageJson = "package.json"
-  let packageJsonContent = "{}"
-  BS.writeFile packageJson packageJsonContent
+  -- Create package.json and install dependencies
+  installDependencies pkgManager (DependencyOptions { dev = True, cwd = Nothing }) ["vite", "vite-plugin-elm", "typescript"]
 
   -- Create Page/Home.elm
   Gen.Templates.write "Page" (Text.unpack Config.src) "Home"
@@ -121,6 +121,52 @@ initElmJson =
 
 
 
+
+-- NPM stuff
+
+
+data DependencyOptions = DependencyOptions
+    { dev :: Bool
+    , cwd :: Maybe FilePath
+    }
+
+-- | Install dependencies using the specified package manager
+installDependencies :: Config.PackageManager -> DependencyOptions -> [String] -> IO ()
+installDependencies manager options packages = do
+    let cwd' = cwd options
+    let devFlag = if dev options then "--save-dev" else "--save"
+    
+    -- Check if package.json exists
+    packageJsonExists <- Dir.doesFileExist (maybe "." id cwd' </> "package.json")
+    
+    -- If no package.json exists, create one first
+    Monad.unless packageJsonExists $ do
+        case manager of
+            Config.NPM -> runCommand cwd' "npm" ["init", "-y"]
+            Config.Yarn -> runCommand cwd' "yarn" ["init", "-y"]
+            Config.PNPM -> runCommand cwd' "pnpm" ["init"]
+            Config.Bun -> runCommand cwd' "bun" ["init", "-y"]
+    
+    -- Now install the dependencies
+    case manager of
+        Config.NPM -> do
+            runCommand cwd' "npm" (["install", devFlag] ++ packages)
+        Config.Yarn -> do
+            runCommand cwd' "yarn" (["add"] ++ (if dev options then ["--dev"] else []) ++ packages)
+        Config.PNPM -> do
+            runCommand cwd' "pnpm" (["add", devFlag] ++ packages)
+        Config.Bun -> do
+            runCommand cwd' "bun" (["add", devFlag] ++ packages)
+
+-- | Helper function to run shell commands
+runCommand :: Maybe FilePath -> String -> [String] -> IO ()
+runCommand workingDir cmd args = do
+    let process = (System.Process.proc cmd args) { System.Process.cwd = workingDir }
+    (_, _, _, ph) <- System.Process.createProcess process
+    exitCode <- System.Process.waitForProcess ph
+    case exitCode of
+        ExitSuccess -> return ()
+        ExitFailure code -> error $ "Command failed with exit code: " ++ show code
 
 
 
