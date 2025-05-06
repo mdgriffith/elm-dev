@@ -24,6 +24,8 @@ module CommandParser (
   parseArg,
   parseArg2,
   parseArgList,
+  -- Common args 
+  elmModuleName,
 ) where
 
 {-- Command line parser!
@@ -57,6 +59,10 @@ import System.Exit (exitSuccess)
 import Data.List (intercalate, partition, (\\), isPrefixOf)
 import Data.Maybe (catMaybes, isJust, fromMaybe)
 import Data.Either (Either(..))
+
+import qualified Data.Char as Char
+import qualified Data.Name as Name
+import qualified Elm.ModuleName
 
 -- | Information about a flag
 data FlagInfo = FlagInfo
@@ -376,3 +382,44 @@ collectMetadata commands parsed =
 -- | Create a help flag
 helpFlag :: Flag Bool
 helpFlag = flag "help" "Show help information"
+
+
+
+-- Common args
+
+
+
+elmModuleName =
+    parseArg (argWith "name" (\str -> parseElmModule str))
+
+
+parseElmModule :: String -> Maybe Elm.ModuleName.Raw
+parseElmModule charsRaw =
+  let chars = trimWhitespace charsRaw
+  in if length chars == 0 then
+    Nothing
+  else
+    let pieces = splitOn '.' chars
+    in if all isValidElmPiece pieces then
+      Just (Name.fromChars chars)
+    else
+      Nothing
+
+isValidElmPiece :: String -> Bool
+isValidElmPiece [] = False
+isValidElmPiece (x:xs) = Char.isUpper x && all isValidChar xs
+  where
+    isValidChar c = Char.isAlphaNum c || c == '_'
+
+splitOn :: Eq a => a -> [a] -> [[a]]
+splitOn delimiter = go
+  where
+    go [] = []
+    go xs = 
+      let (before, remainder) = break (== delimiter) xs
+      in before : case remainder of
+        [] -> []
+        _:after -> go after
+
+trimWhitespace :: String -> String
+trimWhitespace = reverse . dropWhile Char.isSpace . reverse . dropWhile Char.isSpace

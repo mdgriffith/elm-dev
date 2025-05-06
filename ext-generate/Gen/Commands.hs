@@ -47,7 +47,12 @@ data CustomizeFlags = CustomizeFlags
 
 -- INIT COMMAND
 initialize :: CommandParser.Command
-initialize = CommandParser.command ["init"] "Create a new Elm project" Nothing Gen.Commands.Init.args Gen.Commands.Init.flags Gen.Commands.Init.run
+initialize =
+    CommandParser.command ["init"] "Create a new Elm project" 
+      Nothing
+      Gen.Commands.Init.args
+      Gen.Commands.Init.flags
+      Gen.Commands.Init.run
 
 
 -- MAKE COMMAND
@@ -123,7 +128,7 @@ addPage = CommandParser.command ["add", "page"] "Add a new page" addGroup parseP
 
 -- Add Store Command
 addStore :: CommandParser.Command
-addStore = CommandParser.command ["add", "store"] "Add a new store" addGroup elmModuleName CommandParser.noFlag runStore
+addStore = CommandParser.command ["add", "store"] "Add a new store" addGroup CommandParser.elmModuleName CommandParser.noFlag runStore
   where
 
     runStore :: Elm.ModuleName.Raw -> () -> IO ()
@@ -136,47 +141,9 @@ addStore = CommandParser.command ["add", "store"] "Add a new store" addGroup elm
         putStrLn $ "Created new store: " ++ storeName
 
 
-
-elmModuleName =
-    CommandParser.parseArg (CommandParser.argWith "name" (\str -> parseElmModule str))
-
-
-parseElmModule :: String -> Maybe Elm.ModuleName.Raw
-parseElmModule charsRaw =
-  let chars = trimWhitespace charsRaw
-  in if length chars == 0 then
-    Nothing
-  else
-    let pieces = splitOn '.' chars
-    in if all isValidElmPiece pieces then
-      Just (Name.fromChars chars)
-    else
-      Nothing
-
-isValidElmPiece :: String -> Bool
-isValidElmPiece [] = False
-isValidElmPiece (x:xs) = Char.isUpper x && all isValidChar xs
-  where
-    isValidChar c = Char.isAlphaNum c || c == '_'
-
-splitOn :: Eq a => a -> [a] -> [[a]]
-splitOn delimiter = go
-  where
-    go [] = []
-    go xs = 
-      let (before, remainder) = break (== delimiter) xs
-      in before : case remainder of
-        [] -> []
-        _:after -> go after
-
-trimWhitespace :: String -> String
-trimWhitespace = reverse . dropWhile Char.isSpace . reverse . dropWhile Char.isSpace
-
-
-
 -- Add Effect Command
 addEffect :: CommandParser.Command
-addEffect = CommandParser.command ["add", "effect"] "Add a new effect" addGroup elmModuleName CommandParser.noFlag runEffect
+addEffect = CommandParser.command ["add", "effect"] "Add a new effect" addGroup CommandParser.elmModuleName CommandParser.noFlag runEffect
   where
    
     runEffect :: Elm.ModuleName.Raw -> () -> IO ()
