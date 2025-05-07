@@ -193,10 +193,10 @@ toRunConfig cwd config = do
         { app = if null pages && null stores 
                 then Nothing 
                 else Just App { pages = pages, stores = stores }
-        , appView = []
-        , docs = docs
-        , assets = assets
-        , theme = Config.configTheme config
+        , appView = ["primary"]
+        , docs = Nothing --docs
+        , assets = Nothing-- BUGBUG, DISABLING ASSETS FOR THE MOMENT assets
+        , theme = Nothing --Config.configTheme config
         }
 
 -- | Helper function to safely read a file, returning Nothing if the file doesn't exist
