@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Gen.Generate (readConfig, readConfigOrFail, generate) where
+{-# LANGUAGE DeriveGeneric #-}
+module Gen.Generate (readConfig, readConfigOrFail, generate, File(..)) where
 
 import qualified Gen.Config as Config
 import qualified Gen.RunConfig as RunConfig
@@ -18,9 +19,10 @@ import qualified Data.Text.Encoding as Text
 import Data.Maybe (fromMaybe)
 import Control.Monad (forM_)
 import Data.Function ((&))
-import Data.Aeson (eitherDecodeStrict)
+import Data.Aeson (eitherDecodeStrict, object, (.=), FromJSON, ToJSON)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (object, (.=))
+import GHC.Generics (Generic)
 
 
 readConfig :: IO (Either String Config.Config)
@@ -39,8 +41,25 @@ readConfigOrFail = do
             return config
 
 
+data File = File {
+    outputDir :: String,
+    path :: String,
+    contents :: String  
+} deriving (Show, Generic)
+
+instance FromJSON File
+instance ToJSON File
+
+data GeneratedFiles = GeneratedFiles {
+    generated :: [File]
+} deriving (Show, Generic)
+
+instance FromJSON GeneratedFiles
+instance ToJSON GeneratedFiles
+
+
 -- | Main generation function
-generate :: Config.Config -> IO (Either String String)
+generate :: Config.Config -> IO (Either String [File])
 generate config = do
     updatedConfig <- syncPages config
     cwd <- Dir.getCurrentDirectory
@@ -51,7 +70,15 @@ generate config = do
             [ "outputDir" .= ("elm-stuff/generated" :: String)
             , "flags" .= runConfig
             ]
-    Javascript.run Javascript.generatorJs (BS.toStrict (Aeson.encodePretty jsInput))
+
+    result <- Javascript.run Javascript.generatorJs (BS.toStrict (Aeson.encodePretty jsInput))
+    case result of
+        Left err -> return $ Left err
+        Right output -> do
+            case eitherDecodeStrict (Text.encodeUtf8 (Text.pack output)) of
+                Left err -> return $ Left $ "Failed to parse JavaScript output as JSON: " ++ err
+                Right (GeneratedFiles files) -> return $ Right files
+    
 
 
 
