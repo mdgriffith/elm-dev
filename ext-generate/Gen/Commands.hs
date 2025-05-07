@@ -72,8 +72,15 @@ make = CommandParser.command ["make"] "Build your Elm project" Nothing parseMake
             Right config -> do
                 generateResult <- Gen.Generate.generate config
                 case generateResult of
-                    Right result -> do 
-                        putStrLn $ "Generated: " ++ result
+                    Right files -> do 
+                        -- Write each file to disk
+                        mapM_ (\file -> do
+                                  let fullPath = Gen.Generate.path file
+                                  Dir.createDirectoryIfMissing True (FP.takeDirectory fullPath)
+                                  TIO.writeFile fullPath (Text.pack $ Gen.Generate.contents file)
+                              ) files
+                        
+                        
                         Make.run 
                             (fstModule : modules)
                             (Make.Flags
