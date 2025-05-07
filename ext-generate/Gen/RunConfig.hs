@@ -18,14 +18,21 @@ import qualified Data.Text as Text
 
 data RunConfig = RunConfig
     { app :: Maybe App
+    , appView :: [String]
     , docs :: Maybe Docs
     , assets :: Maybe [AssetGroup]
     , theme :: Maybe Config.Theme
     } deriving (Generic)
 
 instance FromJSON RunConfig
-instance ToJSON RunConfig
-
+instance ToJSON RunConfig where
+    toJSON (RunConfig app_ appView_ docs_ assets_ theme_) = object
+        [ "app" .= app_
+        , "app-view" .= appView_
+        , "docs" .= docs_
+        , "assets" .= assets_
+        , "theme" .= theme_
+        ]
 
 data App = App
     { pages :: [Page]
@@ -186,6 +193,7 @@ toRunConfig cwd config = do
         { app = if null pages && null stores 
                 then Nothing 
                 else Just App { pages = pages, stores = stores }
+        , appView = []
         , docs = docs
         , assets = assets
         , theme = Config.configTheme config
