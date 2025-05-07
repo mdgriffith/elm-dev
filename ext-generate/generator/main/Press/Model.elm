@@ -23,6 +23,7 @@ import Gen.Set
 import Gen.Url
 import Json.Decode
 import Options.App
+import Path
 import Set exposing (Set)
 
 
@@ -38,21 +39,36 @@ type RegionType
 
 decodeViewRegions : Json.Decode.Decoder ViewRegions
 decodeViewRegions =
-    Json.Decode.map
-        (\regions ->
-            { regions = List.reverse regions
-            }
-        )
-        (Json.Decode.at [ "definition", "type", "components" ]
-            (Json.Decode.index 0
-                (Json.Decode.at [ "definition", "fields" ]
-                    (Json.Decode.keyValuePairs Json.Decode.string
-                        |> Json.Decode.andThen
-                            decodeRegionType
-                    )
-                )
+    Json.Decode.list Json.Decode.string
+        |> Json.Decode.map
+            (\names ->
+                let
+                    regions =
+                        List.map
+                            (\name ->
+                                if String.endsWith "[]" name then
+                                    ( name
+                                        |> String.replace "[]" ""
+                                        |> Path.decapitalize
+                                    , Many
+                                    )
+
+                                else
+                                    ( name
+                                        |> Path.decapitalize
+                                    , One
+                                    )
+                            )
+                            names
+                in
+                { regions =
+                    if List.isEmpty regions then
+                        [ ( "primary", One ) ]
+
+                    else
+                        regions
+                }
             )
-        )
 
 
 decodeRegionType : List ( String, String ) -> Json.Decode.Decoder (List ( String, RegionType ))

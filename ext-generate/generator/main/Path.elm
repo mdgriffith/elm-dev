@@ -1,4 +1,4 @@
-module Path exposing (extension, join, relative, removeExtension, toFilename)
+module Path exposing (decapitalize, extension, join, relative, removeExtension, toFilename)
 
 
 join : String -> String -> String
