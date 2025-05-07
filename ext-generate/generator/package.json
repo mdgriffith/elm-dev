@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "bun build ./index.ts --outfile=dist/bundle.js"
+    "build": "bash build.sh"
   },
   "devDependencies": {
     "@types/bun": "latest",
