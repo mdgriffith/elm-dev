@@ -43,7 +43,13 @@ data Page = Page
     } deriving (Generic)
 
 instance FromJSON Page
-instance ToJSON Page
+instance ToJSON Page where
+    toJSON (Page id_ moduleName_ urlOnly_ route_) = object
+        [ "id" .= id_
+        , "moduleName" .= moduleName_
+        , "urlOnly" .= urlOnly_
+        , "route" .= route_
+        ]
 
 data Store = Store
     { storeId :: String
@@ -60,7 +66,12 @@ data Route = Route
     } deriving (Generic)
 
 instance FromJSON Route
-instance ToJSON Route
+instance ToJSON Route where
+    toJSON (Route id_ url_ redirectFrom_) = object
+        [ "id" .= id_
+        , "url" .= url_
+        , "redirectFrom" .= redirectFrom_
+        ]
 
 -- DOCS
 
