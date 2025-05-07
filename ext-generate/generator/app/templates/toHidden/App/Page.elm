@@ -26,7 +26,7 @@ import App.Page.Error
 import App.Page.Id
 import App.Stores
 import App.View
-import App.View.Id
+import App.View.Region
 import Effect
 import Listen
 
@@ -38,7 +38,7 @@ type Page shared params msg model
         , init : App.Page.Id.Id -> params -> shared -> Maybe model -> Init msg model
         , update : shared -> msg -> model -> ( model, Effect.Effect msg )
         , subscriptions : shared -> model -> Listen.Listen msg
-        , view : App.View.Id.Id -> shared -> model -> Result App.Page.Error.Error (App.View.View msg)
+        , view : App.View.Region.Id -> shared -> model -> Result App.Page.Error.Error (App.View.View msg)
         }
 
 
@@ -47,7 +47,7 @@ page :
     { init : App.Page.Id.Id -> params -> App.Stores.Stores -> Maybe model -> Init msg model
     , update : App.Stores.Stores -> msg -> model -> ( model, Effect.Effect msg )
     , subscriptions : App.Stores.Stores -> model -> Listen.Listen msg
-    , view : App.View.Id.Id -> App.Stores.Stores -> model -> App.View.View msg
+    , view : App.View.Region.Id -> App.Stores.Stores -> model -> App.View.View msg
     }
     -> Page App.Stores.Stores params msg model
 page options =
@@ -205,7 +205,7 @@ toInternalDetails :
         , init : App.Page.Id.Id -> params -> shared -> Maybe model -> Init msg model
         , update : shared -> msg -> model -> ( model, Effect.Effect msg )
         , subscriptions : shared -> model -> Listen.Listen msg
-        , view : App.View.Id.Id -> shared -> model -> Result App.Page.Error.Error (App.View.View msg)
+        , view : App.View.Region.Id -> shared -> model -> Result App.Page.Error.Error (App.View.View msg)
         }
 toInternalDetails (Page details) =
     details

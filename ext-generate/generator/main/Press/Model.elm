@@ -71,38 +71,6 @@ decodeViewRegions =
             )
 
 
-decodeRegionType : List ( String, String ) -> Json.Decode.Decoder (List ( String, RegionType ))
-decodeRegionType strs =
-    let
-        viewTypes =
-            List.foldr
-                (\( field, val ) result ->
-                    case result of
-                        Err err ->
-                            Err err
-
-                        Ok foundTypes ->
-                            case val of
-                                "Maybe view" ->
-                                    Ok (( field, One ) :: foundTypes)
-
-                                "List view" ->
-                                    Ok (( field, Many ) :: foundTypes)
-
-                                _ ->
-                                    Err "Disallowed view region type"
-                )
-                (Ok [])
-                strs
-    in
-    case viewTypes of
-        Err err ->
-            Json.Decode.fail err
-
-        Ok found ->
-            Json.Decode.succeed found
-
-
 type alias Page =
     { id : String
     , moduleName : List String

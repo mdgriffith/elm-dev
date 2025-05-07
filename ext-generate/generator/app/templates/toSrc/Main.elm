@@ -6,7 +6,7 @@ import App
 import App.Page.Id
 import App.Stores
 import App.View
-import App.View.Id
+import App.View.Region
 import Browser
 import Effect exposing (Effect)
 import Effect.Nav
@@ -34,7 +34,7 @@ main =
                 ( {}
                 , Effect.batch
                     [ Effect.Nav.toUrl url
-                    , Effect.Page.loadAt App.View.Id.Detail (App.Page.Id.Reference {})
+                    , Effect.Page.loadAt App.View.Region.Detail (App.Page.Id.Reference {})
                     ]
                 )
         , onUrlChange = UrlChanged

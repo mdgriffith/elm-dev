@@ -14,7 +14,7 @@ import Press.Model
 values =
     { empty =
         Elm.value
-            { importFrom = [ "App", "View", "Id" ]
+            { importFrom = [ "App", "View", "Region" ]
             , name = "empty"
             , annotation = Nothing
             }
@@ -22,7 +22,7 @@ values =
         \fn region ->
             Elm.apply
                 (Elm.value
-                    { importFrom = [ "App", "View", "Id" ]
+                    { importFrom = [ "App", "View", "Region" ]
                     , name = "mapOperation"
                     , annotation = Nothing
                     }
@@ -32,7 +32,7 @@ values =
                 ]
     , toList =
         Elm.value
-            { importFrom = [ "App", "View", "Id" ]
+            { importFrom = [ "App", "View", "Region" ]
             , name = "toList"
             , annotation = Nothing
             }
@@ -40,7 +40,7 @@ values =
         \region value regions ->
             Elm.apply
                 (Elm.value
-                    { importFrom = [ "App", "View", "Id" ]
+                    { importFrom = [ "App", "View", "Region" ]
                     , name = "setRegion"
                     , annotation = Nothing
                     }
@@ -50,7 +50,7 @@ values =
         \msg model ->
             Elm.apply
                 (Elm.value
-                    { importFrom = [ "App", "View", "Id" ]
+                    { importFrom = [ "App", "View", "Region" ]
                     , name = "update"
                     , annotation = Nothing
                     }
@@ -115,7 +115,7 @@ generateRegionIndex viewRegions =
         route =
             Press.Model.types.routeType
     in
-    Elm.fileWith [ "App", "View", "Id" ]
+    Elm.fileWith [ "App", "View", "Region" ]
         { docs = ""
         , aliases = []
         }

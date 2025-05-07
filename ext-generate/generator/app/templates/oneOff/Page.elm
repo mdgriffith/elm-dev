@@ -16,7 +16,7 @@ import App.Page.Id
 import App.Stores
 import Listen
 import App.View
-import App.View.Id
+import App.View.Region
 import Html
 
 
@@ -50,7 +50,7 @@ update stores msg model =
     ( model, Effect.none )
 
 
-view : App.View.Id.Id -> App.Stores.Stores -> Model -> App.View.View Msg
+view : App.View.Region.Id -> App.Stores.Stores -> Model -> App.View.View Msg
 view viewId stores model =
    { title = "{{name}}"
    , body = Html.text "{{name}}"
