@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Gen.Templates (templates, write, writeGroup) where
+module Gen.Templates (templates, write, writeGroup, writeGroupCustomizable) where
 
 
 import qualified Gen.Templates.Loader
@@ -14,7 +14,7 @@ import qualified Data.List as List
 import qualified Data.Text.Encoding
 import System.FilePath ((</>), (<.>))
 import Data.Function ((&))
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 
 
 
@@ -28,7 +28,6 @@ templates = $(TH.runIO
                     ]
                 ) >>= TH.lift
              )
-
 
 
 write :: String -> String -> String -> IO ()
@@ -74,5 +73,27 @@ writeGroup target src = do
 
         -- Write
         TIO.writeFile (targetDir </> Gen.Templates.Loader.filename template) contents
-        -- putStrLn (targetDir </> Gen.Templates.Loader.filename template)
+    
+
+writeGroupCustomizable :: Gen.Templates.Loader.Target -> String -> String -> IO ()
+writeGroupCustomizable target src hiddenSrc = do
+    let matchingTemplates = List.filter (\t -> Gen.Templates.Loader.target t == target) Gen.Templates.templates
+    forM_ matchingTemplates $ \template -> do
+        -- Paths
+        let srcPath = src </> Gen.Templates.Loader.dir template </> Gen.Templates.Loader.filename template
+        let hiddenPath = hiddenSrc </> Gen.Templates.Loader.dir template </> Gen.Templates.Loader.filename template
+
+        -- Check if file exists in src
+        srcExists <- Dir.doesFileExist srcPath
+        
+        if srcExists
+            then do
+                -- If file exists in src, check and delete from hiddenSrc if it exists
+                hiddenExists <- Dir.doesFileExist hiddenPath
+                when hiddenExists $ Dir.removeFile hiddenPath
+            else do
+                Dir.createDirectoryIfMissing True (hiddenSrc </> Gen.Templates.Loader.dir template)
+                -- If file doesn't exist in src, write to hiddenSrc
+                let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
+                TIO.writeFile hiddenPath contents
     

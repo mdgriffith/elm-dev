@@ -75,14 +75,11 @@ run () maybePkgManager = do
 
   -- Create elm.json
   initResult <- initElmJson
-
   
+  Gen.Templates.writeGroupCustomizable Gen.Templates.Loader.Customizable "./src/app" "./elm-stuff/generated"
   Gen.Templates.writeGroup Gen.Templates.Loader.ToHidden "./elm-stuff/generated"
-  -- putStrLn "-- to src"
   Gen.Templates.writeGroup Gen.Templates.Loader.ToSrc "./src/app"
-  -- putStrLn "-- to js"
   Gen.Templates.writeGroup Gen.Templates.Loader.ToJs "./src"
-  -- putStrLn "-- to root"
   Gen.Templates.writeGroup Gen.Templates.Loader.ToRoot "."
 
   -- Create Page/Home.elm
@@ -182,7 +179,12 @@ initElmJson =
                   in
                   do  Dir.createDirectoryIfMissing True "src"
                       Outline.write "." $ Outline.App $
-                        Outline.AppOutline V.compiler (NE.List (Outline.RelativeSrcDir "src") []) directs indirects Map.empty Map.empty
+                        Outline.AppOutline V.compiler 
+                          (NE.List (Outline.RelativeSrcDir "src/app") [Outline.RelativeSrcDir "elm-stuff/generated"])
+                          directs
+                          indirects
+                          Map.empty
+                          Map.empty
                       return (Right ())
 
 
