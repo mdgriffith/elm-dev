@@ -1,4 +1,4 @@
-module Run exposing (..)
+module Run exposing (main)
 
 {-| -}
 
@@ -17,12 +17,13 @@ import Theme.Decoder
 import Theme.Generate
 
 
-type PluginRun
-    = App Options.App.Options
-    | AppView Press.Model.ViewRegions
-    | Assets (List Options.Assets.AssetGroup)
-    | Theme Theme.Theme
-    | Docs Options.Docs.Docs
+type alias Runs =
+    { app : Maybe Options.App.Options
+    , appView : Maybe Press.Model.ViewRegions
+    , assets : Maybe (List Options.Assets.AssetGroup)
+    , theme : Maybe Theme.Theme
+    , docs : Maybe Options.Docs.Docs
+    }
 
 
 main : Program Json.Decode.Value () ()
@@ -30,40 +31,67 @@ main =
     Generate.withFeedback
         (\flags ->
             case Json.Decode.decodeValue decodePlugin flags of
-                Ok (App pageUsages) ->
-                    case Press.Generate.generate pageUsages of
-                        Ok output ->
-                            Ok
-                                { info = []
-                                , files = output
-                                }
+                Ok runs ->
+                    let
+                        ( appGeneratedFiles, appGeneratedErrors ) =
+                            Maybe.map
+                                (\pageUsages ->
+                                    case Press.Generate.generate pageUsages of
+                                        Ok output ->
+                                            ( output, [] )
 
-                        Err errorList ->
-                            Err (List.map Press.Generate.errorToDetails errorList)
+                                        Err errorList ->
+                                            ( [], List.map Press.Generate.errorToDetails errorList )
+                                )
+                                runs.app
+                                |> Maybe.withDefault ( [], [] )
 
-                Ok (AppView viewRegions) ->
-                    Ok
-                        { info = []
-                        , files = [ Press.Generate.Regions.generate viewRegions ]
-                        }
+                        appViewResult =
+                            let
+                                viewRegions =
+                                    runs.appView |> Maybe.withDefault { regions = [ ( "primary", Press.Model.One ) ] }
+                            in
+                            [ Press.Generate.Regions.generate viewRegions ]
 
-                Ok (Assets assets) ->
-                    Ok
-                        { info = []
-                        , files = Generate.Assets.generate assets
-                        }
+                        assetsResult =
+                            Maybe.map
+                                (\assets ->
+                                    Generate.Assets.generate assets
+                                )
+                                runs.assets
+                                |> Maybe.withDefault []
 
-                Ok (Theme theme) ->
-                    Ok
-                        { info = []
-                        , files = Theme.Generate.generate theme
-                        }
+                        themeResult =
+                            Maybe.map
+                                (\theme ->
+                                    Theme.Generate.generate theme
+                                )
+                                runs.theme
+                                |> Maybe.withDefault []
 
-                Ok (Docs docs) ->
-                    Ok
-                        { info = []
-                        , files = Generate.Docs.generate docs
-                        }
+                        docsResult =
+                            Maybe.map
+                                (\docs ->
+                                    Generate.Docs.generate docs
+                                )
+                                runs.docs
+                                |> Maybe.withDefault []
+                    in
+                    if List.isEmpty appGeneratedErrors then
+                        Ok
+                            { info = []
+                            , files =
+                                List.concat
+                                    [ appGeneratedFiles
+                                    , appViewResult
+                                    , assetsResult
+                                    , themeResult
+                                    , docsResult
+                                    ]
+                            }
+
+                    else
+                        Err appGeneratedErrors
 
                 Err errors ->
                     Err
@@ -74,12 +102,11 @@ main =
         )
 
 
-decodePlugin : Json.Decode.Decoder PluginRun
+decodePlugin : Json.Decode.Decoder Runs
 decodePlugin =
-    Json.Decode.oneOf
-        [ Json.Decode.field "app" (Json.Decode.map App Options.App.decode)
-        , Json.Decode.field "app-view" (Json.Decode.map AppView Press.Model.decodeViewRegions)
-        , Json.Decode.field "assets" (Json.Decode.map Assets (Json.Decode.list Options.Assets.decodeAssetGroup))
-        , Json.Decode.field "theme" (Json.Decode.map Theme Theme.Decoder.decode)
-        , Json.Decode.field "docs" (Json.Decode.map Docs Options.Docs.decoder)
-        ]
+    Json.Decode.map5 Runs
+        (Json.Decode.nullable (Json.Decode.field "app" Options.App.decode))
+        (Json.Decode.map Just (Json.Decode.field "app-view" Press.Model.decodeViewRegions))
+        (Json.Decode.field "assets" (Json.Decode.nullable (Json.Decode.list Options.Assets.decodeAssetGroup)))
+        (Json.Decode.field "theme" (Json.Decode.nullable Theme.Decoder.decode))
+        (Json.Decode.field "docs" (Json.Decode.nullable Options.Docs.decoder))
