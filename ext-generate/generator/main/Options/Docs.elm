@@ -46,10 +46,10 @@ safeList tag innerDecoder =
         , Json.Decode.succeed []
             |> Json.Decode.andThen
                 (\_ ->
-                    let
-                        _ =
-                            Debug.log tag "Failed!"
-                    in
+                    -- let
+                    --     _ =
+                    --         Debug.log tag "Failed!"
+                    -- in
                     Json.Decode.succeed []
                 )
         ]
@@ -62,10 +62,10 @@ safeString tag =
         , Json.Decode.succeed ""
             |> Json.Decode.andThen
                 (\_ ->
-                    let
-                        _ =
-                            Debug.log tag "Failed string!"
-                    in
+                    -- let
+                    --     _ =
+                    --         Debug.log tag "Failed string!"
+                    -- in
                     Json.Decode.succeed ""
                 )
         ]
@@ -96,10 +96,10 @@ decodeModule =
         , Json.Decode.value
             |> Json.Decode.andThen
                 (\value ->
-                    let
-                        _ =
-                            Debug.log "Failed!" (Json.Encode.encode 4 value)
-                    in
+                    -- let
+                    --     _ =
+                    --         Debug.log "Failed!" (Json.Encode.encode 4 value)
+                    -- in
                     Json.Decode.succeed (Elm.Docs.Module "FAILED" "" [] [] [] [])
                 )
         ]
