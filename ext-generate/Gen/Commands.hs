@@ -38,6 +38,7 @@ import qualified Reporting.Exit as Exit
 import Control.Monad (when)
 import qualified System.FilePath as FP
 import qualified Terminal.Colors
+import qualified Ext.Log
 
 -- Flag types
 -- data InitFlags = InitFlags
@@ -80,16 +81,17 @@ make = CommandParser.command ["make"] "Build your Elm project" Nothing parseMake
                                   TIO.writeFile fullPath (Text.pack $ Gen.Generate.contents file)
                               ) files
                         
-                        
-                        Make.run 
-                            (fstModule : modules)
-                            (Make.Flags
-                                (fromMaybe False debug)
-                                (fromMaybe False optimize)
-                                (fmap Make.JS output)
-                                Nothing
-                                Nothing
-                            )
+                        Ext.Log.with [Ext.Log.ElmCompiler] $ do
+                          Make.run 
+                              (fstModule : modules)
+                                (Make.Flags
+                                    (fromMaybe False debug)
+                                    (fromMaybe False optimize)
+                                    (fmap Make.JS output)
+                                    Nothing
+                                    Nothing
+                                )
+                              
                     Left err -> do
                         putStrLn $ "Error: Failed to generate: " ++ err
                         return ()
