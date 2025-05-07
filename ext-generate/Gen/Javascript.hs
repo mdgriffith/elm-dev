@@ -22,6 +22,7 @@ generatorJs =
             (BS.readFile ("ext-generate" </> "generator" </> "dist" </> "run.js"))
      )
 
+
 -- | Execute embedded JavaScript using Bun
 run :: BS.ByteString -> BS.ByteString ->  IO (Either String String)
 run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
@@ -34,3 +35,8 @@ run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
     case result of
         Left err -> return $ Left $ "Error executing script: " ++ show (err :: SomeException)
         Right output -> return $ Right output
+
+
+-- Dynamically adjusted by build.sh to make sure haskell doesn't bamboozle us.
+version :: String
+version = "00b8c51bedae3242"
