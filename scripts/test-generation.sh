@@ -11,4 +11,4 @@ mkdir -p playground
 stack run --cwd playground -- init
 
 # Run the generation
-stack run --cwd playground -- make src/app/Main.elm
+stack run --cwd playground -- make elm-stuff/generated/Main.elm
