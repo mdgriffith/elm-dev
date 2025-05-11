@@ -26,7 +26,7 @@ But also adds `toRoute` which is like `pushUrl` but with your Route type.
 
 import App.Page.Id
 import App.Route
-import App.View.Id
+import App.View.Region
 import Effect exposing (Effect)
 import Url
 
@@ -108,4 +108,4 @@ toUrl url =
                         Effect.none
 
                     Just pageId ->
-                        Effect.ViewUpdated (App.View.Id.Push App.View.Id.Primary pageId)
+                        Effect.ViewUpdated (App.View.Region.Push App.View.Region.Primary pageId)

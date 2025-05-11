@@ -42,7 +42,7 @@ module Effect exposing
 -}
 
 import App.Page.Id
-import App.View.Id
+import App.View.Region
 import Broadcast
 import Browser.Dom
 import Browser.Navigation
@@ -138,7 +138,7 @@ type Effect msg
     | Files (List String) (File.File -> List File.File -> msg)
     | FileToUrl File.File (String -> msg)
       -- Loading
-    | ViewUpdated (App.View.Id.Operation App.Page.Id.Id)
+    | ViewUpdated (App.View.Region.Operation App.Page.Id.Id)
       -- Browser Navigation
     | Preload App.Page.Id.Id
     | Load String
@@ -194,7 +194,7 @@ toCmd :
     { navKey : Browser.Navigation.Key
     , preload : App.Page.Id.Id -> msg
     , dropPageCache : msg
-    , viewRequested : App.View.Id.Operation App.Page.Id.Id -> msg
+    , viewRequested : App.View.Region.Operation App.Page.Id.Id -> msg
     , broadcast : Broadcast.Msg -> msg
     }
     ->

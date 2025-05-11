@@ -70,10 +70,10 @@ types =
     { region =
         Type.named [] "Region"
     , regionRecord =
-        Type.namedWith [ "App", "View" ] "Regions" [ Type.var "view" ]
+        Type.namedWith [ "App", "View", "Region" ] "Regions" [ Type.var "view" ]
     , regionRecordWith =
         \var ->
-            Type.namedWith [ "App", "View" ] "Regions" [ Type.var var ]
+            Type.namedWith [ "App", "View", "Region" ] "Regions" [ Type.var var ]
     , changes =
         Type.namedWith [] "Changes" [ Type.var "view" ]
     , id =
@@ -89,7 +89,21 @@ types =
 generateRegionIndex : Press.Model.ViewRegions -> Elm.File
 generateRegionIndex viewRegions =
     let
-        otherRegions =
+        regionRecord =
+            Type.record
+                (viewRegions.regions
+                    |> List.map
+                        (\( name, regionType ) ->
+                            case regionType of
+                                Press.Model.One ->
+                                    ( name, Type.maybe (Type.var "view") )
+
+                                Press.Model.Many ->
+                                    ( name, Type.list (Type.var "view") )
+                        )
+                )
+
+        regionEnum =
             viewRegions.regions
                 |> List.map
                     (\( name, regionType ) ->
@@ -98,6 +112,54 @@ generateRegionIndex viewRegions =
 
         idName base =
             base ++ "Id"
+
+        isVisible =
+            Elm.declaration "isVisible" <|
+                Elm.fn2
+                    (Elm.Arg.var "view")
+                    (Elm.Arg.varWith "regions" (Type.namedWith [] "Regions" [ Type.var "view" ]))
+                    (\view regions ->
+                        viewRegions.regions
+                            |> List.foldl
+                                (\( name, regionType ) maybeFound ->
+                                    case maybeFound of
+                                        Just found ->
+                                            case regionType of
+                                                Press.Model.One ->
+                                                    found
+                                                        |> Elm.Op.or
+                                                            (Elm.get name regions
+                                                                |> Elm.Op.equal
+                                                                    (Elm.just view)
+                                                            )
+                                                        |> Just
+
+                                                Press.Model.Many ->
+                                                    found
+                                                        |> Elm.Op.or
+                                                            (Elm.get name regions
+                                                                |> Gen.List.call_.member view
+                                                            )
+                                                        |> Just
+
+                                        Nothing ->
+                                            case regionType of
+                                                Press.Model.One ->
+                                                    (Elm.get name regions
+                                                        |> Elm.Op.equal
+                                                            (Elm.just view)
+                                                    )
+                                                        |> Just
+
+                                                Press.Model.Many ->
+                                                    (Elm.get name regions
+                                                        |> Gen.List.call_.member view
+                                                    )
+                                                        |> Just
+                                )
+                                Nothing
+                            |> Maybe.withDefault (Elm.bool False)
+                    )
 
         otherRegionIds =
             viewRegions.regions
@@ -119,8 +181,12 @@ generateRegionIndex viewRegions =
         { docs = ""
         , aliases = []
         }
-        [ Elm.customType "Region"
-            otherRegions
+        [ Elm.alias "Regions" regionRecord
+            |> Elm.expose
+        , isVisible
+            |> Elm.expose
+        , Elm.customType "Region"
+            regionEnum
             |> Elm.exposeConstructor
         , Elm.customType "Id"
             otherRegionIds

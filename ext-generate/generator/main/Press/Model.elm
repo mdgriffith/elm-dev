@@ -238,7 +238,7 @@ toConfig configType =
                     [ storesType
                     , Type.function [ Type.var "msg" ] appMsg
                     , Type.var "model"
-                    , Type.namedWith [ "App", "View" ]
+                    , Type.namedWith [ "App", "View", "Region" ]
                         "Regions"
                         [ Type.namedWith []
                             "View"
@@ -301,7 +301,7 @@ routeType =
 
 
 regionsRecord =
-    Type.namedWith [ "App", "View" ] "Regions" [ pageIdType ]
+    Type.namedWith [ "App", "View", "Region" ] "Regions" [ pageIdType ]
 
 
 stateCache =
@@ -309,19 +309,19 @@ stateCache =
 
 
 regionOperation =
-    Type.namedWith [ "App", "View", "Id" ] "Operation" [ pageIdType ]
+    Type.namedWith [ "App", "View", "Region" ] "Operation" [ pageIdType ]
 
 
 regionViewType =
-    Type.namedWith [ "App", "View" ] "Regions"
+    Type.namedWith [ "App", "View", "Region" ] "Regions"
 
 
 regionIdType =
-    Type.named [ "App", "View", "Id" ] "Id"
+    Type.named [ "App", "View", "Region" ] "Id"
 
 
 regionType =
-    Type.named [ "App", "View", "Id" ] "Region"
+    Type.named [ "App", "View", "Region" ] "Region"
 
 
 pageIdType =
@@ -505,7 +505,7 @@ setState key val model =
 setRegion region value regions =
     Elm.apply
         (Elm.value
-            { importFrom = [ "App", "View", "Id" ]
+            { importFrom = [ "App", "View", "Region" ]
             , name = "setRegion"
             , annotation = Nothing
             }
@@ -672,7 +672,7 @@ loadPage routes =
                 |> Elm.Let.value "keep"
                     (Elm.apply
                         (Elm.value
-                            { importFrom = [ "App", "View", "Id" ]
+                            { importFrom = [ "App", "View", "Region" ]
                             , name = "toList"
                             , annotation = Nothing
                             }

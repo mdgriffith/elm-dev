@@ -925,7 +925,7 @@ view routes =
                     |> Elm.Let.value "viewRegions"
                         (Elm.apply
                             (Elm.value
-                                { importFrom = [ "App", "View", "Id" ]
+                                { importFrom = [ "App", "View", "Region" ]
                                 , name = "mapRegion"
                                 , annotation = Nothing
                                 }
