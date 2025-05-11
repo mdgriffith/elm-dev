@@ -86,12 +86,9 @@ run () maybePkgManager = do
   Gen.Templates.write "Page" "./src/app" "Home"
 
 
-
   -- Create package.json and install dependencies
   installDependencies pkgManager (DependencyOptions { dev = True, cwd = Nothing }) ["vite", "vite-plugin-elm", "typescript"]
 
-
- 
   putStrLn "Created elm.generate.json with default configuration"
 
 

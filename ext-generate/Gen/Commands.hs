@@ -96,7 +96,7 @@ make = CommandParser.command ["make"] "Build your Elm project" Nothing parseMake
                         putStrLn $ "Error: Failed to generate: " ++ err
                         return ()
             Left _ -> do
-                putStrLn "Error: No elm.generate.json config found"
+                
                 return ()
 
 

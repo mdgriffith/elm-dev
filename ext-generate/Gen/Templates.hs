@@ -17,7 +17,6 @@ import Data.Function ((&))
 import Control.Monad (forM_, when)
 
 
-
 -- The actual templates list, populated at compile time
 templates :: [Gen.Templates.Loader.Template]
 templates = $(TH.runIO 
@@ -42,8 +41,7 @@ write templateName src name = do
 
         Just template -> do
             -- Get template contents
-            let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
-            -- let fullModuleName = Text.pack (templateName ++ "." ++ name)
+            let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template) 
             
             -- Do replacements
             let pageName = Text.pack name
@@ -97,3 +95,7 @@ writeGroupCustomizable target src hiddenSrc = do
                 let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
                 TIO.writeFile hiddenPath contents
     
+
+-- Version.  Iterate when we change the templates
+version :: String
+version = "0.1.0"
