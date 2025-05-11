@@ -127,7 +127,7 @@ toRunConfig cwd config = do
             Nothing -> []
             Just appConfig -> 
                 Map.foldrWithKey (\k v acc -> 
-                    let moduleName = Text.splitOn "." k
+                    let moduleName = "Page" : map Text.unpack (Text.splitOn "." k)
                         route = if Config.pageUrlOnly v
                             then Nothing
                             else Just $ Route 
@@ -137,7 +137,7 @@ toRunConfig cwd config = do
                                 }
                     in Page 
                         { _id = Text.unpack k
-                        , _moduleName = map Text.unpack moduleName
+                        , _moduleName =  moduleName
                         , urlOnly = Config.pageUrlOnly v
                         , route = route
                         } : acc
