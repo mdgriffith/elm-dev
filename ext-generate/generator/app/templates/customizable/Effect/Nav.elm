@@ -2,7 +2,7 @@ module Effect.Nav exposing
     ( toRoute
     , load, reload, reloadAndSkipCache
     , forward, back
-    , toUrl, pushUrl, replaceUrl
+    , pushUrl, replaceUrl
     )
 
 {-|
@@ -20,7 +20,7 @@ But also adds `toRoute` which is like `pushUrl` but with your Route type.
 
 @docs forward, back
 
-@docs toUrl, pushUrl, replaceUrl
+@docs pushUrl, replaceUrl
 
 -}
 
@@ -89,23 +89,3 @@ reload =
 reloadAndSkipCache : Effect msg
 reloadAndSkipCache =
     Effect.ReloadAndSkipCache
-
-
-{-| -}
-toUrl : Url.Url -> Effect msg
-toUrl url =
-    case App.Route.parse url of
-        Nothing ->
-            Effect.none
-
-        Just { isRedirect, route } ->
-            if isRedirect then
-                Effect.ReplaceUrl (App.Route.toString route)
-
-            else
-                case App.Page.Id.fromRoute route of
-                    Nothing ->
-                        Effect.none
-
-                    Just pageId ->
-                        Effect.ViewUpdated (App.View.Region.Push App.View.Region.Primary pageId)
