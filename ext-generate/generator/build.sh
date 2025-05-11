@@ -16,3 +16,4 @@ rm ./dist/generate.js
 # Generate random version string and update Javascript.hs
 RANDOM_VERSION=$(openssl rand -hex 8)
 sed -i '' "s/version = \".*\"/version = \"$RANDOM_VERSION\"/" ../Gen/Javascript.hs
+sed -i '' "s/version = \".*\"/version = \"$RANDOM_VERSION\"/" ../Gen/Templates.hs
