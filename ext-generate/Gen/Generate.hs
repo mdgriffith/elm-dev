@@ -61,7 +61,6 @@ instance ToJSON GeneratedFiles
 -- | Main generation function
 generate :: Config.Config -> IO (Either String [File])
 generate config = do
-    updatedConfig <- syncPages config
     cwd <- Dir.getCurrentDirectory
 
     -- Convert Config to RunConfig and then run Javascript generator
@@ -71,12 +70,16 @@ generate config = do
             , "flags" .= runConfig
             ]
 
+    putStrLn $ "Running Javascript generator with input: " ++ Text.unpack (Text.decodeUtf8 (BSL.toStrict (Aeson.encodePretty jsInput)))
+
     result <- Javascript.run Javascript.generatorJs (BS.toStrict (Aeson.encodePretty jsInput))
     case result of
         Left err -> return $ Left err
         Right output -> do
             case eitherDecodeStrict (Text.encodeUtf8 (Text.pack output)) of
-                Left err -> return $ Left $ "Failed to parse JavaScript output as JSON: " ++ err
+                Left err -> do 
+                    putStrLn output
+                    return $ Left err
                 Right (GeneratedFiles files) -> return $ Right files
     
 
