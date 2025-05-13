@@ -184,6 +184,13 @@ parseArgs args =
       (flags, positional) = parseFlags restArgs []
   in ParsedArgs flags (cmdPath ++ positional)
   where
+    -- Split a flag string into name and value if it contains '='
+    splitFlag :: String -> (String, Maybe String)
+    splitFlag flag = 
+      case break (== '=') flag of
+        (name, '=':value) -> (name, Just value)
+        (name, _) -> (name, Nothing)
+
     parseFlags :: [String] -> [(String, Maybe String)] -> ([(String, Maybe String)], [String])
     parseFlags [] acc = (acc, [])
     parseFlags (arg:rest) acc
@@ -191,11 +198,14 @@ parseArgs args =
           let (flags, positional) = parseFlags rest acc
           in (flags, arg:positional)
       | otherwise = 
-          let flagName = arg
-              (value, remaining) = case rest of
-                (v:rs) | not (isFlag v) -> (Just v, rs)
-                _ -> (Nothing, rest)
-              (flags, positional) = parseFlags remaining ((flagName, value):acc)
+          let (flagName, maybeValue) = splitFlag arg
+              -- If flag has no value in the = format, check next arg
+              (finalValue, remaining) = case maybeValue of
+                Just value -> (Just value, rest)
+                Nothing -> case rest of
+                  (v:rs) | not (isFlag v) -> (Just v, rs)
+                  _ -> (Nothing, rest)
+              (flags, positional) = parseFlags remaining ((flagName, finalValue):acc)
           in (flags, positional)
 
 
@@ -291,12 +301,9 @@ parseFlag flag parsed =
       remainingFlags = filter (\(name, _) -> not (findFlagName name flag)) (parsedFlags parsed)
       updatedParams = parsed { parsedFlags = remainingFlags }
   in
-  if not (null remainingFlags)
-  then Left $ "Unknown flags: " ++ intercalate ", " (map fst remainingFlags)
-  else
-    case matches of
-      [] -> Right (Nothing, updatedParams)
-      (_, value):_ -> Right (flagParse flag value, updatedParams)
+  case matches of
+    [] -> Right (Nothing, updatedParams)
+    (_, value):_ -> Right (flagParse flag value, updatedParams)
 
 
 -- | Parse two flags
