@@ -6,6 +6,7 @@ module Gen.Commands.Init (flags, args, run) where
 import qualified CommandParser
 import qualified Gen.Config as Config
 import qualified Data.Aeson.Encode.Pretty as Aeson
+import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Lazy as BS
 import qualified Elm.Version as V
 import qualified Make
@@ -30,6 +31,8 @@ import System.Exit
 import qualified Control.Monad as Monad
 import Text.RawString.QQ (r)
 import qualified Gen.Templates.Loader
+import qualified Data.Aeson.KeyMap as KeyMap
+import qualified Data.Aeson.Key as Key
 
 
 flags = CommandParser.parseFlag
@@ -85,12 +88,13 @@ run () maybePkgManager = do
   -- Create Page/Home.elm
   Gen.Templates.write "Page" "./src/app" "Home"
 
-
   -- Create package.json and install dependencies
-  installDependencies pkgManager (DependencyOptions { dev = True, cwd = Nothing }) ["vite", "vite-plugin-elm", "typescript"]
+  installDependencies pkgManager (DependencyOptions { dev = True, cwd = Nothing })
+      [ "vite"
+      , "typescript"
+      ]
 
   putStrLn "Created elm.generate.json with default configuration"
-
 
 
 defaultPackages :: Map.Map Pkg.Name Con.Constraint
@@ -195,6 +199,8 @@ data DependencyOptions = DependencyOptions
     , cwd :: Maybe FilePath
     }
 
+
+
 -- | Install dependencies using the specified package manager
 installDependencies :: Config.PackageManager -> DependencyOptions -> [String] -> IO ()
 installDependencies manager options packages = do
@@ -212,6 +218,11 @@ installDependencies manager options packages = do
             Config.Yarn -> runCommand cwd' "yarn" ["init", "-y"]
             Config.PNPM -> runCommand cwd' "pnpm" ["init"]
             Config.Bun -> runCommand cwd' "bun" ["init", "-y"]
+
+        addScripts 
+          [ ("dev", "vite")
+          , ("build", "vite build")
+          ]
 
 
     -- Delete index.ts if it exists (created by bun init)
@@ -246,6 +257,35 @@ runCommand workingDir cmd args = do
     case exitCode of
         ExitSuccess -> return ()
         ExitFailure code -> error $ "Command failed with exit code: " ++ show code
+
+-- | Add scripts to package.json
+addScripts :: [(String, String)] -> IO ()
+addScripts scripts = do
+    -- Read package.json
+    packageJsonExists <- Dir.doesFileExist "package.json"
+    if not packageJsonExists
+        then error "package.json does not exist"
+        else do
+            content <- BS.readFile "package.json"
+            case Aeson.eitherDecode content of
+                Left err -> error $ "Failed to parse package.json: " ++ err
+                Right (Aeson.Object obj) -> do
+                    -- Get existing scripts or create empty object
+                    let existingScripts = case KeyMap.lookup (Key.fromString "scripts") obj of
+                            Just (Aeson.Object scriptsObj) -> scriptsObj
+                            _ -> KeyMap.empty
+                    
+                    -- Add new scripts
+                    let newScripts = foldr (\(name, cmd) acc -> 
+                            KeyMap.insert (Key.fromString name) (Aeson.String $ Text.pack cmd) acc) 
+                            existingScripts scripts
+                    
+                    -- Create new package.json content
+                    let newContent = Aeson.Object $ KeyMap.insert (Key.fromString "scripts") (Aeson.Object newScripts) obj
+                    
+                    -- Write back to file
+                    BS.writeFile "package.json" (Aeson.encodePretty newContent)
+                _ -> error "package.json is not a valid JSON object"
 
 
 
