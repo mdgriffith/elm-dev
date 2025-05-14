@@ -121,17 +121,17 @@ toString =
 
 toStdout :: D.Doc -> IO ()
 toStdout doc =
-  toHandle stdout doc
+  toHandle Ext.Log.ElmCompilerInfo stdout doc
 
 
 toStderr :: D.Doc -> IO ()
 toStderr doc =
-  toHandle stderr doc
+  toHandle Ext.Log.ElmCompilerError stderr doc
 
 
-toHandle :: Handle -> D.Doc -> IO ()
-toHandle handle doc =
-  Ext.Log.withPrintLockIf Ext.Log.ElmCompiler handle (\_ -> do
+toHandle :: Ext.Log.Flag ->Handle -> D.Doc -> IO ()
+toHandle flag handle doc =
+  Ext.Log.withPrintLockIf flag handle (\_ -> do
     isTerminal <- hIsTerminalDevice handle
     if isTerminal
       then D.toAnsi handle doc

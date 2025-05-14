@@ -70,7 +70,7 @@ generate config = do
             , "flags" .= runConfig
             ]
 
-    putStrLn $ "Running Javascript generator with input: " ++ Text.unpack (Text.decodeUtf8 (BSL.toStrict (Aeson.encodePretty jsInput)))
+    -- putStrLn $ "Running Javascript generator with input: " ++ Text.unpack (Text.decodeUtf8 (BSL.toStrict (Aeson.encodePretty jsInput)))
 
     result <- Javascript.run Javascript.generatorJs (BS.toStrict (Aeson.encodePretty jsInput))
     case result of

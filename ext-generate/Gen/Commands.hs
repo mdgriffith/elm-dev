@@ -82,7 +82,7 @@ make = CommandParser.command ["make"] "Build your Elm project" Nothing parseMake
                                   TIO.writeFile fullPath (Text.pack $ Gen.Generate.contents file)
                               ) files
                         
-                        Ext.Log.with [Ext.Log.ElmCompiler] $ do
+                        Ext.Log.with [Ext.Log.ElmCompilerError] $ do
                           Make.run 
                               (fstModule : modules)
                                 (Make.Flags

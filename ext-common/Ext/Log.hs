@@ -31,7 +31,8 @@ import qualified System.IO as IO
 
 -}
 data Flag 
-    = Performance
+    = WithLabels
+    | Performance
     | PerformanceTiming
     | Live
     | Questions
@@ -39,21 +40,24 @@ data Flag
     | MemoryCache
     | FileProxy
     | FileWatch
-    | ElmCompiler
+    | ElmCompilerInfo
+    | ElmCompilerError
     | Misc
     deriving (Eq)
 
 
 all :: [ Flag ]
 all =
-    [ Performance
+    [ WithLabels
+    , Performance
     , PerformanceTiming
     , Live
     , Questions
     , VerboseServer
     , FileProxy
     , FileWatch
-    , ElmCompiler
+    , ElmCompilerInfo
+    , ElmCompilerError
     , MemoryCache
     , Misc
     ]
@@ -83,8 +87,11 @@ toString flag =
         FileWatch ->
             "ElmDevFileWatch"
 
-        ElmCompiler ->
-            "ElmDevElmCompiler"
+        ElmCompilerInfo ->
+            "ElmDevElmCompilerInfo"
+
+        ElmCompilerError ->
+            "ElmDevElmCompilerError"
 
         Misc ->
             "ElmDevMisc"
@@ -95,6 +102,9 @@ toString flag =
 toLabel :: Flag -> String
 toLabel flag =
     case flag of 
+        WithLabels ->
+            ""
+
         Performance -> 
             "🚀"
 
@@ -116,9 +126,12 @@ toLabel flag =
         FileWatch ->
             "👁️"
 
-        ElmCompiler ->
-            "🤖"
+        ElmCompilerInfo ->
+            ""
         
+        ElmCompilerError ->
+            ""
+
         Misc ->
             "⭐"
 
@@ -145,7 +158,9 @@ log :: Flag -> String -> IO ()
 log flag message = do
   debugM <- Env.lookupEnv (toString flag)
   case debugM of
-    Just _ -> atomicPutStrLn $ (toLabel flag) ++ ": " ++ message 
+    Just _ -> do 
+        withLabels <- isActive WithLabels
+        atomicPutStrLn $ (if withLabels then (toLabel flag) ++ ": " else "") ++ message 
     Nothing -> pure ()
 
 
@@ -155,7 +170,9 @@ logList :: Flag -> String -> IO ()
 logList flag message = do
   debugM <- Env.lookupEnv (toString flag)
   case debugM of
-    Just _ -> atomicPutStrLn $ (toLabel flag) ++ ": " ++ message ++ "\n"
+    Just _ -> do 
+        withLabels <- isActive WithLabels
+        atomicPutStrLn $ (if withLabels then (toLabel flag) ++ ": " else "") ++ message ++ "\n"
     Nothing -> pure ()
 
 
