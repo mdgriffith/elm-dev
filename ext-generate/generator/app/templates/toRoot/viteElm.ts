@@ -1,5 +1,6 @@
 import type { Plugin } from 'vite';
 import { spawn } from 'child_process';
+import path from 'path';
 
 interface ElmDevPluginOptions {
     debug?: boolean;
@@ -24,8 +25,7 @@ export default function elmDevPlugin(options: ElmDevPluginOptions = {}): Plugin 
             if (!id.endsWith('.elm')) {
                 return null;
             }
-
-            const args = ['make', id, '--output=stdout'];
+            const args = ['make', path.join(".", id), '--output=stdout'];
             if (debug) {
                 args.push('--debug');
             }
@@ -48,15 +48,21 @@ export default function elmDevPlugin(options: ElmDevPluginOptions = {}): Plugin 
 
                 elmDev.on('close', (code) => {
                     if (code === 0) {
-                        // Wrap the compiled Elm code in a module that exports the Elm object
+                        // Write output to generated.js for debugging
+
                         const wrappedCode = `
-                          const Elm = (function() {
-                            ${output}
-                            return Elm;
-                          })();
-                          export { Elm };
+const scope = {};
+function start() {
+  ${output}
+}
+start.call(scope);
+export default scope.Elm;
                         `;
+
+                        const fs = require('fs');
+                        fs.writeFileSync('generated.js', wrappedCode);
                         resolve(wrappedCode);
+                        resolve(output);
                     } else {
                         reject(new Error(error));
                     }
@@ -82,22 +88,5 @@ export default function elmDevPlugin(options: ElmDevPluginOptions = {}): Plugin 
                 }
             });
         },
-
-        // Add transform hook to ensure proper module wrapping
-        // transform(code, id) {
-        //     if (id.endsWith('.elm')) {
-        //         return {
-        //             code: `
-        //               const Elm = (function() {
-        //                 ${code}
-        //                 return Elm;
-        //               })();
-        //               export { Elm };
-        //             `,
-        //             map: null
-        //         };
-        //     }
-        //     return null;
-        // }
     };
 }
