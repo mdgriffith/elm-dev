@@ -7,6 +7,8 @@ module Make
   , reportType
   , output
   , docsFile
+  -- elm-dev
+  , parseOutput
   )
   where
 
@@ -16,6 +18,7 @@ import qualified Data.Maybe as Maybe
 import qualified Data.NonEmptyList as NE
 import qualified System.Directory as Dir
 import qualified System.FilePath as FP
+import qualified Data.ByteString.Lazy.Char8 as L8
 
 import qualified AST.Optimized as Opt
 import qualified BackgroundWriter as BW
@@ -47,10 +50,13 @@ data Flags =
 
 
 data Output
-  = JS FilePath
-  | Html FilePath
+  = JS OutputType
+  | Html OutputType
   | DevNull
 
+data OutputType
+  = Stdout
+  | File FilePath
 
 data ReportType
   = Json
@@ -94,11 +100,11 @@ runHelp root paths style (Flags debug optimize maybeOutput _ maybeDocs) =
 
                     [name] ->
                       do  builder <- toBuilder root details desiredMode artifacts
-                          generate style "index.html" (Html.sandwich name builder) (NE.List name [])
+                          generate style (File "index.html") (Html.sandwich name builder) (NE.List name [])
 
                     name:names ->
                       do  builder <- toBuilder root details desiredMode artifacts
-                          generate style "elm.js" builder (NE.List name names)
+                          generate style (File "elm.js") builder (NE.List name names)
 
                 Just DevNull ->
                   return ()
@@ -240,10 +246,16 @@ getNoMain modules root =
 -- GENERATE
 
 
-generate :: Reporting.Style -> FilePath -> B.Builder -> NE.List ModuleName.Raw -> Task ()
-generate style target builder names =
-  Task.io $
-    do  Dir.createDirectoryIfMissing True (FP.takeDirectory target)
+generate :: Reporting.Style -> OutputType -> B.Builder -> NE.List ModuleName.Raw -> Task ()
+generate style outputType builder names =
+  case outputType of
+    Stdout ->
+      Task.io $
+        L8.putStrLn (B.toLazyByteString builder)
+            
+    File target ->
+      Task.io $ do
+        Dir.createDirectoryIfMissing True (FP.takeDirectory target)
         File.writeBuilder target builder
         Reporting.reportGenerate style names target
 
@@ -292,10 +304,12 @@ output =
 
 parseOutput :: String -> Maybe Output
 parseOutput name
-  | isDevNull name      = Just DevNull
-  | hasExt ".html" name = Just (Html name)
-  | hasExt ".js"   name = Just (JS name)
-  | otherwise           = Nothing
+  | isDevNull name        = Just DevNull
+  | hasExt ".html" name   = Just (Html (File name))
+  | hasExt ".js"   name   = Just (JS (File name))
+  | name == "stdout"      = Just (JS Stdout)
+  | name == "stdout.html" = Just (Html Stdout)
+  | otherwise             = Nothing
 
 
 docsFile :: Parser FilePath

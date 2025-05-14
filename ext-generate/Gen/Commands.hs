@@ -39,6 +39,7 @@ import Control.Monad (when)
 import qualified System.FilePath as FP
 import qualified Terminal.Colors
 import qualified Ext.Log
+import qualified System.IO as IO
 
 -- Flag types
 -- data InitFlags = InitFlags
@@ -63,7 +64,7 @@ make = CommandParser.command ["make"] "Build your Elm project" Nothing parseMake
     parseMakeFlags = CommandParser.parseFlag3
                         (CommandParser.flag "debug" "Debug mode")
                         (CommandParser.flag "optimize" "Make the code smaller and faster")
-                        (CommandParser.flagWithArg "output" "Output file path" Just)
+                        (CommandParser.flagWithArg "output" "Output file path" Make.parseOutput)
     parseMakeArgs =
        CommandParser.parseArgList (CommandParser.arg "module")
 
@@ -87,13 +88,13 @@ make = CommandParser.command ["make"] "Build your Elm project" Nothing parseMake
                                 (Make.Flags
                                     (fromMaybe False debug)
                                     (fromMaybe False optimize)
-                                    (fmap Make.JS output)
+                                    output
                                     Nothing
                                     Nothing
                                 )
                               
                     Left err -> do
-                        putStrLn $ "Error: Failed to generate: " ++ err
+                        IO.hPutStrLn IO.stderr err
                         return ()
             Left _ -> do
                 
