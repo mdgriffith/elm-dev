@@ -97,7 +97,17 @@ make = CommandParser.command ["make"] "Build your Elm project" Nothing parseMake
                         IO.hPutStrLn IO.stderr err
                         return ()
             Left _ -> do
-                
+                -- No generation config, so just run the compiler
+                Ext.Log.with [Ext.Log.ElmCompilerError] $ do
+                    Make.run 
+                        (fstModule : modules)
+                          (Make.Flags
+                              (fromMaybe False debug)
+                              (fromMaybe False optimize)
+                              output
+                              Nothing
+                              Nothing
+                          )
                 return ()
 
 
