@@ -15,7 +15,7 @@ module Gen.Config
     , DocsConfig(..)
     , defaultTheme
     , defaultDocs
-    , src
+    , elmSrc
     ) where
 
 import qualified Data.ByteString as BS
@@ -26,10 +26,11 @@ import Data.Aeson.Types
 import GHC.Generics
 import Data.Maybe (catMaybes)
 import Control.Applicative ((<|>))
+import System.FilePath ((</>))
 
 
-src :: Text
-src = "src"
+elmSrc :: String
+elmSrc = "src" </> "app"
 
 -- | Main configuration type
 data Config = Config
@@ -65,8 +66,16 @@ data AssetConfig = AssetConfig
     , assetOnServer :: Text
     } deriving (Generic)
 
-instance FromJSON AssetConfig
-instance ToJSON AssetConfig
+instance FromJSON AssetConfig where
+    parseJSON = withObject "AssetConfig" $ \v -> AssetConfig
+        <$> v .: "src"
+        <*> v .: "onServer"
+
+instance ToJSON AssetConfig where
+    toJSON AssetConfig{..} = object
+        [ "src" .= assetSrc
+        , "onServer" .= assetOnServer
+        ]
 
 data Theme = Theme
     { themeTarget :: Maybe ThemeTarget
@@ -76,8 +85,22 @@ data Theme = Theme
     , themeBorders :: Maybe BorderConfig
     } deriving (Generic)
 
-instance FromJSON Theme
-instance ToJSON Theme
+instance FromJSON Theme where
+    parseJSON = withObject "Theme" $ \v -> Theme
+        <$> v .:? "target"
+        <*> v .:? "colors"
+        <*> v .:? "spacing"
+        <*> v .:? "typography"
+        <*> v .:? "borders"
+
+instance ToJSON Theme where
+    toJSON Theme{..} = object $ catMaybes
+        [ ("target",) . toJSON <$> themeTarget
+        , ("colors",) . toJSON <$> themeColors
+        , ("spacing",) . toJSON <$> themeSpacing
+        , ("typography",) . toJSON <$> themeTypography
+        , ("borders",) . toJSON <$> themeBorders
+        ]
 
 data ColorsTheme = ColorsTheme
     { colorsPalette :: Maybe (Map.Map Text Text)
@@ -87,8 +110,22 @@ data ColorsTheme = ColorsTheme
     , colorsBorder :: Maybe StyleSchema
     } deriving (Generic)
 
-instance FromJSON ColorsTheme
-instance ToJSON ColorsTheme
+instance FromJSON ColorsTheme where
+    parseJSON = withObject "ColorsTheme" $ \v -> ColorsTheme
+        <$> v .:? "palette"
+        <*> v .:? "aliases"
+        <*> v .:? "text"
+        <*> v .:? "background"
+        <*> v .:? "border"
+
+instance ToJSON ColorsTheme where
+    toJSON ColorsTheme{..} = object $ catMaybes
+        [ ("palette",) . toJSON <$> colorsPalette
+        , ("aliases",) . toJSON <$> colorsAliases
+        , ("text",) . toJSON <$> colorsText
+        , ("background",) . toJSON <$> colorsBackground
+        , ("border",) . toJSON <$> colorsBorder
+        ]
 
 data ColorAliasTheme = ColorAliasTheme
     { aliasNeutral :: Text
@@ -98,8 +135,22 @@ data ColorAliasTheme = ColorAliasTheme
     , aliasError :: Maybe Text
     } deriving (Generic)
 
-instance FromJSON ColorAliasTheme
-instance ToJSON ColorAliasTheme
+instance FromJSON ColorAliasTheme where
+    parseJSON = withObject "ColorAliasTheme" $ \v -> ColorAliasTheme
+        <$> v .: "neutral"
+        <*> v .: "primary"
+        <*> v .:? "focus"
+        <*> v .:? "success"
+        <*> v .:? "error"
+
+instance ToJSON ColorAliasTheme where
+    toJSON ColorAliasTheme{..} = object $ catMaybes
+        [ Just ("neutral", toJSON aliasNeutral)
+        , Just ("primary", toJSON aliasPrimary)
+        , ("focus",) . toJSON <$> aliasFocus
+        , ("success",) . toJSON <$> aliasSuccess
+        , ("error",) . toJSON <$> aliasError
+        ]
 
 data StyleSchema
     = StyleString Text
@@ -173,8 +224,26 @@ data GraphQLConfig = GraphQLConfig
     , graphqlExistingEnumDefinitions :: Maybe Text
     } deriving (Generic)
 
-instance FromJSON GraphQLConfig
-instance ToJSON GraphQLConfig
+instance FromJSON GraphQLConfig where
+    parseJSON = withObject "GraphQLConfig" $ \v -> GraphQLConfig
+        <$> v .: "schema"
+        <*> v .:? "namespace"
+        <*> v .: "header"
+        <*> v .:? "generateMocks"
+        <*> v .:? "queries"
+        <*> v .:? "globalFragments"
+        <*> v .:? "existingEnumDefinitions"
+
+instance ToJSON GraphQLConfig where
+    toJSON GraphQLConfig{..} = object $ catMaybes
+        [ Just ("schema", toJSON graphqlSchema)
+        , ("namespace",) . toJSON <$> graphqlNamespace
+        , Just ("header", toJSON graphqlHeader)
+        , ("generateMocks",) . toJSON <$> graphqlGenerateMocks
+        , ("queries",) . toJSON <$> graphqlQueries
+        , ("globalFragments",) . toJSON <$> graphqlGlobalFragments
+        , ("existingEnumDefinitions",) . toJSON <$> graphqlExistingEnumDefinitions
+        ]
 
 data DocsConfig = DocsConfig
     { docsSrc :: Text
@@ -275,8 +344,14 @@ data AppConfig = AppConfig
     { appPages :: Map.Map Text PageConfig
     } deriving (Generic)
 
-instance FromJSON AppConfig
-instance ToJSON AppConfig
+instance FromJSON AppConfig where
+    parseJSON = withObject "AppConfig" $ \v -> AppConfig
+        <$> v .: "pages"
+
+instance ToJSON AppConfig where
+    toJSON AppConfig{..} = object
+        [ "pages" .= appPages
+        ]
 
 -- | Main entry point for parsing configuration
 -- parse :: BS.ByteString -> Either String Config
