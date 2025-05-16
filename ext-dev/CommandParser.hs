@@ -244,11 +244,10 @@ parseArg :: Arg arg -> ArgParser arg
 parseArg arg = ArgParser [singleArgName arg] (\parsed -> 
   case parsedCommands parsed of
     [] -> Left $ "Missing required argument: " ++ argName arg
-    [value] -> 
+    (value:rest) -> 
       case argParse arg value of
-        Just v -> Right (v, parsed { parsedCommands = [] })
+        Just v -> Right (v, parsed { parsedCommands = rest })
         Nothing -> Left $ "Invalid value for arg: " ++ argName arg
-    _ -> Left $ "Expected exactly one argument, but got multiple: " ++ argName arg
   )
 
 runArgParser :: ArgParser a -> ParsedArgs -> Either String (a, ParsedArgs)
