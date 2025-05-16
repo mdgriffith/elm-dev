@@ -41,6 +41,8 @@ import qualified Terminal.Colors
 import qualified Ext.Log
 import qualified System.IO as IO
 
+
+
 -- Flag types
 -- data InitFlags = InitFlags
 data MakeFlags = MakeFlags
@@ -119,27 +121,25 @@ addPage :: CommandParser.Command
 addPage = CommandParser.command ["add", "page"] "Add a new page" addGroup parsePageArgs CommandParser.noFlag runPage
   where
     parsePageArgs =
-       CommandParser.parseArg2 
+       CommandParser.parseArg
             (CommandParser.arg "url") 
-            (CommandParser.arg "name") 
 
-    runPage :: (String, String) -> () -> IO ()
-    runPage (url, name) _ = do
+    runPage :: String -> () -> IO ()
+    runPage url _ = do
+        let name = urlToElmModuleName url
         configResult <- Gen.Generate.readConfigOrFail
 
-        Gen.Templates.write "Page" (Text.unpack Config.src) name
+        Gen.Templates.write "Page" (Config.elmSrc) name
         let urlText = Text.pack url
-
-        let fullModuleName = Text.pack ("Page." ++ name)
 
         -- Update config
         let updatedConfig = configResult {
             Config.configApp = Just $ case Config.configApp configResult of
                 Nothing -> Config.AppConfig { 
-                    Config.appPages = Map.singleton urlText (Config.PageConfig fullModuleName [] False)
+                    Config.appPages = Map.singleton name (Config.PageConfig urlText [] False)
                 }
                 Just appConfig -> appConfig {
-                    Config.appPages = Map.insert urlText (Config.PageConfig fullModuleName [] False) (Config.appPages appConfig)
+                    Config.appPages = Map.insert name (Config.PageConfig urlText [] False) (Config.appPages appConfig)
                 }
         }
         BS.writeFile "elm.generate.json" (Aeson.encodePretty updatedConfig)
@@ -156,7 +156,7 @@ addStore = CommandParser.command ["add", "store"] "Add a new store" addGroup Com
         configResult <- Gen.Generate.readConfigOrFail
 
         let storeName = Elm.ModuleName.toChars modName
-        Gen.Templates.write "Store" (Text.unpack Config.src) storeName
+        Gen.Templates.write "Store" Config.elmSrc storeName
            
         putStrLn $ "Created new store: " ++ storeName
 
@@ -171,7 +171,7 @@ addEffect = CommandParser.command ["add", "effect"] "Add a new effect" addGroup 
         configResult <- Gen.Generate.readConfigOrFail
         let name = Elm.ModuleName.toChars modName
 
-        Gen.Templates.write "Effect" (Text.unpack Config.src) name
+        Gen.Templates.write "Effect" Config.elmSrc name
          
         putStrLn $ "Created new effect: " ++ name
 
@@ -274,8 +274,8 @@ customize = CommandParser.command ["customize"] "Customize project components" c
         Just template -> do
             -- Write template to configSrc folder
             let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
-            let targetPath = cwd </> Text.unpack Config.src </> moduleFilePath
-            let relativePath = Text.unpack Config.src </> moduleFilePath
+            let targetPath = cwd </> Config.elmSrc </> moduleFilePath
+            let relativePath = Config.elmSrc </> moduleFilePath
 
             -- Check if file already exists
             targetExists <- Dir.doesFileExist targetPath
@@ -306,3 +306,24 @@ reflow string =
   P.fillSep $ map P.text $ words string
 
 
+-- URL to Elm Module Name conversion
+urlToElmModuleName :: String -> String
+urlToElmModuleName url = 
+    let -- Remove everything after ?
+        baseUrl = takeWhile (/= '?') url
+        -- Split on / and filter out empty strings
+        parts = filter (not . null) $ splitOn '/' baseUrl
+        -- Filter out parts starting with : and capitalize
+        validParts = map capitalize $ filter (not . isParam) parts
+    in concat validParts
+    where
+        splitOn :: Char -> String -> [String]
+        splitOn c = words . map (\x -> if x == c then ' ' else x)
+        
+        isParam :: String -> Bool
+        isParam [] = False
+        isParam (x:_) = x == ':'
+        
+        capitalize :: String -> String
+        capitalize [] = []
+        capitalize (x:xs) = Char.toUpper x : xs
