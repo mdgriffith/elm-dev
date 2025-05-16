@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE RecordWildCards #-}
 module Gen.RunConfig where
 
 import qualified Gen.Config as Config
@@ -62,9 +63,14 @@ data Store = Store
     { storeId :: String
     } deriving (Generic)
 
-instance FromJSON Store
-instance ToJSON Store
+instance FromJSON Store where
+    parseJSON = withObject "Store" $ \v -> Store
+        <$> v .: "id"
 
+instance ToJSON Store where
+    toJSON Store{..} = object
+        [ "id" .= storeId
+        ]
 
 data Route = Route
     { routeId :: String
