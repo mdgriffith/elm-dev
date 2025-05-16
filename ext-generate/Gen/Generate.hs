@@ -27,8 +27,12 @@ import GHC.Generics (Generic)
 
 readConfig :: IO (Either String Config.Config)
 readConfig = do
-    config <- BSL.readFile "elm.generate.json"
-    return $ eitherDecodeStrict (BSL.toStrict config)
+    exists <- Dir.doesFileExist "elm.generate.json"
+    if not exists
+        then return $ Left "Not Found"
+        else do
+            config <- BSL.readFile "elm.generate.json"
+            return $ eitherDecodeStrict (BSL.toStrict config)
 
 
 readConfigOrFail :: IO Config.Config
