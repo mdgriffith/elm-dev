@@ -1,7 +1,7 @@
 // @ts-ignore
 import Elm from "../elm-stuff/generated/Main.elm";
-import * as LocalStorage from "./js/local-storage";
-import * as Ports from "./js/ports";
+import * as LocalStorage from "./js/effect/local-storage";
+import * as Effects from "./js/effects";
 import Webcomponents from "./js/webcomponents";
 
 // Import all generated CSS files
@@ -15,5 +15,5 @@ const app = Elm.Main.init({
   flags: { now: Date.now(), localStorage: LocalStorage.getAll() },
 });
 
-// Connect ports
-Ports.connect(app);
+// Connect all effects
+Effects.connect(app);
