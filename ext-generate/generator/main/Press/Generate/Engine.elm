@@ -1067,52 +1067,56 @@ getSubscriptions stores pages =
             (Elm.Arg.varWith "model" types.model)
             (\config model ->
                 Gen.Listen.batch
-                    [ Elm.apply
-                        (Elm.get "subscriptions" config)
-                        [ Elm.get "stores" model
-                        , Elm.get "app" model
-                        ]
-                        |> Gen.Listen.call_.map (Elm.val "Global")
-                    , case stores of
-                        [] ->
-                            Gen.Listen.none
+                    (List.filterMap identity
+                        [ Elm.apply
+                            (Elm.get "subscriptions" config)
+                            [ Elm.get "stores" model
+                            , Elm.get "app" model
+                            ]
+                            |> Gen.Listen.call_.map (Elm.val "Global")
+                            |> Just
+                        , case stores of
+                            [] ->
+                                Nothing
 
-                        _ ->
-                            stores
-                                |> List.map
-                                    (\store ->
-                                        toSub config
-                                            (Elm.get "stores" model)
-                                            (Elm.get "app" model)
-                                            (Elm.apply
+                            _ ->
+                                stores
+                                    |> List.map
+                                        (\store ->
+                                            Elm.apply
                                                 (storeValue store.id "subscriptions")
                                                 [ model
+                                                    |> Elm.get "stores"
+                                                    |> Elm.get store.id
                                                 ]
-                                            )
+                                                |> Gen.Listen.call_.map (Elm.val ("Store" ++ store.id))
+                                        )
+                                    |> Gen.Listen.batch
+                                    |> Just
+                        , Elm.apply Press.Generate.Regions.values.toList
+                            [ Elm.get "viewing" (Elm.get "stores" model) ]
+                            |> Gen.List.call_.filterMap
+                                (Elm.fn
+                                    (Elm.Arg.varWith "pageId" Type.string)
+                                    (\pageId ->
+                                        let
+                                            pageKey =
+                                                Elm.apply (Elm.val "toPageKey") [ pageId ]
+                                        in
+                                        Elm.Case.maybe (Gen.App.State.call_.get pageKey (Elm.get "states" model))
+                                            { nothing = Elm.nothing
+                                            , just =
+                                                ( "pageState"
+                                                , \pageState ->
+                                                    Elm.just (pageModelToSubscription config model pages pageState pageId)
+                                                )
+                                            }
                                     )
-                                |> Gen.Listen.batch
-                    , Elm.apply Press.Generate.Regions.values.toList
-                        [ Elm.get "viewing" (Elm.get "stores" model) ]
-                        |> Gen.List.call_.filterMap
-                            (Elm.fn
-                                (Elm.Arg.varWith "pageId" Type.string)
-                                (\pageId ->
-                                    let
-                                        pageKey =
-                                            Elm.apply (Elm.val "toPageKey") [ pageId ]
-                                    in
-                                    Elm.Case.maybe (Gen.App.State.call_.get pageKey (Elm.get "states" model))
-                                        { nothing = Elm.nothing
-                                        , just =
-                                            ( "pageState"
-                                            , \pageState ->
-                                                Elm.just (pageModelToSubscription config model pages pageState pageId)
-                                            )
-                                        }
                                 )
-                            )
-                        |> Gen.Listen.call_.batch
-                    ]
+                            |> Gen.Listen.call_.batch
+                            |> Just
+                        ]
+                    )
             )
             |> Elm.withType
                 (Type.function
