@@ -105,11 +105,11 @@ syncPages config = do
     
     -- Create files for configured pages that don't exist
     forM_ (Map.toList configuredPages) $ \(pageId, _) -> do
-        let filePath = Text.unpack Config.src </> "Page" </> Text.unpack pageId <> ".elm"
+        let filePath = Config.elmSrc </> "Page" </> Text.unpack pageId <> ".elm"
         fileExists <- Dir.doesFileExist filePath
         when (not fileExists) $ do
             -- Create directory if it doesn't exist
-            Dir.createDirectoryIfMissing True (Text.unpack Config.src </> "Page")
+            Dir.createDirectoryIfMissing True (Config.elmSrc </> "Page")
             -- Create file from template
             case pageTemplate of
                 Just tmpl -> do
@@ -129,7 +129,7 @@ syncPages config = do
   where
     findPageFiles :: IO [FilePath]
     findPageFiles = do
-        let pageDir = Text.unpack Config.src </> "Page"
+        let pageDir = Config.elmSrc </> "Page"
         dirExists <- Dir.doesDirectoryExist pageDir
         if dirExists
             then do
