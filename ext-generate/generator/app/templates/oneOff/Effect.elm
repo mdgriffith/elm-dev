@@ -6,13 +6,13 @@ import Effect
 import Json.Encode as Json
 
 
-port {{name}} : Json.Encode.Value -> Cmd msg
+port {{name_decapitalized}} : Json.Value -> Cmd msg
 
 
 send : String -> Json.Value -> Effect.Effect msg
 send operation value =
     Effect.SendToWorld
-        { toPort = {{name}}
+        { toPort = {{name_decapitalized}}
         , portName = "{{name}}"
         , payload =
             Json.object
