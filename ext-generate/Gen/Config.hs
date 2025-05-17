@@ -332,12 +332,12 @@ instance ToJSON PageConfig where
                     then Nothing
                     else Just ("redirectFrom" .= pageRedirectFrom)
                 ]
+        else if null pageRedirectFrom then
+            String pageUrl
         else
             object $ catMaybes
                 [ Just ("url" .= pageUrl)
-                , if null pageRedirectFrom
-                    then Nothing
-                    else Just ("redirectFrom" .= pageRedirectFrom)
+                , Just ("redirectFrom" .= pageRedirectFrom)
                 ]
 
 data AppConfig = AppConfig
