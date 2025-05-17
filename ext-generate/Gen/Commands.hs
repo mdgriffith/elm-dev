@@ -70,47 +70,48 @@ make = CommandParser.command ["make"] "Build your Elm project" Nothing parseMake
     parseMakeArgs =
        CommandParser.parseArgList (CommandParser.arg "module")
 
-    runMake (fstModule, modules) (debug, optimize, output) = do
-        configResult <- Gen.Generate.readConfig
-        case configResult of
-            Right config -> do
-                generateResult <- Gen.Generate.generate config
-                case generateResult of
-                    Right files -> do 
-                        -- Write each file to disk
-                        mapM_ (\file -> do
-                                  let fullPath = Gen.Generate.path file
-                                  Dir.createDirectoryIfMissing True (FP.takeDirectory fullPath)
-                                  TIO.writeFile fullPath (Text.pack $ Gen.Generate.contents file)
-                              ) files
-                        
-                        Ext.Log.with [Ext.Log.ElmCompilerError] $ do
-                          Make.run 
-                              (fstModule : modules)
-                                (Make.Flags
-                                    (fromMaybe False debug)
-                                    (fromMaybe False optimize)
-                                    output
-                                    Nothing
-                                    Nothing
-                                )
-                              
-                    Left err -> do
-                        IO.hPutStrLn IO.stderr err
-                        return ()
-            Left _ -> do
-                -- No generation config, so just run the compiler
-                Ext.Log.with [Ext.Log.ElmCompilerError] $ do
-                    Make.run 
-                        (fstModule : modules)
-                          (Make.Flags
-                              (fromMaybe False debug)
-                              (fromMaybe False optimize)
-                              output
-                              Nothing
-                              Nothing
-                          )
-                return ()
+runMake :: (String, [String]) -> (Maybe Bool, Maybe Bool, Maybe Make.Output) -> IO ()
+runMake (fstModule, modules) (debug, optimize, output) = do
+    configResult <- Gen.Generate.readConfig
+    case configResult of
+        Right config -> do
+            generateResult <- Gen.Generate.generate config
+            case generateResult of
+                Right files -> do 
+                    -- Write each file to disk
+                    mapM_ (\file -> do
+                              let fullPath = Gen.Generate.path file
+                              Dir.createDirectoryIfMissing True (FP.takeDirectory fullPath)
+                              TIO.writeFile fullPath (Text.pack $ Gen.Generate.contents file)
+                          ) files
+                    
+                    Ext.Log.with [Ext.Log.ElmCompilerError] $ do
+                      Make.run 
+                          (fstModule : modules)
+                            (Make.Flags
+                                (fromMaybe False debug)
+                                (fromMaybe False optimize)
+                                output
+                                Nothing
+                                Nothing
+                            )
+                          
+                Left err -> do
+                    IO.hPutStrLn IO.stderr err
+                    return ()
+        Left _ -> do
+            -- No generation config, so just run the compiler
+            Ext.Log.with [Ext.Log.ElmCompilerError] $ do
+                Make.run 
+                    (fstModule : modules)
+                      (Make.Flags
+                          (fromMaybe False debug)
+                          (fromMaybe False optimize)
+                          output
+                          Nothing
+                          Nothing
+                      )
+            return ()
 
 
 addGroup :: Maybe String
@@ -136,15 +137,15 @@ addPage = CommandParser.command ["add", "page"] "Add a new page" addGroup parseP
         let updatedConfig = configResult {
             Config.configApp = Just $ case Config.configApp configResult of
                 Nothing -> Config.AppConfig { 
-                    Config.appPages = Map.singleton name (Config.PageConfig urlText [] False)
+                    Config.appPages = Map.singleton (Text.pack name) (Config.PageConfig urlText [] False)
                 }
                 Just appConfig -> appConfig {
-                    Config.appPages = Map.insert name (Config.PageConfig urlText [] False) (Config.appPages appConfig)
+                    Config.appPages = Map.insert (Text.pack name) (Config.PageConfig urlText [] False) (Config.appPages appConfig)
                 }
         }
         BS.writeFile "elm.generate.json" (Aeson.encodePretty updatedConfig)
         
-        putStrLn $ "Created new page: " ++ name
+        -- putStrLn $ "Created new page: " ++ name
 
 -- Add Store Command
 addStore :: CommandParser.Command
