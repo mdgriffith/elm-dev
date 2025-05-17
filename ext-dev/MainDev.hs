@@ -381,6 +381,7 @@ main = do
     , Gen.Commands.addPage
     , Gen.Commands.addStore
     , Gen.Commands.addEffect
+    , Gen.Commands.addListener
     , Gen.Commands.addDocs
     , Gen.Commands.addTheme
     , Gen.Commands.customize

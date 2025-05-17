@@ -178,6 +178,23 @@ addEffect = CommandParser.command ["add", "effect"] "Add a new effect" addGroup 
          
         putStrLn $ "Created new effect: " ++ name
 
+
+-- Add Listener Command
+addListener :: CommandParser.Command
+addListener = CommandParser.command ["add", "listener"] "Add a new listener" addGroup CommandParser.elmModuleName CommandParser.noFlag runListener
+  where
+   
+    runListener :: Elm.ModuleName.Raw -> () -> IO ()
+    runListener modName _ = do
+        configResult <- Gen.Generate.readConfigOrFail
+        let name = Elm.ModuleName.toChars modName
+
+        Gen.Templates.write "Listen" Config.elmSrc name
+        
+        putStrLn $ "Created new listener: " ++ name
+
+
+
 -- Add Docs Command
 addDocs :: CommandParser.Command
 addDocs = CommandParser.command ["add", "docs"] "Add docs site" addGroup CommandParser.noArg CommandParser.noFlag runDocs
