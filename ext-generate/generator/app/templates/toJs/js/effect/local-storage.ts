@@ -1,4 +1,4 @@
-export const connect = (app: any) => {
+export const connect = (app: any, data: any) => {
   // Listen for messages from Elm
   app.ports?.localStorage?.subscribe?.((message: any) => {
     switch (message.operation) {

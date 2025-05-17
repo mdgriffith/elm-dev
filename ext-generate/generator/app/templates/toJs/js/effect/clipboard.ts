@@ -1,4 +1,4 @@
-export const connect = (app: any) => {
+export const connect = (app: any, data: any) => {
   app.ports?.clipboard?.subscribe?.((message: any) => {
     copy(message);
   });

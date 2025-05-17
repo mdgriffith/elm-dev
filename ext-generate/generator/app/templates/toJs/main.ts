@@ -16,4 +16,4 @@ const app = Elm.Main.init({
 });
 
 // Connect all effects
-Effects.connect(app);
+Effects.connect(app, {});
