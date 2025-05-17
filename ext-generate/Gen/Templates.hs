@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Gen.Templates (templates, write, writeGroup, writeGroupCustomizable) where
+module Gen.Templates (templates, write, writeTs, writeGroup, writeGroupCustomizable) where
 
 
 import qualified Gen.Templates.Loader
@@ -15,6 +15,7 @@ import qualified Data.Text.Encoding
 import System.FilePath ((</>), (<.>))
 import Data.Function ((&))
 import Control.Monad (forM_, when)
+import qualified Data.Char as Char
 
 
 -- The actual templates list, populated at compile time
@@ -49,12 +50,52 @@ write templateName src name = do
             let newContents = contents
                     & Text.replace "{{name}}" pageName
                     & Text.replace "{{name_underscored}}" pageNameUnderscored
+                    & Text.replace "{{name_decapitalized}}" (Text.pack $ decapitalize name)
 
             cwd <- Dir.getCurrentDirectory
             let targetPath = cwd </> src </> templateName </> Text.unpack pageName <.> "elm"
 
             Dir.createDirectoryIfMissing True (cwd </> src)
             Dir.createDirectoryIfMissing True (cwd </> src </> templateName)
+            TIO.writeFile targetPath newContents
+
+
+decapitalize :: String -> String
+decapitalize (c:cs) = Char.toLower c : cs
+decapitalize [] = []
+
+
+-- | Convert CamelCase to kebab-case
+toKebabCase :: String -> String
+toKebabCase = 
+    let go [] = []
+        go (c:cs) = 
+            if Char.isUpper c 
+            then '-' : Char.toLower c : go cs
+            else c : go cs
+    in dropWhile (== '-') . go
+
+writeTs :: String -> String -> String -> IO ()
+writeTs templateName src name = do
+    let maybeTemplate = List.find (\t -> 
+            Gen.Templates.Loader.target t == Gen.Templates.Loader.OneOff && 
+            Gen.Templates.Loader.templateName t == templateName) Gen.Templates.templates
+    
+    case maybeTemplate of
+        Nothing -> 
+            fail "Could not find page template"
+
+        Just template -> do
+            -- Contents
+            let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
+            let nameKebab = toKebabCase name
+            let newContents = contents
+                    & Text.replace "{{name}}" (Text.pack name)
+                    & Text.replace "{{name_decapitalized}}" (Text.pack $ decapitalize name)
+
+            -- Write
+            cwd <- Dir.getCurrentDirectory
+            let targetPath = cwd </> src </> nameKebab <.> "ts"
             TIO.writeFile targetPath newContents
 
 
@@ -98,4 +139,4 @@ writeGroupCustomizable target src hiddenSrc = do
 
 -- Version.  Iterate when we change the templates
 version :: String
-version = "301ad885348added"
+version = "63ecbe4154139eeb"

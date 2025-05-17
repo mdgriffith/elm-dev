@@ -173,6 +173,8 @@ addEffect = CommandParser.command ["add", "effect"] "Add a new effect" addGroup 
         let name = Elm.ModuleName.toChars modName
 
         Gen.Templates.write "Effect" Config.elmSrc name
+        -- corresponding TS file for the effect
+        Gen.Templates.writeTs "effect" Config.effectTsSrc name
          
         putStrLn $ "Created new effect: " ++ name
 

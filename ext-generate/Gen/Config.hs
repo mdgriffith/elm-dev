@@ -16,6 +16,7 @@ module Gen.Config
     , defaultTheme
     , defaultDocs
     , elmSrc
+    , effectTsSrc
     ) where
 
 import qualified Data.ByteString as BS
@@ -31,6 +32,9 @@ import System.FilePath ((</>))
 
 elmSrc :: String
 elmSrc = "src" </> "app"
+
+effectTsSrc :: String
+effectTsSrc = "src" </> "js" </>"effect"
 
 -- | Main configuration type
 data Config = Config
