@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Gen.Commands (initialize, make, addPage, addStore, addEffect, addDocs, addTheme, customize) where
+module Gen.Commands (initialize, make, addPage, addStore, addEffect, addDocs, addTheme, addListener, customize) where
 
 import qualified CommandParser
 import qualified Terminal

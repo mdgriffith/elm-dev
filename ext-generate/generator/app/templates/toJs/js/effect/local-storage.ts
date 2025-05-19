@@ -20,8 +20,6 @@ export const connect = (app: any, data: any) => {
 };
 
 
-
-
 // Actual commands
 export const getAll = () => {
   const data: any = {};
