@@ -1,5 +1,6 @@
 module Ui.Attr exposing
     ( alignTop
+    , background
     , borderBox
     , ellipsis
     , gap
@@ -10,6 +11,7 @@ module Ui.Attr exposing
     , pad
     , padXY
     , scrollbars
+    , text
     , width
     , widthMax
     )
@@ -82,3 +84,17 @@ pad n =
 gap : Int -> Html.Attribute msg
 gap n =
     Attr.style "gap" (String.fromInt n ++ "px")
+
+
+text : { default : Html.Attribute msg, interactive : Html.Attribute msg }
+text =
+    { default = Attr.style "color" "var(--text-default)"
+    , interactive = Attr.style "color" "var(--text-interactive)"
+    }
+
+
+background : { default : Html.Attribute msg, interactive : Html.Attribute msg }
+background =
+    { default = Attr.style "background-color" "var(--background-default)"
+    , interactive = Attr.style "background-color" "var(--background-interactive)"
+    }

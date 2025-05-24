@@ -1,6 +1,7 @@
 module Store.Guides exposing
     ( store
     , Model, Msg(..)
+    , lookup
     )
 
 {-|
@@ -9,9 +10,12 @@ module Store.Guides exposing
 
 @docs Model, Msg
 
+@docs lookup
+
 -}
 
 import App.Store
+import Dict
 import Effect
 import Json.Decode
 import Json.Encode
@@ -19,7 +23,7 @@ import Listen
 
 
 type alias Model =
-    { guides : List Guide }
+    { guides : Dict.Dict String Guide }
 
 
 type alias Guide =
@@ -30,6 +34,15 @@ type alias Guide =
 
 type Msg
     = GuideReceived Guide
+
+
+lookup : List String -> Model -> Maybe Guide
+lookup path_ model =
+    let
+        path =
+            String.join "/" path_
+    in
+    Dict.get path model.guides
 
 
 store : App.Store.Store Msg Model
@@ -44,7 +57,7 @@ store =
                         -- and it's available
                         maybeCachedModel
                             |> Maybe.withDefault
-                                { guides = [] }
+                                { guides = Dict.empty }
                 in
                 ( model
                 , Effect.none
@@ -55,21 +68,7 @@ store =
                     GuideReceived guide ->
                         ( { model
                             | guides =
-                                if List.any (\g -> g.path == guide.path) model.guides then
-                                    List.map
-                                        (\g ->
-                                            if g.path == guide.path then
-                                                guide
-
-                                            else
-                                                g
-                                        )
-                                        model.guides
-
-                                else
-                                    guide
-                                        :: model.guides
-                                        |> List.sortBy .path
+                                Dict.insert guide.path guide model.guides
                           }
                         , Effect.none
                         )
@@ -85,7 +84,7 @@ encode : Model -> Json.Encode.Value
 encode model =
     Json.Encode.object
         [ ( "guides"
-          , Json.Encode.list encodeGuide model.guides
+          , Json.Encode.dict identity encodeGuide model.guides
           )
         ]
 
@@ -101,7 +100,7 @@ encodeGuide guide =
 decoder : Json.Decode.Decoder Model
 decoder =
     Json.Decode.map Model
-        (Json.Decode.field "guides" (Json.Decode.list guideDecoder))
+        (Json.Decode.field "guides" (Json.Decode.dict guideDecoder))
 
 
 guideDecoder : Json.Decode.Decoder Guide

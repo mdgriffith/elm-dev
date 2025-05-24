@@ -4,8 +4,8 @@ import Elm.Docs
 import Elm.Type
 import Html exposing (..)
 import Html.Attributes as Attr
-import Theme
-import Theme.Color
+import Ui
+import Ui.Attr
 import Ui.Markdown
 import Ui.Syntax
 import Ui.Type
@@ -22,9 +22,9 @@ type alias TypeName =
 
 view : Options msg -> Elm.Docs.Module -> Html msg
 view options mod =
-    Theme.column.lg []
+    Ui.column [ Ui.Attr.gap 16 ]
         [ Html.h2 [] [ Html.text mod.name ]
-        , Theme.column.lg
+        , Ui.column
             []
             (mod
                 |> Elm.Docs.toBlocks
@@ -86,8 +86,8 @@ code : List (Html msg) -> Html msg
 code content =
     Html.pre
         [ Attr.style "line-height" lineHeight
-        , Theme.Color.backgroundDefault
-        , Theme.Color.textDefault
+        , Ui.Attr.background.default
+        , Ui.Attr.text.default
         , Attr.style "border" "none"
         ]
         [ Html.code [ Attr.style "line-height" lineHeight ] content ]

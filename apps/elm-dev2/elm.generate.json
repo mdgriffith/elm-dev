@@ -1,7 +1,11 @@
 {
     "app": {
         "pages": {
-            "Home": "/"
+            "Home": "/",
+            "Guide": "/guide/*",
+            "Module": "/module/*",
+            "Reference": "/ref",
+            "Package": "/package/*"
         }
     },
     "assets": {

@@ -9,14 +9,13 @@ import Elm.Type
 import Html exposing (Html)
 import Html.Attributes as Attr
 import Html.Events as Events
-import Theme
-import Theme.Color
+import Ui
 import Ui.Attr
 import Ui.Syntax as Syntax
 
 
 styles =
-    { link = [ Theme.Color.textPrimaryInteractive ]
+    { link = []
     }
 
 

@@ -1,23 +1,20 @@
-module Page.Home exposing
-    ( page
-    , Model, Msg
-    )
+module Page.Home exposing (page, Model, Msg)
 
 {-|
 
-@docs page
-@docs Model, Msg
+@docs page, Model, Msg
 
 -}
 
-import Effect
 import App.Page
 import App.Page.Id
+import App.Route
 import App.Stores
-import Listen
 import App.View
 import App.View.Region
+import Effect exposing (Effect)
 import Html
+import Listen exposing (Listen)
 
 
 {-| -}
@@ -35,23 +32,34 @@ page =
     App.Page.page
         { init = init
         , update = update
-        , subscriptions = \stores model -> Listen.none
+        , subscriptions = subscriptions
         , view = view
         }
 
 
 init : App.Page.Id.Id -> App.Page.Id.Home_Params -> App.Stores.Stores -> Maybe Model -> App.Page.Init Msg Model
-init pageId urlParams stores maybeCached =
+init pageId params shared maybeCached =
     App.Page.init {}
 
 
-update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect.Effect Msg )
-update stores msg model =
+update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect Msg )
+update shared msg model =
     ( model, Effect.none )
 
 
+subscriptions : App.Stores.Stores -> Model -> Listen Msg
+subscriptions shared model =
+    Listen.none
+
+
 view : App.View.Region.Id -> App.Stores.Stores -> Model -> App.View.View Msg
-view viewId stores model =
-   { title = "Home"
-   , body = Html.text "Home"
-   }
+view viewId shared model =
+    { title = "Directory"
+    , body = viewPackages
+    }
+
+
+viewPackages =
+    Html.div []
+        [ Html.h1 [] [ Html.text "Packages" ]
+        ]

@@ -1,6 +1,7 @@
 module Store.Packages exposing
     ( store
     , Model, Msg(..)
+    , lookup, getExposed, Package
     )
 
 {-|
@@ -9,21 +10,26 @@ module Store.Packages exposing
 
 @docs Model, Msg
 
+@docs lookup, getExposed, Package
+
 -}
 
 import App.Store
+import Dict
 import Effect
 import Elm.Docs
+import Elm.Module
 import Elm.Package
 import Elm.Project
 import Json.Decode
 import Json.Encode
 import Listen
+import Store.Modules
 
 
 type alias Model =
     -- The key is the package name as a string
-    { packages : Dict String Package }
+    { packages : Dict.Dict String Package }
 
 
 type alias Package =
@@ -34,6 +40,25 @@ type alias Package =
 
 type Msg
     = PackagesReceived (List Package)
+
+
+getExposed : Package -> List Elm.Module.Name
+getExposed pkg =
+    case pkg.info.exposed of
+        Elm.Project.ExposedList exposed ->
+            exposed
+
+        Elm.Project.ExposedDict assocList ->
+            List.concatMap Tuple.second assocList
+
+
+lookup : List String -> Model -> Maybe Package
+lookup path_ model =
+    let
+        path =
+            String.join "/" path_
+    in
+    Dict.get path model.packages
 
 
 store : App.Store.Store Msg Model
@@ -84,7 +109,14 @@ encode model =
           , Json.Encode.dict identity
                 (\pkg ->
                     Json.Encode.object
-                        [ ( "readme", Json.Encode.maybe Json.Encode.string pkg.readme )
+                        [ ( "readme"
+                          , case pkg.readme of
+                                Nothing ->
+                                    Json.Encode.null
+
+                                Just readme ->
+                                    Json.Encode.string readme
+                          )
                         , ( "info", Elm.Project.encode (Elm.Project.Package pkg.info) )
                         ]
                 )
@@ -99,7 +131,7 @@ decoder =
         (Json.Decode.field "packages"
             (Json.Decode.dict
                 (Json.Decode.map2 Package
-                    (Json.Decode.field "readme" (Json.Decode.maybe Json.Decode.string))
+                    (Json.Decode.field "readme" (Json.Decode.nullable Json.Decode.string))
                     (Json.Decode.field "info" decodePackage)
                 )
             )
@@ -113,7 +145,7 @@ decodePackage =
             (\proejct ->
                 case proejct of
                     Elm.Project.Package pkg ->
-                        Json.Decode.succeed pkg.info
+                        Json.Decode.succeed pkg
 
                     _ ->
                         Json.Decode.fail "Expected a package"

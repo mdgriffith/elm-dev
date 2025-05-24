@@ -12,6 +12,7 @@ module Store.Projects exposing
 -}
 
 import App.Store
+import Dict
 import Effect
 import Elm.Module
 import Elm.Project
@@ -26,7 +27,7 @@ type alias Path =
 
 type alias Model =
     { current : Maybe Path
-    , projects : Dict Path Project
+    , projects : Dict.Dict Path Project
     }
 
 
@@ -93,7 +94,14 @@ store =
 encode : Model -> Json.Encode.Value
 encode model =
     Json.Encode.object
-        [ ( "current", Json.Encode.maybe Json.Encode.string model.current )
+        [ ( "current"
+          , case model.current of
+                Nothing ->
+                    Json.Encode.null
+
+                Just current ->
+                    Json.Encode.string current
+          )
         , ( "projects", Json.Encode.dict identity encodeProject model.projects )
         ]
 
@@ -102,8 +110,8 @@ encodeProject : Project -> Json.Encode.Value
 encodeProject project =
     Json.Encode.object
         [ ( "root", Json.Encode.string project.root )
-        , ( "info", Elm.Project.encode project.info )
-        , ( "localModules", Json.Encode.list Elm.Module.encodeName project.localModules )
+        , ( "info", Elm.Project.encode (Elm.Project.Application project.info) )
+        , ( "localModules", Json.Encode.list Elm.Module.encode project.localModules )
         ]
 
 
