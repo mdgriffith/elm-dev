@@ -23,16 +23,20 @@ import Data.Aeson (eitherDecodeStrict, object, (.=), FromJSON, ToJSON)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (object, (.=))
 import GHC.Generics (Generic)
+import Data.Time.Clock (UTCTime)
 
 
-readConfig :: IO (Either String Config.Config)
+readConfig :: IO (Either String (UTCTime, Config.Config))
 readConfig = do
     exists <- Dir.doesFileExist "elm.generate.json"
     if not exists
         then return $ Left "Not Found"
         else do
+            mtime <- Dir.getModificationTime "elm.generate.json"
             config <- BSL.readFile "elm.generate.json"
-            return $ eitherDecodeStrict (BSL.toStrict config)
+            case eitherDecodeStrict (BSL.toStrict config) of
+                Left err -> return $ Left err
+                Right cfg -> return $ Right (mtime, cfg)
 
 
 readConfigOrFail :: IO Config.Config
@@ -41,7 +45,7 @@ readConfigOrFail = do
     case configResult of
         Left err -> 
             fail $ "Failed to parse elm.generate.json: " ++ err
-        Right config -> 
+        Right (mtime, config) -> 
             return config
 
 

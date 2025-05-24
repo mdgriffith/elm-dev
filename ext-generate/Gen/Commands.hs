@@ -74,7 +74,10 @@ runMake :: (String, [String]) -> (Maybe Bool, Maybe Bool, Maybe Make.Output) -> 
 runMake (fstModule, modules) (debug, optimize, output) = do
     configResult <- Gen.Generate.readConfig
     case configResult of
-        Right config -> do
+        Right (configLastModified, config) -> do
+            Gen.Templates.writeGroupCustomizable Gen.Templates.Loader.Customizable "./src/app" "./elm-stuff/generated"
+            Gen.Templates.writeGroup Gen.Templates.Loader.ToHidden "./elm-stuff/generated"
+
             generateResult <- Gen.Generate.generate config
             case generateResult of
                 Right files -> do 
