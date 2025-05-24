@@ -1,9 +1,6 @@
 // Type definitions and functions for communicating with the Elm Dev Server.
 //
 
-import * as JSONSafe from "../utils/json";
-// import WebSocket from "ws";
-
 export type MissingSignature = {
   filepath: String;
   name: String;
@@ -14,16 +11,16 @@ export type MissingSignature = {
 export type Warning =
   | { warning: "UnusedVariable"; region: Region; context: string; name: string }
   | {
-      warning: "MissingAnnotation";
-      region: Region;
-      name: String;
-      signature: String;
-    }
+    warning: "MissingAnnotation";
+    region: Region;
+    name: String;
+    signature: String;
+  }
   | {
-      warning: "UnusedImport";
-      region: Region;
-      name: String;
-    };
+    warning: "UnusedImport";
+    region: Region;
+    name: String;
+  };
 
 type Region = {
   start: Position;
@@ -97,21 +94,15 @@ type WebSocketMsg =
   | { msg: "Discover"; details: { root: String; watching: Watching[] } }
   | { msg: "Changed"; details: { path: String } }
   | {
-      msg: "Watched";
-      details: Watching[];
-    };
+    msg: "Watched";
+    details: Watching[];
+  };
 
 type Watching = { path: String; warnings: Boolean; docs: Boolean };
 
 //
 
 type SendGetFunction = (
-  url: string,
-  onSuccess: (data: any) => void,
-  onError: (error: Error) => void
-) => void;
-
-type SendToWebSocket = (
   url: string,
   onSuccess: (data: any) => void,
   onError: (error: Error) => void
@@ -218,19 +209,3 @@ export class ElmDev {
     }
   }
 }
-
-const captureRequest = (onCapture: any) => {
-  return (response: any) => {
-    var str = "";
-
-    //another chunk of data has been received, so append it to `str`
-    response.on("data", function (chunk: string) {
-      str += chunk;
-    });
-
-    //the whole response has been received, so we just print it out here
-    response.on("end", function () {
-      onCapture(JSONSafe.parse(str));
-    });
-  };
-};

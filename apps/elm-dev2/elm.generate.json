@@ -1,0 +1,14 @@
+{
+    "app": {
+        "pages": {
+            "Home": "/"
+        }
+    },
+    "assets": {
+        "Assets": {
+            "onServer": "assets",
+            "src": "./public"
+        }
+    },
+    "packageManager": "bun"
+}

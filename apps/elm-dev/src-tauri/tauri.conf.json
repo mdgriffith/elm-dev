@@ -1,7 +1,7 @@
 {
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build",
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420"
   },
@@ -18,7 +18,7 @@
   },
   "productName": "Elm Dev",
   "version": "0.0.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "elm.dev",
   "plugins": {},
   "app": {
     "macOSPrivateApi": true,

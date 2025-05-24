@@ -4,7 +4,7 @@ import * as Question from "../../app/interop/watchtower/question";
 import * as Message from "../../app/interop/messages";
 import * as JSONSafe from "../../app/interop/utils/json";
 import { platform } from "@tauri-apps/plugin-os";
-import { moveWindow, Position } from "@tauri-apps/plugin-positioner";
+// import { moveWindow, Position } from "@tauri-apps/plugin-positioner";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 const appWindow = getCurrentWebviewWindow();
 

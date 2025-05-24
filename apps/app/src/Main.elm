@@ -66,7 +66,7 @@ init flagsJson =
 
 panelLog : a -> a
 panelLog =
-    Debug.log "Msg"
+    identity
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -542,7 +542,6 @@ viewProject model project =
             , foundErrorsMenu model found
             ]
         , Dict.toList model.callgraph
-            |> Debug.log "callgraph"
             |> List.map
                 (\( filepath, callgraph ) ->
                     Ui.column [ Ui.width Ui.fill ]

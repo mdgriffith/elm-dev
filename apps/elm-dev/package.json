@@ -14,7 +14,8 @@
     "@tauri-apps/plugin-http": "2.0.0-rc.1",
     "@tauri-apps/plugin-os": "2.0.0-rc.0",
     "@tauri-apps/plugin-positioner": "2.0.0-rc.0",
-    "@tauri-apps/plugin-shell": "2.0.0-rc.0"
+    "@tauri-apps/plugin-shell": "2.0.0-rc.0",
+    "@types/node": "^22.15.19"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.0.0-rc.5",

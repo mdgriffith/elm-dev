@@ -16,3 +16,4 @@ node_modules
 
 .vscode/settings.json
 playground
+bun.lock
