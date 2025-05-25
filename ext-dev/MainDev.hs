@@ -64,6 +64,7 @@ import qualified Build
 import qualified BackgroundWriter
 import Json.Encode ((==>))
 import qualified Gen.Commands
+import qualified Gen.Commands.Make
 import qualified Text.Read
 import qualified Terminal.Colors
 import qualified Data.List
@@ -377,7 +378,7 @@ main = do
           concatMap (unlines . formatGroup) groupedCommands
     )
     [ Gen.Commands.initialize
-    , Gen.Commands.make
+    , Gen.Commands.Make.command
     , Gen.Commands.addPage
     , Gen.Commands.addStore
     , Gen.Commands.addEffect

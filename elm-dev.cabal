@@ -53,6 +53,7 @@ Executable elm-dev
         -- elm-dev
         ext-dev
         ext-generate
+        ext-watchtower
 
     other-extensions:
         TemplateHaskell
@@ -279,6 +280,7 @@ Executable elm-dev
 
         Gen.Commands
         Gen.Commands.Init
+        Gen.Commands.Make
         Gen.Javascript
         Gen.Config
         Gen.Templates
