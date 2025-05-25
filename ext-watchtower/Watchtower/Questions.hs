@@ -49,11 +49,12 @@ import qualified Watchtower.Live.Client as Client
 
 -- One off questions and answers you might have/want.
 data Question
-  = FindDefinitionPlease Watchtower.Editor.PointLocation
+  = Discover FilePath
+  -- | Make MakeDetails
+  | FindDefinitionPlease Watchtower.Editor.PointLocation
   | FindAllInstancesPlease Watchtower.Editor.PointLocation
   | Explain Watchtower.Editor.PointLocation
   | Docs DocsType
-  | Discover FilePath
   | CallGraph FilePath
   | InScopeFile FilePath
   | InScopeProject FilePath
@@ -61,6 +62,14 @@ data Question
   | Warnings FilePath
   | TimingParse FilePath
   | ServerHealth
+
+data MakeDetails = MakeDetails
+  { _cwd :: FilePath,
+    _makeEntrypoints :: [String],
+    _makeDebug :: Maybe Bool,
+    _makeOptimize :: Maybe Bool
+  }
+
 
 data DocsType
   = FromFile FilePath
