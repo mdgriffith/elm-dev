@@ -1,5 +1,5 @@
 // @ts-ignore
-import Elm from "../elm-stuff/generated/Main.elm";
+import Elm from "./src/app/Main.elm";
 import * as LocalStorage from "./js/effect/local-storage";
 import * as Effects from "./js/effects";
 import Webcomponents from "./js/webcomponents";
