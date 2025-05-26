@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
-module Gen.Generate (readConfig, readConfigOrFail, generate, File(..)) where
+module Gen.Generate (run, readConfig, ConfigResult(..), readConfigOrFail, generate, File(..)) where
 
+import qualified System.FilePath as FP
 import qualified Gen.Config as Config
 import qualified Gen.RunConfig as RunConfig
 import qualified Gen.Javascript as Javascript
@@ -9,6 +10,7 @@ import qualified Gen.Templates.Loader as Loader
 import qualified Gen.Templates as Templates
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Text.IO as TIO
 import qualified Data.Map as Map
 import qualified System.Directory as Dir
 import qualified Data.Aeson.Encode.Pretty as Aeson
@@ -17,7 +19,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Maybe (fromMaybe)
-import Control.Monad (forM_)
+import Control.Monad (forM_, mapM_)
 import Data.Function ((&))
 import Data.Aeson (eitherDecodeStrict, object, (.=), FromJSON, ToJSON)
 import Control.Monad.IO.Class (liftIO)
@@ -26,26 +28,33 @@ import GHC.Generics (Generic)
 import Data.Time.Clock (UTCTime)
 
 
-readConfig :: IO (Either String (UTCTime, Config.Config))
+data ConfigResult
+    = ConfigFound UTCTime Config.Config
+    | ConfigNotFound
+    | ConfigParseError String
+
+readConfig :: IO ConfigResult
 readConfig = do
     exists <- Dir.doesFileExist "elm.generate.json"
     if not exists
-        then return $ Left "Not Found"
+        then return ConfigNotFound
         else do
             mtime <- Dir.getModificationTime "elm.generate.json"
             config <- BSL.readFile "elm.generate.json"
             case eitherDecodeStrict (BSL.toStrict config) of
-                Left err -> return $ Left err
-                Right cfg -> return $ Right (mtime, cfg)
+                Left err -> return $ ConfigParseError err
+                Right cfg -> return $ ConfigFound mtime cfg
 
 
 readConfigOrFail :: IO Config.Config
 readConfigOrFail = do
     configResult <- readConfig
     case configResult of
-        Left err -> 
+        ConfigParseError err -> 
             fail $ "Failed to parse elm.generate.json: " ++ err
-        Right (mtime, config) -> 
+        ConfigNotFound ->
+            fail "elm.generate.json not found"
+        ConfigFound _ config -> 
             return config
 
 
@@ -64,6 +73,39 @@ data GeneratedFiles = GeneratedFiles {
 
 instance FromJSON GeneratedFiles
 instance ToJSON GeneratedFiles
+
+
+
+{-
+
+-}
+run :: IO (Either String ())
+run = do
+    configResult <- readConfig
+    case configResult of
+        ConfigFound configLastModified config -> do
+            Templates.writeGroupCustomizable Loader.Customizable "./src/app" "./elm-stuff/generated"
+            Templates.writeGroup Loader.ToHidden "./elm-stuff/generated"
+
+            generateResult <- Gen.Generate.generate config
+            case generateResult of
+                Right files -> do 
+                    -- Write each file to disk
+                    Control.Monad.mapM_ (\file -> do
+                                let fullPath = Gen.Generate.path file
+                                Dir.createDirectoryIfMissing True (FP.takeDirectory fullPath)
+                                TIO.writeFile fullPath (Text.pack $ Gen.Generate.contents file)
+                            ) files
+
+                    return $ Right ()
+                    
+                Left err ->
+                    return (Left err)
+        ConfigNotFound ->
+            return (Right ())
+            
+        ConfigParseError err ->
+            return (Left err)
 
 
 -- | Main generation function
@@ -85,9 +127,7 @@ generate config = do
         Left err -> return $ Left err
         Right output -> do
             case eitherDecodeStrict (Text.encodeUtf8 (Text.pack output)) of
-                Left err -> do 
-                    putStrLn output
-                    return $ Left err
+                Left err -> return $ Left err
                 Right (GeneratedFiles files) -> return $ Right files
     
 
@@ -108,7 +148,7 @@ syncPages config = do
     let pageTemplate = findPageTemplate Templates.templates
     
     -- Create files for configured pages that don't exist
-    forM_ (Map.toList configuredPages) $ \(pageId, _) -> do
+    Control.Monad.forM_ (Map.toList configuredPages) $ \(pageId, _) -> do
         let filePath = Config.elmSrc </> "Page" </> Text.unpack pageId <> ".elm"
         fileExists <- Dir.doesFileExist filePath
         when (not fileExists) $ do
