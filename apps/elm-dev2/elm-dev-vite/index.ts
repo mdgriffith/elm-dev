@@ -1,7 +1,8 @@
 /// <reference types="node" />
-import type { Plugin } from 'vite';
+import type { Plugin, ViteDevServer } from 'vite';
 import { spawn } from 'child_process';
 import path from 'path';
+import * as Hot from "./hot-client";
 
 interface ElmDevPluginOptions {
     debug?: boolean;
@@ -40,13 +41,24 @@ async function compileElmModule(id: string, options: { debug: boolean, optimize:
         const url = new URL('http://localhost:51213/make');
         url.searchParams.append('cwd', cwd);
         url.searchParams.append('entrypoints', entrypoints.join(','));
+        if (debug) {
+            url.searchParams.append('debug', 'true');
+        } else if (optimize) {
+            url.searchParams.append('optimize', 'true');
+        }
 
         const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        console.log('Response', response);
-        return await response.text();
+        const text = await response.text();
+        if (text.startsWith('// success')) {
+            return text
+        } else {
+            console.log("ERROR FROM SERVER", text);
+            const json = JSON.parse(text);
+            throw new Error(json.error);
+        }
     } catch (error) {
         console.log('Error', error);
         // If dev server fails, fall back to spawning elm-dev
@@ -88,6 +100,11 @@ export default function elmDevPlugin(options: ElmDevPluginOptions = {}): Plugin 
     const compilationCache = new Map<string, ModuleState>();
     console.log('ElmDevPlugin', options);
 
+
+    let server: ViteDevServer | undefined = undefined;
+    let viteConfigRoot: string = process.cwd();
+
+
     return {
         name: 'vite-plugin-elm-dev',
         enforce: 'pre',
@@ -99,8 +116,53 @@ export default function elmDevPlugin(options: ElmDevPluginOptions = {}): Plugin 
             return null;
         },
 
+        configResolved(config) {
+            viteConfigRoot = config.root;
+        },
+
+        configureServer(server_) {
+            server = server_
+            // Watch for changes in Elm files and trigger rebuilds
+            server_.watcher.add('**/*.elm');
+
+            // Handle file changes
+            server_.watcher.on('change', (file) => {
+                if (file.endsWith('.elm') && !file.includes('elm-stuff')) {
+                    // Invalidate all loaded Elm modules since they might depend on the changed file
+                    for (const [loadedId] of compilationCache) {
+                        // Clear the cache for the changed file
+                        const moduleState = {
+                            code: null,
+                            isCompiling: false,
+                            compilationPromise: null
+                        };
+                        compilationCache.set(loadedId, moduleState);
+                        const modules = server_.moduleGraph.getModulesByFile(loadedId);
+                        if (modules) {
+                            for (const m of modules) {
+                                server_.moduleGraph.invalidateModule(m);
+                            }
+                        } else {
+                            console.log('Module not found in moduleGraph', modules);
+                        }
+                    }
+
+                    server_.ws.send({ type: 'full-reload' });
+                }
+            });
+
+            // Also watch for changes in elm.json
+            server_.watcher.add('elm.json');
+            server_.watcher.add('elm.generate.json');
+            server_.watcher.on('change', (file) => {
+                if (file === 'elm.json') {
+                    emptyAllCache(compilationCache);
+                    server_.ws.send({ type: 'full-reload' });
+                }
+            });
+        },
+
         async load(id: string) {
-            console.log('Load', id);
             if (!id.endsWith('.elm')) {
                 return null;
             }
@@ -133,6 +195,8 @@ function start() {
 }
 start.call(scope);
 export default scope.Elm;
+
+${Hot.toJs(id, true)}
                     `;
                     moduleState.code = wrappedCode;
                     moduleState.isCompiling = false;
@@ -148,45 +212,6 @@ export default scope.Elm;
             return compilationPromise;
         },
 
-        configureServer(server) {
-            // Watch for changes in Elm files and trigger rebuilds
-            server.watcher.add('**/*.elm');
 
-            // Handle file changes
-            server.watcher.on('change', (file) => {
-                if (file.endsWith('.elm') && !file.includes('elm-stuff')) {
-                    // Invalidate all loaded Elm modules since they might depend on the changed file
-                    for (const [loadedId] of compilationCache) {
-                        // Clear the cache for the changed file
-                        const moduleState = {
-                            code: null,
-                            isCompiling: false,
-                            compilationPromise: null
-                        };
-                        compilationCache.set(loadedId, moduleState);
-                        const modules = server.moduleGraph.getModulesByFile(loadedId);
-                        if (modules) {
-                            for (const m of modules) {
-                                server.moduleGraph.invalidateModule(m);
-                            }
-                        } else {
-                            console.log('Module not found in moduleGraph', modules);
-                        }
-                    }
-
-                    server.ws.send({ type: 'full-reload' });
-                }
-            });
-
-            // Also watch for changes in elm.json
-            server.watcher.add('elm.json');
-            server.watcher.add('elm.generate.json');
-            server.watcher.on('change', (file) => {
-                if (file === 'elm.json') {
-                    emptyAllCache(compilationCache);
-                    server.ws.send({ type: 'full-reload' });
-                }
-            });
-        },
     };
 }

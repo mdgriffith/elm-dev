@@ -104,10 +104,8 @@ serve state =
 
 questionHandler :: Watchtower.Live.State -> Question -> Snap ()
 questionHandler state question =
-  Snap.Util.CORS.applyCORS Snap.Util.CORS.defaultOptions $
-    do
+  Snap.Util.CORS.applyCORS Snap.Util.CORS.defaultOptions $ do
       answer <- liftIO (ask state question)
-
       writeBuilder answer
 
 unpackStringList string =
@@ -325,13 +323,13 @@ ask state question =
                   pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
 
                 Right (CompileHelpers.CompiledJs js) ->
-                  pure js
+                  pure (Data.ByteString.Builder.byteString "// success\n" <> js)
 
                 Right (CompileHelpers.CompiledHtml html) ->
                   pure html
 
                 Right CompileHelpers.CompiledSkippedOutput ->
-                  pure (Json.Encode.encodeUgly (Json.Encode.chars "Skipped output"))
+                  pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
 
             Left err ->
               pure (Json.Encode.encodeUgly (Json.Encode.chars err))

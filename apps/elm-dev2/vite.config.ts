@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
-import elmDevPlugin from "./viteElm";
+import elmDevPlugin from "./elm-dev-vite";
 
 const host = process.env.TAURI_DEV_HOST;
 
