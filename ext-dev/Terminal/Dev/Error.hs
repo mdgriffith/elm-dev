@@ -9,12 +9,14 @@ import qualified Elm.Package as Pkg
 
 data Error 
       = CouldNotFindRoot  
-      | CouldNotFindModule 
+      | CouldNotFindModule
+      | NoEntrypoints
       | CouldNotFindCurrentVersionForPackage Pkg.Name
       | ValueProvidedIsntQualified 
       | ValueProvidedIsEmpty
 
 
+      | ExitMake Exit.Make
       | ExitReactor Exit.Reactor
       | DocsProblem Exit.DocsProblem
       | CompilationError Ext.CompileProxy.CompilationError
@@ -29,6 +31,9 @@ toString err =
     CouldNotFindModule ->
       "Could not find module."
 
+    NoEntrypoints ->
+      "No entrypoints provided."
+
     CouldNotFindCurrentVersionForPackage packageName ->
       "Could not find current version for package " ++ Pkg.toChars packageName
 
@@ -37,6 +42,10 @@ toString err =
 
     ValueProvidedIsEmpty ->
       "Value provided is empty."
+
+
+    ExitMake exit ->
+      Exit.toString (Exit.makeToReport exit)
 
     ExitReactor exit ->
       Exit.toString (Exit.reactorToReport exit)
@@ -65,6 +74,11 @@ toJson err =
         [ "error" ==> Json.Encode.chars ("Could not find current version for package " ++ Pkg.toChars packageName)
         ]
 
+    NoEntrypoints ->
+      Json.Encode.object
+        [ "error" ==> Json.Encode.chars "No entrypoints provided."
+        ]
+
     ValueProvidedIsntQualified ->
       Json.Encode.object
         [ "error" ==> Json.Encode.chars "Value provided isn't qualified."
@@ -74,6 +88,9 @@ toJson err =
       Json.Encode.object
         [ "error" ==> Json.Encode.chars "Value provided is empty."
         ]
+
+    ExitMake exit ->
+      Exit.toJson (Exit.makeToReport exit)
 
     ExitReactor exit ->
       Exit.toJson (Exit.reactorToReport exit)
