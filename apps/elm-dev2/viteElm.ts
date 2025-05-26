@@ -1,8 +1,6 @@
 /// <reference types="node" />
 import type { Plugin } from 'vite';
-// @ts-ignore
 import { spawn } from 'child_process';
-// @ts-ignore
 import path from 'path';
 
 interface ElmDevPluginOptions {
@@ -47,8 +45,10 @@ async function compileElmModule(id: string, options: { debug: boolean, optimize:
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
+        console.log('Response', response);
         return await response.text();
     } catch (error) {
+        console.log('Error', error);
         // If dev server fails, fall back to spawning elm-dev
         return new Promise<string>((resolve, reject) => {
             const args = ['make', path.join(".", id), '--output=stdout'];
@@ -86,6 +86,7 @@ export default function elmDevPlugin(options: ElmDevPluginOptions = {}): Plugin 
     const { debug = false, optimize = false } = options;
     // Track loaded Elm files and their compiled output
     const compilationCache = new Map<string, ModuleState>();
+    console.log('ElmDevPlugin', options);
 
     return {
         name: 'vite-plugin-elm-dev',
@@ -99,9 +100,11 @@ export default function elmDevPlugin(options: ElmDevPluginOptions = {}): Plugin 
         },
 
         async load(id: string) {
+            console.log('Load', id);
             if (!id.endsWith('.elm')) {
                 return null;
             }
+            console.log('Loading', id);
 
             // Get or create module state
             let moduleState = compilationCache.get(id);
