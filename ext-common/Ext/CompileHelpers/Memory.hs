@@ -1,5 +1,6 @@
 module Ext.CompileHelpers.Memory
-  ( compileToJson
+  ( compile
+  , compileToJson
   , allPackageArtifacts
   )
 where
@@ -23,12 +24,17 @@ import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified System.Directory as Dir
 import System.IO.Unsafe (unsafePerformIO)
+import qualified Make
 
 
 debug =
   Ext.Log.log Ext.Log.MemoryCache
 
 
+{-|
+This should be replaced with a compile call which takes the proper flags like `output`, which would skip generating stuff.
+
+-}
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
 compileToJson root paths = do
   let toBS = BSL.toStrict . B.toLazyByteString
@@ -40,43 +46,12 @@ compileToJson root paths = do
       Left exit -> do
         Left $ Exit.toJson $ Exit.reactorToReport exit
 
-
 compileWithoutJsGen :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
 compileWithoutJsGen root paths = do
-  Ext.FileCache.handleIfChanged (NE.toList paths) (compile root)
+  Ext.FileCache.handleIfChanged (NE.toList paths) (compileWithoutJsGen_ root)
 
-
-{-# NOINLINE compileCache #-}
-compileCache :: MVar (Maybe (Either Exit.Reactor ()))
-compileCache = unsafePerformIO $ newMVar Nothing
-
-
-compile :: FilePath -> [FilePath] -> IO (Either Exit.Reactor ())
-compile root paths_ = do
-  case paths_ of
-    [] -> do
-      compileCacheM <- readMVar compileCache
-      case compileCacheM of
-        Just compile -> do
-          debug $ "🎯 compile cache hit"
-          pure compile
-        Nothing -> do
-          debug $ "❌ compile cache miss"
-          modifyMVar compileCache (\_ -> do
-              compileR <- compile_ root paths_
-              pure (Just compileR, compileR)
-            )
-
-    x:xs -> do
-      debug $ "❌ compile cache rebuild"
-      modifyMVar compileCache (\_ -> do
-          compileR <- compile_ root paths_
-          pure (Just compileR, compileR)
-        )
-
-
-compile_ :: FilePath -> [FilePath] -> IO (Either Exit.Reactor ())
-compile_ root paths_ = do
+compileWithoutJsGen_ :: FilePath -> [FilePath] -> IO (Either Exit.Reactor ())
+compileWithoutJsGen_ root paths_ = do
   case paths_ of
     [] -> do
       atomicPutStrLn "🙈 compile avoided - no paths given"
@@ -96,13 +71,47 @@ compile_ root paths_ = do
             details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root
             artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached Reporting.silent root details paths
 
-            -- Task.io $ debug $ "🟠🟠🟠🟠🟠🟠🟠"
-            -- javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
-            -- let (NE.List name _) = Ext.MemoryCached.Build.getRootNames artifacts
-            -- return $ Html.sandwich name javascript
-            pure ()
+
+            return ()
+            
 
 
+
+-- {-# NOINLINE compileCache #-}
+-- compileCache :: MVar (Maybe (Either Exit.Reactor ()))
+-- compileCache = unsafePerformIO $ newMVar Nothing
+
+
+-- compile :: FilePath -> NE.List FilePath -> Make.Flags -> IO (Either Exit.Reactor B.Builder)
+-- compile root paths_ flags = do
+--     -- BUGBUG:Note, we aren't using the above cache here
+--     -- Though we could.  We're recompiling every time in this case.
+--     -- But we'd need to key the above cache by the root + entrypoint
+--     modifyMVar compileCache (\_ -> do
+--         compileR <- compile_ root paths_ flags
+--         pure (Just compileR, compileR)
+--       )
+
+
+compile :: FilePath -> NE.List FilePath -> Make.Flags -> IO (Either Exit.Reactor B.Builder)
+compile root paths (Make.Flags debug optimize maybeOutput _ maybeDocs) = do
+    let desiredMode = CompileHelpers.getMode debug optimize
+    Dir.withCurrentDirectory root $
+      BW.withScope $ \scope ->
+        -- @TODO root lock shouldn't be needed unless we're falling through to disk compile
+        -- Stuff.withRootLock root $ do
+        Task.run $ do
+          -- Task.io $ debug $ "🌳🌳🌳🌳🌳🌳🌳🌳🌳🌳" <> show paths_
+
+          Task.io $ Ext.MemoryCached.Details.bustDetailsCache
+          Task.io $ Ext.MemoryCached.Build.bustArtifactsCache
+
+          details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root
+          artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached Reporting.silent root details paths
+
+          -- let (NE.List name _) = Ext.MemoryCached.Build.getRootNames artifacts
+          CompileHelpers.generate root details desiredMode artifacts
+          
 
 {-# NOINLINE artifactsCache #-}
 artifactsCache :: MVar CompileHelpers.Artifacts

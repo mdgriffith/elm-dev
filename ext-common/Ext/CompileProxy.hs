@@ -9,6 +9,7 @@ module Ext.CompileProxy
     loadProject,
     allPackageArtifacts,
     parse,
+    compile,
     compileToJson,
     compileToDocs,
     loadAndEnsureCompiled,
@@ -37,6 +38,7 @@ import qualified Compile
 import Control.Concurrent.MVar
 import qualified Control.Monad (filterM, foldM_, mapM)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as B
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
@@ -79,6 +81,7 @@ import qualified System.Directory as Dir
 import qualified System.FilePath as Path
 import qualified System.IO
 import System.IO.Unsafe (unsafePerformIO)
+import qualified Make
 
 type AggregateStatistics = Map.Map CompileMode Double
 
@@ -139,6 +142,17 @@ loadAndEnsureCompiled root exposed = do
 compileToDocs :: FilePath -> NE.List ModuleName.Raw -> Details.Details -> IO (Either Exit.Reactor Docs.Documentation)
 compileToDocs root modules details =
   Ext.CompileHelpers.Disk.compileToDocsCached root modules details
+
+{- Get the full result of the project.
+
+-}
+compile :: FilePath -> NE.List FilePath -> Make.Flags -> IO (Either Exit.Reactor B.Builder)
+compile root paths flags =
+  modeRunner
+    "compile"
+    (Ext.CompileHelpers.Disk.compile root paths flags)
+    (Ext.CompileHelpers.Memory.compile root paths flags)
+
 
 compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
 compileToJson root paths = do

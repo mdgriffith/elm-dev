@@ -1,5 +1,6 @@
 module Ext.CompileHelpers.Disk
-  ( compileToJson
+  ( compile
+  , compileToJson
   , compileToDocs
   , compileToDocsCached
   , compileWithoutJsGen
@@ -53,6 +54,7 @@ import qualified Generate
 import qualified Data.ByteString as BS
 import qualified Reporting.Error.Import as Import
 import qualified Ext.Dev.Docs
+import qualified Make
 
 import Ext.Sanity
 
@@ -68,33 +70,17 @@ compileToJson root paths = do
         Left $ Exit.toJson $ Exit.reactorToReport exit
 
 
-compileToBuilder :: FilePath -> NE.List FilePath -> IO (Either BS.ByteString BS.ByteString)
-compileToBuilder root paths = do
-  let toBS = BSL.toStrict . B.toLazyByteString
-  result <- compile root paths
-  pure $
-    case result of
-      Right builder ->
-        Right $ toBS builder
-      Left exit -> do
-        Left $
-          toBS $
-            Encode.encode $
-              Exit.toJson $ Exit.reactorToReport exit
-
-
-compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor B.Builder)
-compile root paths =
-  do
-    Dir.withCurrentDirectory root $
-      BW.withScope $ \scope -> Stuff.withRootLock root $
-        Task.run $
-          do
-            details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-            artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
-            javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
-            let (NE.List name _) = Build.getRootNames artifacts
-            return $ Html.sandwich name javascript
+compile :: FilePath -> NE.List FilePath -> Make.Flags -> IO (Either Exit.Reactor B.Builder)
+compile root paths (Make.Flags debug optimize maybeOutput _ maybeDocs) = do
+  let desiredMode = CompileHelpers.getMode debug optimize
+  Dir.withCurrentDirectory root $
+    BW.withScope $ \scope -> Stuff.withRootLock root $
+      Task.run $
+        do
+          details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
+          artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
+          
+          CompileHelpers.generate root details desiredMode artifacts
 
 
 compileWithoutJsGen :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor Build.Artifacts)
