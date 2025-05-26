@@ -14,9 +14,7 @@ import Ext.Common
 import Json.Encode ((==>))
 import qualified Data.Map
 -- import Data.Map.Strict ((!))
-
 import qualified System.IO
-
 import qualified Ext.Log
 import qualified AST.Source as Src
 import qualified Data.ByteString as B
@@ -54,7 +52,6 @@ import qualified Generate
 import qualified Data.ByteString as BS
 import qualified Reporting.Error.Import as Import
 import qualified Ext.Dev.Docs
-import qualified Make
 
 import Ext.Sanity
 
@@ -70,17 +67,15 @@ compileToJson root paths = do
         Left $ Exit.toJson $ Exit.reactorToReport exit
 
 
-compile :: FilePath -> NE.List FilePath -> Make.Flags -> IO (Either Exit.Reactor B.Builder)
-compile root paths (Make.Flags debug optimize maybeOutput _ maybeDocs) = do
-  let desiredMode = CompileHelpers.getMode debug optimize
+compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor CompileHelpers.CompilationResult)
+compile root paths flags@(CompileHelpers.Flags mode output) = do
   Dir.withCurrentDirectory root $
     BW.withScope $ \scope -> Stuff.withRootLock root $
-      Task.run $
-        do
+      Task.run $ do
           details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
           artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
           
-          CompileHelpers.generate root details desiredMode artifacts
+          CompileHelpers.generate root details mode artifacts output
 
 
 compileWithoutJsGen :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor Build.Artifacts)

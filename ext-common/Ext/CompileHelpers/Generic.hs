@@ -21,6 +21,7 @@ import qualified Reporting.Exit as Exit
 import qualified StandaloneInstances
 import qualified Make
 import qualified Generate
+import qualified Generate.Html
 import qualified Build
 
 data Artifacts =
@@ -63,7 +64,27 @@ typeCheck modul canonical =
   System.IO.Unsafe.unsafePerformIO (Type.run =<< Type.constrain canonical)
     
 
+
+
+-- For running compilation
+
+data Flags =
+  Flags
+    { _mode :: DesiredMode
+    , _output :: Output
+    }
+
+data Output = NoOutput | OutputTo OutputFormat
+
+data OutputFormat = Html | Js
+
 data DesiredMode = Debug | Dev | Prod
+
+data CompilationResult
+    = CompiledJs B.Builder
+    | CompiledHtml B.Builder
+    | CompiledSkippedOutput
+    
 
 getMode :: Bool -> Bool -> DesiredMode
 getMode debug optimize =
@@ -74,10 +95,18 @@ getMode debug optimize =
     (False, True ) -> Prod
 
 
-generate :: FilePath -> Details.Details -> DesiredMode -> Build.Artifacts -> Task.Task Exit.Reactor B.Builder
-generate root details desiredMode artifacts =
-  Task.mapError Exit.ReactorBadGenerate $
-    case desiredMode of
-      Debug -> Generate.debug root details artifacts
-      Dev   -> Generate.dev   root details artifacts
-      Prod  -> Generate.prod  root details artifacts
+generate :: FilePath -> Details.Details -> DesiredMode -> Build.Artifacts -> Output -> Task.Task Exit.Reactor CompilationResult
+generate root details desiredMode artifacts output =
+  case output of
+    NoOutput -> pure CompiledSkippedOutput
+    OutputTo format ->
+      Task.mapError Exit.ReactorBadGenerate $ do
+        js <- case desiredMode of
+                Debug -> Generate.debug root details artifacts
+                Dev   -> Generate.dev   root details artifacts
+                Prod  -> Generate.prod  root details artifacts
+        case format of
+          Html -> 
+              pure (CompiledHtml (Generate.Html.sandwich (Name.fromChars "Main") js))
+          Js   -> pure (CompiledJs js)
+    

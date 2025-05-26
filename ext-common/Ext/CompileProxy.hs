@@ -143,10 +143,12 @@ compileToDocs :: FilePath -> NE.List ModuleName.Raw -> Details.Details -> IO (Ei
 compileToDocs root modules details =
   Ext.CompileHelpers.Disk.compileToDocsCached root modules details
 
+
+
 {- Get the full result of the project.
 
 -}
-compile :: FilePath -> NE.List FilePath -> Make.Flags -> IO (Either Exit.Reactor B.Builder)
+compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor CompileHelpers.CompilationResult)
 compile root paths flags =
   modeRunner
     "compile"

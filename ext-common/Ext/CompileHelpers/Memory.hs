@@ -93,9 +93,8 @@ compileWithoutJsGen_ root paths_ = do
 --       )
 
 
-compile :: FilePath -> NE.List FilePath -> Make.Flags -> IO (Either Exit.Reactor B.Builder)
-compile root paths (Make.Flags debug optimize maybeOutput _ maybeDocs) = do
-    let desiredMode = CompileHelpers.getMode debug optimize
+compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor CompileHelpers.CompilationResult)
+compile root paths flags@(CompileHelpers.Flags mode output) = do
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope ->
         -- @TODO root lock shouldn't be needed unless we're falling through to disk compile
@@ -110,7 +109,7 @@ compile root paths (Make.Flags debug optimize maybeOutput _ maybeDocs) = do
           artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached Reporting.silent root details paths
 
           -- let (NE.List name _) = Ext.MemoryCached.Build.getRootNames artifacts
-          CompileHelpers.generate root details desiredMode artifacts
+          CompileHelpers.generate root details mode artifacts output
           
 
 {-# NOINLINE artifactsCache #-}

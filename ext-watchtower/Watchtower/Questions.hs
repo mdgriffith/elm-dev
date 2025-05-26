@@ -19,6 +19,7 @@ import qualified Develop.Generate.Help
 import qualified Elm.Docs as Docs
 import qualified Ext.Common
 import qualified Ext.CompileProxy
+import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Ext.Dev
 import qualified Ext.Dev.CallGraph
 import qualified Ext.Dev.Docs
@@ -29,6 +30,7 @@ import qualified Ext.Dev.Project
 import qualified Ext.Log
 import qualified Ext.Project.Find
 import qualified Ext.Sentry
+import qualified Gen.Generate
 import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Reporting.Annotation
@@ -47,10 +49,11 @@ import qualified Watchtower.Editor
 import qualified Watchtower.Live
 import qualified Watchtower.Live.Client as Client
 
+
 -- One off questions and answers you might have/want.
 data Question
   = Discover FilePath
-  -- | Make MakeDetails
+  | Make MakeDetails
   | FindDefinitionPlease Watchtower.Editor.PointLocation
   | FindAllInstancesPlease Watchtower.Editor.PointLocation
   | Explain Watchtower.Editor.PointLocation
@@ -136,6 +139,26 @@ actionHandler state =
     case maybeAction of
       Just "status" ->
         questionHandler state Status
+
+      Just "health" ->
+        questionHandler state ServerHealth
+      
+      Just "make" -> do
+          maybeCwd <- getQueryParam "cwd"
+          maybeEntryPoints <- getQueryParam "entrypoints"
+          maybeDebug <- getQueryParam "debug"
+          maybeOptimize <- getQueryParam "optimize"
+          case (maybeCwd, maybeEntryPoints) of
+            (Just cwd, Just entryPoints) -> do
+              let makeDetails = MakeDetails 
+                                  (Data.ByteString.Char8.unpack cwd) 
+                                  (unpackStringList entryPoints)
+                                  (fmap (== "true") maybeDebug)
+                                  (fmap (== "true") maybeOptimize)
+              questionHandler state (Make makeDetails)
+            _ ->
+              writeBS "Needs a cwd and entrypoints parameter"
+ 
       Just "docs" ->
         do
           maybeFiles <- getQueryParam "file"
@@ -149,8 +172,7 @@ actionHandler state =
                   writeBS "Needs a file or an entrypoint parameter"
                 Just fileString -> do
                   questionHandler state (Docs (FromFile (Data.ByteString.Char8.unpack fileString)))
-      Just "health" ->
-        questionHandler state ServerHealth
+     
       Just "warnings" ->
         do
           maybeFile <- getQueryParam "file"
@@ -275,6 +297,45 @@ ask state question =
       pure (Json.Encode.encodeUgly (Json.Encode.chars "Roger dodger, ready to roll, in the pipe, five-by-five."))
     Status ->
       allProjectStatuses state
+
+    Make makeDetails -> do
+      let entrypoints = _makeEntrypoints makeDetails
+      case entrypoints of
+        [] ->
+          pure (Out.asJsonUgly (Left (Terminal.Dev.Error.NoEntrypoints)))
+
+        (topEntrypoint:rest) -> do
+          codegenResult <- Gen.Generate.run
+          case codegenResult of
+            Right () -> do
+              compilationResult <- Ext.CompileProxy.compile (_cwd makeDetails) (NE.List topEntrypoint rest)
+                (CompileHelpers.Flags
+                    (case (_makeOptimize makeDetails) of
+                      Just True -> CompileHelpers.Prod
+                      _ ->
+                          case (_makeDebug makeDetails) of
+                            Just True -> CompileHelpers.Debug
+                            _ -> CompileHelpers.Dev
+                    )
+                    (CompileHelpers.OutputTo CompileHelpers.Js)
+                )
+
+              case compilationResult of
+                Left reactorExit ->
+                  pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
+
+                Right (CompileHelpers.CompiledJs js) ->
+                  pure js
+
+                Right (CompileHelpers.CompiledHtml html) ->
+                  pure html
+
+                Right CompileHelpers.CompiledSkippedOutput ->
+                  pure (Json.Encode.encodeUgly (Json.Encode.chars "Skipped output"))
+
+            Left err ->
+              pure (Json.Encode.encodeUgly (Json.Encode.chars err))
+
     Docs (ForProject entrypoint) -> do
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
@@ -293,6 +354,7 @@ ask state question =
                   pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor err)))
                 Right docs ->
                   pure (Out.asJsonUgly (Right (Docs.encode docs)))
+
     Docs (FromFile path) ->
       do
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
@@ -302,11 +364,13 @@ ask state question =
             pure (Json.Encode.encodeUgly (Json.Encode.chars "Docs are not available"))
           Just docs ->
             pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [docs])))
+
     Docs (ForPackage (PackageDetails owner package version page)) ->
       do
         elmHome <- Stuff.getElmHome
         let filepath = elmHome Path.</> "0.19.1" Path.</> "packages" Path.</> owner Path.</> package Path.</> version Path.</> pageToFile page
         Data.ByteString.Builder.byteString <$> BS.readFile filepath
+
     TimingParse path ->
       do
         Ext.Log.log Ext.Log.Questions $ "Parsing: " ++ show path
@@ -322,6 +386,7 @@ ask state question =
                   Ext.Log.log Ext.Log.Questions $ "parsing failed"
           )
         pure (Json.Encode.encodeUgly (Json.Encode.chars "The parser has been run, my liege"))
+
     Warnings path ->
       do
         Ext.Log.log Ext.Log.Questions $ "Warnings: " ++ show path
@@ -339,6 +404,7 @@ ask state question =
                 Json.Encode.encodeUgly (Json.Encode.chars "Parser error")
 
         pure jsonResult
+
     InScopeProject file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Scope: " ++ show file
@@ -349,6 +415,7 @@ ask state question =
             pure (Json.Encode.encodeUgly (Json.Encode.chars "No scope"))
           Just scope ->
             pure (Json.Encode.encodeUgly (Ext.Dev.InScope.encodeProjectScope scope))
+
     InScopeFile file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Scope: " ++ show file
@@ -359,6 +426,7 @@ ask state question =
             pure (Json.Encode.encodeUgly (Json.Encode.chars "No scope"))
           Just scope ->
             pure (Json.Encode.encodeUgly (Ext.Dev.InScope.encodeFileScope scope))
+
     CallGraph file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Callgraph: " ++ show file
@@ -369,11 +437,13 @@ ask state question =
             pure (Json.Encode.encodeUgly (Json.Encode.chars "No callgraph"))
           Just callgraph ->
             pure (Json.Encode.encodeUgly (Ext.Dev.CallGraph.encode callgraph))
+
     Discover dir ->
       do
         Ext.Log.log Ext.Log.Questions $ "Discover: " ++ show dir
         Ext.Dev.Project.discover dir
           & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Ext.Dev.Project.encodeProjectJson projects))
+
     Explain location ->
       let path =
             case location of
