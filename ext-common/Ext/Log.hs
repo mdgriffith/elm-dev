@@ -138,15 +138,15 @@ toLabel flag =
         MemoryCache ->
             "🧠"
 
-
-with :: [ Flag ] -> IO a ->  IO ()
+with :: [ Flag ] -> IO a ->  IO a
 with flags io = do
   Monad.mapM_ (\flag -> Env.setEnv (toString flag) "1") flags
-  io
+  result <- io
   Monad.mapM_ (\flag -> Env.unsetEnv (toString flag)) flags
+  return result
 
 
-withAllBut :: [ Flag ] -> IO a ->  IO ()
+withAllBut :: [ Flag ] -> IO a ->  IO a
 withAllBut but io = do
   let flags = List.filter (\flag -> not $ List.elem flag but) Ext.Log.all
   with flags io
