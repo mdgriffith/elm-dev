@@ -1,5 +1,5 @@
-// @ts-ignore
-import Elm from "./src/app/Main.elm";
+// @ts-expect-error
+import Main from "./src/app/Main.elm";
 import * as LocalStorage from "./js/effect/local-storage";
 import * as Effects from "./js/effects";
 import Webcomponents from "./js/webcomponents";
@@ -12,7 +12,7 @@ import.meta.glob("../elm-stuff/generated/**/*.css", { eager: true });
 Webcomponents();
 
 // Boot up the Elm App
-const app = Elm.Main.init({
+const app = Main.init({
   flags: { now: Date.now(), localStorage: LocalStorage.getAll() },
 });
 
