@@ -4,7 +4,7 @@ import { spawn } from 'child_process';
 import path from 'path';
 import * as Hot from "./hot-client";
 import * as ElmErrorJson from "./elm-error-json";
-// import launchEditor from 'launch-editor'
+import launchEditor from 'launch-editor'
 
 interface ElmDevPluginOptions {
     debug?: boolean;
@@ -180,9 +180,9 @@ export default function elmDevPlugin(options: ElmDevPluginOptions = {}): Plugin 
                     server_.ws.send('elm:success', { id })
                 }
             })
-            //   server.ws.on('elm:open-editor', ({ filepath }) => {
-            //     launchEditor(filepath)
-            //   })
+            server.ws.on('elm:open-editor', ({ filepath }) => {
+                launchEditor(filepath)
+            })
 
             // Handle file changes
             server_.watcher.on('change', (file) => {
