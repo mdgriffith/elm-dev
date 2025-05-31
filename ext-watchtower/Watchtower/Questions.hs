@@ -48,6 +48,7 @@ import qualified Terminal.Dev.Out as Out
 import qualified Watchtower.Editor
 import qualified Watchtower.Live
 import qualified Watchtower.Live.Client as Client
+import qualified Watchtower.MCP
 
 
 -- One off questions and answers you might have/want.
@@ -95,10 +96,14 @@ pageToFile page =
     DocsJson -> "docs.json"
 
 serve :: Watchtower.Live.State -> Snap ()
-serve state =
-  do
+serve state = do
+    mcpState <- liftIO $ do
+        initialState <- Watchtower.MCP.newMCPState
+        return $ Watchtower.MCP.registerCommand initialState (Watchtower.MCP.uptimeCommand initialState)
+    
     route
       [ ("/docs/:owner/:package/:version/:readme", docsHandler state),
+        ("/mcp/:action", Watchtower.MCP.handleMCP mcpState),
         ("/:action", actionHandler state)
       ]
 
