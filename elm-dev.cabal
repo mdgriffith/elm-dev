@@ -288,6 +288,8 @@ Executable elm-dev
         Gen.Generate
         Gen.RunConfig
 
+        Modify.Ui
+
 
         Util
         Llamadera
