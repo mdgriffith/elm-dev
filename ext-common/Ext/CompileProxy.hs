@@ -21,6 +21,37 @@ where
 {- This is a proxy for all compilation related functions
    that ensures we can transparently swap compilation providers/methods
    (i.e. Disk vs MemoryCached)
+
+
+The general process for `compile` is 
+
+We have three parts to this.
+- Details.load,
+- Build.fromPaths,
+- Javascript.generate,
+
+So, first up, Details.load
+- Gets modified time for elm.json,
+- Reads cached artifacts for the build,
+- If we're out of date, we verify package constraints, resolve specific package versions, and create new build artifacts.,
+
+Second up Build.fromPaths
+
+- findRoots - Get some path info about the entrypoints we're building,
+- Details.loadInterfaces - Load interface data for "extras".  Pretty sure that's external packages.,
+- crawlRoot - Now we take the paths from findRoots and go actually read the source code from the filesystem.
+Here's where we parse the file into a Src.AST(the first of 3 ASTs we deal with),
+- When parsing the file, we gather it's imports to crawl those too.
+- checkMidpointAndRoots We then do some checks.  Check for import cycles, check that our roots are unique.
+
+`checkModule` - Ok, here's where the good stuff happens,
+For checkModule
+If deps change, we call compile on the module.  Compile does
+- canonicalizes the file (meaning we now know all values have their full given name which is package name + module name + value name). (our second AST),
+- typecheck's the canonicalized AST (the prophesized step of legend),
+- And calls Optimize.Module.module which produces a AST.Optimized.LocalGraph. (Our 3rd AST, ready for JS generation.)
+
+
  -}
 
 import qualified AST.Canonical as Can
