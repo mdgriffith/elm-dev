@@ -248,6 +248,7 @@ Executable elm-dev
         Watchtower.Live.Compile
 
         Watchtower.Questions
+        Watchtower.MCP
         Watchtower.Server
         Watchtower.StaticAssets
         Watchtower.Test
