@@ -34,6 +34,7 @@ import qualified AST.Source as Src
 import qualified AST.Optimized as Opt
 import qualified Compile
 import qualified Ext.MemoryCached.Details as Details
+import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Elm.Docs as Docs
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
@@ -94,10 +95,8 @@ fromPathsMemoryCached style root details paths = do
 
 fromPathsMemoryCached_ :: Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
 fromPathsMemoryCached_ style root details paths =
-
   Reporting.trackBuild style $ \key ->
   do  env <- makeEnv key root details
-
       elroots <- findRoots env paths
       case elroots of
         Left problem ->
@@ -817,13 +816,9 @@ checkInside name p1 status =
 
 compile :: Env -> DocsNeed -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Result
 compile (Env key root projectType _ buildID _ _) docsNeed (Details.Local path time deps main lastChange _) source ifaces modul = do
-  let
-    pkg = projectTypeToPkg projectType
-  -- in
-  debug $ "🏭 compiling "-- <> show modul
-  case Compile.compile pkg ifaces modul of
-    Right (Compile.Artifacts dirtyCanonical annotations objects) -> do
-      let canonical = Modify.update dirtyCanonical
+  let pkg = projectTypeToPkg projectType
+  case CompileHelpers.compile pkg ifaces modul of
+    Right (Compile.Artifacts canonical annotations objects) -> do
       case makeDocs docsNeed canonical of
         Left err ->
           return $ RProblem $

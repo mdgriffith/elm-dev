@@ -2,6 +2,12 @@
 module Compile
   ( Artifacts(..)
   , compile
+
+  -- ext-dev exposed
+  , canonicalize
+  , typeCheck
+  , nitpick
+  , optimize
   )
   where
 

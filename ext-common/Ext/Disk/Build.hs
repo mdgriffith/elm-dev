@@ -53,6 +53,7 @@ import qualified Reporting.Error.Syntax as Syntax
 import qualified Reporting.Error.Import as Import
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type.Localizer as L
+import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Stuff
 import qualified Build
 import Build (Module(..), Artifacts(..), CachedInterface(..), Root(..))
@@ -215,14 +216,16 @@ checkMidpointAndRoots dmvar statuses sroots =
 -- COMPILE MODULE
 
 
+
+
+
 compile :: Build.Env -> Build.DocsNeed -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Build.Result
 compile (Build.Env key root projectType _ buildID _ _) docsNeed (Details.Local path time deps main lastChange _) source ifaces modul =
   let
     pkg = Build.projectTypeToPkg projectType
   in
-  case Compile.compile pkg ifaces modul of
-    Right (Compile.Artifacts dirtyCanonical annotations objects) -> do
-      let canonical = Modify.update dirtyCanonical
+  case CompileHelpers.compile pkg ifaces modul of
+    Right (Compile.Artifacts canonical annotations objects) -> do
       case Build.makeDocs docsNeed canonical of
         Left err ->
           return $ Build.RProblem $

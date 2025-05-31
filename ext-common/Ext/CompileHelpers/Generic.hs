@@ -12,17 +12,21 @@ import qualified Data.OneOrMore as OneOrMore
 import qualified Elm.Details as Details
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
+import qualified Elm.Package as Pkg
 import qualified Reporting.Error
 import qualified System.IO.Unsafe
 import qualified Type.Constrain.Module as Type
 import qualified Type.Solve as Type
 import qualified Reporting.Task as Task
 import qualified Reporting.Exit as Exit
+import qualified Reporting.Error as Error
 import qualified StandaloneInstances
+import qualified Compile
 import qualified Make
 import qualified Generate
 import qualified Generate.Html
 import qualified Build
+import qualified Modify
 
 data Artifacts =
   Artifacts
@@ -64,6 +68,18 @@ typeCheck modul canonical =
   System.IO.Unsafe.unsafePerformIO (Type.run =<< Type.constrain canonical)
     
 
+
+
+-- This is weirdly named becase it mirrors Compile.compile
+-- but does our Canonical updates
+compile :: Pkg.Name -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> Either Error.Error Compile.Artifacts
+compile pkg ifaces modul =
+  do  dirtyCanonical   <- Compile.canonicalize pkg ifaces modul
+      let canonical = Modify.update dirtyCanonical
+      annotations <- Compile.typeCheck modul canonical
+      ()          <- Compile.nitpick canonical
+      objects     <- Compile.optimize modul annotations canonical
+      return (Compile.Artifacts canonical annotations objects)
 
 
 -- For running compilation
@@ -110,3 +126,5 @@ generate root details desiredMode artifacts output =
               pure (CompiledHtml (Generate.Html.sandwich (Name.fromChars "Main") js))
           Js   -> pure (CompiledJs js)
     
+
+
