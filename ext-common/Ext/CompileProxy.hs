@@ -10,7 +10,6 @@ module Ext.CompileProxy
     allPackageArtifacts,
     parse,
     compile,
-    compileToJson,
     compileToDocs,
     loadAndEnsureCompiled,
     ensureModulesAreCompiled,
@@ -155,13 +154,6 @@ compile root paths flags =
     (Ext.CompileHelpers.Disk.compile root paths flags)
     (Ext.CompileHelpers.Memory.compile root paths flags)
 
-
-compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
-compileToJson root paths = do
-  modeRunner
-    "compileToJson"
-    (Ext.CompileHelpers.Disk.compileToJson root paths)
-    (Ext.CompileHelpers.Memory.compileToJson root paths)
 
 allPackageArtifacts :: FilePath -> IO CompileHelpers.Artifacts
 allPackageArtifacts root =

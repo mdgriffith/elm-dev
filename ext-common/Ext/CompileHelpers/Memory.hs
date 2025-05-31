@@ -1,6 +1,5 @@
 module Ext.CompileHelpers.Memory
   ( compile
-  , compileToJson
   , allPackageArtifacts
   )
 where
@@ -29,52 +28,6 @@ import qualified Make
 
 debug =
   Ext.Log.log Ext.Log.MemoryCache
-
-
-{-|
-This should be replaced with a compile call which takes the proper flags like `output`, which would skip generating stuff.
-
--}
-compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
-compileToJson root paths = do
-  let toBS = BSL.toStrict . B.toLazyByteString
-  result <- compileWithoutJsGen root paths
-  pure $
-    case result of
-      Right builder ->
-        Right $ Encode.object [ "compiled" ==> Encode.bool True ]
-      Left exit -> do
-        Left $ Exit.toJson $ Exit.reactorToReport exit
-
-compileWithoutJsGen :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
-compileWithoutJsGen root paths = do
-  Ext.FileCache.handleIfChanged (NE.toList paths) (compileWithoutJsGen_ root)
-
-compileWithoutJsGen_ :: FilePath -> [FilePath] -> IO (Either Exit.Reactor ())
-compileWithoutJsGen_ root paths_ = do
-  case paths_ of
-    [] -> do
-      atomicPutStrLn "🙈 compile avoided - no paths given"
-      pure $ Right ()
-    x:xs -> do
-      let paths = NE.List x xs
-      Dir.withCurrentDirectory root $
-        BW.withScope $ \scope ->
-          -- @TODO root lock shouldn't be needed unless we're falling through to disk compile
-          -- Stuff.withRootLock root $ do
-          Task.run $ do
-            -- Task.io $ debug $ "🌳🌳🌳🌳🌳🌳🌳🌳🌳🌳" <> show paths_
-
-            Task.io $ Ext.MemoryCached.Details.bustDetailsCache
-            Task.io $ Ext.MemoryCached.Build.bustArtifactsCache
-
-            details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root
-            artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached Reporting.silent root details paths
-
-
-            return ()
-            
-
 
 
 -- {-# NOINLINE compileCache #-}

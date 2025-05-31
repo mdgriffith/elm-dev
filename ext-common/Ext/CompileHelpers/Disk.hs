@@ -1,6 +1,5 @@
 module Ext.CompileHelpers.Disk
   ( compile
-  , compileToJson
   , compileToDocs
   , compileToDocsCached
   , compileWithoutJsGen
@@ -54,18 +53,6 @@ import qualified Reporting.Error.Import as Import
 import qualified Ext.Dev.Docs
 
 import Ext.Sanity
-
-compileToJson :: FilePath -> NE.List FilePath -> IO (Either Encode.Value Encode.Value)
-compileToJson root paths = do
-  let toBS = BSL.toStrict . B.toLazyByteString
-  result <- compileWithoutJsGen root paths
-  pure $
-    case result of
-      Right _ ->
-        Right $ Encode.object [ "compiled" ==> Encode.bool True ]
-      Left exit -> do
-        Left $ Exit.toJson $ Exit.reactorToReport exit
-
 
 compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor CompileHelpers.CompilationResult)
 compile root paths flags@(CompileHelpers.Flags mode output) = do

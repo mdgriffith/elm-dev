@@ -19,11 +19,15 @@ import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Project
 import qualified Ext.Log
 import qualified Ext.Sentry
+import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Reporting.Render.Type.Localizer
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Websocket
+import qualified Json.Encode as Json
+import Json.Encode ((==>))
+import qualified Reporting.Exit as Exit
 
-compileMode = Ext.CompileProxy.compileToJson
+
 
 -- |
 -- Generally called once when the server starts, this will recompile all discovered projects in State
@@ -107,26 +111,32 @@ recompileFile :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCa
 recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot _ entrypoints) cache)) =
   do
     let entry = NonEmpty.List top remain
-
-    -- Compile all changed files
-    eitherStatusJson <-
-      compileMode
-        elmJsonRoot
-        entry
+    eitherResult <- Ext.CompileProxy.compile
+                      elmJsonRoot entry
+                      (CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput)
+    let eitherStatusJson = case eitherResult of
+          Right _ -> Right (Json.object [ "compiled" ==> Json.bool True ])
+          Left exit -> Left (Exit.toJson (Exit.reactorToReport exit))
 
     Ext.Sentry.updateCompileResult cache $
-      pure eitherStatusJson
+      pure eitherStatusJson 
 
     -- Send compilation status
     case eitherStatusJson of
       Right statusJson -> do
         Client.broadcast
           mClients
-          (Client.ElmStatus [Client.ProjectStatus proj True statusJson])
+          (Client.ElmStatus 
+            [ Client.ProjectStatus proj True statusJson
+            ]
+          )
       Left errJson -> do
         Client.broadcast
           mClients
-          (Client.ElmStatus [Client.ProjectStatus proj False errJson])
+          (Client.ElmStatus 
+            [ Client.ProjectStatus proj False errJson
+            ]
+          )
 
 sendInfo :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
 sendInfo mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot projectRoot entrypoints) cache)) = do
