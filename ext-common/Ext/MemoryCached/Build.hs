@@ -3,18 +3,7 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# LANGUAGE BangPatterns, GADTs, OverloadedStrings #-}
 module Ext.MemoryCached.Build
-  ( fromExposed
-  , fromPaths
-  , fromRepl
-  , Artifacts(..)
-  , Root(..)
-  , Module(..)
-  , CachedInterface(..)
-  , ReplArtifacts(..)
-  , DocsGoal(..)
-  , getRootNames
-  -- extended
-  , fromPathsMemoryCached
+  ( fromPathsMemoryCached
   , bustArtifactsCache
   )
   where
@@ -63,6 +52,7 @@ import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type.Localizer as L
 import qualified Stuff
 import qualified Ext.Log
+import qualified Modify
 
 import qualified Build
 import Prelude hiding (log)
@@ -832,7 +822,8 @@ compile (Env key root projectType _ buildID _ _) docsNeed (Details.Local path ti
   -- in
   debug $ "🏭 compiling "-- <> show modul
   case Compile.compile pkg ifaces modul of
-    Right (Compile.Artifacts canonical annotations objects) ->
+    Right (Compile.Artifacts dirtyCanonical annotations objects) -> do
+      let canonical = Modify.update dirtyCanonical
       case makeDocs docsNeed canonical of
         Left err ->
           return $ RProblem $
@@ -1051,8 +1042,9 @@ finalizeReplArtifacts env@(Env _ root projectType _ _ _ _) source modul@(Src.Mod
 
     compileInput ifaces =
       case Compile.compile pkg ifaces modul of
-        Right (Compile.Artifacts canonical annotations objects) ->
-          let
+        Right (Compile.Artifacts dirtyCanonical annotations objects) ->
+          let 
+            canonical = Modify.update dirtyCanonical
             h = Can._name canonical
             m = Fresh (Src.getName modul) (I.fromModule pkg canonical annotations) objects
             ms = Map.foldrWithKey addInside [] results
@@ -1303,9 +1295,10 @@ compileOutside (Env key _ projectType _ _ _ _) (Details.Local path time _ _ _ _)
     name = Src.getName modul
   in
   case Compile.compile pkg ifaces modul of
-    Right (Compile.Artifacts canonical annotations objects) ->
-      do  Reporting.report key Reporting.BDone
-          return $ ROutsideOk name (I.fromModule pkg canonical annotations) objects
+    Right (Compile.Artifacts dirtyCanonical annotations objects) -> do
+      let canonical = Modify.update dirtyCanonical
+      Reporting.report key Reporting.BDone
+      return $ ROutsideOk name (I.fromModule pkg canonical annotations) objects
 
     Left errors ->
       return $ ROutsideErr $ Error.Module name path time source errors

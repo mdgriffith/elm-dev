@@ -14,12 +14,16 @@ module Build
   -- exposed
   , RootLocation(..)
   , makeEnv
-  , crawlModule
-  , checkMidpoint , checkModule, checkDeps
+  , crawlModule, crawlRoot
+  , findRoots
+  , toArtifacts
+  , checkMidpoint , checkModule, checkDeps, checkForCycles, checkUniqueRoots
   , Env(..), Dependencies(..), Status(..), Result(..), ResultDict(..), DepsStatus(..), DocsNeed(..), CachedInterface(..)
+  , RootResult(..), RootStatus(..)
   , toDocs, loadInterfaces, compile, toImportErrors
   , toDocsNeed, projectTypeToPkg
-  , fork, forkWithKey
+  , fork, forkWithKey, makeDocs
+  , writeDetails
   )
   where
 

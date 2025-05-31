@@ -51,6 +51,7 @@ import qualified Generate
 import qualified Data.ByteString as BS
 import qualified Reporting.Error.Import as Import
 import qualified Ext.Dev.Docs
+import qualified Ext.Disk.Build
 
 import Ext.Sanity
 
@@ -60,7 +61,7 @@ compile root paths flags@(CompileHelpers.Flags mode output) = do
     BW.withScope $ \scope -> Stuff.withRootLock root $
       Task.run $ do
           details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-          artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
+          artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.Disk.Build.fromPaths Reporting.silent root details paths
           
           CompileHelpers.generate root details mode artifacts output
 
