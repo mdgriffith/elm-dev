@@ -22,8 +22,8 @@ serve = do
     Control.Exception.catch
       (Env.lookupEnv "ELM_WATCHTOWER_START_PROJECT")
       (const $ pure Nothing :: Control.Exception.IOException -> IO (Maybe String))
-  Ext.CompileMode.setModeDisk
-  -- Ext.CompileMode.setModeMemory
+  -- Ext.CompileMode.setModeDisk
+  Ext.CompileMode.setModeMemory
   trackedForkIO
     $ Ext.Log.withAllBut
       []
