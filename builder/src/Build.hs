@@ -28,6 +28,7 @@ module Build
   , addNewLocal, isMain
   , AbsoluteSrcDir(..), addRelative, toAbsoluteSrcDir
   , isInsideSrcDirByPath
+  , Dep(..), CDep(..)
   )
   where
 

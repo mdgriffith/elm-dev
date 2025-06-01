@@ -33,14 +33,13 @@ import qualified AST.Canonical as Can
 import qualified AST.Source as Src
 import qualified AST.Optimized as Opt
 import qualified Compile
-import qualified Ext.MemoryCached.Details as Details
-import qualified Ext.CompileHelpers.Generic as CompileHelpers
+
 import qualified Elm.Docs as Docs
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline as Outline
 import qualified Elm.Package as Pkg
-import qualified Ext.FileCache as File
+
 import qualified Json.Encode as E
 import qualified Parse.Module as Parse
 import qualified Reporting
@@ -53,6 +52,11 @@ import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type.Localizer as L
 import qualified Stuff
 import qualified Ext.Log
+
+-- File caching helpers
+import qualified Ext.MemoryCached.Details as Details
+import qualified Ext.CompileHelpers.Generic as CompileHelpers
+import qualified Ext.FileCache as File
 
 import qualified Build
 import Prelude hiding (log)
@@ -123,7 +127,7 @@ fromPathsMemoryCached_ flags style root details paths =
                       resultsMVars <- Build.forkWithKey (checkModule flags env foreigns rmvar) statuses
 
                       putMVar rmvar resultsMVars
-                      rrootMVars <- traverse (Build.fork . CompileHelpers.checkRoot flags env resultsMVars) sroots
+                      rrootMVars <- traverse (Build.fork . checkRoot flags env resultsMVars) sroots
                       results <- traverse readMVar resultsMVars
 
 
@@ -325,20 +329,6 @@ getRootName root =
 -- CRAWL
 
 
--- type StatusDict =
---   Map.Map ModuleName.Raw (MVar Status)
-
-
--- data Status
---   = SCached Details.Local
---   | SChanged Details.Local B.ByteString Src.Module DocsNeed
---   | SBadImport Import.Problem
---   | SBadSyntax FilePath File.Time B.ByteString Syntax.Error
---   | SForeign Pkg.Name
---   | SKernel
---   deriving (Show)
-
-
 crawlDeps :: Build.Env -> MVar Build.StatusDict -> [ModuleName.Raw] -> a -> IO a
 crawlDeps env mvar deps blockedValue =
   do  statusDict <- takeMVar mvar
@@ -427,40 +417,13 @@ crawlFile env@(Build.Env _ root projectType _ buildID _ _) mvar docsNeed expecte
 -- CHECK MODULE
 
 
--- type ResultDict =
---   Map.Map ModuleName.Raw (MVar Result)
-
-
--- data Result
---   = RNew !Details.Local !I.Interface !Opt.LocalGraph !(Maybe Docs.Module)
---   | RSame !Details.Local !I.Interface !Opt.LocalGraph !(Maybe Docs.Module)
---   | RCached Bool Details.BuildID (MVar CachedInterface)
---   | RNotFound Import.Problem
---   | RProblem Error.Module
---   | RBlocked
---   | RForeign I.Interface
---   | RKernel
-
--- instance Show Result where
---   show v = case v of
---     RNew !Details.Local !I.Interface !Opt.LocalGraph !(Maybe Docs.Module) -> "RNew"
---     RSame !Details.Local !I.Interface !Opt.LocalGraph !(Maybe Docs.Module) -> "RSame"
---     RCached Bool Details.BuildID (MVar CachedInterface) -> "RCached"
---     RNotFound Import.Problem -> "RNotFound"
---     RProblem Error.Module -> "RProblem"
---     RBlocked -> "RBlocked"
---     RForeign I.Interface -> "RForeign"
---     RKernel -> "RKernel"
-
-
-
 checkModule :: CompileHelpers.CompilationFlags -> Build.Env -> Build.Dependencies -> MVar Build.ResultDict -> ModuleName.Raw -> Build.Status -> IO Build.Result
 checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar name status =
  do
   case status of
     Build.SCached local@(Details.Local path time deps hasMain lastChange lastCompile) ->
       do  results <- readMVar resultsMVar
-          depsStatus <- Build.checkDeps root results deps lastCompile
+          depsStatus <- checkDeps root results deps lastCompile
           case depsStatus of
             Build.DepsChange ifaces ->
               do  source <- File.readUtf8 path
@@ -494,7 +457,7 @@ checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVa
 
     Build.SChanged local@(Details.Local path time deps _ _ lastCompile) source modul@(Src.Module _ _ _ imports _ _ _ _ _) docsNeed ->
       do  results <- readMVar resultsMVar
-          depsStatus <- Build.checkDeps root results deps lastCompile
+          depsStatus <- checkDeps root results deps lastCompile
           case depsStatus of
             Build.DepsChange ifaces ->
              do
@@ -503,7 +466,7 @@ checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVa
 
             Build.DepsSame same cached ->
               do  -- debug $ "checkModule:SChanged:DepsSame " ++ show name
-                  maybeLoaded <- Build.loadInterfaces root same cached
+                  maybeLoaded <- loadInterfaces root same cached
                   case maybeLoaded of
                     Nothing     -> return Build.RBlocked
                     Just ifaces -> compile flags env docsNeed local source ifaces modul
@@ -554,63 +517,64 @@ checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVa
 --   | DepsNotFound (NE.List (ModuleName.Raw, Import.Problem))
 
 
--- checkDeps :: FilePath -> ResultDict -> [ModuleName.Raw] -> Details.BuildID -> IO DepsStatus
--- checkDeps root results deps lastCompile =
---   checkDepsHelp root results deps [] [] [] [] False 0 lastCompile
+checkDeps :: FilePath -> Build.ResultDict -> [ModuleName.Raw] -> Details.BuildID -> IO Build.DepsStatus
+checkDeps root results deps lastCompile =
+  checkDepsHelp root results deps [] [] [] [] False 0 lastCompile
 
 
 -- type Dep = (ModuleName.Raw, I.Interface)
 -- type CDep = (ModuleName.Raw, MVar CachedInterface)
 
 
--- checkDepsHelp :: FilePath -> ResultDict -> [ModuleName.Raw] -> [Dep] -> [Dep] -> [CDep] -> [(ModuleName.Raw,Import.Problem)] -> Bool -> Details.BuildID -> Details.BuildID -> IO DepsStatus
--- checkDepsHelp root results deps new same cached importProblems isBlocked lastDepChange lastCompile =
---   case deps of
---     dep:otherDeps ->
---       do  result <- readMVar (results ! dep)
---           case result of
---             RNew (Details.Local _ _ _ _ lastChange _) iface _ _ ->
---               checkDepsHelp root results otherDeps ((dep,iface) : new) same cached importProblems isBlocked (max lastChange lastDepChange) lastCompile
+checkDepsHelp :: FilePath -> Build.ResultDict -> [ModuleName.Raw] -> [Build.Dep] -> [Build.Dep] -> [Build.CDep] -> [(ModuleName.Raw,Import.Problem)] -> Bool -> Details.BuildID -> Details.BuildID -> IO Build.DepsStatus
+checkDepsHelp root results deps new same cached importProblems isBlocked lastDepChange lastCompile =
+  case deps of
+    dep:otherDeps ->
+      do  result <- readMVar (results ! dep)
+          case result of
+            Build.RNew (Details.Local _ _ _ _ lastChange _) iface _ _ ->
+              checkDepsHelp root results otherDeps ((dep,iface) : new) same cached importProblems isBlocked (max lastChange lastDepChange) lastCompile
 
---             RSame (Details.Local _ _ _ _ lastChange _) iface _ _ ->
---               checkDepsHelp root results otherDeps new ((dep,iface) : same) cached importProblems isBlocked (max lastChange lastDepChange) lastCompile
+            Build.RSame (Details.Local _ _ _ _ lastChange _) iface _ _ ->
+              checkDepsHelp root results otherDeps new ((dep,iface) : same) cached importProblems isBlocked (max lastChange lastDepChange) lastCompile
 
---             RCached _ lastChange mvar ->
---               checkDepsHelp root results otherDeps new same ((dep,mvar) : cached) importProblems isBlocked (max lastChange lastDepChange) lastCompile
+            Build.RCached _ lastChange mvar ->
+              checkDepsHelp root results otherDeps new same ((dep,mvar) : cached) importProblems isBlocked (max lastChange lastDepChange) lastCompile
 
---             RNotFound prob ->
---               checkDepsHelp root results otherDeps new same cached ((dep,prob) : importProblems) True lastDepChange lastCompile
+            Build.RNotFound prob ->
+              checkDepsHelp root results otherDeps new same cached ((dep,prob) : importProblems) True lastDepChange lastCompile
 
---             RProblem _ ->
---               checkDepsHelp root results otherDeps new same cached importProblems True lastDepChange lastCompile
+            Build.RProblem _ ->
+              checkDepsHelp root results otherDeps new same cached importProblems True lastDepChange lastCompile
 
---             RBlocked ->
---               checkDepsHelp root results otherDeps new same cached importProblems True lastDepChange lastCompile
+            Build.RBlocked ->
+              checkDepsHelp root results otherDeps new same cached importProblems True lastDepChange lastCompile
 
---             RForeign iface ->
---               checkDepsHelp root results otherDeps new ((dep,iface) : same) cached importProblems isBlocked lastDepChange lastCompile
+            Build.RForeign iface ->
+              checkDepsHelp root results otherDeps new ((dep,iface) : same) cached importProblems isBlocked lastDepChange lastCompile
 
---             RKernel ->
---               checkDepsHelp root results otherDeps new same cached importProblems isBlocked lastDepChange lastCompile
+            Build.RKernel ->
+              checkDepsHelp root results otherDeps new same cached importProblems isBlocked lastDepChange lastCompile
 
 
---     [] ->
---       case reverse importProblems of
---         p:ps ->
---           return $ DepsNotFound (NE.List p ps)
+    [] ->
+      case reverse importProblems of
+        p:ps ->
+          return $ Build.DepsNotFound (NE.List p ps)
 
---         [] ->
---           if isBlocked then
---             return $ DepsBlock
+        [] ->
+          if isBlocked then
+            return $ Build.DepsBlock
 
---           else if null new && lastDepChange <= lastCompile then
---             return $ DepsSame same cached
+          else if null new && lastDepChange <= lastCompile then
+            return $ Build.DepsSame same cached
 
---           else
---             do  maybeLoaded <- loadInterfaces root same cached
---                 case maybeLoaded of
---                   Nothing     -> return DepsBlock
---                   Just ifaces -> return $ DepsChange $ Map.union (Map.fromList new) ifaces
+          else
+            -- loadInterfaces calls the cached version
+            do  maybeLoaded <- loadInterfaces root same cached
+                case maybeLoaded of
+                  Nothing     -> return Build.DepsBlock
+                  Just ifaces -> return $ Build.DepsChange $ Map.union (Map.fromList new) ifaces
 
 
 
@@ -643,40 +607,40 @@ checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVa
 -- -- LOAD CACHED INTERFACES
 
 
--- loadInterfaces :: FilePath -> [Dep] -> [CDep] -> IO (Maybe (Map.Map ModuleName.Raw I.Interface))
--- loadInterfaces root same cached =
---   do  loading <- traverse (fork . loadInterface root) cached
---       maybeLoaded <- traverse readMVar loading
---       case sequence maybeLoaded of
---         Nothing ->
---           return Nothing
+loadInterfaces :: FilePath -> [Build.Dep] -> [Build.CDep] -> IO (Maybe (Map.Map ModuleName.Raw I.Interface))
+loadInterfaces root same cached =
+  do  loading <- traverse (Build.fork . loadInterface root) cached
+      maybeLoaded <- traverse readMVar loading
+      case sequence maybeLoaded of
+        Nothing ->
+          return Nothing
 
---         Just loaded ->
---           return $ Just $ Map.union (Map.fromList loaded) (Map.fromList same)
+        Just loaded ->
+          return $ Just $ Map.union (Map.fromList loaded) (Map.fromList same)
 
 
--- loadInterface :: FilePath -> CDep -> IO (Maybe Dep)
--- loadInterface root (name, ciMvar) =
---   do  cachedInterface <- takeMVar ciMvar
---       case cachedInterface of
---         Corrupted ->
---           do  putMVar ciMvar cachedInterface
---               return Nothing
+loadInterface :: FilePath -> Build.CDep -> IO (Maybe Build.Dep)
+loadInterface root (name, ciMvar) =
+  do  cachedInterface <- takeMVar ciMvar
+      case cachedInterface of
+        Build.Corrupted ->
+          do  putMVar ciMvar cachedInterface
+              return Nothing
 
---         Loaded iface ->
---           do  putMVar ciMvar cachedInterface
---               return (Just (name, iface))
+        Build.Loaded iface ->
+          do  putMVar ciMvar cachedInterface
+              return (Just (name, iface))
 
---         Unneeded ->
---           do  maybeIface <- File.readBinary (Stuff.elmi root name)
---               case maybeIface of
---                 Nothing ->
---                   do  putMVar ciMvar Corrupted
---                       return Nothing
+        Build.Unneeded ->
+          do  maybeIface <- File.readBinary (Stuff.elmi root name)
+              case maybeIface of
+                Nothing ->
+                  do  putMVar ciMvar Build.Corrupted
+                      return Nothing
 
---                 Just iface ->
---                   do  putMVar ciMvar (Loaded iface)
---                       return (Just (name, iface))
+                Just iface ->
+                  do  putMVar ciMvar (Build.Loaded iface)
+                      return (Just (name, iface))
 
 
 
@@ -1251,49 +1215,49 @@ crawlRoot env@(Build.Env _ _ projectType _ buildID _ _) mvar root =
 --   | ROutsideBlocked
 
 
--- checkRoot :: Env -> ResultDict -> RootStatus -> IO RootResult
--- checkRoot env@(Env _ root _ _ _ _ _) results rootStatus =
---   case rootStatus of
---     SInside name ->
---       return (RInside name)
+checkRoot :: CompileHelpers.CompilationFlags -> Build.Env -> Build.ResultDict -> Build.RootStatus -> IO Build.RootResult
+checkRoot flags env@(Build.Env _ root _ _ _ _ _) results rootStatus =
+  case rootStatus of
+    Build.SInside name ->
+      return (Build.RInside name)
 
---     SOutsideErr err ->
---       return (ROutsideErr err)
+    Build.SOutsideErr err ->
+      return (Build.ROutsideErr err)
 
---     SOutsideOk local@(Details.Local path time deps _ _ lastCompile) source modul@(Src.Module _ _ _ imports _ _ _ _ _) ->
---       do  depsStatus <- checkDeps root results deps lastCompile
---           case depsStatus of
---             DepsChange ifaces ->
---               compileOutside env local source ifaces modul
+    Build.SOutsideOk local@(Details.Local path time deps _ _ lastCompile) source modul@(Src.Module _ _ _ imports _ _ _ _ _) ->
+      do  depsStatus <- checkDeps root results deps lastCompile
+          case depsStatus of
+            Build.DepsChange ifaces ->
+              compileOutside flags env local source ifaces modul
 
---             DepsSame same cached ->
---               do  maybeLoaded <- loadInterfaces root same cached
---                   case maybeLoaded of
---                     Nothing     -> return ROutsideBlocked
---                     Just ifaces -> compileOutside env local source ifaces modul
+            Build.DepsSame same cached ->
+              do  maybeLoaded <- Build.loadInterfaces root same cached
+                  case maybeLoaded of
+                    Nothing     -> return Build.ROutsideBlocked
+                    Just ifaces -> compileOutside flags env local source ifaces modul
 
---             DepsBlock ->
---               return ROutsideBlocked
+            Build.DepsBlock ->
+              return Build.ROutsideBlocked
 
---             DepsNotFound problems ->
---               return $ ROutsideErr $ Error.Module (Src.getName modul) path time source $
---                   Error.BadImports (toImportErrors env results imports problems)
+            Build.DepsNotFound problems ->
+              return $ Build.ROutsideErr $ Error.Module (Src.getName modul) path time source $
+                  Error.BadImports (Build.toImportErrors env results imports problems)
 
 
--- compileOutside :: Env -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO RootResult
--- compileOutside (Env key _ projectType _ _ _ _) (Details.Local path time _ _ _ _) source ifaces modul =
---   let
---     pkg = projectTypeToPkg projectType
---     name = Src.getName modul
---   in
---   case Compile.compile pkg ifaces modul of
---     Right (Compile.Artifacts canonical annotations objects) -> do
+compileOutside :: CompileHelpers.CompilationFlags -> Build.Env -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Build.RootResult
+compileOutside flags (Build.Env key _ projectType _ _ _ _) (Details.Local path time _ _ _ _) source ifaces modul =
+  let
+    pkg = Build.projectTypeToPkg projectType
+    name = Src.getName modul
+  in
+  case CompileHelpers.compile flags pkg ifaces modul of
+    Right (Compile.Artifacts canonical annotations objects) -> do
      
---       Reporting.report key Reporting.BDone
---       return $ ROutsideOk name (I.fromModule pkg canonical annotations) objects
+      Reporting.report key Reporting.BDone
+      return $ Build.ROutsideOk name (I.fromModule pkg canonical annotations) objects
 
---     Left errors ->
---       return $ ROutsideErr $ Error.Module name path time source errors
+    Left errors ->
+      return $ Build.ROutsideErr $ Error.Module name path time source errors
 
 
 
