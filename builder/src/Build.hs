@@ -12,18 +12,22 @@ module Build
   , DocsGoal(..)
   , getRootNames
   -- exposed
-  , RootLocation(..)
+  , RootLocation(..), RootInfo(..)
   , makeEnv
   , crawlModule, crawlRoot
   , findRoots
   , toArtifacts
-  , checkMidpoint , checkModule, checkDeps, checkForCycles, checkUniqueRoots
+  , checkModule, checkDeps, checkForCycles, checkUniqueRoots
+  , checkMidpoint, checkMidpointAndRoots
   , Env(..), Dependencies(..), Status(..), Result(..), ResultDict(..), DepsStatus(..), DocsNeed(..), CachedInterface(..)
-  , RootResult(..), RootStatus(..)
+  , RootResult(..), RootStatus(..), StatusDict(..)
   , toDocs, loadInterfaces, compile, toImportErrors
   , toDocsNeed, projectTypeToPkg
   , fork, forkWithKey, makeDocs
   , writeDetails
+  , addNewLocal, isMain
+  , AbsoluteSrcDir(..), addRelative, toAbsoluteSrcDir
+  , isInsideSrcDirByPath
   )
   where
 

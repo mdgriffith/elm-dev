@@ -60,8 +60,9 @@ compile root paths flags@(CompileHelpers.Flags mode output) = do
   Dir.withCurrentDirectory root $
     BW.withScope $ \scope -> Stuff.withRootLock root $
       Task.run $ do
+          let compilationFlags = CompileHelpers.compilationModsFromFlags mode
           details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-          artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.Disk.Build.fromPaths Reporting.silent root details paths
+          artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.Disk.Build.fromPaths compilationFlags Reporting.silent root details paths
           
           CompileHelpers.generate root details mode artifacts output
 

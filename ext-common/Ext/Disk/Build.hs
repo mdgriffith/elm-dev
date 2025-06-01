@@ -66,8 +66,8 @@ import qualified Modify
 
 
 
-fromPaths :: Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
-fromPaths style root details paths =
+fromPaths :: CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
+fromPaths flags style root details paths =
   Reporting.trackBuild style $ \key ->
   do  env <- Build.makeEnv key root details
 
@@ -84,7 +84,7 @@ fromPaths style root details paths =
               sroots <- traverse readMVar srootMVars
               statuses <- traverse readMVar =<< readMVar smvar
 
-              midpoint <- checkMidpointAndRoots dmvar statuses sroots
+              midpoint <- Build.checkMidpointAndRoots dmvar statuses sroots
               case midpoint of
                 Left problem ->
                   return (Left (Exit.BuildProjectProblem problem))
@@ -92,9 +92,9 @@ fromPaths style root details paths =
                 Right foreigns ->
                   do  -- compile
                       rmvar <- newEmptyMVar
-                      resultsMVars <- Build.forkWithKey (checkModule env foreigns rmvar) statuses
+                      resultsMVars <- Build.forkWithKey (checkModule flags env foreigns rmvar) statuses
                       putMVar rmvar resultsMVars
-                      rrootMVars <- traverse (Build.fork . checkRoot env resultsMVars) sroots
+                      rrootMVars <- traverse (Build.fork . CompileHelpers.checkRoot flags env resultsMVars) sroots
                       results <- traverse readMVar resultsMVars
                       Build.writeDetails root details results
                       Build.toArtifacts env foreigns results <$> traverse readMVar rrootMVars
@@ -105,8 +105,8 @@ fromPaths style root details paths =
 
 
 
-checkModule :: Build.Env -> Build.Dependencies -> MVar Build.ResultDict -> ModuleName.Raw -> Build.Status -> IO Build.Result
-checkModule env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar name status =
+checkModule :: CompileHelpers.CompilationFlags -> Build.Env -> Build.Dependencies -> MVar Build.ResultDict -> ModuleName.Raw -> Build.Status -> IO Build.Result
+checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar name status =
   case status of
     Build.SCached local@(Details.Local path time deps hasMain lastChange lastCompile) ->
       do  results <- readMVar resultsMVar
@@ -115,7 +115,7 @@ checkModule env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar name
             Build.DepsChange ifaces ->
               do  source <- File.readUtf8 path
                   case Parse.fromByteString projectType source of
-                    Right modul -> compile env (Build.DocsNeed False) local source ifaces modul
+                    Right modul -> compile flags env (Build.DocsNeed False) local source ifaces modul
                     Left err ->
                       return $ Build.RProblem $
                         Error.Module name path time source (Error.BadSyntax err)
@@ -142,13 +142,13 @@ checkModule env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar name
           depsStatus <- Build.checkDeps root results deps lastCompile
           case depsStatus of
             Build.DepsChange ifaces ->
-              compile env docsNeed local source ifaces modul
+              compile flags env docsNeed local source ifaces modul
 
             Build.DepsSame same cached ->
               do  maybeLoaded <- Build.loadInterfaces root same cached
                   case maybeLoaded of
                     Nothing     -> return Build.RBlocked
-                    Just ifaces -> compile env docsNeed local source ifaces modul
+                    Just ifaces -> compile flags env docsNeed local source ifaces modul
 
             Build.DepsBlock ->
               return Build.RBlocked
@@ -173,41 +173,41 @@ checkModule env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar name
       return Build.RKernel
 
 
--- CHECK PROJECT
+-- -- CHECK PROJECT
 
 
-checkMidpoint :: MVar (Maybe Build.Dependencies) -> Map.Map ModuleName.Raw Build.Status -> IO (Either Exit.BuildProjectProblem Build.Dependencies)
-checkMidpoint dmvar statuses =
-  case Build.checkForCycles statuses of
-    Nothing ->
-      do  maybeForeigns <- readMVar dmvar
-          case maybeForeigns of
-            Nothing -> return (Left Exit.BP_CannotLoadDependencies)
-            Just fs -> return (Right fs)
+-- checkMidpoint :: MVar (Maybe Build.Dependencies) -> Map.Map ModuleName.Raw Build.Status -> IO (Either Exit.BuildProjectProblem Build.Dependencies)
+-- checkMidpoint dmvar statuses =
+--   case Build.checkForCycles statuses of
+--     Nothing ->
+--       do  maybeForeigns <- readMVar dmvar
+--           case maybeForeigns of
+--             Nothing -> return (Left Exit.BP_CannotLoadDependencies)
+--             Just fs -> return (Right fs)
 
-    Just (NE.List name names) ->
-      do  _ <- readMVar dmvar
-          return (Left (Exit.BP_Cycle name names))
+--     Just (NE.List name names) ->
+--       do  _ <- readMVar dmvar
+--           return (Left (Exit.BP_Cycle name names))
 
 
-checkMidpointAndRoots :: MVar (Maybe Build.Dependencies) -> Map.Map ModuleName.Raw Build.Status -> NE.List Build.RootStatus -> IO (Either Exit.BuildProjectProblem Build.Dependencies)
-checkMidpointAndRoots dmvar statuses sroots =
-  case Build.checkForCycles statuses of
-    Nothing ->
-      case Build.checkUniqueRoots statuses sroots of
-        Nothing ->
-          do  maybeForeigns <- readMVar dmvar
-              case maybeForeigns of
-                Nothing -> return (Left Exit.BP_CannotLoadDependencies)
-                Just fs -> return (Right fs)
+-- checkMidpointAndRoots :: MVar (Maybe Build.Dependencies) -> Map.Map ModuleName.Raw Build.Status -> NE.List Build.RootStatus -> IO (Either Exit.BuildProjectProblem Build.Dependencies)
+-- checkMidpointAndRoots dmvar statuses sroots =
+--   case Build.checkForCycles statuses of
+--     Nothing ->
+--       case Build.checkUniqueRoots statuses sroots of
+--         Nothing ->
+--           do  maybeForeigns <- readMVar dmvar
+--               case maybeForeigns of
+--                 Nothing -> return (Left Exit.BP_CannotLoadDependencies)
+--                 Just fs -> return (Right fs)
 
-        Just problem ->
-          do  _ <- readMVar dmvar
-              return (Left problem)
+--         Just problem ->
+--           do  _ <- readMVar dmvar
+--               return (Left problem)
 
-    Just (NE.List name names) ->
-      do  _ <- readMVar dmvar
-          return (Left (Exit.BP_Cycle name names))
+--     Just (NE.List name names) ->
+--       do  _ <- readMVar dmvar
+--           return (Left (Exit.BP_Cycle name names))
 
 
 
@@ -219,12 +219,12 @@ checkMidpointAndRoots dmvar statuses sroots =
 
 
 
-compile :: Build.Env -> Build.DocsNeed -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Build.Result
-compile (Build.Env key root projectType _ buildID _ _) docsNeed (Details.Local path time deps main lastChange _) source ifaces modul =
+compile :: CompileHelpers.CompilationFlags -> Build.Env -> Build.DocsNeed -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Build.Result
+compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.Local path time deps main lastChange _) source ifaces modul =
   let
     pkg = Build.projectTypeToPkg projectType
   in
-  case CompileHelpers.compile pkg ifaces modul of
+  case CompileHelpers.compile flags pkg ifaces modul of
     Right (Compile.Artifacts canonical annotations objects) -> do
       case Build.makeDocs docsNeed canonical of
         Left err ->
@@ -256,47 +256,47 @@ compile (Build.Env key root projectType _ buildID _ _) docsNeed (Details.Local p
         Error.Module (Src.getName modul) path time source err
 
 
-checkRoot :: Build.Env -> Build.ResultDict -> Build.RootStatus -> IO Build.RootResult
-checkRoot env@(Build.Env _ root _ _ _ _ _) results rootStatus =
-  case rootStatus of
-    Build.SInside name ->
-      return (Build.RInside name)
+-- checkRoot :: CompileHelpers.CompilationFlags -> Build.Env -> Build.ResultDict -> Build.RootStatus -> IO Build.RootResult
+-- checkRoot flags env@(Build.Env _ root _ _ _ _ _) results rootStatus =
+--   case rootStatus of
+--     Build.SInside name ->
+--       return (Build.RInside name)
 
-    Build.SOutsideErr err ->
-      return (Build.ROutsideErr err)
+--     Build.SOutsideErr err ->
+--       return (Build.ROutsideErr err)
 
-    Build.SOutsideOk local@(Details.Local path time deps _ _ lastCompile) source modul@(Src.Module _ _ _ imports _ _ _ _ _) ->
-      do  depsStatus <- Build.checkDeps root results deps lastCompile
-          case depsStatus of
-            Build.DepsChange ifaces ->
-              compileOutside env local source ifaces modul
+--     Build.SOutsideOk local@(Details.Local path time deps _ _ lastCompile) source modul@(Src.Module _ _ _ imports _ _ _ _ _) ->
+--       do  depsStatus <- Build.checkDeps root results deps lastCompile
+--           case depsStatus of
+--             Build.DepsChange ifaces ->
+--               compileOutside flags env local source ifaces modul
 
-            Build.DepsSame same cached ->
-              do  maybeLoaded <- Build.loadInterfaces root same cached
-                  case maybeLoaded of
-                    Nothing     -> return Build.ROutsideBlocked
-                    Just ifaces -> compileOutside env local source ifaces modul
+--             Build.DepsSame same cached ->
+--               do  maybeLoaded <- Build.loadInterfaces root same cached
+--                   case maybeLoaded of
+--                     Nothing     -> return Build.ROutsideBlocked
+--                     Just ifaces -> compileOutside flags env local source ifaces modul
 
-            Build.DepsBlock ->
-              return Build.ROutsideBlocked
+--             Build.DepsBlock ->
+--               return Build.ROutsideBlocked
 
-            Build.DepsNotFound problems ->
-              return $ Build.ROutsideErr $ Error.Module (Src.getName modul) path time source $
-                  Error.BadImports (Build.toImportErrors env results imports problems)
+--             Build.DepsNotFound problems ->
+--               return $ Build.ROutsideErr $ Error.Module (Src.getName modul) path time source $
+--                   Error.BadImports (Build.toImportErrors env results imports problems)
 
 
-compileOutside :: Build.Env -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Build.RootResult
-compileOutside (Build.Env key _ projectType _ _ _ _) (Details.Local path time _ _ _ _) source ifaces modul =
-  let
-    pkg = Build.projectTypeToPkg projectType
-    name = Src.getName modul
-  in
-  case Compile.compile pkg ifaces modul of
-    Right (Compile.Artifacts dirtyCanonical annotations objects) -> do
-      let canonical = Modify.update dirtyCanonical
-      Reporting.report key Reporting.BDone
-      return $ Build.ROutsideOk name (I.fromModule pkg canonical annotations) objects
+-- compileOutside :: CompileHelpers.CompilationFlags -> Build.Env -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Build.RootResult
+-- compileOutside flags (Build.Env key _ projectType _ _ _ _) (Details.Local path time _ _ _ _) source ifaces modul =
+--   let
+--     pkg = Build.projectTypeToPkg projectType
+--     name = Src.getName modul
+--   in
+--   case CompileHelpers.compile flags pkg ifaces modul of
+--     Right (Compile.Artifacts dirtyCanonical annotations objects) -> do
+--       let canonical = Modify.update dirtyCanonical
+--       Reporting.report key Reporting.BDone
+--       return $ Build.ROutsideOk name (I.fromModule pkg canonical annotations) objects
 
-    Left errors ->
-      return $ Build.ROutsideErr $ Error.Module name path time source errors
+--     Left errors ->
+--       return $ Build.ROutsideErr $ Error.Module name path time source errors
 

@@ -57,9 +57,9 @@ compile root paths flags@(CompileHelpers.Flags mode output) = do
 
           Task.io $ Ext.MemoryCached.Details.bustDetailsCache
           Task.io $ Ext.MemoryCached.Build.bustArtifactsCache
-
+          let compilationFlags = CompileHelpers.compilationModsFromFlags mode
           details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root
-          artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached Reporting.silent root details paths
+          artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached compilationFlags Reporting.silent root details paths
 
           -- let (NE.List name _) = Ext.MemoryCached.Build.getRootNames artifacts
           CompileHelpers.generate root details mode artifacts output
