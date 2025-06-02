@@ -1,4 +1,4 @@
-module Listen.{{name}} exposing (..)
+port module Listen.{{name}} exposing (..)
 
 {-| Listen for messages from JS.
 
