@@ -27,6 +27,15 @@ const websocket = new WebSocket(`ws://${domain}:${port}/ws`);
 
 websocket.onopen = () => {
   console.log("Connected to websocket");
+  app.ports.devServer.send({
+    msg: "Server",
+    details: {
+      status: "Connected",
+      version: "0.1.0",
+      port: port,
+      host: domain,
+    },
+  });
 };
 
 websocket.onmessage = (event) => {

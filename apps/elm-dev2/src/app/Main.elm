@@ -9,13 +9,17 @@ import App.Stores
 import App.View
 import App.View.Region
 import Browser
+import Data.Question
 import Effect exposing (Effect)
+import Effect.Http
 import Effect.Nav
 import Effect.Page
 import Effect.Scroll
 import Html
 import Html.Attributes as Attr
+import Http
 import Listen
+import Listen.DevServer
 import Url
 
 
@@ -30,13 +34,25 @@ main =
     App.app
         { init =
             \stores flags url ->
-                loadUrl url { urlNotFound = False }
+                let
+                    ( initModel, initEffect ) =
+                        loadUrl url { urlNotFound = False }
+                in
+                ( initModel
+                , Effect.batch
+                    [ initEffect
+
+                    -- , Effect.Http.get "http://localhost:51213/health"
+                    --     (Effect.Http.expectString HealthReceived)
+                    , Data.Question.status StatusReceived
+                    ]
+                )
         , onUrlRequest = UrlRequested
         , onUrlChange = UrlChanged
         , update = update
         , subscriptions =
             \stores model ->
-                Listen.none
+                Listen.DevServer.listen DevServerReceived
         , toCmd = toCmd
         , toSub = toSub
         , view =
@@ -82,6 +98,9 @@ main =
 type Msg
     = UrlRequested Browser.UrlRequest
     | UrlChanged Url.Url
+    | StatusReceived (Result Http.Error Data.Question.Status)
+    | HealthReceived (Result Http.Error String)
+    | DevServerReceived Listen.DevServer.Event
 
 
 update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect Msg )
@@ -95,6 +114,36 @@ update stores msg model =
 
         UrlChanged url ->
             loadUrl url model
+
+        HealthReceived health ->
+            let
+                _ =
+                    Debug.log "Health" health
+            in
+            ( model, Effect.none )
+
+        StatusReceived status ->
+            let
+                _ =
+                    Debug.log "Status" status
+            in
+            ( model, Effect.none )
+
+        DevServerReceived event ->
+            let
+                _ =
+                    Debug.log "DevServer" event
+            in
+            case event of
+                Listen.DevServer.ServerStatusUpdated server ->
+                    let
+                        _ =
+                            Debug.log "ServerStatusUpdated" server
+                    in
+                    ( model, Data.Question.status StatusReceived )
+
+                _ ->
+                    ( model, Effect.none )
 
 
 loadUrl : Url.Url -> Model -> ( Model, Effect Msg )

@@ -1,6 +1,14 @@
-port module Listen.DevServer exposing (listen)
+port module Listen.DevServer exposing
+    ( listen, Event(..)
+    , ServerStatus(..), ServerInfo
+    )
 
 {-| Listen for updates from the dev server.
+
+@docs listen, Event
+
+@docs ServerStatus, ServerInfo
+
 -}
 
 import Data.Editor as Editor
