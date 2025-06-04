@@ -48,6 +48,7 @@ import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Live.Compile
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Websocket
+import qualified Watchtower.State.Discover
 
 type State = Client.State
 
@@ -80,16 +81,9 @@ discoverProjects root = do
   projects <- Ext.Dev.Project.discover root
 
   let projectTails = fmap (getProjectShorthand root) projects
-  Ext.Log.log Ext.Log.Live (("👁️  found projects\n" ++ root) <> formatList projectTails)
+  Ext.Log.log Ext.Log.Live (("👁️  found projects\n" ++ root) <> Ext.Log.formatList projectTails)
   Monad.foldM initializeProject [] projects
 
-indent :: Int -> String -> String
-indent i str =
-  List.replicate i ' ' ++ str
-
-formatList :: [String] -> String
-formatList strs =
-  List.foldr (\tail gathered -> gathered ++ indent 4 tail ++ "\n") "\n" strs
 
 getProjectShorthand :: FilePath -> Ext.Dev.Project.Project -> FilePath
 getProjectShorthand root proj =

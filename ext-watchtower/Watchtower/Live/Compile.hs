@@ -12,6 +12,7 @@ import qualified Data.NonEmptyList as NonEmpty
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.NonEmptyList as NE
 import Ext.Common
 import qualified Ext.CompileProxy
 import qualified Ext.Dev
@@ -44,14 +45,8 @@ compileAll (Client.State mClients mProjects) = do
       Ext.Log.log Ext.Log.Live "🛬 Recompile everything finished"
 
 compileProject :: STM.TVar [Client.Client] -> Client.ProjectCache -> IO ()
-compileProject mClients proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot projectRoot entrypoints) cache) =
-  case entrypoints of
-    [] ->
-      do
-        Ext.Log.log Ext.Log.Live ("Skipping compile, no entrypoint: " <> elmJsonRoot)
-        pure ()
-    topEntry : remainEntry ->
-      recompileFile mClients (topEntry, remainEntry, proj)
+compileProject mClients proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot projectRoot (NE.List topEntry remainEntry)) cache) =
+  recompileFile mClients (topEntry, remainEntry, proj)
 
 -- | This is called frequently.
 --
@@ -98,14 +93,8 @@ toAffectedProject changedFiles projCache@(Client.ProjectCache proj@(Ext.Dev.Proj
         else Nothing
 
 recompileProject :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
-recompileProject mClients (_, _, proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot _ entrypoints) cache)) =
-  case entrypoints of
-    [] ->
-      do
-        Ext.Log.log Ext.Log.Live ("Skipping compile, no entrypoint: " <> elmJsonRoot)
-        pure ()
-    topEntry : remainEntry ->
-      recompileFile mClients (topEntry, remainEntry, proj)
+recompileProject mClients (_, _, proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot _ (NE.List topEntry remainEntry)) cache)) =
+  recompileFile mClients (topEntry, remainEntry, proj)
 
 recompileFile :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
 recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot _ entrypoints) cache)) =

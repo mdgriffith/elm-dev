@@ -14,6 +14,7 @@ import qualified Data.ByteString.Char8
 import Data.Function ((&))
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
+import qualified Data.Map as Map
 import qualified Data.NonEmptyList as NE
 import qualified Develop.Generate.Help
 import qualified Elm.Docs as Docs
@@ -45,10 +46,14 @@ import qualified Stuff
 import qualified System.FilePath as Path
 import qualified Terminal.Dev.Error
 import qualified Terminal.Dev.Out as Out
+
+
 import qualified Watchtower.Editor
 import qualified Watchtower.Live
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.MCP
+import qualified Watchtower.State.Discover
+import qualified Watchtower.State.Project
 
 
 -- One off questions and answers you might have/want.
@@ -69,7 +74,7 @@ data Question
 
 data MakeDetails = MakeDetails
   { _cwd :: FilePath,
-    _makeEntrypoints :: [String],
+    _makeEntrypoints :: NE.List String,
     _makeDebug :: Maybe Bool,
     _makeOptimize :: Maybe Bool
   }
@@ -152,13 +157,21 @@ actionHandler state =
           maybeDebug <- getQueryParam "debug"
           maybeOptimize <- getQueryParam "optimize"
           case (maybeCwd, maybeEntryPoints) of
-            (Just cwd, Just entryPoints) -> do
-              let makeDetails = MakeDetails 
-                                  (Data.ByteString.Char8.unpack cwd) 
-                                  (unpackStringList entryPoints)
-                                  (fmap (== "true") maybeDebug)
-                                  (fmap (== "true") maybeOptimize)
-              questionHandler state (Make makeDetails)
+            (Just cwd, Just entrypoints) -> do
+              let entrypointList = Data.ByteString.Char8.split ',' entrypoints
+              case entrypointList of
+                (topEntrypoint:rest) -> do
+                  let makeDetails = MakeDetails 
+                                      (Data.ByteString.Char8.unpack cwd) 
+                                      (NE.List 
+                                        (Data.ByteString.Char8.unpack topEntrypoint) 
+                                        (map Data.ByteString.Char8.unpack rest)
+                                      )
+                                      (fmap (== "true") maybeDebug)
+                                      (fmap (== "true") maybeOptimize)
+                  questionHandler state (Make makeDetails)
+                _ ->
+                  writeBS "Needs at least one entrypoint"
             _ ->
               writeBS "Needs a cwd and entrypoints parameter"
  
@@ -298,46 +311,47 @@ ask state question =
   case question of
     ServerHealth ->
       pure (Json.Encode.encodeUgly (Json.Encode.chars "Roger dodger, ready to roll, in the pipe, five-by-five."))
+    
     Status ->
       allProjectStatuses state
 
-    Make makeDetails -> do
-      let entrypoints = _makeEntrypoints makeDetails
-      case entrypoints of
-        [] ->
-          pure (Out.asJsonUgly (Left (Terminal.Dev.Error.NoEntrypoints)))
+    
+    Discover dir -> do
+      Watchtower.State.Discover.discover state dir Map.empty
+      allProjectStatuses state
 
-        (topEntrypoint:rest) -> do
-          codegenResult <- Gen.Generate.run
-          case codegenResult of
-            Right () -> do
-              compilationResult <- Ext.CompileProxy.compile (_cwd makeDetails) (NE.List topEntrypoint rest)
-                (CompileHelpers.Flags
-                    (case (_makeOptimize makeDetails) of
-                      Just True -> CompileHelpers.Prod
-                      _ ->
-                          case (_makeDebug makeDetails) of
-                            Just True -> CompileHelpers.Debug
-                            _ -> CompileHelpers.Dev
-                    )
-                    (CompileHelpers.OutputTo CompileHelpers.Js)
+    Make (MakeDetails cwd entrypoints debug optimize) -> do
+      projectCache <- Watchtower.State.Project.upsert state cwd entrypoints  
+      codegenResult <- Gen.Generate.run
+      case codegenResult of
+        Right () -> do
+          compilationResult <- Ext.CompileProxy.compile cwd entrypoints
+            (CompileHelpers.Flags
+                (case optimize of
+                  Just True -> CompileHelpers.Prod
+                  _ ->
+                      case debug of
+                        Just True -> CompileHelpers.Debug
+                        _ -> CompileHelpers.Dev
                 )
+                (CompileHelpers.OutputTo CompileHelpers.Js)
+            )
 
-              case compilationResult of
-                Left reactorExit ->
-                  pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
+          case compilationResult of
+            Left reactorExit ->
+              pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
 
-                Right (CompileHelpers.CompiledJs js) ->
-                  pure (Data.ByteString.Builder.byteString "// success\n" <> js)
+            Right (CompileHelpers.CompiledJs js) ->
+              pure (Data.ByteString.Builder.byteString "// success\n" <> js)
 
-                Right (CompileHelpers.CompiledHtml html) ->
-                  pure html
+            Right (CompileHelpers.CompiledHtml html) ->
+              pure html
 
-                Right CompileHelpers.CompiledSkippedOutput ->
-                  pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
+            Right CompileHelpers.CompiledSkippedOutput ->
+              pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
 
-            Left err ->
-              pure (Json.Encode.encodeUgly (Json.Encode.chars err))
+        Left err ->
+          pure (Json.Encode.encodeUgly (Json.Encode.chars err))
 
     Docs (ForProject entrypoint) -> do
       maybeRoot <- Stuff.findRoot
@@ -441,11 +455,6 @@ ask state question =
           Just callgraph ->
             pure (Json.Encode.encodeUgly (Ext.Dev.CallGraph.encode callgraph))
 
-    Discover dir ->
-      do
-        Ext.Log.log Ext.Log.Questions $ "Discover: " ++ show dir
-        Ext.Dev.Project.discover dir
-          & fmap (\projects -> Json.Encode.encodeUgly (Json.Encode.list Ext.Dev.Project.encodeProjectJson projects))
 
     Explain location ->
       let path =
@@ -453,17 +462,17 @@ ask state question =
               Watchtower.Editor.PointLocation f _ ->
                 f
        in do
-            root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-            maybeExplanation <- Ext.Dev.Explain.explainAtLocation root location
-            case maybeExplanation of
-              Nothing ->
-                Json.Encode.null
-                  & Json.Encode.encodeUgly
-                  & pure
-              Just explanation ->
-                Ext.Dev.Explain.encode explanation
-                  & Json.Encode.encodeUgly
-                  & pure
+          root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+          maybeExplanation <- Ext.Dev.Explain.explainAtLocation root location
+          case maybeExplanation of
+            Nothing ->
+              Json.Encode.null
+                & Json.Encode.encodeUgly
+                & pure
+            Just explanation ->
+              Ext.Dev.Explain.encode explanation
+                & Json.Encode.encodeUgly
+                & pure
     FindDefinitionPlease location ->
       let path =
             case location of

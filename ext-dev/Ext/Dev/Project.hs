@@ -20,6 +20,7 @@ import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
 import Data.Function ((&))
 import qualified Data.List as List
+import qualified Data.NonEmptyList as NE
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Elm.Details
@@ -34,6 +35,7 @@ import qualified Reporting.Exit as Exit
 import qualified System.Directory as Dir
 import System.FilePath as FP ((</>))
 import Prelude hiding (lookup)
+import qualified StandaloneInstances
 
 defaultImports :: Set.Set ModuleName.Raw
 defaultImports =
@@ -113,9 +115,11 @@ Entrypoints:
 data Project = Project
   { _root :: FilePath,
     _projectRoot :: FilePath,
-    _entrypoints :: [FilePath]
+    _entrypoints :: NE.List FilePath
   }
   deriving (Show)
+
+
 
 equal :: Project -> Project -> Bool
 equal (Project root1 _ _) (Project root2 _ _) =
@@ -175,7 +179,11 @@ searchProjectHelp projectRoot projs root = do
       elmJsonExists <- Dir.doesFileExist (root </> "elm.json")
       newProjects <-
         if elmJsonExists
-          then (: projs) <$> createProject projectRoot root
+          then do
+            maybeProject <- captureProjectIfEntrypoints projectRoot root
+            case maybeProject of
+              Nothing -> pure projs
+              Just project -> pure (project : projs)
           else pure projs
 
       dirResult <- listDirectoriesSafe root
@@ -195,40 +203,37 @@ searchProjectHelp projectRoot projs root = do
  Otherwise, if this is an application, we look for a `Main.elm`
 
 -}
-createProject :: FilePath -> FilePath -> IO Project
-createProject projectRoot elmJsonRoot = do
+captureProjectIfEntrypoints :: FilePath -> FilePath -> IO (Maybe Project)
+captureProjectIfEntrypoints projectRoot elmJsonRoot = do
   outlineResult <- Elm.Outline.read elmJsonRoot
   case outlineResult of
     Right (Elm.Outline.App _) -> do
       maybeElmMain <- findFirstFileNamed "Main.elm" elmJsonRoot
       case maybeElmMain of
         Nothing ->
-          pure (Project elmJsonRoot projectRoot [])
+          pure Nothing
         Just main -> do
-          pure (Project elmJsonRoot projectRoot [main])
+          pure (Just (Project elmJsonRoot projectRoot (NE.List main [])))
     Right (Elm.Outline.Pkg pkg) -> do
       case Elm.Outline._pkg_exposed pkg of
         Elm.Outline.ExposedList rawModNameList ->
-          pure
-            ( Project
-                elmJsonRoot
-                projectRoot
-                (rawModuleNameToPackagePath elmJsonRoot <$> rawModNameList)
-            )
+          let paths = rawModuleNameToPackagePath elmJsonRoot <$> rawModNameList
+          in case paths of
+               [] -> pure Nothing
+               (x:xs) -> pure (Just (Project elmJsonRoot projectRoot (NE.List x xs)))
         Elm.Outline.ExposedDict dict ->
-          pure
-            ( Project
-                elmJsonRoot
-                projectRoot
-                (concatMap (\(_, modList) -> rawModuleNameToPackagePath elmJsonRoot <$> modList) dict)
-            )
+          let paths = concatMap (\(_, modList) -> rawModuleNameToPackagePath elmJsonRoot <$> modList) dict
+          in case paths of
+               [] -> pure Nothing
+               (x:xs) -> pure (Just (Project elmJsonRoot projectRoot (NE.List x xs)))
     Left err -> do
       _ <-
         Ext.Log.log
           Ext.Log.Live
           ( "Elm Outline Error: " <> Exit.toString (Exit.toOutlineReport err)
           )
-      pure (Project elmJsonRoot projectRoot [])
+      pure Nothing
+
 
 rawModuleNameToPackagePath :: FilePath -> ModuleName.Raw -> FilePath
 rawModuleNameToPackagePath root modul =
@@ -258,12 +263,12 @@ findFirstFileNamed named dir =
             Nothing
             dirs
 
-decodeProject :: Json.Decode.Decoder x Project
+decodeProject :: Json.Decode.Decoder String Project
 decodeProject =
   Project
     <$> Json.Decode.field "root" decodeFilePath
     <*> Json.Decode.field "projectRoot" decodeFilePath
-    <*> Json.Decode.field "entrypoints" (Json.Decode.list decodeFilePath)
+    <*> Json.Decode.field "entrypoints" (Json.Decode.nonEmptyList decodeFilePath "No entrypoints")
 
 decodeFilePath :: Json.Decode.Decoder x FilePath
 decodeFilePath =
@@ -286,5 +291,5 @@ encodeProjectJson (Project elmJson projectRoot entrypoints) =
       "entrypoints"
         ==> Json.Encode.list
           (Json.Encode.string . Json.String.fromChars)
-          entrypoints
+          (NE.toList entrypoints)
     ]

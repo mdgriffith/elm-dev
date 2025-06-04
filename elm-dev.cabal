@@ -230,6 +230,7 @@ Executable elm-dev
         Ext.MemoryCached.Build
         Ext.MemoryCached.Details
         Ext.MemoryCached.Generate
+        Ext.Disk.Build
         Ext.Project.Find
 
         -- elm-dev cli interface
@@ -254,6 +255,10 @@ Executable elm-dev
         Watchtower.Test
         Watchtower.Version
         Watchtower.Websocket
+        
+        Watchtower.State.Compile
+        Watchtower.State.Discover
+        Watchtower.State.Project
 
         -- elm-dev
         ElmDevElmVersion
@@ -289,6 +294,7 @@ Executable elm-dev
         Gen.Generate
         Gen.RunConfig
 
+        Modify
         Modify.Ui
 
 

@@ -18,7 +18,6 @@ import qualified Json.Encode as Encode
 data Cache =
   Cache
     { jsOutput :: MVar BS.ByteString
-    -- @TODO in future we could key this by project, so one watchtower for all projects?
     , compileResult :: MVar (Either Encode.Value Encode.Value)
     }
 

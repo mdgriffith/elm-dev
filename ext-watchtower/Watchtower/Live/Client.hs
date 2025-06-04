@@ -7,6 +7,7 @@ module Watchtower.Live.Client
     State (..),
     ProjectCache (..),
     ProjectStatus (..),
+    FileWatchType,
     getAllStatuses,
     getRoot,
     getProjectRoot,
@@ -46,6 +47,7 @@ import qualified Data.Name as Name
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.NonEmptyList as NE
 import qualified Elm.Docs as Docs
 import qualified Ext.Common
 import qualified Ext.Dev.Project
@@ -274,7 +276,7 @@ encodeOutgoing out =
                         "entrypoints"
                           ==> Json.Encode.list
                             (Json.Encode.string . Json.String.fromChars)
-                            (Ext.Dev.Project._entrypoints project),
+                            (NE.toList (Ext.Dev.Project._entrypoints project)),
                         "status" ==> status
                       ]
                 )
@@ -406,7 +408,7 @@ encodeStatus (Ext.Dev.Project.Project root projectRoot entrypoints, js) =
   Json.Encode.object
     [ "root" ==> Json.Encode.string (Json.String.fromChars root),
       "projectRoot" ==> Json.Encode.string (Json.String.fromChars projectRoot),
-      "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) entrypoints,
+      "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) (NE.toList entrypoints),
       "status" ==> js
     ]
 
