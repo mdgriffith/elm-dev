@@ -30,7 +30,6 @@ compileMode = unsafePerformIO $ do
           Just "memory" -> Memory
           Just "race" -> Race
           _ -> Disk
-  Ext.Log.log Ext.Log.Performance $ "setting compile mode: " <> show mode
   newMVar mode
 
 
