@@ -10,6 +10,7 @@ module Ext.Log
     , with
     , withAllBut
     , withPrintLockIf
+    , formatList
     )
     where
 
@@ -66,12 +67,15 @@ all =
 toString :: Flag -> String
 toString flag =
     case flag of 
+        WithLabels ->
+            "ElmDevWithLabels"
+
         Performance -> 
             "ElmDevPerformance"
 
         PerformanceTiming ->
             "ElmDevPerformanceTiming"
-        
+
         Live -> 
             "ElmDevLive"
 
@@ -138,21 +142,34 @@ toLabel flag =
         MemoryCache ->
             "🧠"
 
+{-# NOINLINE envLock #-}
+envLock :: MVar ()
+envLock = Unsafe.unsafePerformIO $ newMVar ()
+
+{-# NOINLINE printLock #-}
+printLock :: MVar ()
+printLock = Unsafe.unsafePerformIO $ newMVar ()
+
 with :: [ Flag ] -> IO a ->  IO a
 with flags io = do
-  Monad.mapM_ (\flag -> Env.setEnv (toString flag) "1") flags
-  result <- io
-  Monad.mapM_ (\flag -> Env.unsetEnv (toString flag)) flags
-  return result
-
+  -- Use tryTakeMVar to avoid blocking if we can't get the lock immediately
+  maybeLock <- tryTakeMVar envLock
+  case maybeLock of
+    Nothing -> do
+      -- If we can't get the lock, just run the IO without setting flags
+      io
+    Just _ -> do
+      -- We got the lock, set flags and run IO
+      Monad.mapM_ (\flag -> Env.setEnv (toString flag) "1") flags
+      result <- io
+      Monad.mapM_ (\flag -> Env.unsetEnv (toString flag)) flags
+      putMVar envLock () -- Release the lock
+      return result
 
 withAllBut :: [ Flag ] -> IO a ->  IO a
 withAllBut but io = do
   let flags = List.filter (\flag -> not $ List.elem flag but) Ext.Log.all
   with flags io
-
-
-
 
 log :: Flag -> String -> IO ()
 log flag message = do
@@ -160,7 +177,14 @@ log flag message = do
   case debugM of
     Just _ -> do 
         withLabels <- isActive WithLabels
-        atomicPutStrLn $ (if withLabels then (toLabel flag) ++ ": " else "") ++ message 
+        -- Use tryTakeMVar for printLock as well
+        maybePrintLock <- tryTakeMVar printLock
+        case maybePrintLock of
+          Nothing -> pure () -- Skip printing if we can't get the lock
+          Just _ -> do
+            IO.hPutStr IO.stdout ((if withLabels then (toLabel flag) ++ ": " else "") ++ message ++ "\n")
+            IO.hFlush IO.stdout
+            putMVar printLock () -- Release the lock
     Nothing -> pure ()
 
 
@@ -194,11 +218,6 @@ ifActive flag io = do
     pure ()
 
 
-{-# NOINLINE printLock #-}
-printLock :: MVar ()
-printLock = Unsafe.unsafePerformIO $ newMVar ()
-
-
 withPrintLockIf :: Flag -> IO.Handle -> (() -> IO ()) -> IO ()
 withPrintLockIf flag handle fn = do 
   flag <- isActive flag
@@ -215,3 +234,13 @@ printouts are atomic and un-garbled.
 atomicPutStrLn :: String -> IO ()
 atomicPutStrLn str =
   withMVar printLock (\_ -> IO.hPutStr IO.stdout (str <> "\n") >> IO.hFlush IO.stdout)
+
+
+formatList :: [String] -> String
+formatList strs =
+  List.foldr (\tail gathered -> gathered ++ indent 4 tail ++ "\n") "\n" strs
+
+
+indent :: Int -> String -> String
+indent i str =
+  List.replicate i ' ' ++ str
