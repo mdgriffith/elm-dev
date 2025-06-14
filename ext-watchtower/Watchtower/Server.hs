@@ -4,9 +4,15 @@ module Watchtower.Server (Flags (..), serve) where
 
 import Control.Applicative ((<|>))
 import Control.Monad.Trans (MonadIO (liftIO))
+import Data.Maybe as Maybe
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Develop.Generate.Help
 import qualified Ext.Common
+import qualified Ext.CompileMode
+import qualified Ext.FileCache as FileCache
 import qualified Ext.Filewatch
+import qualified Ext.Log
 import qualified Json.Encode
 import qualified Reporting.Annotation as Ann
 import Snap.Core hiding (path)
@@ -17,15 +23,6 @@ import qualified Watchtower.Live
 import qualified Watchtower.Live.Compile
 import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
-import Data.Maybe as Maybe
-
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-
-import qualified Ext.FileCache as FileCache
-
-import qualified Ext.CompileMode
-import qualified Ext.Log
 
 newtype Flags = Flags
   { _port :: Maybe Int
@@ -40,11 +37,10 @@ serve maybeRoot (Flags maybePort) =
     liveState <- Watchtower.Live.init
 
     debug <- Ext.Log.isActive Ext.Log.VerboseServer
-    Ext.Log.log Ext.Log.VerboseServer ("Running in " <> (show Ext.CompileMode.getMode) <> " Mode")
+    Ext.Log.log Ext.Log.VerboseServer ("Running in " <> show Ext.CompileMode.getMode <> " Mode")
     -- VSCode is telling us when files change
     -- Start file watcher for the memory mode
     -- Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
-
 
     Snap.Http.Server.httpServe (config port debug) $
       serveAssets
@@ -61,12 +57,8 @@ config port isDebug =
           (Snap.Http.Server.ConfigIoLog logger)
           Snap.Http.Server.defaultConfig
 
-
-logger =
-  (\bs ->
-      Ext.Log.log Ext.Log.VerboseServer  $ T.unpack $ T.decodeUtf8 bs
-  )
-
+logger bs =
+  Ext.Log.log Ext.Log.VerboseServer $ T.unpack $ T.decodeUtf8 bs
 
 -- SERVE STATIC ASSETS
 

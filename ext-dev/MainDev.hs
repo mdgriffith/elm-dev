@@ -1,8 +1,4 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE StandaloneDeriving #-}
 
 module MainDev (main) where
 
@@ -71,10 +67,6 @@ import qualified Text.Read
 import qualified Watchtower.Live
 import qualified Watchtower.Server
 
--- Helper functions
-parseMaybeInt :: String -> Maybe Int
-parseMaybeInt str = Text.Read.readMaybe str
-
 parseModuleList :: String -> Maybe (NE.List Elm.ModuleName.Raw)
 parseModuleList str = case Data.Maybe.catMaybes $ fmap parseElmModule (splitOn ',' str) of
   [] -> Nothing
@@ -120,7 +112,7 @@ devGroup = Just "Development"
 serverCommand :: CommandParser.Command
 serverCommand = CommandParser.command ["server"] "Start the Elm Dev server" devGroup CommandParser.noArg parseServerFlags runServer
   where
-    portFlag = CommandParser.flagWithArg "port" "Port to run the server on" parseMaybeInt
+    portFlag = CommandParser.flagWithArg "port" "Port to run the server on" Text.Read.readMaybe
     parseServerFlags = CommandParser.parseFlag portFlag
     runServer _ maybePort = do
       -- Ext.CompileMode.setModeMemory
@@ -149,6 +141,7 @@ docsCommand = CommandParser.command ["inspect", "docs"] "Report the docs.json" i
             Just docs ->
               Terminal.Dev.Out.json maybeOutput (Right (Docs.encode (Data.Map.singleton (Docs._name docs) docs)))
 
+pathOrModuleName :: CommandParser.Arg String
 pathOrModuleName = CommandParser.arg "My.Module"
 
 warningsCommand :: CommandParser.Command
@@ -272,7 +265,7 @@ entrypointsCommand = CommandParser.command ["inspect", "entrypoints"] "Report en
         Nothing ->
           Terminal.Dev.Out.json
             maybeOutput
-            (Left (Terminal.Dev.Error.CouldNotFindRoot))
+            (Left Terminal.Dev.Error.CouldNotFindRoot)
         Just root -> do
           entryResult <- Ext.Dev.entrypoints root
           case entryResult of
@@ -312,7 +305,7 @@ explainCommand = CommandParser.command ["inspect", "definition"] "Explain a defi
               maybeFound <- Ext.Dev.Explain.explain details root modName valueName
               case maybeFound of
                 Nothing ->
-                  Terminal.Dev.Out.json maybeOutput (Left (Terminal.Dev.Error.CouldNotFindModule))
+                  Terminal.Dev.Out.json maybeOutput (Left Terminal.Dev.Error.CouldNotFindModule)
                 Just definition ->
                   Terminal.Dev.Out.json maybeOutput (Right (Ext.Dev.Explain.encode definition))
 

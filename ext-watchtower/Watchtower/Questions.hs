@@ -12,15 +12,15 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Char8
 import Data.Function ((&))
+import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
-import qualified Data.Map as Map
 import qualified Data.NonEmptyList as NE
 import qualified Develop.Generate.Help
 import qualified Elm.Docs as Docs
 import qualified Ext.Common
-import qualified Ext.CompileProxy
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
+import qualified Ext.CompileProxy
 import qualified Ext.Dev
 import qualified Ext.Dev.CallGraph
 import qualified Ext.Dev.Docs
@@ -34,6 +34,7 @@ import qualified Ext.Sentry
 import qualified Gen.Generate
 import Json.Encode ((==>))
 import qualified Json.Encode
+import Language.Haskell.TH (doE)
 import qualified Reporting.Annotation
 import qualified Reporting.Doc
 import qualified Reporting.Exit as Exit
@@ -46,15 +47,12 @@ import qualified Stuff
 import qualified System.FilePath as Path
 import qualified Terminal.Dev.Error
 import qualified Terminal.Dev.Out as Out
-
-
 import qualified Watchtower.Editor
 import qualified Watchtower.Live
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.MCP
 import qualified Watchtower.State.Discover
 import qualified Watchtower.State.Project
-
 
 -- One off questions and answers you might have/want.
 data Question
@@ -79,7 +77,6 @@ data MakeDetails = MakeDetails
     _makeOptimize :: Maybe Bool
   }
 
-
 data DocsType
   = FromFile FilePath
   | ForPackage PackageDetails
@@ -102,25 +99,26 @@ pageToFile page =
 
 serve :: Watchtower.Live.State -> Snap ()
 serve state = do
-    mcpState <- liftIO $ do
-        initialState <- Watchtower.MCP.newMCPState
-        return $ Watchtower.MCP.registerCommand initialState (Watchtower.MCP.uptimeCommand initialState)
-    
-    route
-      [ ("/docs/:owner/:package/:version/:readme", docsHandler state),
-        ("/mcp/:action", Watchtower.MCP.handleMCP mcpState),
-        ("/:action", actionHandler state)
-      ]
+  mcpState <- liftIO $ do
+    initialState <- Watchtower.MCP.newMCPState
+    return $ Watchtower.MCP.registerCommand initialState (Watchtower.MCP.uptimeCommand initialState)
+
+  route
+    [ ("/docs/:owner/:package/:version/:readme", docsHandler state),
+      ("/mcp/:action", Watchtower.MCP.handleMCP mcpState),
+      ("/:action", actionHandler state)
+    ]
 
 questionHandler :: Watchtower.Live.State -> Question -> Snap ()
 questionHandler state question =
   Snap.Util.CORS.applyCORS Snap.Util.CORS.defaultOptions $ do
-      answer <- liftIO (ask state question)
-      writeBuilder answer
+    answer <- liftIO (ask state question)
+    writeBuilder answer
 
+unpackStringList :: Data.ByteString.Char8.ByteString -> [[Char]]
 unpackStringList string =
   fmap
-    (Data.ByteString.Char8.unpack)
+    Data.ByteString.Char8.unpack
     (Data.ByteString.Char8.split ',' string)
 
 docsHandler :: Watchtower.Live.State -> Snap ()
@@ -147,34 +145,32 @@ actionHandler state =
     case maybeAction of
       Just "status" ->
         questionHandler state Status
-
       Just "health" ->
         questionHandler state ServerHealth
-      
       Just "make" -> do
-          maybeCwd <- getQueryParam "cwd"
-          maybeEntryPoints <- getQueryParam "entrypoints"
-          maybeDebug <- getQueryParam "debug"
-          maybeOptimize <- getQueryParam "optimize"
-          case (maybeCwd, maybeEntryPoints) of
-            (Just cwd, Just entrypoints) -> do
-              let entrypointList = Data.ByteString.Char8.split ',' entrypoints
-              case entrypointList of
-                (topEntrypoint:rest) -> do
-                  let makeDetails = MakeDetails 
-                                      (Data.ByteString.Char8.unpack cwd) 
-                                      (NE.List 
-                                        (Data.ByteString.Char8.unpack topEntrypoint) 
-                                        (map Data.ByteString.Char8.unpack rest)
-                                      )
-                                      (fmap (== "true") maybeDebug)
-                                      (fmap (== "true") maybeOptimize)
-                  questionHandler state (Make makeDetails)
-                _ ->
-                  writeBS "Needs at least one entrypoint"
-            _ ->
-              writeBS "Needs a cwd and entrypoints parameter"
- 
+        maybeCwd <- getQueryParam "cwd"
+        maybeEntryPoints <- getQueryParam "entrypoints"
+        maybeDebug <- getQueryParam "debug"
+        maybeOptimize <- getQueryParam "optimize"
+        case (maybeCwd, maybeEntryPoints) of
+          (Just cwd, Just entrypoints) -> do
+            let entrypointList = Data.ByteString.Char8.split ',' entrypoints
+            case entrypointList of
+              (topEntrypoint : rest) -> do
+                let makeDetails =
+                      MakeDetails
+                        (Data.ByteString.Char8.unpack cwd)
+                        ( NE.List
+                            (Data.ByteString.Char8.unpack topEntrypoint)
+                            (map Data.ByteString.Char8.unpack rest)
+                        )
+                        (fmap (== "true") maybeDebug)
+                        (fmap (== "true") maybeOptimize)
+                questionHandler state (Make makeDetails)
+              _ ->
+                writeBS "Needs at least one entrypoint"
+          _ ->
+            writeBS "Needs a cwd and entrypoints parameter"
       Just "docs" ->
         do
           maybeFiles <- getQueryParam "file"
@@ -188,7 +184,6 @@ actionHandler state =
                   writeBS "Needs a file or an entrypoint parameter"
                 Just fileString -> do
                   questionHandler state (Docs (FromFile (Data.ByteString.Char8.unpack fileString)))
-     
       Just "warnings" ->
         do
           maybeFile <- getQueryParam "file"
@@ -311,48 +306,46 @@ ask state question =
   case question of
     ServerHealth ->
       pure (Json.Encode.encodeUgly (Json.Encode.chars "Roger dodger, ready to roll, in the pipe, five-by-five."))
-    
     Status ->
       allProjectStatuses state
-
-    
     Discover dir -> do
       Watchtower.State.Discover.discover state dir Map.empty
       allProjectStatuses state
-
     Make (MakeDetails cwd entrypoints debug optimize) -> do
-      projectCache <- Watchtower.State.Project.upsert state cwd entrypoints  
+      projectCache <- Watchtower.State.Project.upsert state cwd entrypoints
       codegenResult <- Gen.Generate.run
       case codegenResult of
         Right () -> do
-          compilationResult <- Ext.CompileProxy.compile cwd entrypoints
-            (CompileHelpers.Flags
-                (case optimize of
-                  Just True -> CompileHelpers.Prod
-                  _ ->
-                      case debug of
-                        Just True -> CompileHelpers.Debug
-                        _ -> CompileHelpers.Dev
-                )
-                (CompileHelpers.OutputTo CompileHelpers.Js)
-            )
+          compilationResult <-
+            Ext.CompileProxy.compile
+              cwd
+              entrypoints
+              ( CompileHelpers.Flags
+                  ( case optimize of
+                      Just True -> CompileHelpers.Prod
+                      _ ->
+                        case debug of
+                          Just True -> CompileHelpers.Debug
+                          _ -> CompileHelpers.Dev
+                  )
+                  (CompileHelpers.OutputTo CompileHelpers.Js)
+              )
 
           case compilationResult of
-            Left reactorExit ->
+            Left reactorExit -> do
+              putStrLn "Error, returning JSON"
               pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
-
-            Right (CompileHelpers.CompiledJs js) ->
+            Right (CompileHelpers.CompiledJs js) -> do
+              putStrLn "Success, returning JS"
               pure (Data.ByteString.Builder.byteString "// success\n" <> js)
-
-            Right (CompileHelpers.CompiledHtml html) ->
+            Right (CompileHelpers.CompiledHtml html) -> do
+              putStrLn "Success, returning HTML"
               pure html
-
-            Right CompileHelpers.CompiledSkippedOutput ->
+            Right CompileHelpers.CompiledSkippedOutput -> do
+              putStrLn "Success, returning skipped output"
               pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
-
         Left err ->
           pure (Json.Encode.encodeUgly (Json.Encode.chars err))
-
     Docs (ForProject entrypoint) -> do
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
@@ -371,7 +364,6 @@ ask state question =
                   pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor err)))
                 Right docs ->
                   pure (Out.asJsonUgly (Right (Docs.encode docs)))
-
     Docs (FromFile path) ->
       do
         root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
@@ -381,13 +373,11 @@ ask state question =
             pure (Json.Encode.encodeUgly (Json.Encode.chars "Docs are not available"))
           Just docs ->
             pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [docs])))
-
     Docs (ForPackage (PackageDetails owner package version page)) ->
       do
         elmHome <- Stuff.getElmHome
         let filepath = elmHome Path.</> "0.19.1" Path.</> "packages" Path.</> owner Path.</> package Path.</> version Path.</> pageToFile page
         Data.ByteString.Builder.byteString <$> BS.readFile filepath
-
     TimingParse path ->
       do
         Ext.Log.log Ext.Log.Questions $ "Parsing: " ++ show path
@@ -398,12 +388,11 @@ ask state question =
               result <- Ext.CompileProxy.parse root path
               case result of
                 Right _ ->
-                  Ext.Log.log Ext.Log.Questions $ "parsed succssfully"
+                  Ext.Log.log Ext.Log.Questions "parsed succssfully"
                 Left _ ->
-                  Ext.Log.log Ext.Log.Questions $ "parsing failed"
+                  Ext.Log.log Ext.Log.Questions "parsing failed"
           )
         pure (Json.Encode.encodeUgly (Json.Encode.chars "The parser has been run, my liege"))
-
     Warnings path ->
       do
         Ext.Log.log Ext.Log.Questions $ "Warnings: " ++ show path
@@ -421,7 +410,6 @@ ask state question =
                 Json.Encode.encodeUgly (Json.Encode.chars "Parser error")
 
         pure jsonResult
-
     InScopeProject file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Scope: " ++ show file
@@ -432,7 +420,6 @@ ask state question =
             pure (Json.Encode.encodeUgly (Json.Encode.chars "No scope"))
           Just scope ->
             pure (Json.Encode.encodeUgly (Ext.Dev.InScope.encodeProjectScope scope))
-
     InScopeFile file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Scope: " ++ show file
@@ -443,7 +430,6 @@ ask state question =
             pure (Json.Encode.encodeUgly (Json.Encode.chars "No scope"))
           Just scope ->
             pure (Json.Encode.encodeUgly (Ext.Dev.InScope.encodeFileScope scope))
-
     CallGraph file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Callgraph: " ++ show file
@@ -454,25 +440,23 @@ ask state question =
             pure (Json.Encode.encodeUgly (Json.Encode.chars "No callgraph"))
           Just callgraph ->
             pure (Json.Encode.encodeUgly (Ext.Dev.CallGraph.encode callgraph))
-
-
     Explain location ->
       let path =
             case location of
               Watchtower.Editor.PointLocation f _ ->
                 f
        in do
-          root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
-          maybeExplanation <- Ext.Dev.Explain.explainAtLocation root location
-          case maybeExplanation of
-            Nothing ->
-              Json.Encode.null
-                & Json.Encode.encodeUgly
-                & pure
-            Just explanation ->
-              Ext.Dev.Explain.encode explanation
-                & Json.Encode.encodeUgly
-                & pure
+            root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+            maybeExplanation <- Ext.Dev.Explain.explainAtLocation root location
+            case maybeExplanation of
+              Nothing ->
+                Json.Encode.null
+                  & Json.Encode.encodeUgly
+                  & pure
+              Just explanation ->
+                Ext.Dev.Explain.encode explanation
+                  & Json.Encode.encodeUgly
+                  & pure
     FindDefinitionPlease location ->
       let path =
             case location of
