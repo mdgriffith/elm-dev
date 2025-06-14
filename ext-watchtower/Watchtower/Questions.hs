@@ -44,6 +44,7 @@ import qualified Reporting.Warning as Warning
 import Snap.Core hiding (path)
 import qualified Snap.Util.CORS
 import qualified Stuff
+import qualified System.Directory as Dir (withCurrentDirectory)
 import qualified System.FilePath as Path
 import qualified Terminal.Dev.Error
 import qualified Terminal.Dev.Out as Out
@@ -313,39 +314,42 @@ ask state question =
       allProjectStatuses state
     Make (MakeDetails cwd entrypoints debug optimize) -> do
       projectCache <- Watchtower.State.Project.upsert state cwd entrypoints
-      codegenResult <- Gen.Generate.run
-      case codegenResult of
-        Right () -> do
-          compilationResult <-
-            Ext.CompileProxy.compile
-              cwd
-              entrypoints
-              ( CompileHelpers.Flags
-                  ( case optimize of
-                      Just True -> CompileHelpers.Prod
-                      _ ->
-                        case debug of
-                          Just True -> CompileHelpers.Debug
-                          _ -> CompileHelpers.Dev
-                  )
-                  (CompileHelpers.OutputTo CompileHelpers.Js)
-              )
+      Dir.withCurrentDirectory cwd $ do
+        putStrLn "Starting generation"
+        codegenResult <- Gen.Generate.run
+        case codegenResult of
+          Right () -> do
+            compilationResult <-
+              Ext.CompileProxy.compile
+                cwd
+                entrypoints
+                ( CompileHelpers.Flags
+                    ( case optimize of
+                        Just True -> CompileHelpers.Prod
+                        _ ->
+                          case debug of
+                            Just True -> CompileHelpers.Debug
+                            _ -> CompileHelpers.Dev
+                    )
+                    (CompileHelpers.OutputTo CompileHelpers.Js)
+                )
 
-          case compilationResult of
-            Left reactorExit -> do
-              putStrLn "Error, returning JSON"
-              pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
-            Right (CompileHelpers.CompiledJs js) -> do
-              putStrLn "Success, returning JS"
-              pure (Data.ByteString.Builder.byteString "// success\n" <> js)
-            Right (CompileHelpers.CompiledHtml html) -> do
-              putStrLn "Success, returning HTML"
-              pure html
-            Right CompileHelpers.CompiledSkippedOutput -> do
-              putStrLn "Success, returning skipped output"
-              pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
-        Left err ->
-          pure (Json.Encode.encodeUgly (Json.Encode.chars err))
+            case compilationResult of
+              Left reactorExit -> do
+                putStrLn "Error, returning JSON"
+                pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
+              Right (CompileHelpers.CompiledJs js) -> do
+                putStrLn "Success, returning JS"
+                pure (Data.ByteString.Builder.byteString "// success\n" <> js)
+              Right (CompileHelpers.CompiledHtml html) -> do
+                putStrLn "Success, returning HTML"
+                pure html
+              Right CompileHelpers.CompiledSkippedOutput -> do
+                putStrLn "Success, returning skipped output"
+                pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
+          Left err -> do
+            putStrLn $ "Error generating: " ++ show err
+            pure (Json.Encode.encodeUgly (Json.Encode.chars err))
     Docs (ForProject entrypoint) -> do
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
