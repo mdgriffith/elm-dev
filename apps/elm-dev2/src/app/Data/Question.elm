@@ -13,7 +13,6 @@ import Effect exposing (Effect)
 import Effect.Http
 import Http
 import Json.Decode as Decode
-import Store.Projects
 import Url.Builder
 
 

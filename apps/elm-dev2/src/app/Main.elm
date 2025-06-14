@@ -44,7 +44,6 @@ main =
 
                     -- , Effect.Http.get "http://localhost:51213/health"
                     --     (Effect.Http.expectString HealthReceived)
-                    , Data.Question.status StatusReceived
                     ]
                 )
         , onUrlRequest = UrlRequested
@@ -98,7 +97,6 @@ main =
 type Msg
     = UrlRequested Browser.UrlRequest
     | UrlChanged Url.Url
-    | StatusReceived (Result Http.Error Data.Question.Status)
     | HealthReceived (Result Http.Error String)
     | DevServerReceived Listen.DevServer.Event
 
@@ -118,21 +116,14 @@ update stores msg model =
         HealthReceived health ->
             let
                 _ =
-                    Debug.log "Health" health
-            in
-            ( model, Effect.none )
-
-        StatusReceived status ->
-            let
-                _ =
-                    Debug.log "Status" status
+                    Debug.log "RECVD:Health" health
             in
             ( model, Effect.none )
 
         DevServerReceived event ->
             let
                 _ =
-                    Debug.log "DevServer" event
+                    Debug.log "RECVD:DevServer" event
             in
             case event of
                 Listen.DevServer.ServerStatusUpdated server ->
@@ -140,7 +131,7 @@ update stores msg model =
                         _ =
                             Debug.log "ServerStatusUpdated" server
                     in
-                    ( model, Data.Question.status StatusReceived )
+                    ( model, Effect.none )
 
                 _ ->
                     ( model, Effect.none )
