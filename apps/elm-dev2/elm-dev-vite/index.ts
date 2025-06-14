@@ -78,8 +78,14 @@ async function compileElmModule(root: string, id: string, options: { debug: bool
             return { error: json };
         }
     } catch (error) {
-        console.log('Falling back to elm-dev command', error);
-        // If dev server fails, fall back to spawning elm-dev
+        // Check if error is ECONNREFUSED
+        if (error?.cause?.code === 'ECONNREFUSED') {
+            console.log('Elm Dev server not running, falling back to CLI');
+        } else {
+            console.log('Error connecting to Elm Dev server, falling back to CLI:', error);
+        }
+
+        // Fall back to spawning elm-dev
         return new Promise<Result>((resolve, reject) => {
             const args = ['make', path.join(".", id), '--output=stdout'];
             if (debug) {
@@ -88,6 +94,8 @@ async function compileElmModule(root: string, id: string, options: { debug: bool
             if (optimize) {
                 args.push('--optimize');
             }
+
+            args.push('--report=json');
 
             const elmDev = spawn('elm-dev', args, { shell: true });
             let output = '';
@@ -105,7 +113,7 @@ async function compileElmModule(root: string, id: string, options: { debug: bool
                 if (code === 0) {
                     resolve({ success: output });
                 } else {
-                    resolve({ error: { error } });
+                    resolve({ error: JSON.parse(error) });
                 }
             });
         });
@@ -233,10 +241,10 @@ export default function elmDevPlugin(options: ElmDevPluginOptions = {}): Plugin 
             const compilationPromise = compileElmModule(viteConfigRoot, id, { debug, optimize })
                 .then(result => {
                     if ('error' in result) {
-                        console.log("ERROR FROM SERVER", result.error);
+                        const errorHtml = ElmErrorJson.toColoredHtmlOutput(result.error);
                         server?.ws.send('elm:error', {
                             id,
-                            error: ElmErrorJson.toColoredHtmlOutput(result.error)
+                            error: errorHtml
                         })
                         setError(id, result.error, compilationCache);
                         if (moduleState.code) {
