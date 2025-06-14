@@ -258,8 +258,8 @@ findStores dir = do
           filter (\f -> FilePath.takeExtension f == ".elm") files
 
 -- | Convert a RunConfig to a SHA hash string
-toHash :: RunConfig -> String
+toHash :: RunConfig -> Text.Text
 toHash config =
   let jsonBytes = Data.Aeson.encode (toJSON config)
       digest = SHA.sha1 jsonBytes
-   in SHA.showDigest digest
+   in Text.pack (SHA.showDigest digest)
