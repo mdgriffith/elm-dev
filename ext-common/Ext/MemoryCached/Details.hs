@@ -1,7 +1,7 @@
 -- Clone of builder/src/Elm/Details.hs modified to use MemoryCached.*
 
 {-# OPTIONS_GHC -Wall #-}
-{-# LANGUAGE BangPatterns, OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Ext.MemoryCached.Details
   ( Details(..)
   , BuildID
@@ -52,7 +52,7 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline as Outline
 import qualified Elm.Package as Pkg
 import qualified Elm.Version as V
-import qualified Ext.FileCache as File
+import qualified Ext.FileCache
 import qualified Http
 import qualified Json.Decode as D
 import qualified Json.Encode as E
@@ -63,34 +63,25 @@ import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Stuff
 import qualified Ext.Log
-
-
--- import Elm.Details (Details(..), Extras(..), ValidOutline(..))
+import qualified Elm.Details
 import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..), Local(..))
 
 
 import System.IO.Unsafe (unsafePerformIO)
 
--- DETAILS
+{-
+Because you keep forgetting,
 
+This is a clone of builder/src/Elm/Details.hs modified to use MemoryCached.*
 
--- data Details =
---   Details
---     { _outlineTime :: File.Time
---     , _outline :: ValidOutline
---     , _buildID :: BuildID
---     , _locals :: Map.Map ModuleName.Raw Local
---     , _foreigns :: Map.Map ModuleName.Raw Foreign
---     , _extras :: Extras
---     }
+Specifically look for Ext.FileCache calls to see where the changes are.
+
+<3
+
+-}
 
 
 type BuildID = Word64
-
-
--- data ValidOutline
---   = ValidApp (NE.List Outline.SrcDir)
---   | ValidPkg Pkg.Name [ModuleName.Raw] (Map.Map Pkg.Name V.Version {- for docs in reactor -})
 
 
 -- NOTE: we need two ways to detect if a file must be recompiled:
@@ -138,14 +129,14 @@ loadObjects :: FilePath -> Details -> IO (MVar (Maybe Opt.GlobalGraph))
 loadObjects root (Details _ _ _ _ _ extras) =
   case extras of
     ArtifactsFresh _ o -> newMVar (Just o)
-    ArtifactsCached    -> fork (File.readBinary (Stuff.objects root))
+    ArtifactsCached    -> fork (Ext.FileCache.readBinary (Stuff.objects root))
 
 
 loadInterfaces :: FilePath -> Details -> IO (MVar (Maybe Interfaces))
 loadInterfaces root (Details _ _ _ _ _ extras) =
   case extras of
     ArtifactsFresh i _ -> newMVar (Just i)
-    ArtifactsCached    -> fork (File.readBinary (Stuff.interfaces root))
+    ArtifactsCached    -> fork (Ext.FileCache.readBinary (Stuff.interfaces root))
 
 
 
@@ -154,7 +145,7 @@ loadInterfaces root (Details _ _ _ _ _ extras) =
 
 verifyInstall :: BW.Scope -> FilePath -> Solver.Env -> Outline.Outline -> IO (Either Exit.Details ())
 verifyInstall scope root (Solver.Env cache manager connection registry) outline =
-  do  time <- File.getTime (root </> "elm.json")
+  do  time <- Ext.FileCache.getTime (root </> "elm.json")
       let key = Reporting.ignorer
       let env = Env key scope root cache manager connection registry
       case outline of
@@ -178,10 +169,10 @@ load style scope root = do
   detailsCacheM <- readMVar detailsCache
   case detailsCacheM of
     Just details -> do
-      Ext.Log.log Ext.Log.MemoryCache $ "🎯 details cache hit"
+      Ext.Log.log Ext.Log.MemoryCache "🎯 details cache hit"
       pure $ Right details
     Nothing -> do
-      Ext.Log.log Ext.Log.MemoryCache $ "❌ details cache miss"
+      Ext.Log.log Ext.Log.MemoryCache "❌ details cache miss"
       modifyMVar detailsCache (\_ -> do
           detailsR <- load_ style scope root
           case detailsR of
@@ -194,8 +185,10 @@ load style scope root = do
 
 load_ :: Reporting.Style -> BW.Scope -> FilePath -> IO (Either Exit.Details Details)
 load_ style scope root =
-  do  newTime <- File.getTime (root </> "elm.json")
-      maybeDetails <- File.readBinary (Stuff.details root)
+  do  newTime <- Ext.FileCache.getTime (root </> "elm.json")
+      putStrLn "LOADING"
+      maybeDetails <- Ext.FileCache.readBinary (Stuff.details root)
+      putStrLn "DETAILS LOADED"
       case maybeDetails of
         Nothing ->
           generate style scope root newTime
@@ -210,7 +203,7 @@ load_ style scope root =
 -- GENERATE
 
 
-generate :: Reporting.Style -> BW.Scope -> FilePath -> File.Time -> IO (Either Exit.Details Details)
+generate :: Reporting.Style -> BW.Scope -> FilePath -> Ext.FileCache.Time -> IO (Either Exit.Details Details)
 generate style scope root time =
   Reporting.trackDetails style $ \key ->
     do  result <- initEnv key scope root
@@ -265,7 +258,7 @@ initEnv key scope root =
 type Task a = Task.Task Exit.Details a
 
 
-verifyPkg :: Env -> File.Time -> Outline.PkgOutline -> Task Details
+verifyPkg :: Env -> Ext.FileCache.Time -> Outline.PkgOutline -> Task Details
 verifyPkg env time (Outline.PkgOutline pkg _ _ _ exposed direct testDirect elm) =
   if Con.goodElm elm
   then
@@ -277,7 +270,7 @@ verifyPkg env time (Outline.PkgOutline pkg _ _ _ exposed direct testDirect elm) 
     Task.throw $ Exit.DetailsBadElmInPkg elm
 
 
-verifyApp :: Env -> File.Time -> Outline.AppOutline -> Task Details
+verifyApp :: Env -> Ext.FileCache.Time -> Outline.AppOutline -> Task Details
 verifyApp env time outline@(Outline.AppOutline elmVersion srcDirs direct _ _ _) =
   if elmVersion == V.compiler
   then
@@ -347,7 +340,7 @@ fork work =
 -- VERIFY DEPENDENCIES
 
 
-verifyDependencies :: Env -> File.Time -> ValidOutline -> Map.Map Pkg.Name Solver.Details -> Map.Map Pkg.Name a -> Task Details
+verifyDependencies :: Env -> Ext.FileCache.Time -> ValidOutline -> Map.Map Pkg.Name Solver.Details -> Map.Map Pkg.Name a -> Task Details
 verifyDependencies env@(Env key scope root cache _ _ _) time outline solution directDeps =
   Task.eio id $
   do  Reporting.report key (Reporting.DStart (Map.size solution))
@@ -421,7 +414,7 @@ verifyDep (Env key _ _ cache manager _ _) depsMVar solution pkg details@(Solver.
       if exists
         then
           do  Reporting.report key Reporting.DCached
-              maybeCache <- File.readBinary (Stuff.package cache pkg vsn </> "artifacts.dat")
+              maybeCache <- Ext.FileCache.readBinary (Stuff.package cache pkg vsn </> "artifacts.dat")
               case maybeCache of
                 Nothing ->
                   build key cache depsMVar pkg details fingerprint Set.empty
@@ -516,7 +509,7 @@ build key cache depsMVar pkg (Solver.Details vsn _) f fs =
                                     fingerprints = Set.insert f fs
                                   in
                                   do  writeDocs cache pkg vsn docsStatus results
-                                      File.writeBinary path (ArtifactCache fingerprints artifacts)
+                                      Ext.FileCache.writeBinary path (ArtifactCache fingerprints artifacts)
                                       Reporting.report key Reporting.DBuilt
                                       return (Right artifacts)
 
@@ -607,7 +600,7 @@ data Status
 crawlModule :: Map.Map ModuleName.Raw ForeignInterface -> MVar StatusDict -> Pkg.Name -> FilePath -> DocsStatus -> ModuleName.Raw -> IO (Maybe Status)
 crawlModule foreignDeps mvar pkg src docsStatus name =
   do  let path = src </> ModuleName.toFilePath name <.> "elm"
-      exists <- File.exists path
+      exists <- Ext.FileCache.exists path
       case Map.lookup name foreignDeps of
         Just ForeignAmbiguous ->
           return Nothing
@@ -630,7 +623,7 @@ crawlModule foreignDeps mvar pkg src docsStatus name =
 
 crawlFile :: Map.Map ModuleName.Raw ForeignInterface -> MVar StatusDict -> Pkg.Name -> FilePath -> DocsStatus -> ModuleName.Raw -> FilePath -> IO (Maybe Status)
 crawlFile foreignDeps mvar pkg src docsStatus expectedName path =
-  do  bytes <- File.readUtf8 path
+  do  bytes <- Ext.FileCache.readUtf8 path
       case Parse.fromByteString (Parse.Package pkg) bytes of
         Right modul@(Src.Module (Just (A.At _ actualName)) _ _ imports _ _ _ _ _) | expectedName == actualName ->
           do  deps <- crawlImports foreignDeps mvar pkg src imports
@@ -654,10 +647,10 @@ crawlImports foreignDeps mvar pkg src imports =
 crawlKernel :: Map.Map ModuleName.Raw ForeignInterface -> MVar StatusDict -> Pkg.Name -> FilePath -> ModuleName.Raw -> IO (Maybe Status)
 crawlKernel foreignDeps mvar pkg src name =
   do  let path = src </> ModuleName.toFilePath name <.> "js"
-      exists <- File.exists path
+      exists <- Ext.FileCache.exists path
       if exists
         then
-          do  bytes <- File.readUtf8 path
+          do  bytes <- Ext.FileCache.readUtf8 path
               case Kernel.fromByteString pkg (Map.mapMaybe getDepHome foreignDeps) bytes of
                 Nothing ->
                   return Nothing
@@ -739,7 +732,7 @@ data DocsStatus
 
 getDocsStatus :: Stuff.PackageCache -> Pkg.Name -> V.Version -> IO DocsStatus
 getDocsStatus cache pkg vsn =
-  do  exists <- File.exists (Stuff.package cache pkg vsn </> "docs.json")
+  do  exists <- Ext.FileCache.exists (Stuff.package cache pkg vsn </> "docs.json")
       if exists
         then return DocsNotNeeded
         else return DocsNeeded
@@ -802,7 +795,7 @@ downloadPackage cache manager pkg vsn =
               Http.getArchive manager endpoint Exit.PP_BadArchiveRequest (Exit.PP_BadArchiveContent endpoint) $
                 \(sha, archive) ->
                   if expectedHash == Http.shaToChars sha
-                  then Right <$> File.writePackage (Stuff.package cache pkg vsn) archive
+                  then Right <$> Ext.FileCache.writePackage (Stuff.package cache pkg vsn) archive
                   else return $ Left $ Exit.PP_BadArchiveHash endpoint expectedHash (Http.shaToChars sha)
 
 
