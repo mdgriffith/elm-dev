@@ -133,7 +133,7 @@ readUtf8 path = do
   res <- lookup path
   case res of
     Just (t, x) -> do
-      -- log $ "✅👀r " ++ show path
+      -- putStrLn $ "✅👀r " ++ show path
       if x == "E"
         then do
           t <- File.readUtf8 path
@@ -190,14 +190,18 @@ readBinary path = do
               pure Nothing
 
     Nothing -> do
-      -- log $ "❌👀rb " ++ show path
-      t <- readUtf8 path
-      insert path t
-      case Binary.decodeOrFail $ BSL.fromStrict t of
-        Right (bs, offset, a) ->
-          pure (Just a)
-        Left (bs, offset, message) ->
-          pure Nothing
+      exists <- File.exists path
+      if exists then do 
+        -- log $ "❌👀rb " ++ show path
+        t <- readUtf8 path
+        insert path t
+        case Binary.decodeOrFail $ BSL.fromStrict t of
+          Right (bs, offset, a) ->
+            pure (Just a)
+          Left (bs, offset, message) ->
+            pure Nothing
+      else 
+        pure Nothing
 
 
 type Time = File.Time
