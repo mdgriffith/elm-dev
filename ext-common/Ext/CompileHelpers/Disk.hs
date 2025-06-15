@@ -2,7 +2,6 @@ module Ext.CompileHelpers.Disk
   ( compile
   , compileToDocs
   , compileToDocsCached
-  , compileWithoutJsGen
   , allPackageArtifacts
   )
 where
@@ -65,19 +64,6 @@ compile root paths flags@(CompileHelpers.Flags mode output) = do
           artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.Disk.Build.fromPaths compilationFlags Reporting.silent root details paths
           
           CompileHelpers.generate root details mode artifacts output
-
-
-compileWithoutJsGen :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor Build.Artifacts)
-compileWithoutJsGen root paths =
-  do
-    Dir.withCurrentDirectory root $
-      BW.withScope $ \scope -> Stuff.withRootLock root $
-        Task.run $
-          do
-            details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
-            
-            Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details paths
-            
 
 
 compileToDocs :: FilePath -> NE.List ModuleName.Raw -> IO (Either Exit.Reactor Elm.Docs.Documentation)
