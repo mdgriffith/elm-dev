@@ -186,9 +186,7 @@ load style scope root = do
 load_ :: Reporting.Style -> BW.Scope -> FilePath -> IO (Either Exit.Details Details)
 load_ style scope root =
   do  newTime <- Ext.FileCache.getTime (root </> "elm.json")
-      putStrLn "LOADING"
       maybeDetails <- Ext.FileCache.readBinary (Stuff.details root)
-      putStrLn "DETAILS LOADED"
       case maybeDetails of
         Nothing ->
           generate style scope root newTime

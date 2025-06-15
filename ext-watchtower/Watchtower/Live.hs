@@ -25,7 +25,6 @@ import qualified Develop.Generate.Help
 import qualified Ext.CompileMode
 import qualified Ext.CompileProxy
 import qualified Ext.Dev.Project
-import qualified Ext.FileProxy
 import qualified Ext.Log
 import qualified Ext.Sentry
 import qualified Json.Decode

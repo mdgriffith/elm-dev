@@ -10,7 +10,6 @@ import qualified Data.Text.Encoding as T
 import qualified Develop.Generate.Help
 import qualified Ext.Common
 import qualified Ext.CompileMode
-import qualified Ext.FileCache as FileCache
 import qualified Ext.Filewatch
 import qualified Ext.Log
 import qualified Json.Encode

@@ -14,7 +14,6 @@ import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.NonEmptyList as NE
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
-import qualified Ext.FileCache
 import qualified Ext.MemoryCached.Build
 import qualified Ext.MemoryCached.Details
 import qualified Json.Encode as Encode

@@ -52,6 +52,7 @@ import qualified Watchtower.Editor
 import qualified Watchtower.Live
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.MCP
+import qualified Watchtower.State.Compile
 import qualified Watchtower.State.Discover
 import qualified Watchtower.State.Project
 
@@ -313,43 +314,32 @@ ask state question =
       Watchtower.State.Discover.discover state dir Map.empty
       allProjectStatuses state
     Make (MakeDetails cwd entrypoints debug optimize) -> do
-      projectCache <- Watchtower.State.Project.upsert state cwd entrypoints
-      Dir.withCurrentDirectory cwd $ do
-        putStrLn "Starting generation"
-        codegenResult <- Gen.Generate.run
-        case codegenResult of
-          Right () -> do
-            compilationResult <-
-              Ext.CompileProxy.compile
-                cwd
-                entrypoints
-                ( CompileHelpers.Flags
-                    ( case optimize of
-                        Just True -> CompileHelpers.Prod
-                        _ ->
-                          case debug of
-                            Just True -> CompileHelpers.Debug
-                            _ -> CompileHelpers.Dev
-                    )
-                    (CompileHelpers.OutputTo CompileHelpers.Js)
-                )
-
-            case compilationResult of
-              Left reactorExit -> do
-                putStrLn "Error, returning JSON"
-                pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
-              Right (CompileHelpers.CompiledJs js) -> do
-                putStrLn "Success, returning JS"
-                pure (Data.ByteString.Builder.byteString "// success\n" <> js)
-              Right (CompileHelpers.CompiledHtml html) -> do
-                putStrLn "Success, returning HTML"
-                pure html
-              Right CompileHelpers.CompiledSkippedOutput -> do
-                putStrLn "Success, returning skipped output"
-                pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
-          Left err -> do
-            putStrLn $ "Error generating: " ++ show err
-            pure (Json.Encode.encodeUgly (Json.Encode.chars err))
+      let flags =
+            CompileHelpers.Flags
+              ( case optimize of
+                  Just True -> CompileHelpers.Prod
+                  _ ->
+                    case debug of
+                      Just True -> CompileHelpers.Debug
+                      _ -> CompileHelpers.Dev
+              )
+              (CompileHelpers.OutputTo CompileHelpers.Js)
+      projectCache <- Watchtower.State.Project.upsert state flags cwd entrypoints
+      compilationResult <- Watchtower.State.Compile.compile flags projectCache
+      case compilationResult of
+        Left (Watchtower.State.Compile.ReactorError reactorExit) ->
+          pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
+        Left (Watchtower.State.Compile.GenerationError err) ->
+          pure (Json.Encode.encodeUgly (Json.Encode.chars err))
+        Right (CompileHelpers.CompiledJs js) -> do
+          putStrLn "Success, returning JS"
+          pure (Data.ByteString.Builder.byteString "// success\n" <> js)
+        Right (CompileHelpers.CompiledHtml html) -> do
+          putStrLn "Success, returning HTML"
+          pure html
+        Right CompileHelpers.CompiledSkippedOutput -> do
+          putStrLn "Success, returning skipped output"
+          pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
     Docs (ForProject entrypoint) -> do
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
