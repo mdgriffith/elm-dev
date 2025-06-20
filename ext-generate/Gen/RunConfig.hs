@@ -9,6 +9,7 @@ import qualified Data.Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
+import Data.Char (isAlpha, toUpper)
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.List as List
 import qualified Data.Map as Map
@@ -25,7 +26,7 @@ data RunConfig = RunConfig
     appView :: [String],
     docs :: Maybe Docs,
     assets :: Maybe [AssetGroup],
-    theme :: Maybe Config.Theme
+    theme :: Maybe Value
   }
   deriving (Generic)
 
@@ -140,6 +141,32 @@ instance FromJSON AssetGroup
 
 instance ToJSON AssetGroup
 
+-- | Format asset source path for name field
+-- 1. Eliminate all leading punctuation and numbers
+-- 2. Split the path into its pieces
+-- 3. Capitalize every piece
+-- 4. Join into a string
+formatAssetName :: Text.Text -> String
+formatAssetName assetSrc =
+  let pathStr = Text.unpack assetSrc
+      -- Split path into pieces and filter out empty strings
+      pathPieces = filter (not . null) $ FilePath.splitPath pathStr
+      -- For each piece, remove leading punctuation/numbers and capitalize
+      formattedPieces = map formatPathPiece pathPieces
+   in concat formattedPieces
+  where
+    formatPathPiece :: String -> String
+    formatPathPiece piece =
+      let -- Remove file extension if present
+          withoutExt = FilePath.dropExtension piece
+          -- Remove leading punctuation and numbers
+          cleaned = dropWhile (not . isAlpha) withoutExt
+          -- Capitalize first letter
+          capitalized = case cleaned of
+            [] -> []
+            (c : cs) -> toUpper c : cs
+       in capitalized
+
 toRunConfig :: FilePath -> Config.Config -> IO RunConfig
 toRunConfig cwd config = do
   -- Convert stores by reading store files
@@ -179,16 +206,11 @@ toRunConfig cwd config = do
   docs <- case Config.configDocs config of
     Nothing -> return Nothing
     Just docsConfig -> do
-      let docsPath = cwd FilePath.</> Text.unpack (Config.docsSrc docsConfig)
-
-      -- Read README if it exists
-      readmeContent <- tryReadFile (docsPath FilePath.</> "README.md")
-
       -- Read guides
       guides <- case Config.docsGuides docsConfig of
         Nothing -> return []
         Just guidePaths -> forM (map Text.unpack guidePaths) $ \guidePath -> do
-          content <- tryReadFile (docsPath FilePath.</> guidePath FilePath.<.> "md")
+          content <- tryReadFile (cwd FilePath.</> guidePath FilePath.<.> "md")
           return
             Guide
               { guideName = FilePath.dropExtension guidePath,
@@ -198,7 +220,7 @@ toRunConfig cwd config = do
       return $
         Just
           Docs
-            { readme = readmeContent,
+            { readme = Nothing,
               guides = guides,
               project = Data.Aeson.Null, -- Placeholder, would need project documentation
               modules = [], -- Placeholder, would need module documentation
@@ -209,15 +231,16 @@ toRunConfig cwd config = do
   assets <- case Config.configAssets config of
     Nothing -> return Nothing
     Just assetConfigs -> do
-      assetGroups <- forM (Map.toList assetConfigs) $ \(name, conf) -> do
+      assetGroups <- forM assetConfigs $ \conf -> do
         let srcPath = Text.unpack (Config.assetSrc conf)
             serverPath = Text.unpack (Config.assetOnServer conf)
             crumbPath = FilePath.splitPath srcPath
+            name = formatAssetName (Config.assetSrc conf)
 
         content <- tryReadFile (cwd FilePath.</> srcPath)
         return
           AssetGroup
-            { name = Text.unpack name,
+            { name = name,
               crumbs = filter (not . null) $ map FilePath.dropTrailingPathSeparator crumbPath,
               pathOnServer = serverPath,
               content = maybe "" id content
@@ -233,8 +256,8 @@ toRunConfig cwd config = do
             else Just App {pages = pages, stores = stores},
         appView = ["primary"],
         docs = Nothing, -- docs
-        assets = Nothing, -- BUGBUG, DISABLING ASSETS FOR THE MOMENT assets
-        theme = Nothing -- Config.configTheme config
+        assets = assets,
+        theme = Config.configTheme config
       }
 
 -- | Helper function to safely read a file, returning Nothing if the file doesn't exist
