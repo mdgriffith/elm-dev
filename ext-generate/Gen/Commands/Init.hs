@@ -34,6 +34,9 @@ import qualified System.Process
 import qualified Terminal.Colors
 import Text.RawString.QQ (r)
 
+flags ::
+  CommandParser.ParsedArgs ->
+  Either String (Maybe Config.PackageManager, CommandParser.ParsedArgs)
 flags =
   CommandParser.parseFlag
     ( CommandParser.flagWithArg
