@@ -31,6 +31,14 @@ type alias Project =
     , projectRoot : String
     , entrypoints : List String
     , status : Status
+    , docs : DocsOverview
+    }
+
+
+type alias DocsOverview =
+    { modules : List String
+    , guides : List String
+    , interactive : List String
     }
 
 
@@ -138,11 +146,20 @@ inEditor file editor =
 
 decodeProject : Decode.Decoder Project
 decodeProject =
-    Decode.map4 Project
+    Decode.map5 Project
         (Decode.field "root" Decode.string)
         (Decode.field "projectRoot" Decode.string)
         (Decode.field "entrypoints" (Decode.list Decode.string))
         (Decode.field "status" decodeStatus)
+        (Decode.field "docs" decodeDocsOverview)
+
+
+decodeDocsOverview : Decode.Decoder DocsOverview
+decodeDocsOverview =
+    Decode.map3 DocsOverview
+        (Decode.field "modules" (Decode.list Decode.string))
+        (Decode.field "guides" (Decode.list Decode.string))
+        (Decode.field "interactive" (Decode.list Decode.string))
 
 
 decodeStatus : Decode.Decoder Status

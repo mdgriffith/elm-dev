@@ -1,8 +1,8 @@
-module Data.Question exposing (status, Status)
+module Data.Question exposing (projectList, ProjectList)
 
 {-|
 
-@docs status, Status
+@docs projectList, ProjectList
 
 -}
 
@@ -44,16 +44,16 @@ watchtower =
 --         }
 
 
-type alias Status =
+type alias ProjectList =
     { projects : List Data.ProjectStatus.Project }
 
 
-status : (Result Http.Error Status -> msg) -> Effect msg
-status toMsg =
+projectList : (Result Http.Error ProjectList -> msg) -> Effect msg
+projectList toMsg =
     Effect.map toMsg <|
-        Effect.Http.get (watchtower [ "status" ] [])
+        Effect.Http.get (watchtower [ "project-list" ] [])
             (Effect.Http.expectJson
-                (Decode.map (Ok << Status)
+                (Decode.map (Ok << ProjectList)
                     (Decode.field "details" (Decode.list Data.ProjectStatus.decodeProject))
                 )
                 Err

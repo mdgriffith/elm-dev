@@ -50,7 +50,7 @@ type alias Model =
 type Msg
     = ProjectReceived Data.ProjectStatus.Project
     | ProjectSelected Path
-    | AllProjectStatusReceived (Result Http.Error Data.Question.Status)
+    | ProjectListReceived (Result Http.Error Data.Question.ProjectList)
     | DevServerReceived Listen.DevServer.Event
 
 
@@ -71,12 +71,12 @@ store =
                                 }
                 in
                 ( model
-                , Data.Question.status AllProjectStatusReceived
+                , Data.Question.projectList ProjectListReceived
                 )
         , update =
             \msg model ->
                 case msg of
-                    AllProjectStatusReceived result ->
+                    ProjectListReceived result ->
                         case result of
                             Ok status ->
                                 ( { model

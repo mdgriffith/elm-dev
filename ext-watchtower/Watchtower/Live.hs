@@ -127,6 +127,7 @@ websocket_ state@(Client.State mClients mProjects) = do
                             proj
                             (isSuccess jsonStatusResult)
                             (flattenJsonStatus jsonStatusResult)
+                            docsInfo
                     pure $ projectStatus : gathered
                 )
                 []

@@ -116,14 +116,14 @@ recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.De
         Client.broadcast
           mClients
           ( Client.ElmStatus
-              [ Client.ProjectStatus proj True statusJson
+              [ Client.ProjectStatus proj True statusJson docsInfo
               ]
           )
       Left errJson -> do
         Client.broadcast
           mClients
           ( Client.ElmStatus
-              [ Client.ProjectStatus proj False errJson
+              [ Client.ProjectStatus proj False errJson docsInfo
               ]
           )
 

@@ -38,11 +38,13 @@ where
 
 import qualified Control.Concurrent.STM as STM
 import Control.Monad as Monad (foldM, guard)
+import Data.Aeson (ToJSON (toJSON))
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
 import qualified Data.Either as Either
 import qualified Data.List as List
 import qualified Data.Map as Map
+import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
 import qualified Data.NonEmptyList as NE
 import qualified Data.Set as Set
@@ -228,7 +230,7 @@ getStatus (ProjectCache proj docsInfo cache) =
               Left j -> j
               Right j -> j
           )
-    pure (ProjectStatus proj successful json)
+    pure (ProjectStatus proj successful json docsInfo)
 
 outgoingToLog :: Outgoing -> String
 outgoingToLog outgoing =
@@ -245,7 +247,7 @@ outgoingToLog outgoing =
       "EditorJumpTo"
 
 projectStatusToString :: ProjectStatus -> String
-projectStatusToString (ProjectStatus proj success json) =
+projectStatusToString (ProjectStatus proj success json docs) =
   if success
     then "Success: ../" ++ FilePath.takeBaseName (Ext.Dev.Project.getRoot proj)
     else "Failing: ../" ++ FilePath.takeBaseName (Ext.Dev.Project.getRoot proj)
@@ -253,9 +255,9 @@ projectStatusToString (ProjectStatus proj success json) =
 data ProjectStatus = ProjectStatus
   { _project :: Ext.Dev.Project.Project,
     _success :: Bool,
-    _json :: Json.Encode.Value
+    _json :: Json.Encode.Value,
+    _docs :: Gen.Config.DocsConfig
   }
-  deriving (Show)
 
 encodeOutgoing :: Outgoing -> Data.ByteString.Builder.Builder
 encodeOutgoing out =
@@ -266,7 +268,7 @@ encodeOutgoing out =
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "Status"),
             "details"
               ==> Json.Encode.list
-                ( \(ProjectStatus project success status) ->
+                ( \(ProjectStatus project success status docs) ->
                     Json.Encode.object
                       [ "root"
                           ==> Json.Encode.string
@@ -282,7 +284,8 @@ encodeOutgoing out =
                           ==> Json.Encode.list
                             (Json.Encode.string . Json.String.fromChars)
                             (NE.toList (Ext.Dev.Project._entrypoints project)),
-                        "status" ==> status
+                        "status" ==> status,
+                        "docs" ==> encodeDocsConfig docs
                       ]
                 )
                 statuses
@@ -505,7 +508,7 @@ broadcast mClients msg =
 
                   affectedProjectsThatWereListeningTo =
                     List.filter
-                      ( \(ProjectStatus proj _ _) ->
+                      ( \(ProjectStatus proj _ _ _) ->
                           isWatchingProject proj clientData
                       )
                       projectStatusList
@@ -557,3 +560,15 @@ broadcast mClients msg =
           mClients
           (\client -> True)
           msg
+
+-- Helper function to encode DocsConfig using Json.Encode functions
+-- Needs to be kept in sync with the values in Config
+-- We're in this situation because the elm compiler has it's own json encoder library.
+encodeDocsConfig :: Gen.Config.DocsConfig -> Json.Encode.Value
+encodeDocsConfig (Gen.Config.DocsConfig modules guides interactive) =
+  Json.Encode.object $
+    Maybe.catMaybes
+      [ fmap (\m -> ("modules", Json.Encode.list (Json.Encode.string . Json.String.fromChars . T.unpack) m)) modules,
+        fmap (\g -> ("guides", Json.Encode.list (Json.Encode.string . Json.String.fromChars . T.unpack) g)) guides,
+        fmap (\i -> ("interactive", Json.Encode.list (Json.Encode.string . Json.String.fromChars . T.unpack) i)) interactive
+      ]

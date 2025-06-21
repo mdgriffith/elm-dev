@@ -59,6 +59,7 @@ import qualified Watchtower.State.Project
 -- One off questions and answers you might have/want.
 data Question
   = Discover FilePath
+  | ProjectList
   | Make MakeDetails
   | FindDefinitionPlease Watchtower.Editor.PointLocation
   | FindAllInstancesPlease Watchtower.Editor.PointLocation
@@ -67,7 +68,6 @@ data Question
   | CallGraph FilePath
   | InScopeFile FilePath
   | InScopeProject FilePath
-  | Status
   | Warnings FilePath
   | TimingParse FilePath
   | ServerHealth
@@ -145,8 +145,8 @@ actionHandler state =
   do
     maybeAction <- getParam "action"
     case maybeAction of
-      Just "status" ->
-        questionHandler state Status
+      Just "project-list" ->
+        questionHandler state ProjectList
       Just "health" ->
         questionHandler state ServerHealth
       Just "make" -> do
@@ -308,7 +308,7 @@ ask state question =
   case question of
     ServerHealth ->
       pure (Json.Encode.encodeUgly (Json.Encode.chars "Roger dodger, ready to roll, in the pipe, five-by-five."))
-    Status ->
+    ProjectList ->
       allProjectStatuses state
     Discover dir -> do
       Watchtower.State.Discover.discover state dir Map.empty
@@ -484,6 +484,7 @@ allProjectStatuses (Client.State clients mProjects) =
                     proj
                     (isSuccess jsonStatusResult)
                     (flattenJsonStatus jsonStatusResult)
+                    docsInfo
             pure $ projectStatus : gathered
         )
         []
