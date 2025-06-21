@@ -477,7 +477,7 @@ allProjectStatuses (Client.State clients mProjects) =
     projects <- STM.readTVarIO mProjects
     projectStatuses <-
       Monad.foldM
-        ( \gathered (Client.ProjectCache proj sentry) -> do
+        ( \gathered (Client.ProjectCache proj docsInfo sentry) -> do
             jsonStatusResult <- Ext.Sentry.getCompileResult sentry
             let projectStatus =
                   Client.ProjectStatus

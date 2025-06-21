@@ -21,6 +21,17 @@ where
 
 import Control.Applicative ((<|>))
 import Data.Aeson
+  ( FromJSON (parseJSON),
+    KeyValue ((.=)),
+    ToJSON (toJSON),
+    Value (Object, String),
+    object,
+    withObject,
+    withText,
+    (.!=),
+    (.:),
+    (.:?),
+  )
 import Data.Aeson.Types
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
@@ -323,19 +334,33 @@ instance ToJSON GraphQLConfig where
 
 data DocsConfig = DocsConfig
   { docsModules :: Maybe [Text],
-    docsGuides :: Maybe [Text]
+    docsGuides :: Maybe [Text],
+    docsInteractive :: Maybe [Text]
   }
   deriving (Generic)
 
-instance FromJSON DocsConfig
+instance FromJSON DocsConfig where
+  parseJSON = withObject "DocsConfig" $ \v ->
+    DocsConfig
+      <$> v .:? "modules"
+      <*> v .:? "guides"
+      <*> v .:? "interactive"
 
-instance ToJSON DocsConfig
+instance ToJSON DocsConfig where
+  toJSON DocsConfig {..} =
+    object $
+      catMaybes
+        [ ("modules",) . toJSON <$> docsModules,
+          ("guides",) . toJSON <$> docsGuides,
+          ("interactive",) . toJSON <$> docsInteractive
+        ]
 
 defaultDocs :: DocsConfig
 defaultDocs =
   DocsConfig
     { docsModules = Nothing,
-      docsGuides = Nothing
+      docsGuides = Nothing,
+      docsInteractive = Nothing
     }
 
 data PackageManager

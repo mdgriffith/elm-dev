@@ -44,15 +44,16 @@ import qualified Data.Either as Either
 import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Name as Name
+import qualified Data.NonEmptyList as NE
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.NonEmptyList as NE
 import qualified Elm.Docs as Docs
 import qualified Ext.Common
 import qualified Ext.Dev.Project
 import qualified Ext.Log
 import qualified Ext.Sentry
+import qualified Gen.Config
 import qualified Json.Decode
 import Json.Encode ((==>))
 import qualified Json.Encode
@@ -75,8 +76,11 @@ data State = State
 
 data ProjectCache = ProjectCache
   { project :: Ext.Dev.Project.Project,
+    docsInfo :: Gen.Config.DocsConfig,
     sentry :: Ext.Sentry.Cache
   }
+
+-- Client
 
 type ClientId = T.Text
 
@@ -177,10 +181,11 @@ getRoot path (State mClients mProjects) =
     projects <- STM.readTVarIO mProjects
     pure (getRootHelp path projects Nothing)
 
+getRootHelp :: FilePath -> [ProjectCache] -> Maybe FilePath -> Maybe [Char]
 getRootHelp path projects found =
   case projects of
     [] -> found
-    (ProjectCache project _) : remain ->
+    (ProjectCache project _ _) : remain ->
       if Ext.Dev.Project.contains path project
         then case found of
           Nothing ->
@@ -192,11 +197,11 @@ getRootHelp path projects found =
         else getRootHelp path remain found
 
 getProjectRoot :: ProjectCache -> FilePath
-getProjectRoot (ProjectCache proj _) =
+getProjectRoot (ProjectCache proj _ _) =
   Ext.Dev.Project.getRoot proj
 
 matchingProject :: ProjectCache -> ProjectCache -> Bool
-matchingProject (ProjectCache one _) (ProjectCache two _) =
+matchingProject (ProjectCache one _ _) (ProjectCache two _ _) =
   Ext.Dev.Project.equal one two
 
 getAllStatuses :: State -> IO [ProjectStatus]
@@ -214,7 +219,7 @@ getAllStatuses state@(State mClients mProjects) =
       projects
 
 getStatus :: ProjectCache -> IO ProjectStatus
-getStatus (ProjectCache proj cache) =
+getStatus (ProjectCache proj docsInfo cache) =
   do
     compileResult <- Ext.Sentry.getCompileResult cache
     let successful = Either.isRight compileResult

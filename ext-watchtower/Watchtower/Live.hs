@@ -45,9 +45,9 @@ import qualified System.FilePath as FilePath
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr, stdout)
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Live.Compile
+import qualified Watchtower.State.Discover
 import qualified Watchtower.StaticAssets
 import qualified Watchtower.Websocket
-import qualified Watchtower.State.Discover
 
 type State = Client.State
 
@@ -67,36 +67,35 @@ init =
     <$> Watchtower.Websocket.clientsInit
     <*> STM.newTVarIO []
 
-initWith :: FilePath -> IO Client.State
-initWith root =
-  do
-    projectList <- discoverProjects root
-    Client.State
-      <$> Watchtower.Websocket.clientsInit
-      <*> STM.newTVarIO projectList
+-- initWith :: FilePath -> IO Client.State
+-- initWith root =
+--   do
+--     projectList <- discoverProjects root
+--     Client.State
+--       <$> Watchtower.Websocket.clientsInit
+--       <*> STM.newTVarIO projectList
 
-discoverProjects :: FilePath -> IO [Client.ProjectCache]
-discoverProjects root = do
-  projects <- Ext.Dev.Project.discover root
+-- discoverProjects :: FilePath -> IO [Client.ProjectCache]
+-- discoverProjects root = do
+--   projects <- Ext.Dev.Project.discover root
 
-  let projectTails = fmap (getProjectShorthand root) projects
-  Ext.Log.log Ext.Log.Live (("👁️  found projects\n" ++ root) <> Ext.Log.formatList projectTails)
-  Monad.foldM initializeProject [] projects
+--   let projectTails = fmap (getProjectShorthand root) projects
+--   Ext.Log.log Ext.Log.Live (("👁️  found projects\n" ++ root) <> Ext.Log.formatList projectTails)
+--   Monad.foldM initializeProject [] projects
 
+-- getProjectShorthand :: FilePath -> Ext.Dev.Project.Project -> FilePath
+-- getProjectShorthand root proj =
+--   case List.stripPrefix root (Ext.Dev.Project.getRoot proj) of
+--     Nothing -> "."
+--     Just "" -> "."
+--     Just str ->
+--       str
 
-getProjectShorthand :: FilePath -> Ext.Dev.Project.Project -> FilePath
-getProjectShorthand root proj =
-  case List.stripPrefix root (Ext.Dev.Project.getRoot proj) of
-    Nothing -> "."
-    Just "" -> "."
-    Just str ->
-      str
-
-initializeProject :: [Client.ProjectCache] -> Ext.Dev.Project.Project -> IO [Client.ProjectCache]
-initializeProject accum project =
-  do
-    cache <- Ext.Sentry.init
-    pure (Client.ProjectCache project cache : accum)
+-- initializeProject :: [Client.ProjectCache] -> Ext.Dev.Project.Project -> IO [Client.ProjectCache]
+-- initializeProject accum project =
+--   do
+--     cache <- Ext.Sentry.init
+--     pure (Client.ProjectCache project cache : accum)
 
 websocket :: Client.State -> Snap ()
 websocket state =
@@ -121,7 +120,7 @@ websocket_ state@(Client.State mClients mProjects) = do
             projects <- STM.readTVarIO mProjects
             statuses <-
               Monad.foldM
-                ( \gathered (Client.ProjectCache proj sentry) -> do
+                ( \gathered (Client.ProjectCache proj docsInfo sentry) -> do
                     jsonStatusResult <- Ext.Sentry.getCompileResult sentry
                     let projectStatus =
                           Client.ProjectStatus
@@ -199,37 +198,7 @@ receiveAction state@(Client.State mClients mProjects) senderClientId incoming =
               [] -> pure ()
               _ -> Watchtower.Live.Compile.recompile state addedKeys
     Client.Discover root watching -> do
-      Ext.Log.log Ext.Log.Live ("👀 discover requested: " <> root)
-      discovered <- discoverProjects root
-
-      STM.atomically $ do
-        STM.modifyTVar
-          mProjects
-          ( \projects ->
-              List.foldl
-                ( \existing new ->
-                    if List.any (Client.matchingProject new) existing
-                      then existing
-                      else new : existing
-                )
-                projects
-                discovered
-          )
-
-        STM.modifyTVar
-          mClients
-          ( fmap
-              ( Watchtower.Websocket.updateClientData
-                  senderClientId
-                  ( \clientWatching ->
-                      clientWatching
-                        & Client.watchProjects (List.map Client.getProjectRoot discovered)
-                        & Client.watchTheseFilesOnly watching
-                  )
-              )
-          )
-
-      Watchtower.Live.Compile.recompile state (Map.keys watching)
+      Watchtower.State.Discover.discover state root watching
     Client.EditorViewingUpdated viewingList -> do
       Ext.Log.log Ext.Log.Live ("👀 editor viewing updated: " ++ show viewingList)
       broadCastToEveryoneNotMe

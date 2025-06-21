@@ -8,27 +8,25 @@ import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
+import qualified Data.NonEmptyList as NE
 import qualified Data.NonEmptyList as NonEmpty
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.NonEmptyList as NE
 import Ext.Common
+import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Ext.CompileProxy
 import qualified Ext.Dev
 import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Project
 import qualified Ext.Log
 import qualified Ext.Sentry
-import qualified Ext.CompileHelpers.Generic as CompileHelpers
+import Json.Encode ((==>))
+import qualified Json.Encode as Json
+import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type.Localizer
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Websocket
-import qualified Json.Encode as Json
-import Json.Encode ((==>))
-import qualified Reporting.Exit as Exit
-
-
 
 -- |
 -- Generally called once when the server starts, this will recompile all discovered projects in State
@@ -45,7 +43,7 @@ compileAll (Client.State mClients mProjects) = do
       Ext.Log.log Ext.Log.Live "🛬 Recompile everything finished"
 
 compileProject :: STM.TVar [Client.Client] -> Client.ProjectCache -> IO ()
-compileProject mClients proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot projectRoot (NE.List topEntry remainEntry)) cache) =
+compileProject mClients proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot projectRoot (NE.List topEntry remainEntry)) docsInfo cache) =
   recompileFile mClients (topEntry, remainEntry, proj)
 
 -- | This is called frequently.
@@ -83,7 +81,7 @@ recompile (Client.State mClients mProjects) allChangedFiles = do
     else pure ()
 
 toAffectedProject :: [String] -> Client.ProjectCache -> Maybe (String, [String], Client.ProjectCache)
-toAffectedProject changedFiles projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot _ entrypoints) cache) =
+toAffectedProject changedFiles projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot _ entrypoints) docsInfo cache) =
   case changedFiles of
     [] ->
       Nothing
@@ -93,42 +91,44 @@ toAffectedProject changedFiles projCache@(Client.ProjectCache proj@(Ext.Dev.Proj
         else Nothing
 
 recompileProject :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
-recompileProject mClients (_, _, proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot _ (NE.List topEntry remainEntry)) cache)) =
+recompileProject mClients (_, _, proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot _ (NE.List topEntry remainEntry)) docsInfo cache)) =
   recompileFile mClients (topEntry, remainEntry, proj)
 
 recompileFile :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
-recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot _ entrypoints) cache)) =
+recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot _ entrypoints) docsInfo cache)) =
   do
     let entry = NonEmpty.List top remain
-    eitherResult <- Ext.CompileProxy.compile
-                      elmJsonRoot entry
-                      (CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput)
+    eitherResult <-
+      Ext.CompileProxy.compile
+        elmJsonRoot
+        entry
+        (CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput)
     let eitherStatusJson = case eitherResult of
-          Right _ -> Right (Json.object [ "compiled" ==> Json.bool True ])
+          Right _ -> Right (Json.object ["compiled" ==> Json.bool True])
           Left exit -> Left (Exit.toJson (Exit.reactorToReport exit))
 
     Ext.Sentry.updateCompileResult cache $
-      pure eitherStatusJson 
+      pure eitherStatusJson
 
     -- Send compilation status
     case eitherStatusJson of
       Right statusJson -> do
         Client.broadcast
           mClients
-          (Client.ElmStatus 
-            [ Client.ProjectStatus proj True statusJson
-            ]
+          ( Client.ElmStatus
+              [ Client.ProjectStatus proj True statusJson
+              ]
           )
       Left errJson -> do
         Client.broadcast
           mClients
-          (Client.ElmStatus 
-            [ Client.ProjectStatus proj False errJson
-            ]
+          ( Client.ElmStatus
+              [ Client.ProjectStatus proj False errJson
+              ]
           )
 
 sendInfo :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
-sendInfo mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot projectRoot entrypoints) cache)) = do
+sendInfo mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot projectRoot entrypoints) docsInfo cache)) = do
   (Ext.Dev.Info warnings docs) <- Ext.Dev.info elmJsonRoot top
 
   case warnings of

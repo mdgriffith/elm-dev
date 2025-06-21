@@ -20,7 +20,7 @@ data Error
   | GenerationError String
 
 compile :: CompileHelpers.Flags -> Client.ProjectCache -> IO (Either Error CompileHelpers.CompilationResult)
-compile flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) projectCompilationCache) = do
+compile flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo projectCompilationCache) = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run
