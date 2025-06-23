@@ -115,8 +115,8 @@ serverCommand = CommandParser.command ["server"] "Start the Elm Dev server" devG
     portFlag = CommandParser.flagWithArg "port" "Port to run the server on" Text.Read.readMaybe
     parseServerFlags = CommandParser.parseFlag portFlag
     runServer _ maybePort = do
-      -- Ext.CompileMode.setModeMemory
-      Ext.CompileMode.setModeDisk
+      Ext.CompileMode.setModeMemory
+      -- Ext.CompileMode.setModeDisk
       Ext.Log.withAllBut [Ext.Log.Performance] $ Watchtower.Server.serve Nothing (Watchtower.Server.Flags maybePort)
 
 docsCommand :: CommandParser.Command
