@@ -1,6 +1,77 @@
 module Theme.Decoder exposing (decode)
 
-{-| -}
+{-| An example json config here
+
+    {
+        "target": "elm-ui",
+        "colors": {
+            "palette": {
+                "white": "#FFFFFF",
+                "black": "#000000",
+                "grey": {
+                    "900": "#121214",
+                    "800": "#27272F",
+                    "700": "#53535F",
+                    "600": "#72727E",
+                    "500": "#B1B1B8",
+                    "400": "#CECED6",
+                    "300": "#E5E5EA",
+                    "200": "#F3F4F6",
+                    "100": "#FAFAFC"
+                },
+            },
+            "aliases": {
+                "primary": "white",
+                "neutral": "grey",
+                "success": "green",
+                "error": "red"
+            }
+        },
+        "spacing": {
+            "sm": 4,
+            "md": 8,
+            "lg": 12,
+            "xl": 16,
+            "2xl": 20,
+            "3xl": 24,
+        },
+        "typography": [
+            {
+                "font": ["EB Garamond", "serif"],
+                "capitalSizing": {
+                    "top": 0.1,
+                    "bottom": 0.1,
+                    "fontSizeByCapital": 0.1
+                },
+                "sizes": {
+                    "huge": {
+                        "size": 120,
+                        "weights": [700, 400],
+                        "lineHeight": 1.2,
+                        "variants": ["huge-bold", "huge-regular"]
+                    }
+                }
+            }
+        ],
+        "borders": {
+            "radius": {
+                "sm": 4,
+                "md": 8,
+                "lg": 12,
+                "xl": 16,
+                "2xl": 20,
+            },
+            "width": {
+                "sm": 1,
+                "md": 2,
+                "lg": 3,
+                "xl": 4,
+                "2xl": 5,
+            }
+        }
+    }
+
+-}
 
 import Color
 import Dict
@@ -149,6 +220,7 @@ decodeSemanticMap allowedKeys =
                     )
 
 
+{-| -}
 decodeNamedColorDefinitions : List Theme.ColorInstance -> SemanticMap -> Json.Decode.Decoder (List Theme.ColorDefinition)
 decodeNamedColorDefinitions colors semanticMap =
     Json.Decode.oneOf
