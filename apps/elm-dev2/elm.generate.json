@@ -8,11 +8,84 @@
             "Package": "/package/*"
         }
     },
-    "assets": {
-        "Assets": {
+    "assets": [
+        {
             "onServer": "assets",
             "src": "./public"
         }
-    },
-    "packageManager": "bun"
+    ],
+    "packageManager": "bun",
+    "theme": {
+        "target": "elm-ui",
+        "colors": {
+            "palette": {
+                "white": "#FFFFFF",
+                "black": "#000000",
+                "grey": "#FAFAFC"
+            },
+            "aliases": {
+                "primary": "white",
+                "neutral": "grey"
+            },
+            "text": {
+                "default": "grey5",
+                "primary": "blue60"
+            },
+            "background": {
+                "default": "grey95",
+                "elevated": "grey90",
+                "primary": "blue60"
+            },
+            "border": "40"
+        },
+        "spacing": {
+            "sm": 4,
+            "md": 8,
+            "lg": 12,
+            "xl": 16,
+            "2xl": 20,
+            "3xl": 24
+        },
+        "typography": [
+            {
+                "font": [
+                    "EB Garamond",
+                    "serif"
+                ],
+                "capitalSizing": {
+                    "top": 0.1,
+                    "bottom": 0.1,
+                    "fontSizeByCapital": 0.1
+                },
+                "sizes": {
+                    "huge": {
+                        "size": 120,
+                        "weights": [
+                            700,
+                            400
+                        ],
+                        "lineHeight": 1.2,
+                        "variants": [
+                            "small-caps"
+                        ]
+                    }
+                }
+            }
+        ],
+        "borders": {
+            "radius": {
+                "sm": 4,
+                "md": 8,
+                "lg": 12,
+                "xl": 16,
+                "2xl": 20
+            },
+            "width": {
+                "sm": 1,
+                "md": 2,
+                "lg": 3,
+                "xl": 4
+            }
+        }
+    }
 }
