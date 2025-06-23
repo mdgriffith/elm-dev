@@ -21,6 +21,7 @@ import Http
 import Listen
 import Listen.DevServer
 import Url
+import WebComponents.Elm
 
 
 type alias Model =
@@ -88,7 +89,12 @@ main =
                         Just (App.View page) ->
                             { title = page.title
                             , body =
-                                [ page.body
+                                [ Html.text "Hello, world!"
+                                , WebComponents.Elm.elm
+                                    { baseUrl = "http://localhost:51213"
+                                    , filepath = "src/Main.elm"
+                                    , cwd = "/Users/griff/projects/elm-dev/apps/elm-dev2"
+                                    }
                                 ]
                             }
         }
