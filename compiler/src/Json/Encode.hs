@@ -32,7 +32,7 @@ import Data.Monoid ((<>))
 import qualified Data.Name as Name
 import qualified Data.Utf8 as Utf8
 
-import qualified Ext.FileProxy as File
+import qualified Ext.FileProxy
 import qualified Json.String as Json
 
 
@@ -138,12 +138,12 @@ escape chrs =
 
 write :: FilePath -> Value -> IO ()
 write path value =
-  File.writeBuilder path (encode value <> "\n")
+  Ext.FileProxy.writeBuilder path (encode value <> "\n")
 
 
 writeUgly :: FilePath -> Value -> IO ()
 writeUgly path value =
-  File.writeBuilder path (encodeUgly value)
+  Ext.FileProxy.writeBuilder path (encodeUgly value)
 
 
 
