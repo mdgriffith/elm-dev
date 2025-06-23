@@ -28,9 +28,11 @@ import qualified Ext.Dev.Explain
 import qualified Ext.Dev.Find
 import qualified Ext.Dev.InScope
 import qualified Ext.Dev.Project
+import qualified Ext.FileCache
 import qualified Ext.Log
 import qualified Ext.Project.Find
 import qualified Ext.Sentry
+import qualified Ext.VirtualFile
 import qualified Gen.Generate
 import Json.Encode ((==>))
 import qualified Json.Encode
@@ -45,6 +47,7 @@ import Snap.Core hiding (path)
 import qualified Snap.Util.CORS
 import qualified Stuff
 import qualified System.Directory as Dir (withCurrentDirectory)
+import System.FilePath ((</>))
 import qualified System.FilePath as Path
 import qualified Terminal.Dev.Error
 import qualified Terminal.Dev.Out as Out
@@ -58,10 +61,14 @@ import qualified Watchtower.State.Project
 
 -- One off questions and answers you might have/want.
 data Question
-  = Discover FilePath
+  = ServerHealth
+  | Discover FilePath
   | ProjectList
   | Make MakeDetails
-  | FindDefinitionPlease Watchtower.Editor.PointLocation
+  | -- compile file in a special way to make it interactive
+    Interactive InteractiveDetails
+  | -- Editor stuff
+    FindDefinitionPlease Watchtower.Editor.PointLocation
   | FindAllInstancesPlease Watchtower.Editor.PointLocation
   | Explain Watchtower.Editor.PointLocation
   | Docs DocsType
@@ -70,7 +77,11 @@ data Question
   | InScopeProject FilePath
   | Warnings FilePath
   | TimingParse FilePath
-  | ServerHealth
+
+data InteractiveDetails = InteractiveDetails
+  { _interactiveRoot :: FilePath,
+    _interactiveFilePath :: FilePath
+  }
 
 data MakeDetails = MakeDetails
   { _cwd :: FilePath,
@@ -173,6 +184,15 @@ actionHandler state =
                 writeBS "Needs at least one entrypoint"
           _ ->
             writeBS "Needs a cwd and entrypoints parameter"
+      Just "interactive" ->
+        do
+          maybeCwd <- getQueryParam "cwd"
+          maybeFile <- getQueryParam "file"
+          case (maybeCwd, maybeFile) of
+            (Just cwd, Just file) ->
+              questionHandler state (Interactive (InteractiveDetails (Data.ByteString.Char8.unpack cwd) (Data.ByteString.Char8.unpack file)))
+            _ ->
+              writeBS "Needs a cwd and file parameter"
       Just "docs" ->
         do
           maybeFiles <- getQueryParam "file"
@@ -340,6 +360,52 @@ ask state question =
         Right CompileHelpers.CompiledSkippedOutput -> do
           putStrLn "Success, returning skipped output"
           pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
+    Interactive (InteractiveDetails cwd filepath) -> do
+      -- maybeDocs <- Ext.Dev.docs cwd filepath
+      -- case maybeDocs of
+      --   Nothing ->
+      --     pure (Json.Encode.encodeUgly (Json.Encode.chars "Docs are not available"))
+      --   Just docs -> do
+      -- pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [docs])))
+      putStrLn "---- INTERACTIVE ----"
+      let entry = "src" </> "Interactive.elm"
+      let elmContent = "module Interactive exposing (main)\n\nimport Html exposing (Html, text)\n\nmain : Html msg\nmain = text \"Hello, from dynamically compiled Elm!!\"\n"
+      Ext.VirtualFile.write cwd entry (BS.pack (map (fromIntegral . fromEnum) elmContent))
+
+      let flags =
+            CompileHelpers.Flags
+              CompileHelpers.Debug
+              (CompileHelpers.OutputTo CompileHelpers.Js)
+      maybeProjectCache <-
+        Watchtower.State.Project.upsertVirtual
+          state
+          flags
+          cwd
+          ("/Users/griff/projects/elm-dev/apps/elm-dev2/elm-stuff/virtual" </> entry)
+
+      case maybeProjectCache of
+        Nothing ->
+          pure (Json.Encode.encodeUgly (Json.Encode.chars "Error creating project"))
+        Just projectCache -> do
+          compilationResult <- Watchtower.State.Compile.compile flags projectCache
+          case compilationResult of
+            Left (Watchtower.State.Compile.ReactorError reactorExit) -> do
+              Ext.FileCache.debug
+              putStrLn $ "Reactor error: " <> show reactorExit
+
+              pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
+            Left (Watchtower.State.Compile.GenerationError err) -> do
+              putStrLn $ "Generation error: " <> show err
+              pure (Json.Encode.encodeUgly (Json.Encode.chars err))
+            Right (CompileHelpers.CompiledJs js) -> do
+              putStrLn "Success, returning JS"
+              pure (Data.ByteString.Builder.byteString "// success\n" <> js)
+            Right (CompileHelpers.CompiledHtml html) -> do
+              putStrLn "Success, returning HTML"
+              pure html
+            Right CompileHelpers.CompiledSkippedOutput -> do
+              putStrLn "Success, returning skipped output"
+              pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
     Docs (ForProject entrypoint) -> do
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
