@@ -36,6 +36,7 @@ In order to do this, we can
 
 import Elm
 import Elm.Annotation
+import Elm.Arg
 import Elm.Docs
 import Elm.Op
 import Elm.Type
@@ -45,10 +46,9 @@ import Example.Interactive.Rendered
 import Example.Type
 import Gen.Html.Attributes
 import Gen.String
-import Gen.Ui
-import Gen.Ui.Font
 import Gen.Ui.Theme.Input
 import Interactive
+import Ui
 
 
 type alias Runner =
@@ -88,43 +88,44 @@ build modul targeting =
                         , fields = fields
                         , view =
                             \opts ->
-                                Gen.Ui.column
-                                    [ Gen.Ui.width Gen.Ui.fill
-                                    , Gen.Ui.height Gen.Ui.fill
+                                Ui.column
+                                    [ Ui.width Ui.fill
+                                    , Ui.height Ui.fill
                                     ]
-                                    [ --     Gen.Ui.el
-                                      --     [ Gen.Ui.Font.size 24
-                                      --     , Gen.Ui.paddingXY 32 10
-                                      --     , Gen.Ui.Font.family
-                                      --         [ Gen.Ui.Font.typeface "Fira Code"
-                                      --         , Gen.Ui.Font.sansSerif
+                                    [ --     Ui.el
+                                      --     [ Ui.Font.size 24
+                                      --     , Ui.paddingXY 32 10
+                                      --     , Ui.Font.family
+                                      --         [ Ui.Font.typeface "Fira Code"
+                                      --         , Ui.Font.sansSerif
                                       --         ]
                                       --     ]
-                                      --     (Gen.Ui.text
+                                      --     (Ui.text
                                       --         (modul.name ++ "." ++ targeting.start.name)
                                       --     )
                                       -- ,
-                                      Elm.ifThen opts.codeOrOutput
-                                        (example.rendered.drivenByModel
-                                            |> runner.view opts
-                                            |> Gen.Ui.el
-                                                [ Gen.Ui.width Gen.Ui.fill
-                                                , Gen.Ui.Font.color (Gen.Ui.rgb 0 0 0)
-                                                , Gen.Ui.background (Gen.Ui.rgb 1 1 1)
-                                                ]
-                                        )
-                                        (Gen.Ui.call_.text
-                                            example.example.drivenByModel
-                                            |> Gen.Ui.el [ Gen.Ui.centerY ]
-                                            |> Gen.Ui.el
-                                                [ Gen.Ui.padding 32
-                                                , Gen.Ui.height Gen.Ui.shrink
-                                                , Gen.Ui.heightMin 200
-                                                ]
-                                        )
-                                    , Gen.Ui.el
-                                        [ Gen.Ui.width Gen.Ui.fill
-                                        , Gen.Ui.padding 32
+                                      --   Elm.ifThen opts.codeOrOutput
+                                      --     (example.rendered.drivenByModel
+                                      --         |> runner.view opts
+                                      --         |> Ui.el
+                                      --             [ Ui.width Ui.fill
+                                      --             , Ui.fontColor (Ui.rgb 0 0 0)
+                                      --             , Ui.background (Ui.rgb 1 1 1)
+                                      --             ]
+                                      --     )
+                                      --     (Ui.call_.text
+                                      --         example.example.drivenByModel
+                                      --         |> Ui.el [ Ui.centerY ]
+                                      --         |> Ui.el
+                                      --             [ Ui.padding 32
+                                      --             , Ui.height Ui.shrink
+                                      --             , Ui.heightMin 200
+                                      --             ]
+                                      --     )
+                                      -- ,
+                                      Ui.el
+                                        [ Ui.width Ui.fill
+                                        , Ui.padding 32
                                         ]
                                         (viewInput opts fields)
                                     ]
@@ -139,9 +140,9 @@ viewInput :
     -> List Interactive.Field
     -> Elm.Expression
 viewInput viewOptions fields =
-    Gen.Ui.column
-        [ Gen.Ui.width Gen.Ui.fill
-        , Gen.Ui.spacing 16
+    Ui.column
+        [ Ui.width Ui.fill
+        , Ui.spacing 16
         ]
         (List.map (viewFieldInput viewOptions)
             (List.reverse fields)
@@ -164,9 +165,7 @@ viewFieldInput opts field =
 
         updateValue =
             Elm.fn
-                ( "new"
-                , Nothing
-                )
+                (Elm.Arg.var "new")
                 (\new ->
                     Elm.apply
                         opts.onChange
@@ -197,7 +196,7 @@ viewFieldInput opts field =
                 (Elm.get details.key opts.model)
 
         Interactive.InputFloat ->
-            Gen.Ui.text "Float"
+            Ui.text "Float"
 
         Interactive.InputMaybe Interactive.InputString ->
             Elm.get details.key opts.model
@@ -212,7 +211,7 @@ viewFieldInput opts field =
                     updateValue
 
         Interactive.InputMaybe _ ->
-            Gen.Ui.text "Float"
+            Ui.text "Float"
 
 
 runnerEnd : List Runner -> Elm.Type.Type -> Bool
@@ -304,39 +303,39 @@ getRunner runners tipe =
 viewWrapper result exp =
     -- case result of
     --     Elm.Type.Var string ->
-    --         Gen.Ui.text ""
+    --         Ui.text ""
     --     Elm.Type.Lambda one two ->
-    --         Gen.Ui.text ""
+    --         Ui.text ""
     --     Elm.Type.Tuple types ->
     --         case types of
     --             [] ->
-    --                 Gen.Ui.text "()"
+    --                 Ui.text "()"
     --             [ one, two ] ->
-    --                 Gen.Ui.text ""
+    --                 Ui.text ""
     --             -- isViewable one && isViewable two
     --             [ one, two, three ] ->
-    --                 Gen.Ui.text ""
+    --                 Ui.text ""
     --             -- isViewable one && isViewable two && isViewable three
     --             _ ->
-    --                 Gen.Ui.text ""
+    --                 Ui.text ""
     --     Elm.Type.Type "List.List" [ inner ] ->
-    --         Gen.Ui.text ""
+    --         Ui.text ""
     --     Elm.Type.Type "Maybe.Maybe" [ inner ] ->
-    --         Gen.Ui.text ""
+    --         Ui.text ""
     --     Elm.Type.Type "Basics.Bool" [] ->
-    --         Gen.Ui.text ""
+    --         Ui.text ""
     --     Elm.Type.Type "Basics.Int" [] ->
-    --         Gen.Ui.call_.text (Gen.String.call_.fromInt exp)
+    --         Ui.call_.text (Gen.String.call_.fromInt exp)
     --     Elm.Type.Type "Basics.Float" [] ->
-    --         Gen.Ui.call_.text (Gen.String.call_.fromFloat exp)
+    --         Ui.call_.text (Gen.String.call_.fromFloat exp)
     --     Elm.Type.Type "String.String" [] ->
-    --         Gen.Ui.call_.text exp
+    --         Ui.call_.text exp
     --     Elm.Type.Type "Html.Html" [] ->
-    --         Gen.Ui.html exp
+    --         Ui.html exp
     --     Elm.Type.Type "Svg.Svg" [] ->
-    --         Gen.Ui.html exp
+    --         Ui.html exp
     --     Elm.Type.Type name types ->
-    --         Gen.Ui.text ""
+    --         Ui.text ""
     --     Elm.Type.Record fields maybeExtensible ->
-    --         Gen.Ui.text ""
+    --         Ui.text ""
     exp

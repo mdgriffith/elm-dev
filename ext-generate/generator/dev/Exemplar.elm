@@ -23,10 +23,11 @@ import Elm.Type
 import Example.Build
 import Example.Interactive
 import Example.Type
+import Gen.Html
 import Gen.Html.Attributes
 import Gen.Parser
-import Gen.Ui
 import Interactive
+import Ui
 
 
 {-| Given a set of type signatures:
@@ -62,8 +63,7 @@ interactive name mod =
                     Example.Interactive.build mod
                         { start = value
                         , runners =
-                            [ element
-                            , parser
+                            [ parser
                             ]
                         }
             in
@@ -97,8 +97,7 @@ interactiveAll mod =
                                         Example.Interactive.build mod
                                             { start = value
                                             , runners =
-                                                [ element
-                                                , parser
+                                                [ parser
                                                 ]
                                             }
                                 in
@@ -122,29 +121,29 @@ interactiveAll mod =
         }
 
 
-element : Example.Interactive.Runner
-element =
-    { canRun =
-        \tipe ->
-            case tipe of
-                Elm.Type.Type "Element.Element" _ ->
-                    True
 
-                _ ->
-                    False
-    , view =
-        \{ model, onChange } val ->
-            Gen.Ui.el
-                [ Gen.Ui.padding 32
-                , Gen.Ui.height
-                    Gen.Ui.shrink
-                , Gen.Ui.heightMin 200
-                ]
-                (val
-                    |> Gen.Ui.el [ Gen.Ui.centerY, Gen.Ui.centerX ]
-                )
-    , fields = []
-    }
+-- element : Example.Interactive.Runner
+-- element =
+--     { canRun =
+--         \tipe ->
+--             case tipe of
+--                 Elm.Type.Type "Element.Element" _ ->
+--                     True
+--                 _ ->
+--                     False
+--     , view =
+--         \{ model, onChange } val ->
+--             Ui.el
+--                 [ Ui.padding 32
+--                 , Ui.height
+--                     Ui.shrink
+--                 , Ui.heightMin 200
+--                 ]
+--                 (val
+--                     |> Ui.el [ Ui.centerY, Ui.centerX ]
+--                 )
+--     , fields = []
+--     }
 
 
 parser : Example.Interactive.Runner
@@ -171,11 +170,11 @@ parser =
                                     }
                                 )
                                 [ ok ]
-                                |> Gen.Ui.call_.text
-                                |> Gen.Ui.el
-                                    [ Gen.Ui.paddingXY 32 0
-                                    , Gen.Ui.width Gen.Ui.fill
-                                    , Gen.Ui.htmlAttribute (Gen.Html.Attributes.style "background" "rgb(36,36,36)")
+                                |> Gen.Html.call_.text
+                                |> Ui.el
+                                    [ Ui.paddingXY 32 0
+                                    , Ui.width Ui.fill
+                                    , Ui.htmlAttribute (Gen.Html.Attributes.style "background" "rgb(36,36,36)")
                                     ]
                 , err =
                     Tuple.pair "err" <|
@@ -188,11 +187,11 @@ parser =
                                     }
                                 )
                                 [ err ]
-                                |> Gen.Ui.call_.text
-                                |> Gen.Ui.el
-                                    [ Gen.Ui.paddingXY 32 0
-                                    , Gen.Ui.width Gen.Ui.fill
-                                    , Gen.Ui.htmlAttribute (Gen.Html.Attributes.style "background" "rgb(36,36,36)")
+                                |> Gen.Html.call_.text
+                                |> Ui.el
+                                    [ Ui.paddingXY 32 0
+                                    , Ui.width Ui.fill
+                                    , Ui.htmlAttribute (Gen.Html.Attributes.style "background" "rgb(36,36,36)")
                                     ]
                 }
     , fields =

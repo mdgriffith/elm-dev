@@ -23,24 +23,22 @@ module Interactive exposing
 
 import Elm
 import Elm.Annotation
+import Elm.Arg
 import Elm.Case
 import Elm.Declare
 import Elm.Docs
 import Elm.Op
 import Elm.Type
-import Gen.App.Effect
-import Gen.App.Page
-import Gen.App.Sub
-import Gen.App.View
+import Gen.Browser
 import Gen.Html
 import Gen.Html.Attributes
+import Gen.Html.Events
 import Gen.Maybe
+import Gen.Platform
 import Gen.Platform.Cmd
 import Gen.Platform.Sub
 import Gen.String
-import Gen.Ui
-import Gen.Ui.Events
-import Gen.Ui.Font
+import Ui
 
 
 type alias Module =
@@ -233,8 +231,10 @@ selected top modules =
             ]
     , updateBranch =
         \model ->
-            Elm.Case.branch1 msgName
-                ( "newTab", Elm.Annotation.named [] typeName )
+            Elm.Case.branch
+                (Elm.Arg.customType msgName identity
+                    |> Elm.Arg.item (Elm.Arg.var "newTab")
+                )
                 (\tab ->
                     Elm.tuple
                         (model
@@ -242,21 +242,21 @@ selected top modules =
                                 [ ( recordName, tab )
                                 ]
                         )
-                        Gen.App.Effect.none
+                        Gen.Platform.Cmd.none
                 )
     , view =
         Elm.Declare.fn "viewTab"
-            ( "tab", Just type_ )
+            (Elm.Arg.varWith "tab" type_)
             (\tab ->
-                Gen.Ui.row
-                    [ Gen.Ui.spacing 24
-                    , Gen.Ui.padding 24
+                Ui.row
+                    [ Ui.spacing 24
+                    , Ui.padding 24
                     ]
                     (List.map
                         (\mod ->
-                            Gen.Ui.el
-                                [ Gen.Ui.padding 12
-                                , Gen.Ui.Events.onClick
+                            Ui.el
+                                [ Ui.padding 12
+                                , Gen.Html.Events.onClick
                                     (Elm.apply
                                         (Elm.value
                                             { importFrom = []
@@ -272,21 +272,21 @@ selected top modules =
                                         ]
                                     )
                                 ]
-                                (Gen.Ui.text mod.name)
+                                (Ui.text mod.name)
                         )
                         modules
                     )
             )
     , toString =
         Elm.Declare.fn "tabToString"
-            ( "tab", Just type_ )
+            (Elm.Arg.varWith "tab" type_)
             (\tab ->
                 Elm.Case.custom tab
                     type_
                     (List.map
                         (\mod ->
-                            Elm.Case.branch0 (moduleToTabName mod)
-                                (Elm.string mod.name)
+                            Elm.Case.branch (Elm.Arg.customType (moduleToTabName mod) identity)
+                                (\_ -> Elm.string mod.name)
                         )
                         modules
                     )
@@ -364,8 +364,10 @@ selectedExample =
         ]
     , updateMenuBranch =
         \model ->
-            Elm.Case.branch1 (msgName ++ "_MenuUpdated")
-                ( "isOpen", type_ )
+            Elm.Case.branch
+                (Elm.Arg.customType (msgName ++ "_MenuUpdated") identity
+                    |> Elm.Arg.item (Elm.Arg.var "isOpen")
+                )
                 (\isOpen ->
                     Elm.tuple
                         (model
@@ -373,12 +375,14 @@ selectedExample =
                                 [ ( recordName ++ "_menu", isOpen )
                                 ]
                         )
-                        Gen.App.Effect.none
+                        Gen.Platform.Cmd.none
                 )
     , updateBranch =
         \model ->
-            Elm.Case.branch1 msgName
-                ( "newTab", type_ )
+            Elm.Case.branch
+                (Elm.Arg.customType msgName identity
+                    |> Elm.Arg.item (Elm.Arg.var "newTab")
+                )
                 (\tab ->
                     Elm.tuple
                         (model
@@ -386,23 +390,23 @@ selectedExample =
                                 [ ( recordName, tab )
                                 ]
                         )
-                        Gen.App.Effect.none
+                        Gen.Platform.Cmd.none
                 )
 
     -- , view =
     --     Elm.Declare.fn "viewSelectedExample"
     --         ( "tab", Just type_ )
     --         (\tab ->
-    --             Gen.Ui.row
-    --                 [ Gen.Ui.spacing 24
-    --                 , Gen.Ui.width Gen.Ui.fill
-    --                 , Gen.Ui.padding 24
+    --             Ui.row
+    --                 [ Ui.spacing 24
+    --                 , Ui.width Ui.fill
+    --                 , Ui.padding 24
     --                 ]
     --                 (List.map
     --                     (\mod ->
-    --                         Gen.Ui.el
-    --                             [ Gen.Ui.padding 12
-    --                             , Gen.Ui.Events.onClick
+    --                         Ui.el
+    --                             [ Ui.padding 12
+    --                             , Ui.Events.onClick
     --                                 (Elm.apply
     --                                     (Elm.value
     --                                         { importFrom = []
@@ -418,7 +422,7 @@ selectedExample =
     --                                     ]
     --                                 )
     --                             ]
-    --                             (Gen.Ui.text mod.name)
+    --                             (Ui.text mod.name)
     --                     )
     --                     modules
     --                 )
@@ -467,8 +471,10 @@ codeOrOutput top modules =
             ]
     , updateBranch =
         \model ->
-            Elm.Case.branch1 msgName
-                ( "newTab", Elm.Annotation.named [] typeName )
+            Elm.Case.branch
+                (Elm.Arg.customType msgName identity
+                    |> Elm.Arg.item (Elm.Arg.var "newTab")
+                )
                 (\tab ->
                     Elm.tuple
                         (model
@@ -476,7 +482,7 @@ codeOrOutput top modules =
                                 [ ( recordName, tab )
                                 ]
                         )
-                        Gen.App.Effect.none
+                        Gen.Platform.Cmd.none
                 )
     , get =
         Elm.get recordName
@@ -493,26 +499,26 @@ codeOrOutput top modules =
                 ]
     , view =
         Elm.Declare.fn "viewCodeOrResult"
-            ( "tab", Just type_ )
+            (Elm.Arg.varWith "tab" type_)
             (\tab ->
-                Gen.Ui.row
-                    [ Gen.Ui.spacing 8
-                    , Gen.Ui.paddingXY 32 8
-                    , Gen.Ui.alignRight
+                Ui.row
+                    [ Ui.spacing 8
+                    , Ui.paddingXY 32 8
+                    , Ui.alignRight
                     ]
                     (List.map
                         (\( label, varName ) ->
-                            Gen.Ui.el
-                                [ Gen.Ui.paddingXY 8 4
-                                , Gen.Ui.border 1
-                                , Gen.Ui.rounded 4
-                                , Gen.Ui.pointer
-                                , Gen.Ui.borderColor
+                            Ui.el
+                                [ Ui.paddingXY 8 4
+                                , Ui.border 1
+                                , Ui.rounded 4
+                                , Ui.pointer
+                                , Gen.Html.Attributes.call_.style (Elm.string "border-color")
                                     (Elm.ifThen (Elm.Op.equal tab (valueNamed varName))
-                                        (Gen.Ui.rgb 1 1 1)
-                                        (Gen.Ui.rgb 0 0 0)
+                                        (Ui.rgb 1 1 1)
+                                        (Ui.rgb 0 0 0)
                                     )
-                                , Gen.Ui.Events.onClick
+                                , Gen.Html.Events.onClick
                                     (Elm.apply
                                         (Elm.value
                                             { importFrom = []
@@ -528,7 +534,7 @@ codeOrOutput top modules =
                                         ]
                                     )
                                 ]
-                                (Gen.Ui.text label)
+                                (Ui.text label)
                         )
                         [ ( "Output", "ShowOutput" )
                         , ( "Example", "ShowCode" )
@@ -537,14 +543,15 @@ codeOrOutput top modules =
             )
     , toString =
         Elm.Declare.fn "tabToString"
-            ( "tab", Just type_ )
+            (Elm.Arg.varWith "tab" type_)
             (\tab ->
                 Elm.Case.custom tab
                     type_
                     (List.map
                         (\mod ->
-                            Elm.Case.branch0 (moduleToTabName mod)
-                                (Elm.string mod.name)
+                            Elm.Case.branch
+                                (Elm.Arg.customType (moduleToTabName mod) identity)
+                                (\_ -> Elm.string mod.name)
                         )
                         modules
                     )
@@ -626,8 +633,8 @@ logMsg =
 update modelAlias mod additional =
     Elm.declaration "update"
         (Elm.fn2
-            ( "msg", Just (Elm.Annotation.named [] "Msg") )
-            ( "model", Just modelAlias )
+            (Elm.Arg.varWith "msg" (Elm.Annotation.named [] "Msg"))
+            (Elm.Arg.varWith "model" modelAlias)
             (\msg model ->
                 Elm.Case.custom msg
                     (Elm.Annotation.named [] "Msg")
@@ -641,7 +648,7 @@ update modelAlias mod additional =
                     )
                     |> Elm.withType
                         (Elm.Annotation.tuple modelAlias
-                            (Gen.App.Effect.annotation_.effect
+                            (Gen.Platform.Cmd.annotation_.cmd
                                 (Elm.Annotation.named [] "Msg")
                             )
                         )
@@ -650,11 +657,12 @@ update modelAlias mod additional =
 
 
 logUpdate model =
-    Elm.Case.branch0
-        "Log"
-        (Elm.tuple
-            model
-            Gen.App.Effect.none
+    Elm.Case.branch
+        (Elm.Arg.customType "Log" identity)
+        (\msg ->
+            Elm.tuple
+                model
+                Gen.Platform.Cmd.none
         )
 
 
@@ -665,25 +673,22 @@ moduleToTabName mod =
 
 init mod additional =
     Elm.declaration "init"
-        (Elm.fn3
-            ( "params", Just (Elm.Annotation.var "params") )
-            ( "shared", Just (Elm.Annotation.var "shared") )
-            ( "maybeModel", Just (Elm.Annotation.maybe (Elm.Annotation.named [] "Model")) )
-            (\params shared maybeModel ->
-                Gen.App.Page.init
-                    (Gen.Maybe.withDefault
-                        (Elm.record
-                            (additional.focus.init
-                                :: additional.example.init
-                                ++ toInitFields mod
-                            )
+        (Elm.fn2
+            (Elm.Arg.varWith "params" (Elm.Annotation.var "params"))
+            (Elm.Arg.varWith "shared" (Elm.Annotation.var "shared"))
+            (\params shared ->
+                Elm.tuple
+                    (Elm.record
+                        (additional.focus.init
+                            :: additional.example.init
+                            ++ toInitFields mod
                         )
-                        maybeModel
                     )
+                    Gen.Platform.Cmd.none
                     |> Elm.withType
-                        (Gen.App.Page.annotation_.init
-                            (Elm.Annotation.named [] "Msg")
+                        (Elm.Annotation.tuple
                             (Elm.Annotation.named [] "Model")
+                            (Gen.Platform.Cmd.annotation_.cmd (Elm.Annotation.var "msg"))
                         )
             )
         )
@@ -691,13 +696,13 @@ init mod additional =
 
 view modelAlias mod additional =
     Elm.declaration "view"
-        (Elm.fn ( "model", Just modelAlias )
+        (Elm.fn (Elm.Arg.varWith "model" modelAlias)
             (\model ->
                 Elm.record
                     [ ( "title", Elm.string "Elm Interactive" )
                     , ( "body", viewBody model mod additional )
                     ]
-                    |> Elm.withType (Gen.App.View.annotation_.view (Elm.Annotation.named [] "Msg"))
+             -- |> Elm.withType (Gen.App.View.annotation_.view (Elm.Annotation.named [] "Msg"))
             )
         )
 
@@ -705,64 +710,63 @@ view modelAlias mod additional =
 viewBody model mod additional =
     let
         examplePicker =
-            Gen.Ui.el
-                [ Gen.Ui.Font.size 24
-                , Gen.Ui.paddingXY 32 10
-                , Gen.Ui.pointer
-                , Gen.Ui.Font.family
-                    [ Gen.Ui.Font.typeface "Fira Code"
-                    , Gen.Ui.Font.sansSerif
+            Ui.el
+                [ Ui.fontSize 24
+                , Ui.paddingXY 32 10
+                , Ui.pointer
+                , Ui.fontFamily
+                    [ "Fira Code"
+                    , "sans-serif"
                     ]
-                , Gen.Ui.Events.onClick
+                , Gen.Html.Events.onClick
                     (additional.example.toggleMenu (additional.example.getMenuOpen model))
-                , Elm.ifThen (additional.example.getMenuOpen model)
-                    (Gen.Ui.below
-                        (mod.examples
-                            |> List.indexedMap
-                                (\optionIndex option ->
-                                    Gen.Ui.text option.name
-                                        |> Gen.Ui.el
-                                            [ Gen.Ui.Events.onClick
-                                                (additional.example.onClick optionIndex)
-                                            ]
-                                )
-                            |> Gen.Ui.column
-                                [ Gen.Ui.padding 16
-                                , Gen.Ui.move
-                                    (Gen.Ui.right 32)
-                                , Gen.Ui.border 1
-                                , Gen.Ui.rounded 4
-                                , Gen.Ui.background (Gen.Ui.rgb 0 0 0)
-                                , Gen.Ui.spacing 8
-                                ]
-                        )
-                    )
-                    Gen.Ui.pointer
+
+                -- , Elm.ifThen (additional.example.getMenuOpen model)
+                --     (Ui.below
+                --         (mod.examples
+                --             |> List.indexedMap
+                --                 (\optionIndex option ->
+                --                     Ui.text option.name
+                --                         |> Ui.el
+                --                             [ Gen.Html.Events.onClick
+                --                                 (additional.example.onClick optionIndex)
+                --                             ]
+                --                 )
+                --             |> Ui.column
+                --                 [ Ui.padding 16
+                --                 , Ui.move
+                --                     (Ui.right 32)
+                --                 , Ui.border 1
+                --                 , Ui.rounded 4
+                --                 , Ui.background (Ui.rgb 0 0 0)
+                --                 , Ui.spacing 8
+                --                 ]
+                --         )
+                --     )
+                --     Ui.pointer
                 ]
-                (Gen.Ui.text
+                (Ui.text
                     ("▶ " ++ mod.name)
                 )
     in
-    Gen.Ui.layout
-        [ Gen.Ui.htmlAttribute (Gen.Html.Attributes.style "background" "rgb(36,36,36)")
-        , Gen.Ui.Font.color (Gen.Ui.rgb 1 1 1)
-        , Gen.Ui.inFront
-            (additional.focus.viewCall model)
-        , Gen.Ui.Font.family
-            [ Gen.Ui.Font.typeface "Fira Code"
-            , Gen.Ui.Font.sansSerif
+    Ui.layers
+        [ Ui.htmlAttribute (Gen.Html.Attributes.style "background" "rgb(36,36,36)")
+        , Ui.fontColor (Ui.rgb 1 1 1)
+        , Ui.fontFamily
+            [ "Fira Code"
+            , "sans-serif"
             ]
         ]
-        (Gen.Ui.column
-            [ Gen.Ui.height Gen.Ui.fill
-            , Gen.Ui.spacing 16
+        [ Ui.column
+            [ Ui.height Ui.fill
+            , Ui.spacing 16
             ]
             (examplePicker
                 :: List.indexedMap
                     (\index interact ->
                         Elm.ifThen (Elm.Op.equal (Elm.int index) (additional.example.get model))
-                            (Gen.Ui.column
-                                [ Gen.Ui.height Gen.Ui.fill
+                            (Ui.column
+                                [ Ui.height Ui.fill
                                 ]
                                 [ Elm.apply
                                     (Elm.val ("view" ++ capitalize interact.name))
@@ -771,11 +775,12 @@ viewBody model mod additional =
                                     ]
                                 ]
                             )
-                            Gen.Ui.none
+                            Ui.none
                     )
                     mod.examples
             )
-        )
+        , additional.focus.viewCall model
+        ]
 
 
 renderViewer focus mod =
@@ -785,8 +790,8 @@ renderViewer focus mod =
 renderInteractiveViewer focus interact =
     Elm.declaration ("view" ++ capitalize interact.name)
         (Elm.fn2
-            ( "parent", Just appTypes.model )
-            ( "model", toModelField interact |> Tuple.second |> Just )
+            (Elm.Arg.varWith "parent" appTypes.model)
+            (Elm.Arg.varWith "model" (toModelField interact |> Tuple.second))
             (\model submodel ->
                 interact.view
                     { model = submodel
@@ -808,7 +813,7 @@ renderInteractiveViewer focus interact =
                             }
                     }
                     |> Elm.withType
-                        (Gen.Ui.annotation_.element
+                        (Ui.annotation_.element
                             (Elm.Annotation.named [] "Msg")
                         )
             )
@@ -875,11 +880,10 @@ toMsgUpdate model mod =
 
 toMsgUpdateInteractive : Elm.Expression -> Interactive -> Elm.Case.Branch
 toMsgUpdateInteractive model interact =
-    Elm.Case.branch1
-        interact.name
-        ( "updated"
-        , fieldsToAnnotation
-            interact.fields
+    Elm.Case.branch
+        (Elm.Arg.customType interact.name identity
+            |> Elm.Arg.item
+                (Elm.Arg.varWith "updated" (fieldsToAnnotation interact.fields))
         )
         (\updated ->
             Elm.tuple
@@ -888,7 +892,7 @@ toMsgUpdateInteractive model interact =
                         [ ( interact.name, updated )
                         ]
                 )
-                Gen.App.Effect.none
+                Gen.Platform.Cmd.none
         )
 
 
@@ -906,7 +910,7 @@ page =
                             ]
                             (Elm.Annotation.tuple
                                 appTypes.model
-                                (Gen.App.Effect.annotation_.effect (Elm.Annotation.var "msg"))
+                                (Gen.Platform.Cmd.annotation_.cmd (Elm.Annotation.var "msg"))
                             )
                         )
                 }
@@ -923,7 +927,7 @@ page =
                             ]
                             (Elm.Annotation.tuple
                                 appTypes.model
-                                (Gen.App.Effect.annotation_.effect (Elm.Annotation.var "msg"))
+                                (Gen.Platform.Cmd.annotation_.cmd (Elm.Annotation.var "msg"))
                             )
                         )
                 }
@@ -938,15 +942,15 @@ page =
           )
         , ( "subscriptions"
           , Elm.fn
-                ( "model", Nothing )
+                (Elm.Arg.var "model")
                 (\_ ->
-                    Gen.App.Sub.none
+                    Gen.Platform.Sub.none
                 )
           )
         ]
-        |> Gen.App.Page.call_.page
+        |> Gen.Browser.call_.element
         |> Elm.withType
-            (Gen.App.Page.annotation_.page
+            (Gen.Platform.annotation_.program
                 (Elm.Annotation.var "params")
                 (Elm.Annotation.named [] "Model")
                 (Elm.Annotation.named [] "Msg")

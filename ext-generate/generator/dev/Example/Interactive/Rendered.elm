@@ -5,6 +5,7 @@ module Example.Interactive.Rendered exposing (Created, build)
 
 import Elm
 import Elm.Annotation
+import Elm.Arg
 import Elm.Case
 import Elm.Docs
 import Elm.Op
@@ -14,8 +15,6 @@ import Example.Type
 import Gen.Elm
 import Gen.Elm.Op
 import Gen.String
-import Gen.Ui
-import Gen.Ui.Input
 import Interactive
 
 
@@ -239,7 +238,7 @@ buildHelper options context (Example.CallStack.CallStack callstack) =
                                                     |> Elm.Op.pipe
                                                         (Elm.ifThen boolVal
                                                             (Elm.fn
-                                                                ( "a", Nothing )
+                                                                (Elm.Arg.var "a")
                                                                 (Gen.Elm.Op.pipe
                                                                     (Gen.Elm.apply
                                                                         (Gen.Elm.value
@@ -278,7 +277,7 @@ buildHelper options context (Example.CallStack.CallStack callstack) =
                                                                         ( Example.CallStack.name step.step ++ "_option"
                                                                         , \val ->
                                                                             Elm.fn
-                                                                                ( "a", Nothing )
+                                                                                (Elm.Arg.var "a")
                                                                                 (Gen.Elm.Op.pipe
                                                                                     (Gen.Elm.apply
                                                                                         (Gen.Elm.value
@@ -313,7 +312,7 @@ buildHelper options context (Example.CallStack.CallStack callstack) =
 
 
 genIdentity =
-    Elm.fn ( "a", Nothing ) (\a -> a)
+    Elm.fn (Elm.Arg.var "a") (\a -> a)
 
 
 applyBuilder ( includeBuilder, builder ) value =
@@ -381,7 +380,11 @@ buildBuilder options context originalValue targetType args =
         Elm.Type.Lambda arg ((Elm.Type.Lambda _ _) as result) ->
             case buildArg options context originalValue.name arg of
                 Ok argBuilt ->
-                    buildBuilder options argBuilt.context originalValue result (argBuilt.drivenByModel :: args)
+                    buildBuilder options
+                        argBuilt.context
+                        originalValue
+                        result
+                        (argBuilt.drivenByModel :: args)
 
                 Err err ->
                     Err err
@@ -393,7 +396,7 @@ buildBuilder options context originalValue targetType args =
                 { context = context
                 , drivenByModel =
                     Elm.fn
-                        ( "a", Nothing )
+                        (Elm.Arg.var "a")
                         (Gen.Elm.Op.pipe
                             (Gen.Elm.apply
                                 (Gen.Elm.value

@@ -3,9 +3,9 @@ module Generate exposing (..)
 -- import Interactive
 
 import Elm
+import Elm.Docs
 import Exemplar
 import Gen.CodeGen.Generate as Generate
-import Generate.PageId
 import Interactive
 import Json.Decode
 import Options
@@ -19,8 +19,7 @@ main =
                 _ =
                     Debug.log "options" options
             in
-            Generate.PageId.generate options
-                :: List.map renderExampleModule options.project
+            List.map renderExampleModule options.project
         )
 
 

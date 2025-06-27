@@ -2,6 +2,7 @@ module Example.Interactive.Build exposing (Created, build)
 
 import Elm
 import Elm.Annotation
+import Elm.Arg
 import Elm.Case
 import Elm.Docs
 import Elm.Op
@@ -9,8 +10,6 @@ import Elm.Type
 import Example.CallStack
 import Example.Type
 import Gen.String
-import Gen.Ui
-import Gen.Ui.Input
 import Interactive
 
 
@@ -272,7 +271,7 @@ buildHelper options context (Example.CallStack.CallStack callstack) =
 
 
 genIdentity =
-    Elm.fn ( "a", Nothing ) (\a -> a)
+    Elm.fn (Elm.Arg.var "a") (\a -> a)
 
 
 applyBuilder ( includeBuilder, builder ) value =
