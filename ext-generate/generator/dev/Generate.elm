@@ -19,19 +19,29 @@ main =
                 _ =
                     Debug.log "options" options
             in
-            List.map renderExampleModule options.project
+            List.concatMap renderExampleModule options.project
         )
 
 
-renderExampleModule : Elm.Docs.Module -> Elm.File
+renderExampleModule : Elm.Docs.Module -> List Elm.File
 renderExampleModule mod =
     case Exemplar.interactiveAll mod of
         Err err ->
-            Elm.file [ "Live" ]
+            [ Elm.file [ "Live" ]
                 [ Elm.declaration "error"
                     (Elm.string err)
                 ]
+            ]
 
         Ok interactives ->
-            Interactive.generate ("Dev" :: String.split "." interactives.name)
-                interactives
+            let
+                moduleName =
+                    "Dev" :: String.split "." interactives.name
+            in
+            List.map
+                (\example ->
+                    Interactive.generateSingle
+                        (moduleName ++ [ example.name ])
+                        example
+                )
+                interactives.examples

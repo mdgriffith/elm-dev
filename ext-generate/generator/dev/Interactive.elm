@@ -1,5 +1,6 @@
 module Interactive exposing
-    ( Module, Interactive, ViewReferences, generate
+    ( generateSingle, generate
+    , Module, Interactive, ViewReferences
     , Field, field
     , log
     , Input(..), bool, string, int, float
@@ -8,6 +9,8 @@ module Interactive exposing
     )
 
 {-|
+
+@docs generateSingle, generate
 
 @docs Module, Interactive, ViewReferences, generate
 
@@ -38,6 +41,7 @@ import Gen.Platform
 import Gen.Platform.Cmd
 import Gen.Platform.Sub
 import Gen.String
+import GenApp
 import Ui
 
 
@@ -566,6 +570,69 @@ codeOrOutput top modules =
 
 
 {- END ADDITIONAL STUFF -}
+
+
+generateSingle : List String -> Interactive -> Elm.File
+generateSingle moduleName interact =
+    GenApp.element moduleName
+        { init =
+            \flags ->
+                Elm.tuple
+                    (Elm.record
+                        (List.map
+                            (\(Field name info) ->
+                                ( name, info.init )
+                            )
+                            interact.fields
+                        )
+                    )
+                    Gen.Platform.Cmd.none
+        , model = fieldsToAnnotation interact.fields
+        , messageHandlers =
+            [ { name = "Updated"
+              , data = [ fieldsToAnnotation interact.fields ]
+              , updateBranch =
+                    \model ->
+                        Elm.Case.branch
+                            (Elm.Arg.customType "Updated" identity
+                                |> Elm.Arg.item (Elm.Arg.var "new")
+                            )
+                            (\new ->
+                                Elm.tuple
+                                    new
+                                    Gen.Platform.Cmd.none
+                            )
+              }
+            ]
+        , view =
+            \model ->
+                interact.view
+                    { model = model
+                    , codeOrOutput = Elm.bool True
+
+                    -- Elm.Op.equal
+                    --     (focus.get model)
+                    --     (Elm.value
+                    --         { importFrom = []
+                    --         , name = focus.variants.output
+                    --         , annotation = Just focus.type_
+                    --         }
+                    --     )
+                    , onChange =
+                        Elm.value
+                            { importFrom = []
+                            , name =
+                                capitalize interact.name
+                            , annotation = Nothing
+                            }
+                    }
+                    |> Elm.withType
+                        (Ui.annotation_.element
+                            (Elm.Annotation.named [] "Msg")
+                        )
+        , subscriptions =
+            \_ -> Gen.Platform.Sub.none
+        }
 
 
 generate : List String -> Module -> Elm.File
