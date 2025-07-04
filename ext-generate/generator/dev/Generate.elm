@@ -5,6 +5,7 @@ module Generate exposing (..)
 import Elm
 import Elm.Docs
 import Exemplar
+import Extra.String
 import Gen.CodeGen.Generate as Generate
 import Interactive
 import Json.Decode
@@ -15,33 +16,29 @@ main : Program Json.Decode.Value () ()
 main =
     Generate.fromJson Options.decoder
         (\options ->
-            let
-                _ =
-                    Debug.log "options" options
-            in
             List.concatMap renderExampleModule options.project
         )
 
 
 renderExampleModule : Elm.Docs.Module -> List Elm.File
 renderExampleModule mod =
-    case Exemplar.interactiveAll mod of
-        Err err ->
-            [ Elm.file [ "Live" ]
-                [ Elm.declaration "error"
-                    (Elm.string err)
-                ]
-            ]
+    let
+        interactiveMod =
+            Exemplar.interactiveAll mod
 
-        Ok interactives ->
-            let
-                moduleName =
-                    "Dev" :: String.split "." interactives.name
-            in
-            List.map
-                (\example ->
+        moduleName =
+            "Dev" :: String.split "." interactiveMod.name
+    in
+    List.map
+        (\exampleResult ->
+            case exampleResult of
+                Ok example ->
                     Interactive.generateSingle
-                        (moduleName ++ [ example.name ])
+                        (moduleName ++ [ Extra.String.capitalize example.name ])
                         example
-                )
-                interactives.examples
+
+                Err err ->
+                    Elm.file (moduleName ++ [ Extra.String.capitalize err.name ])
+                        [ Elm.declaration "error" (Elm.string err.description) ]
+        )
+        interactiveMod.examples

@@ -36,21 +36,22 @@ element :
         , init : Elm.Expression -> Elm.Expression
         , view : Elm.Expression -> Elm.Expression
         , subscriptions : Elm.Expression -> Elm.Expression
+        , declarations : List Elm.Declaration
         }
     -> Elm.File
 element modName app =
     Elm.file modName
-        [ Elm.declaration "main" appMain
-        , Elm.declaration "init" (Elm.fn (Elm.Arg.var "flags") app.init)
-        , Elm.alias "Model" app.model
-        , Elm.customType "Msg"
+        ([ Elm.declaration "main" appMain
+         , Elm.declaration "init" (Elm.fn (Elm.Arg.var "flags") app.init)
+         , Elm.alias "Model" app.model
+         , Elm.customType "Msg"
             (List.map
                 (\msg ->
                     Elm.variantWith msg.name msg.data
                 )
                 app.messageHandlers
             )
-        , Elm.declaration "update"
+         , Elm.declaration "update"
             (Elm.fn2
                 (Elm.Arg.varWith "msg" msgType)
                 (Elm.Arg.varWith "model" modelType)
@@ -66,9 +67,11 @@ element modName app =
                         |> Elm.withType updateTupleType
                 )
             )
-        , Elm.declaration "view" (Elm.fn (Elm.Arg.varWith "model" modelType) app.view)
-        , Elm.declaration "subscriptions" (Elm.fn (Elm.Arg.varWith "model" modelType) app.subscriptions)
-        ]
+         , Elm.declaration "view" (Elm.fn (Elm.Arg.varWith "model" modelType) app.view)
+         , Elm.declaration "subscriptions" (Elm.fn (Elm.Arg.varWith "model" modelType) app.subscriptions)
+         ]
+            ++ app.declarations
+        )
 
 
 appMain =

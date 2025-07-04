@@ -379,7 +379,7 @@ buildArg options context namespace target =
                 }
 
         Elm.Type.Var var ->
-            Err ("I don't know how to build a " ++ var)
+            Err ("I don't know how to build this type var " ++ var)
 
         Elm.Type.Lambda arg result ->
             Err "Nested lambdas"

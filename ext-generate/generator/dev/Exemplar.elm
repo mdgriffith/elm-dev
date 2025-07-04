@@ -51,6 +51,14 @@ example name mod =
             Example.Build.build mod.values value
 
 
+runners : List Example.Interactive.Runner
+runners =
+    [ parser
+    , html
+    , string
+    ]
+
+
 interactive : String -> Elm.Docs.Module -> Result String Interactive.Module
 interactive name mod =
     case Example.Build.getValueNamed name mod.values of
@@ -62,9 +70,7 @@ interactive name mod =
                 builtResult =
                     Example.Interactive.build mod
                         { start = value
-                        , runners =
-                            [ parser
-                            ]
+                        , runners = runners
                         }
             in
             case builtResult of
@@ -80,45 +86,65 @@ interactive name mod =
                         }
 
 
-interactiveAll : Elm.Docs.Module -> Result String Interactive.Module
-interactiveAll mod =
-    let
-        examples =
-            List.foldl
-                (\val exes ->
-                    if Example.Type.isStartingPoint val.tipe then
-                        case Example.Build.getValueNamed val.name mod.values of
-                            Nothing ->
-                                exes
-
-                            Just value ->
-                                let
-                                    builtResult =
-                                        Example.Interactive.build mod
-                                            { start = value
-                                            , runners =
-                                                [ parser
-                                                ]
-                                            }
-                                in
-                                case builtResult of
-                                    Err err ->
-                                        exes
-
-                                    Ok examp ->
-                                        examp :: exes
-
-                    else
-                        exes
+interactiveAll :
+    Elm.Docs.Module
+    ->
+        { name : String
+        , examples :
+            List
+                (Result
+                    { name : String
+                    , description : String
+                    }
+                    Interactive.Interactive
                 )
-                []
-                mod.values
-    in
-    Ok
-        { name = mod.name
-        , examples =
-            examples
         }
+interactiveAll mod =
+    { name = mod.name
+    , examples =
+        List.foldl
+            (\val examples ->
+                if Example.Type.isStartingPoint val.tipe then
+                    let
+                        builtResult =
+                            Example.Interactive.build mod
+                                { start = val
+                                , runners = runners
+                                }
+                    in
+                    case builtResult of
+                        Err err ->
+                            Err { name = val.name, description = err } :: examples
+
+                        Ok examp ->
+                            Ok examp :: examples
+
+                else
+                    let
+                        isBuilder =
+                            if Example.Type.isBuilder val.tipe then
+                                "true"
+
+                            else
+                                "false"
+
+                        debugStartingPoint =
+                            Example.Type.debugStartingPoint val.tipe
+                                |> String.join "\n"
+                    in
+                    Err
+                        { name = val.name
+                        , description =
+                            "Not a starting point `"
+                                ++ (val.name ++ "`" ++ "\n" ++ "isBuilder: " ++ isBuilder)
+                                ++ "\n"
+                                ++ debugStartingPoint
+                        }
+                        :: examples
+            )
+            []
+            mod.values
+    }
 
 
 
@@ -144,6 +170,40 @@ interactiveAll mod =
 --                 )
 --     , fields = []
 --     }
+
+
+string : Example.Interactive.Runner
+string =
+    { canRun =
+        \tipe ->
+            case tipe of
+                Elm.Type.Type "String.String" [] ->
+                    True
+
+                _ ->
+                    False
+    , view =
+        \{ model, onChange } val ->
+            Gen.Html.call_.text val
+    , fields = []
+    }
+
+
+html : Example.Interactive.Runner
+html =
+    { canRun =
+        \tipe ->
+            case tipe of
+                Elm.Type.Type "Html.Html" _ ->
+                    True
+
+                _ ->
+                    False
+    , view =
+        \{ model, onChange } val ->
+            val
+    , fields = []
+    }
 
 
 parser : Example.Interactive.Runner

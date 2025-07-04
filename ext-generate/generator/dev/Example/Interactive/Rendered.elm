@@ -496,7 +496,7 @@ buildArg options context namespace target =
                     }
                     context
 
-        Elm.Type.Type "Basics.Boolean" [] ->
+        Elm.Type.Type "Basics.Bool" [] ->
             Ok <|
                 getVal namespace
                     { input = Interactive.bool

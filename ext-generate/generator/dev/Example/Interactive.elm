@@ -44,6 +44,7 @@ import Example.CallStack
 import Example.Interactive.Build
 import Example.Interactive.Rendered
 import Example.Type
+import Gen.Html
 import Gen.Html.Attributes
 import Gen.String
 import Gen.Ui.Theme.Input
@@ -92,42 +93,17 @@ build modul targeting =
                                     [ Ui.width Ui.fill
                                     , Ui.height Ui.fill
                                     ]
-                                    [ --     Ui.el
-                                      --     [ Ui.Font.size 24
-                                      --     , Ui.paddingXY 32 10
-                                      --     , Ui.Font.family
-                                      --         [ Ui.Font.typeface "Fira Code"
-                                      --         , Ui.Font.sansSerif
-                                      --         ]
-                                      --     ]
-                                      --     (Ui.text
-                                      --         (modul.name ++ "." ++ targeting.start.name)
-                                      --     )
-                                      -- ,
-                                      --   Elm.ifThen opts.codeOrOutput
-                                      --     (example.rendered.drivenByModel
-                                      --         |> runner.view opts
-                                      --         |> Ui.el
-                                      --             [ Ui.width Ui.fill
-                                      --             , Ui.fontColor (Ui.rgb 0 0 0)
-                                      --             , Ui.background (Ui.rgb 1 1 1)
-                                      --             ]
-                                      --     )
-                                      --     (Ui.call_.text
-                                      --         example.example.drivenByModel
-                                      --         |> Ui.el [ Ui.centerY ]
-                                      --         |> Ui.el
-                                      --             [ Ui.padding 32
-                                      --             , Ui.height Ui.shrink
-                                      --             , Ui.heightMin 200
-                                      --             ]
-                                      --     )
-                                      -- ,
-                                      Ui.el
-                                        [ Ui.width Ui.fill
-                                        , Ui.padding 32
-                                        ]
-                                        (viewInput opts fields)
+                                    [ Elm.ifThen opts.codeOrOutput
+                                        (example.rendered.drivenByModel
+                                            |> runner.view opts
+                                            |> Ui.el
+                                                [ Ui.width Ui.fill
+                                                ]
+                                        )
+                                        (Gen.Html.call_.text
+                                            example.example.drivenByModel
+                                            |> Ui.el []
+                                        )
                                     ]
                         }
 
@@ -135,83 +111,73 @@ build modul targeting =
             Err err
 
 
-viewInput :
-    Interactive.ViewReferences
-    -> List Interactive.Field
-    -> Elm.Expression
-viewInput viewOptions fields =
-    Ui.column
-        [ Ui.width Ui.fill
-        , Ui.spacing 16
-        ]
-        (List.map (viewFieldInput viewOptions)
-            (List.reverse fields)
-        )
 
-
-{-|
-
-    - Label
-
--}
-viewFieldInput :
-    Interactive.ViewReferences
-    -> Interactive.Field
-    -> Elm.Expression
-viewFieldInput opts field =
-    let
-        details =
-            Interactive.details field
-
-        updateValue =
-            Elm.fn
-                (Elm.Arg.var "new")
-                (\new ->
-                    Elm.apply
-                        opts.onChange
-                        [ opts.model
-                            |> Elm.updateRecord
-                                [ ( details.key, new )
-                                ]
-                        ]
-                )
-    in
-    case details.input of
-        Interactive.InputString ->
-            Gen.Ui.Theme.Input.call_.string
-                (Elm.string details.label)
-                updateValue
-                (Elm.get details.key opts.model)
-
-        Interactive.InputBool ->
-            Gen.Ui.Theme.Input.call_.bool
-                (Elm.string details.label)
-                updateValue
-                (Elm.get details.key opts.model)
-
-        Interactive.InputInt ->
-            Gen.Ui.Theme.Input.call_.int
-                (Elm.string details.label)
-                updateValue
-                (Elm.get details.key opts.model)
-
-        Interactive.InputFloat ->
-            Ui.text "Float"
-
-        Interactive.InputMaybe Interactive.InputString ->
-            Elm.get details.key opts.model
-                |> Gen.Ui.Theme.Input.call_.maybeString
-                    (Elm.string details.label)
-                    updateValue
-
-        Interactive.InputMaybe Interactive.InputBool ->
-            Elm.get details.key opts.model
-                |> Gen.Ui.Theme.Input.call_.maybeBool
-                    (Elm.string details.label)
-                    updateValue
-
-        Interactive.InputMaybe _ ->
-            Ui.text "Float"
+-- viewInput :
+--     Interactive.ViewReferences
+--     -> List Interactive.Field
+--     -> Elm.Expression
+-- viewInput viewOptions fields =
+--     Ui.column
+--         [ Ui.width Ui.fill
+--         , Ui.spacing 16
+--         ]
+--         (List.map (viewFieldInput viewOptions)
+--             (List.reverse fields)
+--         )
+-- {-|
+--     - Label
+-- -}
+-- viewFieldInput :
+--     Interactive.ViewReferences
+--     -> Interactive.Field
+--     -> Elm.Expression
+-- viewFieldInput opts field =
+--     let
+--         details =
+--             Interactive.details field
+--         updateValue =
+--             Elm.fn
+--                 (Elm.Arg.var "new")
+--                 (\new ->
+--                     Elm.apply
+--                         opts.onChange
+--                         [ opts.model
+--                             |> Elm.updateRecord
+--                                 [ ( details.key, new )
+--                                 ]
+--                         ]
+--                 )
+--     in
+--     case details.input of
+--         Interactive.InputString ->
+--             Gen.Ui.Theme.Input.call_.string
+--                 (Elm.string details.label)
+--                 updateValue
+--                 (Elm.get details.key opts.model)
+--         Interactive.InputBool ->
+--             Gen.Ui.Theme.Input.call_.bool
+--                 (Elm.string details.label)
+--                 updateValue
+--                 (Elm.get details.key opts.model)
+--         Interactive.InputInt ->
+--             Gen.Ui.Theme.Input.call_.int
+--                 (Elm.string details.label)
+--                 updateValue
+--                 (Elm.get details.key opts.model)
+--         Interactive.InputFloat ->
+--             Ui.text "Float"
+--         Interactive.InputMaybe Interactive.InputString ->
+--             Elm.get details.key opts.model
+--                 |> Gen.Ui.Theme.Input.call_.maybeString
+--                     (Elm.string details.label)
+--                     updateValue
+--         Interactive.InputMaybe Interactive.InputBool ->
+--             Elm.get details.key opts.model
+--                 |> Gen.Ui.Theme.Input.call_.maybeBool
+--                     (Elm.string details.label)
+--                     updateValue
+--         Interactive.InputMaybe _ ->
+--             Ui.text "Float"
 
 
 runnerEnd : List Runner -> Elm.Type.Type -> Bool
@@ -243,12 +209,18 @@ buildExampleCallStack :
             , return : Elm.Type.Type
             }
 buildExampleCallStack mod bounds =
-    case Example.CallStack.find mod.values [] { start = bounds.start, end = runnerEnd bounds.runners } of
+    let
+        options =
+            { start = bounds.start
+            , end = runnerEnd bounds.runners
+            }
+    in
+    case Example.CallStack.find mod.values [] options of
         Nothing ->
-            Err "No way to build desired type"
+            Err ("Nothing way to build desired type `" ++ options.start.name ++ "`")
 
         Just [] ->
-            Err "No way to build desired type"
+            Err ("No way to build desired type `" ++ options.start.name ++ "`")
 
         Just (callStack :: calls) ->
             let
@@ -268,8 +240,18 @@ buildExampleCallStack mod bounds =
                         , return = Example.CallStack.getResultType callStack
                         }
 
-                _ ->
-                    Err "Something terribly terribly wrong happened"
+                ( err1, err2 ) ->
+                    Err ("Something terribly terribly wrong happened\n\nrendered: " ++ getErrorString err1 ++ "\n\nexample: " ++ getErrorString err2)
+
+
+getErrorString : Result String a -> String
+getErrorString result =
+    case result of
+        Ok _ ->
+            "Ok"
+
+        Err err ->
+            err
 
 
 getRunner :
