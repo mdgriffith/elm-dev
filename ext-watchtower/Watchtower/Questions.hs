@@ -8,6 +8,7 @@ import qualified Control.Concurrent.STM as STM
 import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
 import Control.Monad.Trans (MonadIO (liftIO))
+import qualified Data.Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Char8
@@ -16,7 +17,8 @@ import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
 import qualified Data.NonEmptyList as NE
-import qualified Develop.Generate.Help
+import qualified Data.Text
+import qualified Data.Text.Encoding
 import qualified Elm.Docs as Docs
 import qualified Ext.Common
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
@@ -34,9 +36,11 @@ import qualified Ext.Project.Find
 import qualified Ext.Sentry
 import qualified Ext.VirtualFile
 import qualified Gen.Generate
+import qualified Gen.Javascript
 import Json.Encode ((==>))
 import qualified Json.Encode
 import Language.Haskell.TH (doE)
+import qualified Repl as Data.ByteString.Builder
 import qualified Reporting.Annotation
 import qualified Reporting.Doc
 import qualified Reporting.Exit as Exit
@@ -54,7 +58,6 @@ import qualified Terminal.Dev.Out as Out
 import qualified Watchtower.Editor
 import qualified Watchtower.Live
 import qualified Watchtower.Live.Client as Client
-import qualified Watchtower.MCP
 import qualified Watchtower.State.Compile
 import qualified Watchtower.State.Discover
 import qualified Watchtower.State.Project
@@ -112,13 +115,13 @@ pageToFile page =
 
 serve :: Watchtower.Live.State -> Snap ()
 serve state = do
-  mcpState <- liftIO $ do
-    initialState <- Watchtower.MCP.newMCPState
-    return $ Watchtower.MCP.registerCommand initialState (Watchtower.MCP.uptimeCommand initialState)
+  -- mcpState <- liftIO $ do
+  --   initialState <- Watchtower.MCP.newMCPState
+  --   return $ Watchtower.MCP.registerCommand initialState (Watchtower.MCP.uptimeCommand initialState)
 
   route
     [ ("/docs/:owner/:package/:version/:readme", docsHandler state),
-      ("/mcp/:action", Watchtower.MCP.handleMCP mcpState),
+      -- ("/mcp/:action", Watchtower.MCP.handleMCP mcpState),
       ("/:action", actionHandler state)
     ]
 
@@ -361,51 +364,72 @@ ask state question =
           putStrLn "Success, returning skipped output"
           pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
     Interactive (InteractiveDetails cwd filepath) -> do
-      -- maybeDocs <- Ext.Dev.docs cwd filepath
-      -- case maybeDocs of
-      --   Nothing ->
-      --     pure (Json.Encode.encodeUgly (Json.Encode.chars "Docs are not available"))
-      --   Just docs -> do
-      -- pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [docs])))
-      putStrLn "---- INTERACTIVE ----"
-      let entry = "src" </> "Interactive.elm"
-      let elmContent = "module Interactive exposing (main)\n\nimport Html exposing (Html, text)\n\nmain : Html msg\nmain = text \"Hello, from dynamically compiled Elm!!\"\n"
-      Ext.VirtualFile.write cwd entry (BS.pack (map (fromIntegral . fromEnum) elmContent))
-
-      let flags =
-            CompileHelpers.Flags
-              CompileHelpers.Debug
-              (CompileHelpers.OutputTo CompileHelpers.Js)
-      maybeProjectCache <-
-        Watchtower.State.Project.upsertVirtual
-          state
-          flags
-          cwd
-          ("/Users/griff/projects/elm-dev/apps/elm-dev2/elm-stuff/virtual" </> entry)
-
-      case maybeProjectCache of
+      maybeDocs <- Ext.Dev.docs cwd filepath
+      case maybeDocs of
         Nothing ->
-          pure (Json.Encode.encodeUgly (Json.Encode.chars "Error creating project"))
-        Just projectCache -> do
-          compilationResult <- Watchtower.State.Compile.compile flags projectCache
-          case compilationResult of
-            Left (Watchtower.State.Compile.ReactorError reactorExit) -> do
-              Ext.FileCache.debug
-              putStrLn $ "Reactor error: " <> show reactorExit
+          pure (Json.Encode.encodeUgly (Json.Encode.chars "Docs are not available"))
+        Just docs -> do
+          -- pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [docs])))
+          let docsJson = Docs.encode (Docs.toDict [docs])
+          putStrLn "-- DOCS GENERATED"
+          let docsProject =
+                Json.Encode.object
+                  [ ("project", docsJson),
+                    ("viewers", Json.Encode.array [])
+                  ]
+          let flags = Json.Encode.object [("flags", docsProject)]
+          putStrLn $ "Flags: " ++ show flags
+          putStrLn "Running Interactive "
+          result <- Gen.Javascript.run Gen.Javascript.interactiveJs (BS.toStrict (Data.ByteString.Builder.toLazyByteString (Json.Encode.encodeUgly flags)))
+          case result of
+            Left err -> pure (Json.Encode.encodeUgly (Json.Encode.chars err))
+            Right output -> do
+              case Data.Aeson.eitherDecodeStrict (Data.Text.Encoding.encodeUtf8 (Data.Text.pack output)) of
+                Left err -> pure (Json.Encode.encodeUgly (Json.Encode.chars err))
+                Right (Gen.Generate.GeneratedFiles generatedFiles) -> do
+                  putStrLn $ "Generated files: " ++ show (length generatedFiles)
+                  Monad.forM_ generatedFiles $ \file -> do
+                    -- putStrLn $ "Generated file: " ++ Gen.Generate.outputDir file ++ " & " ++ Gen.Generate.path file
+                    putStrLn $ "Generated file: " ++ show file
+                  pure (Json.Encode.encodeUgly docsJson)
+    {-let entry = "src" </> "Interactive.elm"
+    let elmContent = "module Interactive exposing (main)\n\nimport Html exposing (Html, text)\n\nmain : Html msg\nmain = text \"Hello, from dynamically compiled Elm!!\"\n"
 
-              pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
-            Left (Watchtower.State.Compile.GenerationError err) -> do
-              putStrLn $ "Generation error: " <> show err
-              pure (Json.Encode.encodeUgly (Json.Encode.chars err))
-            Right (CompileHelpers.CompiledJs js) -> do
-              putStrLn "Success, returning JS"
-              pure (Data.ByteString.Builder.byteString "// success\n" <> js)
-            Right (CompileHelpers.CompiledHtml html) -> do
-              putStrLn "Success, returning HTML"
-              pure html
-            Right CompileHelpers.CompiledSkippedOutput -> do
-              putStrLn "Success, returning skipped output"
-              pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
+    Ext.VirtualFile.write cwd entry (BS.pack (map (fromIntegral . fromEnum) elmContent))
+    let flags =
+          CompileHelpers.Flags
+            CompileHelpers.Debug
+            (CompileHelpers.OutputTo CompileHelpers.Js)
+    maybeProjectCache <-
+      Watchtower.State.Project.upsertVirtual
+        state
+        flags
+        cwd
+        ("/Users/griff/projects/elm-dev/apps/elm-dev2/elm-stuff/virtual" </> entry)
+
+    case maybeProjectCache of
+      Nothing ->
+        pure (Json.Encode.encodeUgly (Json.Encode.chars "Error creating project"))
+      Just projectCache -> do
+        compilationResult <- Watchtower.State.Compile.compile flags projectCache
+        case compilationResult of
+          Left (Watchtower.State.Compile.ReactorError reactorExit) -> do
+            Ext.FileCache.debug
+            putStrLn $ "Reactor error: " <> show reactorExit
+
+            pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
+          Left (Watchtower.State.Compile.GenerationError err) -> do
+            putStrLn $ "Generation error: " <> show err
+            pure (Json.Encode.encodeUgly (Json.Encode.chars err))
+          Right (CompileHelpers.CompiledJs js) -> do
+            putStrLn "Success, returning JS"
+            pure (Data.ByteString.Builder.byteString "// success\n" <> js)
+          Right (CompileHelpers.CompiledHtml html) -> do
+            putStrLn "Success, returning HTML"
+            pure html
+          Right CompileHelpers.CompiledSkippedOutput -> do
+            putStrLn "Success, returning skipped output"
+            pure (Json.Encode.encodeUgly (Json.Encode.chars "// success")) -}
     Docs (ForProject entrypoint) -> do
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
