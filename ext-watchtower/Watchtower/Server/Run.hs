@@ -12,6 +12,8 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Ext.Common
+import qualified Ext.Log
 import Snap.Core hiding (method)
 import qualified Snap.Http.Server as Server
 import qualified Snap.Util.CORS as CORS
@@ -19,6 +21,31 @@ import System.IO (hFlush, stdin, stdout)
 import qualified System.IO as IO
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
+
+data Mode = StdIO | HTTP (Maybe Int)
+
+run :: Live.State -> Mode -> Handler -> IO ()
+run state mode handler =
+  case mode of
+    StdIO -> runStdIO state handler
+    HTTP maybePort -> do
+      let port = Ext.Common.withDefault 51213 maybePort
+      debug <- Ext.Log.isActive Ext.Log.VerboseServer
+      Ext.Common.atomicPutStrLn $ "elm-dev is now running at http://localhost:" ++ show port
+      Server.httpServe (config port debug) $
+        runHttp state handler
+
+config :: Int -> Bool -> Server.Config Snap a
+config port isDebug =
+  Server.setVerbose isDebug $
+    Server.setPort port $
+      Server.setAccessLog (Server.ConfigIoLog logger) $
+        Server.setErrorLog
+          (Server.ConfigIoLog logger)
+          Server.defaultConfig
+
+logger bs =
+  Ext.Log.log Ext.Log.VerboseServer $ T.unpack $ T.decodeUtf8 bs
 
 -- | Type for handling JSON-RPC requests
 type Handler = Live.State -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)

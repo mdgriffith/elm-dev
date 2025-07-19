@@ -66,6 +66,9 @@ import qualified Text.PrettyPrint.ANSI.Leijen as P
 import qualified Text.Read
 import qualified Watchtower.Live
 import qualified Watchtower.Server
+import qualified Watchtower.Server.LSP
+import qualified Watchtower.Server.MCP
+import qualified Watchtower.Server.Run
 
 parseModuleList :: String -> Maybe (NE.List Elm.ModuleName.Raw)
 parseModuleList str = case Data.Maybe.catMaybes $ fmap parseElmModule (splitOn ',' str) of
@@ -118,6 +121,40 @@ serverCommand = CommandParser.command ["server"] "Start the Elm Dev server" devG
       Ext.CompileMode.setModeMemory
       -- Ext.CompileMode.setModeDisk
       Ext.Log.withAllBut [Ext.Log.Performance] $ Watchtower.Server.serve Nothing (Watchtower.Server.Flags maybePort)
+
+mcpCommand :: CommandParser.Command
+mcpCommand = CommandParser.command ["mcp"] "Start the Elm Dev MCP server" devGroup CommandParser.noArg parseServerFlags runServer
+  where
+    useHttpFlag = CommandParser.flag "http" "Use HTTP instead of stdio"
+    parseServerFlags = CommandParser.parseFlag useHttpFlag
+    runServer _ maybeUseHttp = do
+      Ext.CompileMode.setModeMemory
+      liveState <- Watchtower.Live.init
+      Ext.Log.withAllBut [Ext.Log.Performance] $
+        Watchtower.Server.Run.run
+          liveState
+          ( if Ext.Common.withDefault False maybeUseHttp
+              then Watchtower.Server.Run.HTTP Nothing
+              else Watchtower.Server.Run.StdIO
+          )
+          Watchtower.Server.MCP.serve
+
+lspCommand :: CommandParser.Command
+lspCommand = CommandParser.command ["lsp"] "Start the Elm Dev LSP server" devGroup CommandParser.noArg parseServerFlags runServer
+  where
+    useHttpFlag = CommandParser.flag "http" "Use HTTP instead of stdio"
+    parseServerFlags = CommandParser.parseFlag useHttpFlag
+    runServer _ maybeUseHttp = do
+      Ext.CompileMode.setModeMemory
+      liveState <- Watchtower.Live.init
+      Ext.Log.withAllBut [Ext.Log.Performance] $
+        Watchtower.Server.Run.run
+          liveState
+          ( if Ext.Common.withDefault False maybeUseHttp
+              then Watchtower.Server.Run.HTTP Nothing
+              else Watchtower.Server.Run.StdIO
+          )
+          Watchtower.Server.LSP.serve
 
 docsCommand :: CommandParser.Command
 docsCommand = CommandParser.command ["inspect", "docs"] "Report the docs.json" inspectGroup parseDocsArgs parseDocsFlags runDocs
@@ -376,6 +413,8 @@ main = do
       Gen.Commands.addTheme,
       Gen.Commands.customize,
       serverCommand,
+      mcpCommand,
+      lspCommand,
       entrypointsCommand,
       docsCommand,
       warningsCommand,
