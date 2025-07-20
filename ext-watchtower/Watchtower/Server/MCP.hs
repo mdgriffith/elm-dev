@@ -6,6 +6,15 @@
 
 module Watchtower.Server.MCP (serve) where
 
+{-
+Can test via https://modelcontextprotocol.io/docs/tools/inspector
+  
+Run: `npx @modelcontextprotocol/inspector`.
+
+In the app, select STDIO and put `elm-dev` with the arg `mcp` and then hit connect.
+
+-}
+
 import Control.Exception (SomeException, try)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson ((.=))
@@ -316,78 +325,28 @@ err reqId str =
 
 availableTools :: [Tool]
 availableTools =
-  [ Tool
-      { toolName = "elm_format",
-        toolDescription = "Format Elm code using elm-format",
-        toolInputSchema =
-          JSON.object
-            [ "type" .= ("object" :: Text),
-              "properties"
-                .= JSON.object
-                  [ "code"
-                      .= JSON.object
-                        [ "type" .= ("string" :: Text),
-                          "description" .= ("Elm code to format" :: Text)
-                        ]
-                  ],
-              "required" .= (["code"] :: [Text])
-            ],
-        toolOutputSchema = Nothing,
-        call = \args _state -> do
-          case KeyMap.lookup "code" args of
-            Just (JSON.String code) -> do
-              result <- try $ readProcess "elm-format" ["--stdin"] (Text.unpack code)
-              case result of
-                Right formatted ->
-                  return $ ToolCallText (Text.pack formatted)
-                Left (e :: SomeException) ->
-                  return $ ToolCallError ("Error running elm-format: " <> Text.pack (show e))
-            _ ->
-              return $ ToolCallError "Invalid arguments: 'code' parameter required"
-      },
+  [
     Tool
-      { toolName = "file_read",
-        toolDescription = "Read the contents of a file",
+      { toolName = "overview",
+        toolDescription = "Get the overview of an Elm project.",
         toolInputSchema =
           JSON.object
             [ "type" .= ("object" :: Text),
               "properties"
                 .= JSON.object
-                  [ "path"
+                  [ "dir"
                       .= JSON.object
                         [ "type" .= ("string" :: Text),
-                          "description" .= ("Path to the file to read" :: Text)
+                          "description" .= ("The directory of the Elm project." :: Text)
                         ]
                   ],
-              "required" .= (["path"] :: [Text])
+              "required" .= (["dir"] :: [Text])
             ],
         toolOutputSchema = Nothing,
         call = \args _state -> do
           -- For now, return a simple success message
           -- In practice, this would extract the file path from the state or arguments
           return $ ToolCallText "file-read functionality available"
-      },
-    Tool
-      { toolName = "directory_list",
-        toolDescription = "List the contents of a directory",
-        toolInputSchema =
-          JSON.object
-            [ "type" .= ("object" :: Text),
-              "properties"
-                .= JSON.object
-                  [ "path"
-                      .= JSON.object
-                        [ "type" .= ("string" :: Text),
-                          "description" .= ("Path to the directory to list" :: Text)
-                        ]
-                  ],
-              "required" .= (["path"] :: [Text])
-            ],
-        toolOutputSchema = Nothing,
-        call = \args _state -> do
-          -- For now, return a simple success message
-          -- In practice, this would extract the directory path from the state or arguments
-          return $ ToolCallText "directory-list functionality available"
       }
   ]
 
@@ -449,7 +408,7 @@ serve _state req@(JSONRPC.Request _ reqId method params) = do
     "initialize" -> do
       let initResponse =
             InitializeResponse
-              { responseProtocolVersion = "2024-11-05",
+              { responseProtocolVersion = "2025-06-18",
                 responseCapabilities =
                   ServerCapabilities
                     { tools = Just $ JSON.object ["listChanged" .= True],
