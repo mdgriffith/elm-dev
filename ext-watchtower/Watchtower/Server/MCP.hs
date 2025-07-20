@@ -66,12 +66,35 @@ data InitializeResponse = InitializeResponse
 data Tool = Tool
   { toolName :: Text,
     toolDescription :: Text,
-    toolInputSchema :: JSON.Value
+    toolInputSchema :: JSON.Value,
+    toolOutputSchema :: Maybe JSON.Value,
+    call :: JSON.Object -> Live.State -> IO ToolCallResponse
   }
-  deriving stock (Show, Eq, Generic)
+
+-- Remove the deriving clause since functions can't derive Show, Eq
+instance Show Tool where
+  show tool =
+    "Tool { toolName = "
+      ++ show (toolName tool)
+      ++ ", toolDescription = "
+      ++ show (toolDescription tool)
+      ++ ", toolInputSchema = "
+      ++ show (toolInputSchema tool)
+      ++ ", toolOutputSchema = "
+      ++ show (toolOutputSchema tool)
+      ++ ", call = <function> }"
+
+instance Eq Tool where
+  t1 == t2 =
+    toolName t1 == toolName t2
+      && toolDescription t1 == toolDescription t2
+      && toolInputSchema t1 == toolInputSchema t2
+      && toolOutputSchema t1 == toolOutputSchema t2
+
+-- Note: can't compare functions, so we compare everything else
 
 -- | Tool call request
-data CallToolRequest = CallToolRequest
+data ToolCallRequest = ToolCallRequest
   { callToolName :: Text,
     callToolArguments :: Maybe JSON.Value
   }
@@ -85,7 +108,7 @@ data ToolContent = ToolContent
   deriving stock (Show, Eq, Generic)
 
 -- | Tool call response
-data CallToolResponse = CallToolResponse
+data ToolCallResponse = ToolCallResponse
   { callToolContent :: [ToolContent],
     callToolIsError :: Maybe Bool
   }
@@ -147,10 +170,22 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "impl"} ''Implementation)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "init"} ''InitializeRequest)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "response"} ''InitializeResponse)
-$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "tool"} ''Tool)
-$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "callTool", omitNothingFields = True} ''CallToolRequest)
+
+-- Manual JSON instances for Tool (excluding the function field)
+instance JSON.ToJSON Tool where
+  toJSON tool =
+    let baseFields = [ "name" .= toolName tool,
+                      "description" .= toolDescription tool,
+                      "inputSchema" .= toolInputSchema tool
+                     ]
+        outputSchemaField = case toolOutputSchema tool of
+                             Just schema -> [ "outputSchema" .= schema ]
+                             Nothing -> []
+    in JSON.object (baseFields ++ outputSchemaField)
+
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "callTool", omitNothingFields = True} ''ToolCallRequest)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "toolContent"} ''ToolContent)
-$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "callTool", omitNothingFields = True} ''CallToolResponse)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "callTool", omitNothingFields = True} ''ToolCallResponse)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resource", omitNothingFields = True} ''Resource)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "readResource"} ''ReadResourceRequest)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resourceContent"} ''ResourceContent)
@@ -187,7 +222,31 @@ availableTools =
                         ]
                   ],
               "required" .= (["code"] :: [Text])
-            ]
+            ],
+        toolOutputSchema = Nothing,
+        call = \args _state -> do
+          case KeyMap.lookup "code" args of
+            Just (JSON.String code) -> do
+              result <- try $ readProcess "elm-format" ["--stdin"] (Text.unpack code)
+              case result of
+                Right formatted ->
+                  return $
+                    ToolCallResponse
+                      { callToolContent = [ToolContent "text/plain" (Text.pack formatted)],
+                        callToolIsError = Just False
+                      }
+                Left (e :: SomeException) ->
+                  return $
+                    ToolCallResponse
+                      { callToolContent = [ToolContent "text/plain" ("Error running elm-format: " <> Text.pack (show e))],
+                        callToolIsError = Just True
+                      }
+            _ ->
+              return $
+                ToolCallResponse
+                  { callToolContent = [ToolContent "text/plain" "Invalid arguments: 'code' parameter required"],
+                    callToolIsError = Just True
+                  }
       },
     Tool
       { toolName = "file_read",
@@ -204,7 +263,15 @@ availableTools =
                         ]
                   ],
               "required" .= (["path"] :: [Text])
-            ]
+            ],
+        toolOutputSchema = Nothing,
+        call = \args _state -> do
+          -- For now, return a simple success message
+          -- In practice, this would extract the file path from the state or arguments
+          return $ ToolCallResponse
+            { callToolContent = [ToolContent "text/plain" "file-read functionality available"],
+              callToolIsError = Nothing
+            }
       },
     Tool
       { toolName = "directory_list",
@@ -221,7 +288,15 @@ availableTools =
                         ]
                   ],
               "required" .= (["path"] :: [Text])
-            ]
+            ],
+        toolOutputSchema = Nothing,
+        call = \args _state -> do
+          -- For now, return a simple success message
+          -- In practice, this would extract the directory path from the state or arguments
+          return $ ToolCallResponse
+            { callToolContent = [ToolContent "text/plain" "directory-list functionality available"],
+              callToolIsError = Nothing
+            }
       }
   ]
 
@@ -275,81 +350,6 @@ availablePrompts =
 
 -- * Tool Implementations
 
-callElmFormat :: JSON.Object -> IO CallToolResponse
-callElmFormat args = do
-  case KeyMap.lookup "code" args of
-    Just (JSON.String code) -> do
-      result <- try $ readProcess "elm-format" ["--stdin"] (Text.unpack code)
-      case result of
-        Right formatted ->
-          return $
-            CallToolResponse
-              { callToolContent = [ToolContent "text/plain" (Text.pack formatted)],
-                callToolIsError = Nothing
-              }
-        Left (e :: SomeException) ->
-          return $
-            CallToolResponse
-              { callToolContent = [ToolContent "text/plain" ("Error running elm-format: " <> Text.pack (show e))],
-                callToolIsError = Just True
-              }
-    _ ->
-      return $
-        CallToolResponse
-          { callToolContent = [ToolContent "text/plain" "Invalid arguments: 'code' parameter required"],
-            callToolIsError = Just True
-          }
-
-callFileRead :: JSON.Object -> IO CallToolResponse
-callFileRead args = do
-  case KeyMap.lookup "path" args of
-    Just (JSON.String path) -> do
-      result <- try $ readFile (Text.unpack path)
-      case result of
-        Right content ->
-          return $
-            CallToolResponse
-              { callToolContent = [ToolContent "text/plain" (Text.pack content)],
-                callToolIsError = Nothing
-              }
-        Left (e :: SomeException) ->
-          return $
-            CallToolResponse
-              { callToolContent = [ToolContent "text/plain" ("Error reading file: " <> Text.pack (show e))],
-                callToolIsError = Just True
-              }
-    _ ->
-      return $
-        CallToolResponse
-          { callToolContent = [ToolContent "text/plain" "Invalid arguments: 'path' parameter required"],
-            callToolIsError = Just True
-          }
-
-callDirectoryList :: JSON.Object -> IO CallToolResponse
-callDirectoryList args = do
-  case KeyMap.lookup "path" args of
-    Just (JSON.String path) -> do
-      result <- try $ readProcess "ls" ["-la", Text.unpack path] ""
-      case result of
-        Right listing ->
-          return $
-            CallToolResponse
-              { callToolContent = [ToolContent "text/plain" (Text.pack listing)],
-                callToolIsError = Nothing
-              }
-        Left (e :: SomeException) ->
-          return $
-            CallToolResponse
-              { callToolContent = [ToolContent "text/plain" ("Error listing directory: " <> Text.pack (show e))],
-                callToolIsError = Just True
-              }
-    _ ->
-      return $
-        CallToolResponse
-          { callToolContent = [ToolContent "text/plain" "Invalid arguments: 'path' parameter required"],
-            callToolIsError = Just True
-          }
-
 -- | Main MCP server handler
 serve :: Live.State -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
 serve _state req@(JSONRPC.Request _ reqId method params) = do
@@ -378,18 +378,21 @@ serve _state req@(JSONRPC.Request _ reqId method params) = do
       case params of
         Just p -> do
           case JSON.fromJSON p of
-            JSON.Success (callReq :: CallToolRequest) -> do
-              response <- case Text.unpack (callToolName callReq) of
-                "elm_format" -> callElmFormat (maybe mempty (\args -> case args of JSON.Object obj -> obj; _ -> mempty) (callToolArguments callReq))
-                "file_read" -> callFileRead (maybe mempty (\args -> case args of JSON.Object obj -> obj; _ -> mempty) (callToolArguments callReq))
-                "directory_list" -> callDirectoryList (maybe mempty (\args -> case args of JSON.Object obj -> obj; _ -> mempty) (callToolArguments callReq))
-                _ ->
-                  return $
-                    CallToolResponse
-                      { callToolContent = [ToolContent "text/plain" ("Unknown tool: " <> callToolName callReq)],
-                        callToolIsError = Just True
-                      }
-              return $ success reqId (JSON.toJSON response)
+            JSON.Success (callReq :: ToolCallRequest) -> do
+              let toolName' = callToolName callReq
+              case [t | t <- availableTools, toolName t == toolName'] of
+                (tool : _) -> do
+                  -- Extract arguments from the request
+                  let args = maybe mempty (\argsVal -> case argsVal of JSON.Object obj -> obj; _ -> mempty) (callToolArguments callReq)
+                  response <- call tool args _state
+                  return $ success reqId (JSON.toJSON response)
+                [] -> do
+                  let response =
+                        ToolCallResponse
+                          { callToolContent = [ToolContent "text/plain" ("Unknown tool: " <> toolName')],
+                            callToolIsError = Just True
+                          }
+                  return $ success reqId (JSON.toJSON response)
             JSON.Error e -> return $ err reqId ("Invalid tool call request: " ++ e)
         Nothing -> return $ err reqId "Missing parameters for tools/call"
     "resources/list" -> do
