@@ -12,9 +12,11 @@ import Data.Aeson ((.=))
 import qualified Data.Aeson as JSON
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.TH
+import qualified Data.ByteString.Lazy as LBS
 import Data.Char (toLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding
 import qualified Ext.Common
 import GHC.Generics
 import System.Process (readProcess)
@@ -107,11 +109,33 @@ data ToolContent = ToolContent
   }
   deriving stock (Show, Eq, Generic)
 
--- | Tool call response
-data ToolCallResponse = ToolCallResponse
-  { callToolContent :: [ToolContent],
-    callToolIsError :: Maybe Bool
+-- | Resource link details
+data ResourceLinkInfo = ResourceLinkInfo
+  { resourceLinkUri :: Text,
+    resourceLinkName :: Text,
+    resourceLinkDescription :: Maybe Text,
+    resourceLinkMimeType :: Maybe Text
   }
+  deriving stock (Show, Eq, Generic)
+
+-- | Embedded resource details
+data ResourceEmbeddedInfo = ResourceEmbeddedInfo
+  { resourceEmbeddedUri :: Text,
+    resourceEmbeddedTitle :: Text,
+    resourceEmbeddedMimeType :: Text,
+    resourceEmbeddedText :: Text
+  }
+  deriving stock (Show, Eq, Generic)
+
+-- | Tool call response
+data ToolCallResponse
+  = ToolCallError Text
+  | ToolCallText Text
+  | ToolCallImage Text -- base64 encoded or URL
+  | ToolCallAudio Text -- base64 encoded or URL
+  | ToolCallResourceLink ResourceLinkInfo
+  | ToolCallResourceEmbedded ResourceEmbeddedInfo
+  | ToolCallStructured JSON.Value
   deriving stock (Show, Eq, Generic)
 
 -- * Resource Types
@@ -174,24 +198,109 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 -- Manual JSON instances for Tool (excluding the function field)
 instance JSON.ToJSON Tool where
   toJSON tool =
-    let baseFields = [ "name" .= toolName tool,
-                      "description" .= toolDescription tool,
-                      "inputSchema" .= toolInputSchema tool
-                     ]
+    let baseFields =
+          [ "name" .= toolName tool,
+            "description" .= toolDescription tool,
+            "inputSchema" .= toolInputSchema tool
+          ]
         outputSchemaField = case toolOutputSchema tool of
-                             Just schema -> [ "outputSchema" .= schema ]
-                             Nothing -> []
-    in JSON.object (baseFields ++ outputSchemaField)
+          Just schema -> ["outputSchema" .= schema]
+          Nothing -> []
+     in JSON.object (baseFields ++ outputSchemaField)
 
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "callTool", omitNothingFields = True} ''ToolCallRequest)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "toolContent"} ''ToolContent)
-$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "callTool", omitNothingFields = True} ''ToolCallResponse)
+
+toToolError :: [JSON.Value] -> JSON.Value
+toToolError content =
+  JSON.object
+    [ "isError" .= True,
+      "content" .= content
+    ]
+
+toToolContent :: [JSON.Value] -> JSON.Value
+toToolContent content =
+  JSON.object
+    [ "isError" .= False,
+      "content" .= content
+    ]
+
+toToolStructured :: JSON.Value -> [JSON.Value] -> JSON.Value
+toToolStructured structured content =
+  JSON.object
+    [ "content" .= content,
+      "structuredContent" .= structured
+    ]
+
+
+
+-- Custom JSON instance for ToolCallResponse tagged union
+instance JSON.ToJSON ToolCallResponse where
+  toJSON response = case response of
+    ToolCallError msg ->
+      toToolError
+        [ JSON.object
+          [ "type" .= ("text" :: Text),
+            "text" .= msg
+          ]
+        ]
+    ToolCallText txt ->
+      toToolContent [JSON.object ["type" .= ("text" :: Text), "text" .= txt]]
+    ToolCallImage img ->
+      toToolContent
+        [JSON.object
+          [ "type" .= ("image" :: Text),
+            "mimeType" .= ("image/png" :: Text),
+            "data" .= img
+          ]
+        ]
+    ToolCallAudio audio ->
+      toToolContent
+        [ JSON.object
+            [ "type" .= ("audio" :: Text),
+              "mimeType" .= ("audio/wav" :: Text),
+              "data" .= audio
+           ]
+        ]
+    ToolCallResourceLink linkInfo ->
+      let baseFields =
+            [ "type" .= ("resource_link" :: Text),
+              "uri" .= resourceLinkUri linkInfo,
+              "name" .= resourceLinkName linkInfo
+            ]
+          descField = case resourceLinkDescription linkInfo of
+            Just desc -> ["description" .= desc]
+            Nothing -> []
+          mimeField = case resourceLinkMimeType linkInfo of
+            Just mime -> ["mimeType" .= mime]
+            Nothing -> []
+      in toToolContent [JSON.object (baseFields ++ descField ++ mimeField)]
+    ToolCallResourceEmbedded embeddedInfo ->
+      toToolContent
+        [JSON.object
+          [ "type" .= ("resource_embedded" :: Text),
+            "uri" .= resourceEmbeddedUri embeddedInfo,
+            "title" .= resourceEmbeddedTitle embeddedInfo,
+            "mimeType" .= resourceEmbeddedMimeType embeddedInfo,
+            "text" .= resourceEmbeddedText embeddedInfo
+          ]
+        ]
+    ToolCallStructured val ->
+      toToolStructured val 
+        [ JSON.object
+            [ "type" .= ("structured" :: Text),
+              "content" .= Data.Text.Encoding.decodeUtf8 (LBS.toStrict (JSON.encode val))
+            ]
+        ]
+
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resource", omitNothingFields = True} ''Resource)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "readResource"} ''ReadResourceRequest)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resourceContent"} ''ResourceContent)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "readResource"} ''ReadResourceResponse)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "promptArg", omitNothingFields = True} ''PromptArgument)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "prompt", omitNothingFields = True} ''Prompt)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resourceLink", omitNothingFields = True} ''ResourceLinkInfo)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resourceEmbedded", omitNothingFields = True} ''ResourceEmbeddedInfo)
 
 -- * Helper Functions
 
@@ -230,23 +339,11 @@ availableTools =
               result <- try $ readProcess "elm-format" ["--stdin"] (Text.unpack code)
               case result of
                 Right formatted ->
-                  return $
-                    ToolCallResponse
-                      { callToolContent = [ToolContent "text/plain" (Text.pack formatted)],
-                        callToolIsError = Just False
-                      }
+                  return $ ToolCallText (Text.pack formatted)
                 Left (e :: SomeException) ->
-                  return $
-                    ToolCallResponse
-                      { callToolContent = [ToolContent "text/plain" ("Error running elm-format: " <> Text.pack (show e))],
-                        callToolIsError = Just True
-                      }
+                  return $ ToolCallError ("Error running elm-format: " <> Text.pack (show e))
             _ ->
-              return $
-                ToolCallResponse
-                  { callToolContent = [ToolContent "text/plain" "Invalid arguments: 'code' parameter required"],
-                    callToolIsError = Just True
-                  }
+              return $ ToolCallError "Invalid arguments: 'code' parameter required"
       },
     Tool
       { toolName = "file_read",
@@ -268,10 +365,7 @@ availableTools =
         call = \args _state -> do
           -- For now, return a simple success message
           -- In practice, this would extract the file path from the state or arguments
-          return $ ToolCallResponse
-            { callToolContent = [ToolContent "text/plain" "file-read functionality available"],
-              callToolIsError = Nothing
-            }
+          return $ ToolCallText "file-read functionality available"
       },
     Tool
       { toolName = "directory_list",
@@ -293,10 +387,7 @@ availableTools =
         call = \args _state -> do
           -- For now, return a simple success message
           -- In practice, this would extract the directory path from the state or arguments
-          return $ ToolCallResponse
-            { callToolContent = [ToolContent "text/plain" "directory-list functionality available"],
-              callToolIsError = Nothing
-            }
+          return $ ToolCallText "directory-list functionality available"
       }
   ]
 
@@ -387,11 +478,7 @@ serve _state req@(JSONRPC.Request _ reqId method params) = do
                   response <- call tool args _state
                   return $ success reqId (JSON.toJSON response)
                 [] -> do
-                  let response =
-                        ToolCallResponse
-                          { callToolContent = [ToolContent "text/plain" ("Unknown tool: " <> toolName')],
-                            callToolIsError = Just True
-                          }
+                  let response = ToolCallError ("Unknown tool: " <> toolName')
                   return $ success reqId (JSON.toJSON response)
             JSON.Error e -> return $ err reqId ("Invalid tool call request: " ++ e)
         Nothing -> return $ err reqId "Missing parameters for tools/call"
