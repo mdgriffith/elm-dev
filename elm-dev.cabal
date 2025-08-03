@@ -223,6 +223,7 @@ Executable elm-dev
         -- ext-performance-cache
         Ext.FileProxy
         Ext.FileCache
+        Ext.VirtualFile
         Ext.CompileProxy
         Ext.CompileMode
         Ext.MemoryCached.BackgroundWriter
@@ -248,8 +249,13 @@ Executable elm-dev
         Watchtower.Live.Compile
 
         Watchtower.Questions
-        Watchtower.MCP
+        
         Watchtower.Server
+        Watchtower.Server.Run
+        Watchtower.Server.JSONRPC
+        Watchtower.Server.MCP
+        Watchtower.Server.LSP
+
         Watchtower.StaticAssets
         Watchtower.Test
         Watchtower.Version
