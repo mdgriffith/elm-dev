@@ -26,6 +26,7 @@ import qualified Data.Text.Encoding
 import qualified Ext.Common
 import GHC.Generics
 import System.Process (readProcess)
+import System.IO (hPutStrLn, stderr, hFlush)
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
 
@@ -521,10 +522,10 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "typeHierarchyPrepareParams", omitNothingFields = True} ''TypeHierarchyPrepareParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "documentDiagnosticParams", omitNothingFields = True} ''DocumentDiagnosticParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "codeLensResolveParams", omitNothingFields = True} ''CodeLensResolveParams)
-$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "codeActionResolveParams", omitNothingFields = True} ''CodeActionResolveParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "diagnostic", omitNothingFields = True} ''Diagnostic)
-$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "publishDiagnosticsParams", omitNothingFields = True} ''PublishDiagnosticsParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceEdit", omitNothingFields = True} ''WorkspaceEdit)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "codeActionResolveParams", omitNothingFields = True} ''CodeActionResolveParams)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "publishDiagnosticsParams", omitNothingFields = True} ''PublishDiagnosticsParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "prepareRenameResponse"} ''PrepareRenameResponse)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "codeAction", omitNothingFields = True} ''CodeAction)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "codeLens", omitNothingFields = True} ''CodeLens)
@@ -561,13 +562,28 @@ handleLSPRequest :: (JSON.FromJSON a, JSON.ToJSON b) =>
                    (a -> IO (Either String b)) -> 
                    IO (Either JSONRPC.Error JSONRPC.Response)
 handleLSPRequest reqId params paramType handler = do
+  -- hPutStrLn stderr $ "=== HANDLING " ++ paramType ++ " REQUEST ==="
+  -- hFlush stderr
+  
   case parseParams reqId params paramType of
     Right parsed -> do
+      -- hPutStrLn stderr $ "Parameters parsed successfully for " ++ paramType
+      -- hFlush stderr
+      
       result <- handler parsed
       case result of
-        Right response -> return $ success reqId (JSON.toJSON response)
-        Left errorMsg -> return $ err reqId errorMsg
-    Left jsonRpcError -> return $ Left jsonRpcError
+        Right response -> do
+          -- hPutStrLn stderr $ "Handler returned success for " ++ paramType
+          -- hFlush stderr
+          return $ success reqId (JSON.toJSON response)
+        Left errorMsg -> do
+          -- hPutStrLn stderr $ "Handler returned error for " ++ paramType ++ ": " ++ errorMsg
+          -- hFlush stderr
+          return $ err reqId errorMsg
+    Left jsonRpcError -> do
+      -- hPutStrLn stderr $ "Parameter parsing failed for " ++ paramType ++ ": " ++ show jsonRpcError
+      -- hFlush stderr
+      return $ Left jsonRpcError
 
 -- * Default Server Capabilities
 
@@ -635,8 +651,8 @@ defaultServerCapabilities = ServerCapabilities
 -- * Feature Implementations
 
 handleInitialize :: Live.State -> InitializeParams -> IO (Either String InitializeResult)
-handleInitialize _state _initParams = do
-  -- Handle client initialization
+handleInitialize _state initParams = do
+  
   let initResult = InitializeResult
         { initializeResultCapabilities = defaultServerCapabilities,
           initializeResultServerInfo = Just $ ServerInfo
@@ -644,6 +660,9 @@ handleInitialize _state _initParams = do
               serverInfoVersion = Just "1.0.0"
             }
         }
+  
+ 
+  
   return $ Right initResult
 
 handleDidOpen :: Live.State -> DidOpenTextDocumentParams -> IO (Either String JSON.Value)
@@ -1067,6 +1086,18 @@ handleCodeActionResolve _state codeActionResolveParams = do
 -- | Main LSP server handler
 serve :: Live.State -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
 serve state req@(JSONRPC.Request _ reqId method params) = do
+  -- Log the incoming request for debugging
+  -- hPutStrLn stderr $ "=== LSP REQUEST ==="
+  -- hPutStrLn stderr $ "Method: " ++ Text.unpack method
+  -- hPutStrLn stderr $ "ID: " ++ show reqId
+  -- case params of
+  --   Just p -> hPutStrLn stderr $ "Params: " ++ show p
+  --   Nothing -> hPutStrLn stderr "Params: None"
+  -- hFlush stderr
+  
+  -- Also log to file
+  appendFile "/tmp/lsp-debug.log" $ "LSP Request: " ++ Text.unpack method ++ " (id: " ++ show reqId ++ ")\n"
+  
   case Text.unpack method of
     -- Lifecycle
     "initialize" -> 
