@@ -138,6 +138,7 @@ mcpCommand = CommandParser.command ["mcp"] "Start the Elm Dev MCP server" devGro
               else Watchtower.Server.Run.StdIO
           )
           Watchtower.Server.MCP.serve
+          (\_ _ -> return ()) -- MCP doesn't need notification handling
 
 lspCommand :: CommandParser.Command
 lspCommand = CommandParser.command ["lsp"] "Start the Elm Dev LSP server" devGroup CommandParser.noArg parseServerFlags runServer
@@ -155,6 +156,7 @@ lspCommand = CommandParser.command ["lsp"] "Start the Elm Dev LSP server" devGro
               else Watchtower.Server.Run.StdIO
           )
           Watchtower.Server.LSP.serve
+          Watchtower.Server.LSP.handleNotification
 
 docsCommand :: CommandParser.Command
 docsCommand = CommandParser.command ["inspect", "docs"] "Report the docs.json" inspectGroup parseDocsArgs parseDocsFlags runDocs

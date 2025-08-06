@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Gen.Generate (run, ConfigResult (..), readConfigOrFail, readConfig, File (..)) where
+module Gen.Generate (run, ConfigResult (..), readConfigOrFail, readConfig, File (..), GeneratedFiles (..)) where
 
 import Control.Monad (forM_, mapM_)
 import Control.Monad.IO.Class (liftIO)
