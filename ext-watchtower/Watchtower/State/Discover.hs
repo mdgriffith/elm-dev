@@ -16,16 +16,19 @@ import qualified Watchtower.Live.Compile
 import qualified Watchtower.State.Project
 import qualified Watchtower.Websocket
 
-discover :: Client.State -> FilePath -> Map.Map FilePath Client.FileWatchType -> IO ()
-discover state@(Client.State mClients mProjects) root watching = do
+discover :: Client.State -> FilePath -> IO ()
+discover state root = do
   Ext.Log.log Ext.Log.Live ("👀 discover requested: " <> root)
   projects <- Ext.Dev.Project.discover root
 
   let projectTails = fmap (getProjectShorthand root) projects
-  Ext.Log.log Ext.Log.Live (("👁️  found projects\n" ++ root) <> Ext.Log.formatList projectTails)
 
-  Monad.foldM (initializeProject state) [] projects
-  pure ()
+  if List.null projectTails
+    then Ext.Log.log Ext.Log.Live "found no projects"
+    else Ext.Log.log Ext.Log.Live (("found projects (" ++ root ++ ")") <> Ext.Log.formatList projectTails)
+
+  Monad.foldM_ (initializeProject state) [] projects
+  
 
 initializeProject :: Client.State -> [Client.ProjectCache] -> Ext.Dev.Project.Project -> IO [Client.ProjectCache]
 initializeProject state accum project =

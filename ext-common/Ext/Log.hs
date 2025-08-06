@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE BangPatterns #-}
 
 module Ext.Log 
     ( Flag(..)
@@ -22,6 +21,7 @@ import qualified Control.Monad as Monad
 import qualified Data.List as List
 import System.IO.Unsafe as Unsafe (unsafePerformIO)
 import qualified System.IO as IO
+
 {-|
 
     Performance - Performance information related to compiling
@@ -44,6 +44,7 @@ data Flag
     | ElmCompilerInfo
     | ElmCompilerError
     | Misc
+    | LSP
     deriving (Eq)
 
 
@@ -61,6 +62,7 @@ all =
     , ElmCompilerError
     , MemoryCache
     , Misc
+    , LSP
     ]
 
 
@@ -103,6 +105,9 @@ toString flag =
         MemoryCache ->
             "ElmDevMemoryCache"
 
+        LSP ->
+            "ElmDevLSP"
+
 toLabel :: Flag -> String
 toLabel flag =
     case flag of 
@@ -142,6 +147,9 @@ toLabel flag =
         MemoryCache ->
             "🧠"
 
+        LSP ->
+            "🔌"
+
 {-# NOINLINE envLock #-}
 envLock :: MVar ()
 envLock = Unsafe.unsafePerformIO $ newMVar ()
@@ -171,6 +179,12 @@ withAllBut but io = do
   let flags = List.filter (\flag -> not $ List.elem flag but) Ext.Log.all
   with flags io
 
+
+data PrintMode = StdOut | TempFile
+
+mode :: PrintMode
+mode = TempFile
+
 log :: Flag -> String -> IO ()
 log flag message = do
   debugM <- Env.lookupEnv (toString flag)
@@ -182,8 +196,12 @@ log flag message = do
         case maybePrintLock of
           Nothing -> pure () -- Skip printing if we can't get the lock
           Just _ -> do
-            IO.hPutStr IO.stdout ((if withLabels then (toLabel flag) ++ ": " else "") ++ message ++ "\n")
-            IO.hFlush IO.stdout
+            case mode of
+              StdOut -> do
+                IO.hPutStr IO.stdout ((if withLabels then toLabel flag ++ ": " else "") ++ message ++ "\n")
+                IO.hFlush IO.stdout
+              TempFile -> do
+                appendFile "/tmp/lsp-debug.log" ((if withLabels then toLabel flag ++ ": " else "") ++ message ++ "\n")
             putMVar printLock () -- Release the lock
     Nothing -> pure ()
 
@@ -237,8 +255,8 @@ atomicPutStrLn str =
 
 
 formatList :: [String] -> String
-formatList strs =
-  List.foldr (\tail gathered -> gathered ++ indent 4 tail ++ "\n") "\n" strs
+formatList =
+  List.foldr (\tail gathered -> gathered ++ indent 4 tail ++ "\n") "\n"
 
 
 indent :: Int -> String -> String

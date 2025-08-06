@@ -168,8 +168,6 @@ type Time = File.Time
 
 getTime :: FilePath -> IO Time
 getTime path = do
-  putStrLn $ "GETTING TIME FOR " <> show path
-
   -- @TODO File modification times should become irrelevant in FileCache mode?
   res <- lookup path
   case res of
