@@ -57,9 +57,6 @@ encodeWarning :: Reporting.Render.Type.Localizer.Localizer -> Warning.Warning ->
 encodeWarning =
   Client.encodeWarning
 
-getRoot :: FilePath -> Client.State -> IO (Maybe FilePath)
-getRoot =
-  Client.getRoot
 
 init :: IO Client.State
 init =
@@ -199,7 +196,7 @@ receiveAction state@(Client.State mClients mProjects) senderClientId incoming =
               [] -> pure ()
               _ -> Watchtower.Live.Compile.recompile state addedKeys
     Client.Discover root watching -> do
-      Watchtower.State.Discover.discover state root watching
+      Watchtower.State.Discover.discover state root
     Client.EditorViewingUpdated viewingList -> do
       Ext.Log.log Ext.Log.Live ("👀 editor viewing updated: " ++ show viewingList)
       broadCastToEveryoneNotMe

@@ -57,10 +57,11 @@ import qualified Terminal.Dev.Error
 import qualified Terminal.Dev.Out as Out
 import qualified Watchtower.Editor
 import qualified Watchtower.Live
-import qualified Watchtower.Live.Client as Client
+import qualified Watchtower.Live.Client
 import qualified Watchtower.State.Compile
 import qualified Watchtower.State.Discover
 import qualified Watchtower.State.Project
+
 
 -- One off questions and answers you might have/want.
 data Question
@@ -334,7 +335,7 @@ ask state question =
     ProjectList ->
       allProjectStatuses state
     Discover dir -> do
-      Watchtower.State.Discover.discover state dir Map.empty
+      Watchtower.State.Discover.discover state dir
       allProjectStatuses state
     Make (MakeDetails cwd entrypoints debug optimize) -> do
       let flags =
@@ -450,7 +451,7 @@ ask state question =
                   pure (Out.asJsonUgly (Right (Docs.encode docs)))
     Docs (FromFile path) ->
       do
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.Client.getRoot path state)
         maybeDocs <- Ext.Dev.docs root path
         case maybeDocs of
           Nothing ->
@@ -465,7 +466,7 @@ ask state question =
     TimingParse path ->
       do
         Ext.Log.log Ext.Log.Questions $ "Parsing: " ++ show path
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.Client.getRoot path state)
         Ext.Common.track
           "parsing"
           ( do
@@ -480,7 +481,7 @@ ask state question =
     Warnings path ->
       do
         Ext.Log.log Ext.Log.Questions $ "Warnings: " ++ show path
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.Client.getRoot path state)
         eitherErrorOrWarnings <- Ext.Dev.warnings root path
 
         let jsonResult = case eitherErrorOrWarnings of
@@ -497,7 +498,7 @@ ask state question =
     InScopeProject file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Scope: " ++ show file
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot file state)
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.Client.getRoot file state)
         maybeScope <- Ext.Dev.InScope.project root file
         case maybeScope of
           Nothing ->
@@ -507,7 +508,7 @@ ask state question =
     InScopeFile file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Scope: " ++ show file
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot file state)
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.Client.getRoot file state)
         maybeScope <- Ext.Dev.InScope.file root file
         case maybeScope of
           Nothing ->
@@ -517,7 +518,7 @@ ask state question =
     CallGraph file ->
       do
         Ext.Log.log Ext.Log.Questions $ "Callgraph: " ++ show file
-        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot file state)
+        root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.Client.getRoot file state)
         maybeCallgraph <- Ext.Dev.CallGraph.callgraph root file
         case maybeCallgraph of
           Nothing ->
@@ -530,7 +531,7 @@ ask state question =
               Watchtower.Editor.PointLocation f _ ->
                 f
        in do
-            root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+            root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.Client.getRoot path state)
             maybeExplanation <- Ext.Dev.Explain.explainAtLocation root location
             case maybeExplanation of
               Nothing ->
@@ -547,7 +548,7 @@ ask state question =
               Watchtower.Editor.PointLocation f _ ->
                 f
        in do
-            root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.getRoot path state)
+            root <- fmap (Maybe.fromMaybe ".") (Watchtower.Live.Client.getRoot path state)
             Ext.Dev.Find.definition root location
               & fmap Json.Encode.encodeUgly
     FindAllInstancesPlease location ->
@@ -561,16 +562,16 @@ flattenJsonStatus :: Either Json.Encode.Value Json.Encode.Value -> Json.Encode.V
 flattenJsonStatus (Left json) = json
 flattenJsonStatus (Right json) = json
 
-allProjectStatuses :: Client.State -> IO Data.ByteString.Builder.Builder
-allProjectStatuses (Client.State clients mProjects) =
+allProjectStatuses :: Watchtower.Live.Client.State -> IO Data.ByteString.Builder.Builder
+allProjectStatuses (Watchtower.Live.Client.State clients mProjects) =
   do
     projects <- STM.readTVarIO mProjects
     projectStatuses <-
       Monad.foldM
-        ( \gathered (Client.ProjectCache proj docsInfo sentry) -> do
+        ( \gathered (Watchtower.Live.Client.ProjectCache proj docsInfo sentry) -> do
             jsonStatusResult <- Ext.Sentry.getCompileResult sentry
             let projectStatus =
-                  Client.ProjectStatus
+                  Watchtower.Live.Client.ProjectStatus
                     proj
                     (isSuccess jsonStatusResult)
                     (flattenJsonStatus jsonStatusResult)
@@ -581,6 +582,6 @@ allProjectStatuses (Client.State clients mProjects) =
         projects
 
     pure
-      ( Client.encodeOutgoing
-          (Client.ElmStatus projectStatuses)
+      ( Watchtower.Live.Client.encodeOutgoing
+          (Watchtower.Live.Client.ElmStatus projectStatuses)
       )
