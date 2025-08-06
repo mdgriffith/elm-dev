@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Watchtower.Server.LSP (serve) where
+module Watchtower.Server.LSP (serve, handleNotification) where
 
 {-
 Language Server Protocol implementation for Elm development.
@@ -16,6 +16,8 @@ import Control.Exception (SomeException, try)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson ((.=))
 import qualified Data.Aeson as JSON
+import qualified Data.Aeson.Encode.Pretty
+import qualified Data.Text as T
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.TH
 import qualified Data.ByteString.Lazy as LBS
@@ -24,12 +26,22 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding
 import qualified Ext.Common
+import qualified Ext.Dev
+import qualified Data.Maybe as Maybe
+import qualified Data.Name as Name
 import GHC.Generics
+import qualified Reporting.Annotation as Ann
+import qualified Reporting.Doc
+import qualified Reporting.Render.Type
+import qualified Reporting.Render.Type.Localizer
+import qualified Reporting.Warning as Warning
 import System.Process (readProcess)
 import System.IO (hPutStrLn, stderr, hFlush)
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
-
+import qualified Watchtower.State.Discover as Discover
+import qualified Watchtower.Live.Client
+import qualified Ext.Log
 -- * Core LSP Types
 
 -- | Position in a text document (zero-based)
@@ -116,10 +128,105 @@ data InitializeParams = InitializeParams
   }
   deriving stock (Show, Eq, Generic)
 
+-- | Text document synchronization kind
+-- 
+-- Determines what document change notifications the server will receive
+-- and how much content is included in those notifications.
+data TextDocumentSyncKind
+  = TextDocumentSyncNone 
+    -- ^ No synchronization - server receives no document change notifications.
+    -- The server will not be notified when documents are modified.
+    -- Only textDocument/didOpen and textDocument/didClose are sent.
+  | TextDocumentSyncFull 
+    -- ^ Full document synchronization - server receives complete document content.
+    -- When a document changes, textDocument/didChange notifications contain:
+    -- - The entire document text in contentChanges[0].text
+    -- - No range information (contentChanges[0].range is undefined)
+    -- - Simple but potentially inefficient for large documents
+  | TextDocumentSyncIncremental 
+    -- ^ Incremental document synchronization - server receives only changed parts.
+    -- When a document changes, textDocument/didChange notifications contain:
+    -- - Only the modified text ranges in contentChanges[].text  
+    -- - Precise range information in contentChanges[].range
+    -- - Multiple changes can be batched in a single notification
+    -- - Efficient for large documents, requires more complex handling
+  deriving stock (Show, Eq, Generic)
+
+instance JSON.ToJSON TextDocumentSyncKind where
+  toJSON TextDocumentSyncNone = JSON.Number 0
+  toJSON TextDocumentSyncFull = JSON.Number 1
+  toJSON TextDocumentSyncIncremental = JSON.Number 2
+
+instance JSON.FromJSON TextDocumentSyncKind where
+  parseJSON (JSON.Number 0) = pure TextDocumentSyncNone
+  parseJSON (JSON.Number 1) = pure TextDocumentSyncFull
+  parseJSON (JSON.Number 2) = pure TextDocumentSyncIncremental
+  parseJSON _ = fail "Invalid TextDocumentSyncKind"
+
+-- | Save options for text document synchronization
+--
+-- Controls the content of textDocument/didSave notifications:
+--
+-- When includeText = True:
+--   - didSave notification includes the full document text
+--   - Useful if server needs the complete content after save
+--
+-- When includeText = False:
+--   - didSave notification only includes the document URI and version
+--   - More efficient when server only needs to know that a save occurred
+data SaveOptions = SaveOptions
+  { saveOptionsIncludeText :: Bool -- ^ Whether to include document text in save notifications
+  }
+  deriving stock (Show, Eq, Generic)
+
+instance JSON.ToJSON SaveOptions where
+  toJSON (SaveOptions includeText) = JSON.object
+    [ "includeText" .= includeText ]
+
+instance JSON.FromJSON SaveOptions where
+  parseJSON = JSON.withObject "SaveOptions" $ \o -> SaveOptions
+    <$> o JSON..: "includeText"
+
+-- | Text document synchronization options
+--
+-- Configures which document lifecycle notifications the server wants to receive.
+-- Each field controls a different type of notification:
+--
+-- When textDocumentSyncOpenClose = True:
+--   - textDocument/didOpen: sent when a document is opened in the editor
+--   - textDocument/didClose: sent when a document is closed in the editor
+--
+-- When textDocumentSyncChange is set:
+--   - textDocument/didChange: sent when document content is modified
+--   - The sync kind determines the format of change notifications (see TextDocumentSyncKind)
+--
+-- When textDocumentSyncSave is provided:
+--   - textDocument/didSave: sent when a document is saved
+--   - SaveOptions.includeText determines if the full document text is included
+data TextDocumentSyncOptions = TextDocumentSyncOptions
+  { textDocumentSyncOpenClose :: Bool, -- ^ Whether to send open/close notifications
+    textDocumentSyncChange :: TextDocumentSyncKind, -- ^ How to send change notifications  
+    textDocumentSyncSave :: Maybe SaveOptions -- ^ Whether to send save notifications (optional)
+  }
+  deriving stock (Show, Eq, Generic)
+
+instance JSON.ToJSON TextDocumentSyncOptions where
+  toJSON (TextDocumentSyncOptions openClose change save) = JSON.object
+    [ "openClose" .= openClose
+    , "change" .= change
+    , "save" .= save
+    ]
+
+instance JSON.FromJSON TextDocumentSyncOptions where
+  parseJSON = JSON.withObject "TextDocumentSyncOptions" $ \o -> TextDocumentSyncOptions
+    <$> o JSON..: "openClose"
+    <*> o JSON..: "change"
+    <*> o JSON..:? "save"
+
 -- | Server capabilities
 data ServerCapabilities = ServerCapabilities
   { serverCapabilitiesPositionEncoding :: Maybe Text,
-    serverCapabilitiesTextDocumentSync :: Maybe JSON.Value,
+    serverCapabilitiesTextDocumentSync :: Maybe TextDocumentSyncOptions,
     serverCapabilitiesNotebookDocumentSync :: Maybe JSON.Value,
     serverCapabilitiesCompletionProvider :: Maybe JSON.Value,
     serverCapabilitiesHoverProvider :: Maybe Bool,
@@ -590,11 +697,11 @@ handleLSPRequest reqId params paramType handler = do
 defaultServerCapabilities :: ServerCapabilities
 defaultServerCapabilities = ServerCapabilities
   { serverCapabilitiesPositionEncoding = Just "utf-16",
-    serverCapabilitiesTextDocumentSync = Just $ JSON.object
-      [ "openClose" .= True,
-        "change" .= (2 :: Int), -- Incremental
-        "save" .= JSON.object ["includeText" .= True]
-      ],
+    serverCapabilitiesTextDocumentSync = Just $ TextDocumentSyncOptions
+      { textDocumentSyncOpenClose = True,
+        textDocumentSyncChange = TextDocumentSyncIncremental,
+        textDocumentSyncSave = Just $ SaveOptions { saveOptionsIncludeText = True }
+      },
     serverCapabilitiesNotebookDocumentSync = Nothing,
     serverCapabilitiesCompletionProvider = Just $ JSON.object
       [ "resolveProvider" .= False,
@@ -651,7 +758,22 @@ defaultServerCapabilities = ServerCapabilities
 -- * Feature Implementations
 
 handleInitialize :: Live.State -> InitializeParams -> IO (Either String InitializeResult)
-handleInitialize _state initParams = do
+handleInitialize state initParams = do
+  -- Extract root path from initialization parameters
+  let maybeRoot = case initializeParamsRootPath initParams of
+        Just path -> Just (Text.unpack path)
+        Nothing -> case initializeParamsRootUri initParams of
+          Just uri -> Just (Text.unpack uri)
+          Nothing -> Nothing
+  
+  -- Call discover if we have a root path
+  case maybeRoot of
+    Just root -> do
+      Discover.discover state root
+    Nothing -> do
+      -- Log that no root was provided
+      hPutStrLn stderr "LSP Initialize: No root path provided"
+      hFlush stderr
   
   let initResult = InitializeResult
         { initializeResultCapabilities = defaultServerCapabilities,
@@ -660,29 +782,74 @@ handleInitialize _state initParams = do
               serverInfoVersion = Just "1.0.0"
             }
         }
-  
- 
-  
   return $ Right initResult
 
 handleDidOpen :: Live.State -> DidOpenTextDocumentParams -> IO (Either String JSON.Value)
-handleDidOpen _state _openParams = do
+handleDidOpen _state openParams = do
   -- Handle document open notification
+  let doc = didOpenTextDocumentParamsTextDocument openParams
+      uri = textDocumentItemUri doc
+      languageId = textDocumentItemLanguageId doc
+      version = textDocumentItemVersion doc
+      text = textDocumentItemText doc
+  
+  hPutStrLn stderr $ "LSP: textDocument/didOpen - URI: " ++ Text.unpack uri
+  hPutStrLn stderr $ "LSP: Language: " ++ Text.unpack languageId ++ ", Version: " ++ show version
+  hPutStrLn stderr $ "LSP: Document length: " ++ show (Text.length text) ++ " characters"
+  hFlush stderr
+  
   return $ Right JSON.Null
 
 handleDidChange :: Live.State -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
-handleDidChange _state _changeParams = do
+handleDidChange _state changeParams = do
   -- Handle document change notification
+  let doc = didChangeTextDocumentParamsTextDocument changeParams
+      uri = versionedTextDocumentIdentifierUri doc
+      version = versionedTextDocumentIdentifierVersion doc
+      changes = didChangeTextDocumentParamsContentChanges changeParams
+  
+  hPutStrLn stderr $ "LSP: textDocument/didChange - URI: " ++ Text.unpack uri
+  hPutStrLn stderr $ "LSP: Version: " ++ show version ++ ", Changes: " ++ show (length changes)
+  
+  -- Log details about each change
+  mapM_ (\(i, change) -> do
+    let text = textDocumentContentChangeEventText change
+        range = textDocumentContentChangeEventRange change
+        rangeLength = textDocumentContentChangeEventRangeLength change
+    hPutStrLn stderr $ "LSP: Change " ++ show i ++ ": " ++ 
+      "Range: " ++ show range ++ ", " ++
+      "Length: " ++ show rangeLength ++ ", " ++
+      "Text length: " ++ show (Text.length text)
+    ) (zip [1..] changes)
+  
+  hFlush stderr
+  
   return $ Right JSON.Null
 
 handleDidClose :: Live.State -> DidCloseTextDocumentParams -> IO (Either String JSON.Value)
-handleDidClose _state _closeParams = do
+handleDidClose _state closeParams = do
   -- Handle document close notification
+  let doc = didCloseTextDocumentParamsTextDocument closeParams
+      uri = textDocumentIdentifierUri doc
+  
+  hPutStrLn stderr $ "LSP: textDocument/didClose - URI: " ++ Text.unpack uri
+  hFlush stderr
+  
   return $ Right JSON.Null
 
 handleDidSave :: Live.State -> DidSaveTextDocumentParams -> IO (Either String JSON.Value)
-handleDidSave _state _saveParams = do
+handleDidSave _state saveParams = do
   -- Handle document save notification
+  let doc = didSaveTextDocumentParamsTextDocument saveParams
+      uri = textDocumentIdentifierUri doc
+      text = didSaveTextDocumentParamsText saveParams
+  
+  hPutStrLn stderr $ "LSP: textDocument/didSave - URI: " ++ Text.unpack uri
+  case text of
+    Just content -> hPutStrLn stderr $ "LSP: Save with content, length: " ++ show (Text.length content)
+    Nothing -> hPutStrLn stderr "LSP: Save without content"
+  hFlush stderr
+  
   return $ Right JSON.Null
 
 handleHover :: Live.State -> HoverParams -> IO (Either String (Maybe Hover))
@@ -976,36 +1143,94 @@ handleSignatureHelp _state _signatureHelpParams = do
   return $ Right (Just signatureHelp)
 
 handleCodeLens :: Live.State -> CodeLensParams -> IO (Either String [CodeLens])
-handleCodeLens _state _codeLensParams = do
-  -- Placeholder: Return sample code lenses
-  -- In Elm, this could show "X references" above functions, "run test" above test functions, etc.
-  let sampleCodeLenses =
-        [ CodeLens
-            { codeLensRange = Range
-                { rangeStart = Position 5 0,
-                  rangeEnd = Position 5 20
-                },
-              codeLensCommand = Just $ JSON.object
-                [ "title" .= ("3 references" :: Text),
-                  "command" .= ("elm.showReferences" :: Text),
-                  "arguments" .= ([] :: [JSON.Value])
-                ],
-              codeLensData = Nothing
-            },
-          CodeLens
-            { codeLensRange = Range
-                { rangeStart = Position 15 0,
-                  rangeEnd = Position 15 15
-                },
-              codeLensCommand = Just $ JSON.object
-                [ "title" .= ("Run test" :: Text),
-                  "command" .= ("elm.runTest" :: Text),
-                  "arguments" .= ([] :: [JSON.Value])
-                ],
-              codeLensData = Nothing
-            }
-        ]
-  return $ Right sampleCodeLenses
+handleCodeLens state codeLensParams = do
+  let uri = textDocumentIdentifierUri (codeLensParamsTextDocument codeLensParams)
+  
+  Ext.Log.log Ext.Log.LSP $ "CodeLens: Processing URI: " ++ Text.unpack uri
+  
+      
+  -- Convert file:// URI to file path
+  case uriToFilePath uri of
+    Nothing -> do
+      Ext.Log.log Ext.Log.LSP $ "CodeLens: Failed to convert URI to file path: " ++ Text.unpack uri
+      return $ Right []
+    Just filePath -> do
+      Ext.Log.log Ext.Log.LSP $ "CodeLens: File path: " ++ filePath
+      hFlush stderr
+      
+      -- Get project root
+      maybeRoot <- Watchtower.Live.Client.getRoot filePath state
+      let root = Maybe.fromMaybe "." maybeRoot
+      
+      Ext.Log.log Ext.Log.LSP $ "CodeLens: Project root: " ++ root
+      
+      -- Get warnings for the file
+      eitherWarnings <- Ext.Dev.warnings root filePath
+      
+      case eitherWarnings of
+        Left () -> do
+          Ext.Log.log Ext.Log.LSP $ "CodeLens: Failed to get warnings for: " ++ filePath
+          return $ Right []
+        Right (sourceMod, warnings) -> do
+          let localizer = Reporting.Render.Type.Localizer.fromModule sourceMod
+              codeLenses = concatMap (warningToCodeLens localizer) warnings
+              missingAnnotationCount = length $ filter isMissingTypeAnnotation warnings
+          
+          Ext.Log.log Ext.Log.LSP $ "CodeLens: Found " ++ show (length warnings) ++ " total warnings, " ++ show missingAnnotationCount ++ " missing type annotations, " ++ show (length codeLenses) ++ " code lenses"
+          Ext.Log.log Ext.Log.LSP $ "CodeLens: " ++ show codeLenses
+          return $ Right codeLenses
+
+-- Helper to check if a warning is a MissingTypeAnnotation
+isMissingTypeAnnotation :: Warning.Warning -> Bool
+isMissingTypeAnnotation warning =
+  case warning of
+    Warning.MissingTypeAnnotation {} -> True
+    _ -> False
+
+-- Convert a file:// URI to a file path
+uriToFilePath :: Text -> Maybe String
+uriToFilePath uri =
+  case Text.stripPrefix "file://" uri of
+    Just path -> Just (Text.unpack path)
+    Nothing -> Nothing
+
+-- Convert a warning to a code lens if it's a MissingTypeAnnotation
+warningToCodeLens :: Reporting.Render.Type.Localizer.Localizer -> Warning.Warning -> [CodeLens]
+warningToCodeLens localizer warning =
+  case warning of
+    Warning.MissingTypeAnnotation region name type_ ->
+      let typeSignature = Reporting.Doc.toString $
+            Reporting.Render.Type.canToDoc localizer Reporting.Render.Type.None type_
+          range = regionToRange region
+
+          withTypeSignature = Name.toChars name ++ " : " ++ typeSignature 
+      in [ CodeLens
+             { codeLensRange = range,
+               codeLensCommand = Just $ JSON.object
+                 [ "title" .= withTypeSignature,
+                   "command" .= ("elm.addTypeSignature" :: Text),
+                   "arguments" .= [JSON.String (Text.pack withTypeSignature)]
+                 ],
+               codeLensData = Nothing
+             }
+         ]
+    _ -> []
+
+-- Convert an Elm region to an LSP range
+regionToRange :: Ann.Region -> Range
+regionToRange (Ann.Region start end) =
+  Range
+    { rangeStart = positionToLSPPosition start,
+      rangeEnd = positionToLSPPosition end
+    }
+
+-- Convert an Elm position to an LSP position (converting from 1-based to 0-based)
+positionToLSPPosition :: Ann.Position -> Position
+positionToLSPPosition (Ann.Position row col) =
+  Position
+    { positionLine = fromIntegral row - 1,
+      positionCharacter = fromIntegral col - 1
+    }
 
 handleCodeAction :: Live.State -> CodeActionParams -> IO (Either String [CodeAction])
 handleCodeAction _state _codeActionParams = do
@@ -1086,17 +1311,10 @@ handleCodeActionResolve _state codeActionResolveParams = do
 -- | Main LSP server handler
 serve :: Live.State -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
 serve state req@(JSONRPC.Request _ reqId method params) = do
-  -- Log the incoming request for debugging
-  -- hPutStrLn stderr $ "=== LSP REQUEST ==="
-  -- hPutStrLn stderr $ "Method: " ++ Text.unpack method
-  -- hPutStrLn stderr $ "ID: " ++ show reqId
-  -- case params of
-  --   Just p -> hPutStrLn stderr $ "Params: " ++ show p
-  --   Nothing -> hPutStrLn stderr "Params: None"
-  -- hFlush stderr
   
-  -- Also log to file
-  appendFile "/tmp/lsp-debug.log" $ "LSP Request: " ++ Text.unpack method ++ " (id: " ++ show reqId ++ ")\n"
+  case params of
+    Just p -> Ext.Log.log Ext.Log.LSP $ Text.unpack method ++ " (id: " ++ show reqId ++ "): " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
+    Nothing -> Ext.Log.log Ext.Log.LSP $ Text.unpack method ++ " (id: " ++ show reqId ++ ") (no params)" 
   
   case Text.unpack method of
     -- Lifecycle
@@ -1111,18 +1329,8 @@ serve state req@(JSONRPC.Request _ reqId method params) = do
       -- Server shutdown request
       return $ success reqId JSON.Null
       
-    -- Text Document Synchronization (notifications - no response needed)
-    "textDocument/didOpen" -> 
-      handleLSPRequest reqId params "didOpen" (handleDidOpen state)
-        
-    "textDocument/didChange" -> 
-      handleLSPRequest reqId params "didChange" (handleDidChange state)
-        
-    "textDocument/didClose" -> 
-      handleLSPRequest reqId params "didClose" (handleDidClose state)
-        
-    "textDocument/didSave" -> 
-      handleLSPRequest reqId params "didSave" (handleDidSave state)
+    -- Text Document Synchronization is handled as notifications, not requests
+    -- These handlers were moved to handleNotification in Run.hs
         
     -- Language Features
     "textDocument/hover" -> 
@@ -1230,3 +1438,71 @@ serve state req@(JSONRPC.Request _ reqId method params) = do
       
     _ -> do
       return $ Left (JSONRPC.errorMethodNotFound reqId method)
+
+-- | Handle LSP notifications (no response expected)
+handleNotification :: Live.State -> JSONRPC.Notification -> IO ()
+handleNotification state (JSONRPC.Notification _ method params) = do
+  case T.unpack method of
+    "textDocument/didOpen" -> do
+      case params of
+        Just p -> do
+          case JSON.fromJSON p of
+            JSON.Success openParams -> do
+              _ <- handleDidOpen state openParams
+              return ()
+            JSON.Error err -> do
+              hPutStrLn stderr $ "Failed to parse didOpen params: " ++ err
+              hFlush stderr
+        Nothing -> do
+          hPutStrLn stderr "didOpen notification missing parameters"
+          hFlush stderr
+          
+    "textDocument/didChange" -> do
+      case params of
+        Just p -> do
+          case JSON.fromJSON p of
+            JSON.Success changeParams -> do
+              _ <- handleDidChange state changeParams
+              return ()
+            JSON.Error err -> do
+              hPutStrLn stderr $ "Failed to parse didChange params: " ++ err
+              hFlush stderr
+        Nothing -> do
+          hPutStrLn stderr "didChange notification missing parameters"
+          hFlush stderr
+          
+    "textDocument/didClose" -> do
+      case params of
+        Just p -> do
+          case JSON.fromJSON p of
+            JSON.Success closeParams -> do
+              _ <- handleDidClose state closeParams
+              return ()
+            JSON.Error err -> do
+              hPutStrLn stderr $ "Failed to parse didClose params: " ++ err
+              hFlush stderr
+        Nothing -> do
+          hPutStrLn stderr "didClose notification missing parameters"
+          hFlush stderr
+          
+    "textDocument/didSave" -> do
+      case params of
+        Just p -> do
+          case JSON.fromJSON p of
+            JSON.Success saveParams -> do
+              _ <- handleDidSave state saveParams
+              return ()
+            JSON.Error err -> do
+              hPutStrLn stderr $ "Failed to parse didSave params: " ++ err
+              hFlush stderr
+        Nothing -> do
+          hPutStrLn stderr "didSave notification missing parameters"
+          hFlush stderr
+          
+    "initialized" -> do
+      hPutStrLn stderr "LSP: Client finished initialization"
+      hFlush stderr
+      
+    _ -> do
+      hPutStrLn stderr $ "LSP: Unhandled notification: " ++ T.unpack method
+      hFlush stderr
