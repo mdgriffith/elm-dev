@@ -27,6 +27,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding
 import qualified Ext.Common
 import qualified Ext.Dev
+import qualified Ext.FileCache
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
 import GHC.Generics
@@ -831,26 +832,50 @@ handleDidChange _state changeParams = do
   -- Handle document change notification
   let doc = didChangeTextDocumentParamsTextDocument changeParams
       uri = versionedTextDocumentIdentifierUri doc
-      version = versionedTextDocumentIdentifierVersion doc
       changes = didChangeTextDocumentParamsContentChanges changeParams
   
-  hPutStrLn stderr $ "LSP: textDocument/didChange - URI: " ++ Text.unpack uri
-  hPutStrLn stderr $ "LSP: Version: " ++ show version ++ ", Changes: " ++ show (length changes)
-  
-  -- Log details about each change
-  mapM_ (\(i, change) -> do
-    let text = textDocumentContentChangeEventText change
-        range = textDocumentContentChangeEventRange change
-        rangeLength = textDocumentContentChangeEventRangeLength change
-    hPutStrLn stderr $ "LSP: Change " ++ show i ++ ": " ++ 
-      "Range: " ++ show range ++ ", " ++
-      "Length: " ++ show rangeLength ++ ", " ++
-      "Text length: " ++ show (Text.length text)
-    ) (zip [1..] changes)
-  
-  hFlush stderr
-  
-  return $ Right JSON.Null
+  -- Convert URI to file path
+  case uriToFilePath uri of
+    Nothing -> return $ Left $ "Failed to convert URI to file path: " ++ Text.unpack uri
+    Just filePath -> do
+      -- Convert LSP changes to FileCache edits
+      let fileEdits = map lspChangeToFileEdit changes
+      
+      -- Apply edits to the file cache
+      result <- Ext.FileCache.edit filePath fileEdits
+      case result of
+        Left (Ext.FileCache.FileNotFound path) -> 
+          return $ Left $ "File not found: " ++ path
+        Left (Ext.FileCache.InvalidEdit err) -> 
+          return $ Left $ "Invalid edit: " ++ err
+        Right () -> 
+          
+
+          return $ Right JSON.Null
+
+-- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
+lspChangeToFileEdit :: TextDocumentContentChangeEvent -> Ext.FileCache.TextEdit
+lspChangeToFileEdit change = 
+  Ext.FileCache.TextEdit
+    { Ext.FileCache.textEditRange = fmap lspRangeToFileRange (textDocumentContentChangeEventRange change),
+      Ext.FileCache.textEditText = textDocumentContentChangeEventText change
+    }
+
+-- | Convert LSP Range to FileCache Range
+lspRangeToFileRange :: Range -> Ext.FileCache.Range
+lspRangeToFileRange lspRange =
+  Ext.FileCache.Range
+    { Ext.FileCache.rangeStart = lspPositionToFilePosition (rangeStart lspRange),
+      Ext.FileCache.rangeEnd = lspPositionToFilePosition (rangeEnd lspRange)
+    }
+
+-- | Convert LSP Position to FileCache Position  
+lspPositionToFilePosition :: Position -> Ext.FileCache.Position
+lspPositionToFilePosition lspPos =
+  Ext.FileCache.Position
+    { Ext.FileCache.positionLine = positionLine lspPos,
+      Ext.FileCache.positionCharacter = positionCharacter lspPos
+    }
 
 handleDidClose :: Live.State -> DidCloseTextDocumentParams -> IO (Either String JSON.Value)
 handleDidClose _state closeParams = do

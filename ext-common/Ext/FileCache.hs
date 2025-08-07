@@ -17,6 +17,8 @@ import Ext.Common (justs, onlyWhen, track, (&))
 -- import qualified GHC.DataSize
 
 import qualified Ext.Log
+import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
 import qualified File
 import qualified GHC.Stats as RT
 import qualified System.Environment as Env
@@ -27,6 +29,35 @@ import qualified System.Mem
 import Prelude hiding (log, lookup)
 
 type HashTable k v = H.CuckooHashTable k v
+
+-- * Text editing types
+
+-- | Position in a text document (zero-based)
+data Position = Position
+  { positionLine :: Int,
+    positionCharacter :: Int
+  }
+  deriving (Show, Eq)
+
+-- | Range in a text document
+data Range = Range
+  { rangeStart :: Position,
+    rangeEnd :: Position
+  }
+  deriving (Show, Eq)
+
+-- | Text document content change event
+data TextEdit = TextEdit
+  { textEditRange :: Maybe Range,
+    textEditText :: Text.Text
+  }
+  deriving (Show, Eq)
+
+-- | File operation errors
+data FileError
+  = FileNotFound FilePath
+  | InvalidEdit String
+  deriving (Show, Eq)
 
 virtualDir :: FilePath
 virtualDir =
@@ -91,6 +122,96 @@ upsertPath path = do
       newContents <- File.readUtf8 path
       insert path newContents
       pure $ Just path
+
+-- | Apply text edits to a file in the cache
+edit :: FilePath -> [TextEdit] -> IO (Either FileError ())
+edit path edits = do
+  res <- lookup path
+  case res of
+    Nothing -> do
+      -- File not in cache, try to read from disk
+      fileExists <- File.exists path
+      if fileExists
+        then do
+          content <- File.readUtf8 path
+          insert path content
+          applyEdits path (Text.decodeUtf8 content) edits
+        else
+          pure $ Left (FileNotFound path)
+    Just (_, content) -> do
+      applyEdits path (Text.decodeUtf8 content) edits
+
+-- | Apply a list of text edits to file content
+applyEdits :: FilePath -> Text.Text -> [TextEdit] -> IO (Either FileError ())
+applyEdits path content edits = do
+  case foldM applyEdit content edits of
+    Left err -> pure $ Left (InvalidEdit err)
+    Right newContent -> do
+      insert path (Text.encodeUtf8 newContent)
+      pure $ Right ()
+  where
+    foldM :: (a -> b -> Either String a) -> a -> [b] -> Either String a
+    foldM _ acc [] = Right acc
+    foldM f acc (x:xs) = case f acc x of
+      Left err -> Left err
+      Right acc' -> foldM f acc' xs
+
+-- | Apply a single text edit to content
+applyEdit :: Text.Text -> TextEdit -> Either String Text.Text
+applyEdit content (TextEdit maybeRange newText) =
+  case maybeRange of
+    Nothing -> 
+      -- Full document replacement
+      Right newText
+    Just range ->
+      -- Incremental edit
+      applyRangeEdit content range newText
+
+-- | Apply a ranged edit to text content
+applyRangeEdit :: Text.Text -> Range -> Text.Text -> Either String Text.Text
+applyRangeEdit content range newText = do
+  let lines' = Text.lines content
+      startLine = positionLine (rangeStart range)
+      startChar = positionCharacter (rangeStart range)
+      endLine = positionLine (rangeEnd range)
+      endChar = positionCharacter (rangeEnd range)
+  
+  -- Validate line numbers
+  if startLine < 0 || endLine < 0 || startLine > length lines' || endLine > length lines'
+    then Left $ "Invalid line numbers: start=" ++ show startLine ++ " end=" ++ show endLine ++ " total=" ++ show (length lines')
+    else do
+      -- Get the lines before, at, and after the edit range
+      let beforeLines = take startLine lines'
+          afterLines = drop (endLine + 1) lines'
+      
+      if startLine == endLine
+        then do
+          -- Single line edit
+          case lines' !! startLine of
+            line -> do
+              let lineLength = Text.length line
+              if startChar < 0 || endChar < 0 || startChar > lineLength || endChar > lineLength || startChar > endChar
+                then Left $ "Invalid character positions: start=" ++ show startChar ++ " end=" ++ show endChar ++ " line length=" ++ show lineLength
+                else do
+                  let beforeChar = Text.take startChar line
+                      afterChar = Text.drop endChar line
+                      newLine = beforeChar <> newText <> afterChar
+                      newLines = beforeLines ++ [newLine] ++ afterLines
+                  Right $ Text.unlines newLines
+        else do
+          -- Multi-line edit
+          case (lines' !! startLine, lines' !! endLine) of
+            (startLineText, endLineText) -> do
+              let startLineLength = Text.length startLineText
+                  endLineLength = Text.length endLineText
+              if startChar < 0 || endChar < 0 || startChar > startLineLength || endChar > endLineLength
+                then Left $ "Invalid character positions in multi-line edit"
+                else do
+                  let beforeChar = Text.take startChar startLineText
+                      afterChar = Text.drop endChar endLineText
+                      newContent' = beforeChar <> newText <> afterChar
+                      newLines = beforeLines ++ [newContent'] ++ afterLines
+                  Right $ Text.unlines newLines
 
 {- builder/src/File.* interface equivalents -}
 
