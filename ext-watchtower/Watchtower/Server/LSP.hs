@@ -586,6 +586,29 @@ data TypeHierarchyItem = TypeHierarchyItem
   }
   deriving stock (Show, Eq, Generic)
 
+-- | Selection range request parameters
+data SelectionRangeParams = SelectionRangeParams
+  { selectionRangeParamsTextDocument :: TextDocumentIdentifier,
+    selectionRangeParamsPositions :: [Position],
+    selectionRangeParamsWorkDoneToken :: Maybe JSON.Value,
+    selectionRangeParamsPartialResultToken :: Maybe JSON.Value
+  }
+  deriving stock (Show, Eq, Generic)
+
+-- | Selection range response
+data SelectionRange = SelectionRange
+  { selectionRangeRange :: Range,
+    selectionRangeParent :: Maybe SelectionRange
+  }
+  deriving stock (Show, Eq, Generic)
+
+-- | Document visible ranges change notification parameters (VS Code extension)
+data DidChangeVisibleRangesParams = DidChangeVisibleRangesParams
+  { didChangeVisibleRangesParamsTextDocument :: TextDocumentIdentifier,
+    didChangeVisibleRangesParamsVisibleRanges :: [Range]
+  }
+  deriving stock (Show, Eq, Generic)
+
 -- * JSON Instances
 
 -- Custom JSON instance for DiagnosticSeverity (must come before deriveJSON for Diagnostic)
@@ -640,6 +663,9 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "signatureHelp", omitNothingFields = True} ''SignatureHelp)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "inlayHint", omitNothingFields = True} ''InlayHint)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "typeHierarchyItem", omitNothingFields = True} ''TypeHierarchyItem)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "selectionRangeParams", omitNothingFields = True} ''SelectionRangeParams)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "selectionRange", omitNothingFields = True} ''SelectionRange)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "didChangeVisibleRangesParams"} ''DidChangeVisibleRangesParams)
 
 -- * Helper Functions
 
@@ -736,7 +762,7 @@ defaultServerCapabilities = ServerCapabilities
       ],
     serverCapabilitiesFoldingRangeProvider = Nothing,
     serverCapabilitiesExecuteCommandProvider = Nothing,
-    serverCapabilitiesSelectionRangeProvider = Nothing,
+    serverCapabilitiesSelectionRangeProvider = Just True,
     serverCapabilitiesLinkedEditingRangeProvider = Nothing,
     serverCapabilitiesCallHierarchyProvider = Nothing,
     serverCapabilitiesSemanticTokensProvider = Nothing,
@@ -1306,6 +1332,45 @@ handleCodeActionResolve _state codeActionResolveParams = do
         }
   return $ Right resolvedCodeAction
 
+handleSelectionRange :: Live.State -> SelectionRangeParams -> IO (Either String [SelectionRange])
+handleSelectionRange _state selectionRangeParams = do
+  -- For now, return a simple selection range for each position
+  -- In a real implementation, this would analyze the Elm syntax tree to provide
+  -- smart selection ranges (e.g., expand from identifier to expression to statement)
+  let positions = selectionRangeParamsPositions selectionRangeParams
+      selectionRanges = map createSelectionRange positions
+  return $ Right selectionRanges
+  where
+    createSelectionRange pos = 
+      SelectionRange
+        { selectionRangeRange = Range
+            { rangeStart = pos,
+              rangeEnd = Position (positionLine pos) (positionCharacter pos + 10)
+            },
+          selectionRangeParent = Just $ SelectionRange
+            { selectionRangeRange = Range
+                { rangeStart = Position (positionLine pos) 0,
+                  rangeEnd = Position (positionLine pos + 1) 0
+                },
+              selectionRangeParent = Nothing
+            }
+        }
+
+handleDidChangeVisibleRanges :: Live.State -> DidChangeVisibleRangesParams -> IO ()
+handleDidChangeVisibleRanges _state visibleRangesParams = do
+  -- Handle document visible ranges change notification
+  let doc = didChangeVisibleRangesParamsTextDocument visibleRangesParams
+      uri = textDocumentIdentifierUri doc
+      ranges = didChangeVisibleRangesParamsVisibleRanges visibleRangesParams
+  
+  Ext.Log.log Ext.Log.LSP $ "textDocument/didChangeVisibleRanges - URI: " ++ Text.unpack uri
+  Ext.Log.log Ext.Log.LSP $ "Visible ranges count: " ++ show (length ranges)
+  mapM_ (\(i, range) -> do
+    Ext.Log.log Ext.Log.LSP $ "Range " ++ show i ++ ": " ++ 
+      "start: " ++ show (rangeStart range) ++ ", " ++
+      "end: " ++ show (rangeEnd range)
+    ) (zip [1..] ranges)
+
 -- * Main LSP Server Handler
 
 -- | Main LSP server handler
@@ -1313,8 +1378,8 @@ serve :: Live.State -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Respo
 serve state req@(JSONRPC.Request _ reqId method params) = do
   
   case params of
-    Just p -> Ext.Log.log Ext.Log.LSP $ Text.unpack method ++ " (id: " ++ show reqId ++ "): " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
-    Nothing -> Ext.Log.log Ext.Log.LSP $ Text.unpack method ++ " (id: " ++ show reqId ++ ") (no params)" 
+    Just p -> Ext.Log.log Ext.Log.LSP $ "REQ: " ++Text.unpack method ++ " (id: " ++ show reqId ++ "): " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
+    Nothing -> Ext.Log.log Ext.Log.LSP $ "REQ: " ++Text.unpack method ++ " (id: " ++ show reqId ++ ") (no params)" 
   
   case Text.unpack method of
     -- Lifecycle
@@ -1427,6 +1492,12 @@ serve state req@(JSONRPC.Request _ reqId method params) = do
     "codeAction/resolve" -> 
       handleLSPRequest reqId params "codeActionResolve" (handleCodeActionResolve state)
 
+    -- Selection Range Provider: Smart selection expansion
+    -- Provides "Expand Selection" functionality that intelligently selects increasingly larger syntactic constructs
+    -- https://code.visualstudio.com/api/language-extensions/programmatic-language-features#smart-selection
+    "textDocument/selectionRange" -> 
+      handleLSPRequest reqId params "selectionRange" (handleSelectionRange state)
+
     -- Legacy test methods for compatibility
     "ping" -> do
       return $ success reqId (JSON.String "pong")
@@ -1442,6 +1513,11 @@ serve state req@(JSONRPC.Request _ reqId method params) = do
 -- | Handle LSP notifications (no response expected)
 handleNotification :: Live.State -> JSONRPC.Notification -> IO ()
 handleNotification state (JSONRPC.Notification _ method params) = do
+
+  case params of
+    Just p -> Ext.Log.log Ext.Log.LSP $ "NOTIF: " ++Text.unpack method ++ " " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
+    Nothing -> Ext.Log.log Ext.Log.LSP $ "NOTIF: " ++Text.unpack method ++ "(no params)" 
+
   case T.unpack method of
     "textDocument/didOpen" -> do
       case params of
@@ -1451,11 +1527,9 @@ handleNotification state (JSONRPC.Notification _ method params) = do
               _ <- handleDidOpen state openParams
               return ()
             JSON.Error err -> do
-              hPutStrLn stderr $ "Failed to parse didOpen params: " ++ err
-              hFlush stderr
+              Ext.Log.log Ext.Log.LSP $ "Failed to parse didOpen params: " ++ err
         Nothing -> do
-          hPutStrLn stderr "didOpen notification missing parameters"
-          hFlush stderr
+          Ext.Log.log Ext.Log.LSP $ "didOpen notification missing parameters"
           
     "textDocument/didChange" -> do
       case params of
@@ -1465,11 +1539,9 @@ handleNotification state (JSONRPC.Notification _ method params) = do
               _ <- handleDidChange state changeParams
               return ()
             JSON.Error err -> do
-              hPutStrLn stderr $ "Failed to parse didChange params: " ++ err
-              hFlush stderr
+              Ext.Log.log Ext.Log.LSP $ "Failed to parse didChange params: " ++ err
         Nothing -> do
-          hPutStrLn stderr "didChange notification missing parameters"
-          hFlush stderr
+          Ext.Log.log Ext.Log.LSP $ "didChange notification missing parameters"
           
     "textDocument/didClose" -> do
       case params of
@@ -1479,11 +1551,9 @@ handleNotification state (JSONRPC.Notification _ method params) = do
               _ <- handleDidClose state closeParams
               return ()
             JSON.Error err -> do
-              hPutStrLn stderr $ "Failed to parse didClose params: " ++ err
-              hFlush stderr
+              Ext.Log.log Ext.Log.LSP $ "Failed to parse didClose params: " ++ err
         Nothing -> do
-          hPutStrLn stderr "didClose notification missing parameters"
-          hFlush stderr
+          Ext.Log.log Ext.Log.LSP $ "didClose notification missing parameters"
           
     "textDocument/didSave" -> do
       case params of
@@ -1493,16 +1563,27 @@ handleNotification state (JSONRPC.Notification _ method params) = do
               _ <- handleDidSave state saveParams
               return ()
             JSON.Error err -> do
-              hPutStrLn stderr $ "Failed to parse didSave params: " ++ err
-              hFlush stderr
+              Ext.Log.log Ext.Log.LSP $ "Failed to parse didSave params: " ++ err
         Nothing -> do
-          hPutStrLn stderr "didSave notification missing parameters"
-          hFlush stderr
+          Ext.Log.log Ext.Log.LSP $ "didSave notification missing parameters"
           
     "initialized" -> do
-      hPutStrLn stderr "LSP: Client finished initialization"
-      hFlush stderr
+      Ext.Log.log Ext.Log.LSP $ "LSP: Client finished initialization"
+
+    "textDocument/didChangeVisibleRanges" -> do
+      -- Note, this is not in the spec,
+      -- And VSCode doesn't seem to send it either.
+      -- But the AI keeps saying it's here.
+      -- Don't need it for the moment, so we'll just ignore it.
+      case params of
+        Just p -> do
+          case JSON.fromJSON p of
+            JSON.Success visibleRangesParams -> do
+              handleDidChangeVisibleRanges state visibleRangesParams
+            JSON.Error err -> do
+              Ext.Log.log Ext.Log.LSP $ "Failed to parse didChangeVisibleRanges params: " ++ err
+        Nothing -> do
+          Ext.Log.log Ext.Log.LSP $ "didChangeVisibleRanges notification missing parameters"
       
     _ -> do
-      hPutStrLn stderr $ "LSP: Unhandled notification: " ++ T.unpack method
-      hFlush stderr
+      Ext.Log.log Ext.Log.LSP $ "LSP: Unhandled notification: " ++ T.unpack method
