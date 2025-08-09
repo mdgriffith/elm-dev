@@ -5,6 +5,9 @@ module Reporting.Error
   , Error(..)
   , toDoc
   , toJson
+  
+  -- elm dev exported
+  , toReports
   )
   where
 
