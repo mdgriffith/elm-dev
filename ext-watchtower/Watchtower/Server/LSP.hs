@@ -42,7 +42,20 @@ import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.State.Discover as Discover
 import qualified Watchtower.Live.Client
+import qualified Watchtower.Live.Compile
+import qualified Watchtower.State.Compile
+import qualified Reporting.Error
+import qualified Reporting.Exit
+import qualified Reporting.Annotation
+import qualified Reporting.Report
+import qualified Reporting.Render.Code
+import qualified Data.NonEmptyList
+import qualified System.FilePath
+import qualified Data.List
+import qualified Ext.CompileHelpers.Generic
+import qualified Control.Concurrent.STM
 import qualified Ext.Log
+
 -- * Core LSP Types
 
 -- | Position in a text document (zero-based)
@@ -828,7 +841,7 @@ handleDidOpen _state openParams = do
   return $ Right JSON.Null
 
 handleDidChange :: Live.State -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
-handleDidChange _state changeParams = do
+handleDidChange state changeParams = do
   -- Handle document change notification
   let doc = didChangeTextDocumentParamsTextDocument changeParams
       uri = versionedTextDocumentIdentifierUri doc
@@ -848,10 +861,9 @@ handleDidChange _state changeParams = do
           return $ Left $ "File not found: " ++ path
         Left (Ext.FileCache.InvalidEdit err) -> 
           return $ Left $ "Invalid edit: " ++ err
-        Right () -> 
-          
-
-          return $ Right JSON.Null
+        Right () -> do
+            Watchtower.Live.Compile.recompile state [filePath]
+            return $ Right JSON.Null
 
 -- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
 lspChangeToFileEdit :: TextDocumentContentChangeEvent -> Ext.FileCache.TextEdit
@@ -1111,30 +1123,82 @@ handlePrepareTypeHierarchy _state typeHierarchyParams = do
   return $ Right [sampleItem]
 
 handleDiagnostic :: Live.State -> DocumentDiagnosticParams -> IO (Either String JSON.Value)
-handleDiagnostic _state diagnosticParams = do
-  -- Placeholder: Return sample diagnostics
-  -- In a real implementation, this would run the Elm compiler and return compilation errors
+handleDiagnostic state diagnosticParams = do
   let uri = textDocumentIdentifierUri (documentDiagnosticParamsTextDocument diagnosticParams)
-      sampleDiagnostic = Diagnostic
-        { diagnosticRange = Range
-            { rangeStart = Position 10 5,
-              rangeEnd = Position 10 15
-            },
-          diagnosticSeverity = Just (DiagnosticSeverity 1), -- Error
-          diagnosticCode = Just (JSON.String "TYPE_MISMATCH"),
-          diagnosticCodeDescription = Nothing,
-          diagnosticSource = Just "elm",
-          diagnosticMessage = "Type mismatch: Expected String but got Int",
-          diagnosticTags = Nothing,
-          diagnosticRelatedInformation = Nothing,
-          diagnosticData = Nothing
-        }
-      
-      diagnosticsResponse = JSON.object
-        [ "kind" .= ("full" :: Text),
-          "items" .= [sampleDiagnostic]
-        ]
-  return $ Right diagnosticsResponse
+  
+  -- Get project caches from state and run compilation
+  result <- do
+    let (Watchtower.Live.Client.State _clients projectsVar) = state
+    projects <- Control.Concurrent.STM.readTVarIO projectsVar
+    case projects of
+      [] -> return $ Right []  -- No projects loaded, return empty diagnostics
+      (projectCache:_) -> do  -- Use the first project for now
+        let flags = Ext.CompileHelpers.Generic.Flags Ext.CompileHelpers.Generic.Dev (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
+        compileResult <- Watchtower.State.Compile.compile flags projectCache
+        case compileResult of
+          Right _ -> return $ Right []  -- Compilation successful, no diagnostics
+          Left (Watchtower.State.Compile.ReactorError exitReactor) -> 
+            return $ Right $ extractDiagnosticsFromReactor uri exitReactor
+          Left (Watchtower.State.Compile.GenerationError _) -> 
+            return $ Right []  -- Generation errors are not file-specific
+
+  case result of
+    Right diagnostics -> do
+      let diagnosticsResponse = JSON.object
+            [ "kind" .= ("full" :: Text),
+              "items" .= diagnostics
+            ]
+      return $ Right diagnosticsResponse
+    Left err -> return $ Left err
+
+-- | Extract diagnostics from Reactor errors, filtering by the requested file URI
+extractDiagnosticsFromReactor :: Text -> Reporting.Exit.Reactor -> [Diagnostic]
+extractDiagnosticsFromReactor uri reactor =
+  case reactor of
+    Reporting.Exit.ReactorBadBuild (Reporting.Exit.BuildBadModules _root firstModule otherModules) ->
+      let allModules = firstModule : otherModules
+          targetFilePath = uriToFilePath uri
+      in concatMap (moduleErrorsToDiagnostics targetFilePath) allModules
+    _ -> []  -- Other reactor errors are not module-specific
+
+-- | Convert a module's errors to diagnostics if it matches the target file
+moduleErrorsToDiagnostics :: Maybe FilePath -> Reporting.Error.Module -> [Diagnostic]
+moduleErrorsToDiagnostics targetFilePath (Reporting.Error.Module _name absolutePath _time source errors) =
+  case targetFilePath of
+    Nothing -> []  -- Could not parse URI
+    Just target -> 
+      if System.FilePath.normalise absolutePath == System.FilePath.normalise target
+        then errorToDiagnostics (Reporting.Render.Code.toSource source) errors
+        else []
+
+-- | Convert Elm errors to LSP diagnostics
+errorToDiagnostics :: Reporting.Render.Code.Source -> Reporting.Error.Error -> [Diagnostic]
+errorToDiagnostics source err =
+  let reports = Reporting.Error.toReports source err
+  in map reportToDiagnostic (Data.NonEmptyList.toList reports)
+
+-- | Convert a Report to an LSP Diagnostic
+reportToDiagnostic :: Reporting.Report.Report -> Diagnostic
+reportToDiagnostic (Reporting.Report.Report title region _suggestions _message) =
+  Diagnostic
+    { diagnosticRange = regionToRange region,
+      diagnosticSeverity = Just (DiagnosticSeverity 1), -- Error
+      diagnosticCode = Nothing,
+      diagnosticCodeDescription = Nothing,
+      diagnosticSource = Just "elm",
+      diagnosticMessage = Text.pack title,
+      diagnosticTags = Nothing,
+      diagnosticRelatedInformation = Nothing,
+      diagnosticData = Nothing
+    }
+
+
+-- | Convert LSP URI to file path (basic implementation)
+uriToFilePath :: Text -> Maybe FilePath
+uriToFilePath uri =
+  case Text.stripPrefix "file://" uri of
+    Just path -> Just (Text.unpack path)
+    Nothing -> Nothing
 
 handleInlayHint :: Live.State -> InlayHintParams -> IO (Either String [InlayHint])
 handleInlayHint _state inlayHintParams = do
@@ -1198,7 +1262,6 @@ handleCodeLens state codeLensParams = do
   let uri = textDocumentIdentifierUri (codeLensParamsTextDocument codeLensParams)
   
   Ext.Log.log Ext.Log.LSP $ "CodeLens: Processing URI: " ++ Text.unpack uri
-  
       
   -- Convert file:// URI to file path
   case uriToFilePath uri of
@@ -1238,12 +1301,6 @@ isMissingTypeAnnotation warning =
     Warning.MissingTypeAnnotation {} -> True
     _ -> False
 
--- Convert a file:// URI to a file path
-uriToFilePath :: Text -> Maybe String
-uriToFilePath uri =
-  case Text.stripPrefix "file://" uri of
-    Just path -> Just (Text.unpack path)
-    Nothing -> Nothing
 
 -- Convert a warning to a code lens if it's a MissingTypeAnnotation
 warningToCodeLens :: Reporting.Render.Type.Localizer.Localizer -> Warning.Warning -> [CodeLens]
@@ -1554,7 +1611,7 @@ handleNotification state (JSONRPC.Notification _ method params) = do
             JSON.Error err -> do
               Ext.Log.log Ext.Log.LSP $ "Failed to parse didOpen params: " ++ err
         Nothing -> do
-          Ext.Log.log Ext.Log.LSP $ "didOpen notification missing parameters"
+          Ext.Log.log Ext.Log.LSP "didOpen notification missing parameters"
           
     "textDocument/didChange" -> do
       case params of
@@ -1566,7 +1623,7 @@ handleNotification state (JSONRPC.Notification _ method params) = do
             JSON.Error err -> do
               Ext.Log.log Ext.Log.LSP $ "Failed to parse didChange params: " ++ err
         Nothing -> do
-          Ext.Log.log Ext.Log.LSP $ "didChange notification missing parameters"
+          Ext.Log.log Ext.Log.LSP "didChange notification missing parameters"
           
     "textDocument/didClose" -> do
       case params of
@@ -1578,7 +1635,7 @@ handleNotification state (JSONRPC.Notification _ method params) = do
             JSON.Error err -> do
               Ext.Log.log Ext.Log.LSP $ "Failed to parse didClose params: " ++ err
         Nothing -> do
-          Ext.Log.log Ext.Log.LSP $ "didClose notification missing parameters"
+          Ext.Log.log Ext.Log.LSP "didClose notification missing parameters"
           
     "textDocument/didSave" -> do
       case params of
@@ -1590,10 +1647,10 @@ handleNotification state (JSONRPC.Notification _ method params) = do
             JSON.Error err -> do
               Ext.Log.log Ext.Log.LSP $ "Failed to parse didSave params: " ++ err
         Nothing -> do
-          Ext.Log.log Ext.Log.LSP $ "didSave notification missing parameters"
+          Ext.Log.log Ext.Log.LSP "didSave notification missing parameters"
           
     "initialized" -> do
-      Ext.Log.log Ext.Log.LSP $ "LSP: Client finished initialization"
+      Ext.Log.log Ext.Log.LSP "LSP: Client finished initialization"
 
     "textDocument/didChangeVisibleRanges" -> do
       -- Note, this is not in the spec,
@@ -1608,7 +1665,7 @@ handleNotification state (JSONRPC.Notification _ method params) = do
             JSON.Error err -> do
               Ext.Log.log Ext.Log.LSP $ "Failed to parse didChangeVisibleRanges params: " ++ err
         Nothing -> do
-          Ext.Log.log Ext.Log.LSP $ "didChangeVisibleRanges notification missing parameters"
+          Ext.Log.log Ext.Log.LSP "didChangeVisibleRanges notification missing parameters"
       
     _ -> do
       Ext.Log.log Ext.Log.LSP $ "LSP: Unhandled notification: " ++ T.unpack method
