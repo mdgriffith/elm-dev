@@ -102,18 +102,22 @@ data Flags =
     { _mode :: DesiredMode
     , _output :: Output
     }
+    deriving (Show)
 
 data Output = NoOutput | OutputTo OutputFormat
+  deriving (Show)
 
 data OutputFormat = Html | Js
+  deriving (Show)
 
 data DesiredMode = Debug | Dev | Prod
+  deriving (Show)
 
 data CompilationResult
     = CompiledJs B.Builder
     | CompiledHtml B.Builder
     | CompiledSkippedOutput
-    
+    deriving (Show)
 
 getMode :: Bool -> Bool -> DesiredMode
 getMode debug optimize =
