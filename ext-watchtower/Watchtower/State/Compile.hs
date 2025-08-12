@@ -3,6 +3,7 @@ module Watchtower.State.Compile (compile, Error (..)) where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.NonEmptyList as NE
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Ext.CompileProxy as CompileProxy
 import qualified Ext.Dev.Project
@@ -19,13 +20,14 @@ data Error
   = ReactorError Exit.Reactor
   | GenerationError String
 
-compile :: CompileHelpers.Flags -> Client.ProjectCache -> IO (Either Error CompileHelpers.CompilationResult)
-compile flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo projectCompilationCache) = do
+compile :: CompileHelpers.Flags -> Client.ProjectCache -> [FilePath] -> IO (Either Error CompileHelpers.CompilationResult)
+compile flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo projectCompilationCache) files = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run
     case codegenResult of
       Right () -> do
+        let filesToCompile = NE.append files entrypoints
         -- Then run compilation
         compilationResult <- CompileProxy.compile elmJsonRoot entrypoints flags
 

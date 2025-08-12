@@ -3,6 +3,9 @@ module Data.NonEmptyList
   , singleton
   , toList
   , sortBy
+  -- New
+  , push
+  , append
   )
   where
 
@@ -76,3 +79,13 @@ sortBy toRank (List x xs) =
 instance (Binary a) => Binary (List a) where
   put (List x xs) = put x >> put xs
   get = liftM2 List get get
+
+
+
+push :: a -> List a -> List a
+push x (List y xs) =
+  List y (x:xs)
+
+append :: [a] -> List a ->  List a
+append ys (List x xs)  =
+  List x (xs ++ ys)

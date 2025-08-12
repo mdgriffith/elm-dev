@@ -113,7 +113,7 @@ upsert state@(Client.State mClients mProjects) flags root entrypoints = do
         ( \filesChanged -> do
             Ext.Log.log Ext.Log.Live $ "👀 files changed: " <> List.intercalate ", " (map FilePath.takeFileName filesChanged)
             mapM_ Ext.FileCache.delete filesChanged
-            Watchtower.State.Compile.compile flags newProjectCache
+            Watchtower.State.Compile.compile flags newProjectCache filesChanged
             pure ()
         )
     else pure ()
