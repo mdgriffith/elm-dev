@@ -8,10 +8,12 @@ module Watchtower.Live.Client
     ProjectCache (..),
     ProjectStatus (..),
     FileWatchType,
+    GetExistingProjectError (..),
     getAllStatuses,
     getRoot,
     getProjectRoot,
     getClientData,
+    getExistingProject,
     Outgoing (..),
     encodeOutgoing,
     outgoingToLog,
@@ -103,6 +105,8 @@ data FileWatchType = FileWatchType
   }
 
 type ProjectRoot = FilePath
+
+
 
 {- Websocket messages
 -}
@@ -201,6 +205,30 @@ getRootHelp path projects found =
 getProjectRoot :: ProjectCache -> FilePath
 getProjectRoot (ProjectCache proj _ _) =
   Ext.Dev.Project.getRoot proj
+
+
+
+data GetExistingProjectError
+  = NoProjectsRegistered
+  | ProjectNotFound FilePath
+
+
+-- Sorts projects by root path length, with shortest root first
+sortProjects :: [ProjectCache] -> [ProjectCache]
+sortProjects projects =
+  List.sortBy (\(ProjectCache p1 _ _) (ProjectCache p2 _ _) -> compare (List.length (Ext.Dev.Project._root p2)) (List.length (Ext.Dev.Project._root p1))) projects
+
+getExistingProject :: FilePath -> State -> IO (Either GetExistingProjectError (ProjectCache, [ProjectCache]))
+getExistingProject path (State _ mProjects) = do
+  projects <- STM.readTVarIO mProjects
+  case projects of
+    [] -> pure $ Left NoProjectsRegistered
+    _ -> do
+      let containingProjects = List.filter (\(ProjectCache project _ _) -> Ext.Dev.Project.contains path project) projects
+      pure $ case sortProjects containingProjects of
+        [] -> Left (ProjectNotFound path)
+        (first : rest) ->
+          Right (first, rest)
 
 matchingProject :: ProjectCache -> ProjectCache -> Bool
 matchingProject (ProjectCache one _ _) (ProjectCache two _ _) =

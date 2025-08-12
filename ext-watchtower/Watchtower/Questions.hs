@@ -349,7 +349,7 @@ ask state question =
               )
               (CompileHelpers.OutputTo CompileHelpers.Js)
       projectCache <- Watchtower.State.Project.upsert state flags cwd entrypoints
-      compilationResult <- Watchtower.State.Compile.compile flags projectCache
+      compilationResult <- Watchtower.State.Compile.compile flags projectCache []
       case compilationResult of
         Left (Watchtower.State.Compile.ReactorError reactorExit) ->
           pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
