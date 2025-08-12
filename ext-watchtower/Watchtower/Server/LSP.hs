@@ -28,6 +28,7 @@ import qualified Data.Text.Encoding
 import qualified Ext.Common
 import qualified Ext.Dev
 import qualified Ext.FileCache
+import Data.Maybe (maybeToList)
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
 import GHC.Generics
@@ -1127,20 +1128,32 @@ handleDiagnostic state diagnosticParams = do
   let uri = textDocumentIdentifierUri (documentDiagnosticParamsTextDocument diagnosticParams)
   
   -- Get project caches from state and run compilation
-  result <- do
-    let (Watchtower.Live.Client.State _clients projectsVar) = state
-    projects <- Control.Concurrent.STM.readTVarIO projectsVar
-    case projects of
-      [] -> return $ Right []  -- No projects loaded, return empty diagnostics
-      (projectCache:_) -> do  -- Use the first project for now
-        let flags = Ext.CompileHelpers.Generic.Flags Ext.CompileHelpers.Generic.Dev (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
-        compileResult <- Watchtower.State.Compile.compile flags projectCache
-        case compileResult of
-          Right _ -> return $ Right []  -- Compilation successful, no diagnostics
-          Left (Watchtower.State.Compile.ReactorError exitReactor) -> 
-            return $ Right $ extractDiagnosticsFromReactor uri exitReactor
-          Left (Watchtower.State.Compile.GenerationError _) -> 
-            return $ Right []  -- Generation errors are not file-specific
+  result <- case uriToFilePath uri of
+    Nothing -> return $ Right []  -- Invalid URI, return empty diagnostics
+    Just filePath -> do
+      projectResult <- Watchtower.Live.Client.getExistingProject filePath state
+      case projectResult of
+        Left Watchtower.Live.Client.NoProjectsRegistered -> 
+          return $ Right []  -- No projects loaded, return empty diagnostics
+        Left (Watchtower.Live.Client.ProjectNotFound _) -> 
+          return $ Right []  -- File not in any project, return empty diagnostics
+        Right (projectCache, _) -> do
+          let flags = Ext.CompileHelpers.Generic.Flags Ext.CompileHelpers.Generic.Dev Ext.CompileHelpers.Generic.NoOutput
+          compileResult <- Watchtower.State.Compile.compile flags projectCache [filePath]
+          Ext.Log.log Ext.Log.LSP $ "COMPILE RESULT" ++ Watchtower.Live.Client.getProjectRoot projectCache
+          case compileResult of
+            Right success ->
+              do
+                Ext.Log.log Ext.Log.LSP "COMPILATION SUCCESSFUL, NO DIAGNOSTICS?"
+                return $ Right []  -- Compilation successful, no diagnostics
+            Left (Watchtower.State.Compile.ReactorError exitReactor) -> 
+              do
+                Ext.Log.log Ext.Log.LSP "COMPILATION FAILED, EXTRACTING DIAGNOSTICS"
+                return $ Right $ extractDiagnosticsFromReactor uri exitReactor
+            Left (Watchtower.State.Compile.GenerationError _) -> 
+              do
+                Ext.Log.log Ext.Log.LSP "COMPILATION FAILED, GENERATION ERROR"
+                return $ Right []  -- Generation errors are not file-specific
 
   case result of
     Right diagnostics -> do
@@ -1148,8 +1161,11 @@ handleDiagnostic state diagnosticParams = do
             [ "kind" .= ("full" :: Text),
               "items" .= diagnostics
             ]
+      Ext.Log.log Ext.Log.LSP $ "Diagnostics: " ++ show diagnosticsResponse
       return $ Right diagnosticsResponse
-    Left err -> return $ Left err
+    Left err -> do 
+      Ext.Log.log Ext.Log.LSP $ "Diagnostics FAILURE: " ++ show err
+      return $ Left err
 
 -- | Extract diagnostics from Reactor errors, filtering by the requested file URI
 extractDiagnosticsFromReactor :: Text -> Reporting.Exit.Reactor -> [Diagnostic]
@@ -1179,14 +1195,14 @@ errorToDiagnostics source err =
 
 -- | Convert a Report to an LSP Diagnostic
 reportToDiagnostic :: Reporting.Report.Report -> Diagnostic
-reportToDiagnostic (Reporting.Report.Report title region _suggestions _message) =
+reportToDiagnostic (Reporting.Report.Report title region _suggestions message) =
   Diagnostic
     { diagnosticRange = regionToRange region,
       diagnosticSeverity = Just (DiagnosticSeverity 1), -- Error
       diagnosticCode = Nothing,
       diagnosticCodeDescription = Nothing,
       diagnosticSource = Just "elm",
-      diagnosticMessage = Text.pack title,
+      diagnosticMessage = Text.pack (Reporting.Doc.toString message),
       diagnosticTags = Nothing,
       diagnosticRelatedInformation = Nothing,
       diagnosticData = Nothing
@@ -1269,30 +1285,30 @@ handleCodeLens state codeLensParams = do
       Ext.Log.log Ext.Log.LSP $ "CodeLens: Failed to convert URI to file path: " ++ Text.unpack uri
       return $ Right []
     Just filePath -> do
-      Ext.Log.log Ext.Log.LSP $ "CodeLens: File path: " ++ filePath
-      hFlush stderr
+      -- Ext.Log.log Ext.Log.LSP $ "CodeLens: File path: " ++ filePath
       
-      -- Get project root
-      maybeRoot <- Watchtower.Live.Client.getRoot filePath state
-      let root = Maybe.fromMaybe "." maybeRoot
+      -- -- Get project root
+      -- maybeRoot <- Watchtower.Live.Client.getRoot filePath state
+      -- let root = Maybe.fromMaybe "." maybeRoot
       
-      Ext.Log.log Ext.Log.LSP $ "CodeLens: Project root: " ++ root
+      -- Ext.Log.log Ext.Log.LSP $ "CodeLens: Project root: " ++ root
       
-      -- Get warnings for the file
-      eitherWarnings <- Ext.Dev.warnings root filePath
+      -- -- Get warnings for the file
+      -- eitherWarnings <- Ext.Dev.warnings root filePath
       
-      case eitherWarnings of
-        Left () -> do
-          Ext.Log.log Ext.Log.LSP $ "CodeLens: Failed to get warnings for: " ++ filePath
-          return $ Right []
-        Right (sourceMod, warnings) -> do
-          let localizer = Reporting.Render.Type.Localizer.fromModule sourceMod
-              codeLenses = concatMap (warningToCodeLens localizer) warnings
-              missingAnnotationCount = length $ filter isMissingTypeAnnotation warnings
+      -- case eitherWarnings of
+      --   Left () -> do
+      --     Ext.Log.log Ext.Log.LSP $ "CodeLens: Failed to get warnings for: " ++ filePath
+      --     return $ Right []
+      --   Right (sourceMod, warnings) -> do
+      --     let localizer = Reporting.Render.Type.Localizer.fromModule sourceMod
+      --         codeLenses = concatMap (warningToCodeLens localizer) warnings
+      --         missingAnnotationCount = length $ filter isMissingTypeAnnotation warnings
           
-          Ext.Log.log Ext.Log.LSP $ "CodeLens: Found " ++ show (length warnings) ++ " total warnings, " ++ show missingAnnotationCount ++ " missing type annotations, " ++ show (length codeLenses) ++ " code lenses"
-          Ext.Log.log Ext.Log.LSP $ "CodeLens: " ++ show codeLenses
-          return $ Right codeLenses
+      --     Ext.Log.log Ext.Log.LSP $ "CodeLens: Found " ++ show (length warnings) ++ " total warnings, " ++ show missingAnnotationCount ++ " missing type annotations, " ++ show (length codeLenses) ++ " code lenses"
+      --     Ext.Log.log Ext.Log.LSP $ "CodeLens: " ++ show codeLenses
+      --     return $ Right codeLenses
+      return $ Right []
 
 -- Helper to check if a warning is a MissingTypeAnnotation
 isMissingTypeAnnotation :: Warning.Warning -> Bool
