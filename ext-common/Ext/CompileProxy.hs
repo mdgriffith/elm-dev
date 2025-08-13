@@ -65,6 +65,8 @@ import qualified Canonicalize.Environment.Foreign
 import qualified Canonicalize.Environment.Local
 import qualified Canonicalize.Module as Canonicalize
 import qualified Compile
+import qualified Type.Constrain.Module
+import qualified Type.Solve
 import Control.Concurrent.MVar
 import qualified Control.Monad (filterM, foldM_, mapM)
 import qualified Data.ByteString as BS
@@ -100,6 +102,7 @@ import qualified Reporting.Annotation as A
 import qualified Reporting.Error
 import qualified Reporting.Error.Canonicalize
 import qualified Reporting.Error.Syntax
+import qualified Reporting.Error.Type
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type.Localizer as Localizer
 import qualified Reporting.Result
@@ -318,7 +321,7 @@ loadSingle root path =
                     )
                 Right initialCanModule ->
                   let canModule = addMissingTypes canWarnings initialCanModule
-                   in case CompileHelpers.typeCheck srcModule canModule of
+                   in case typeCheck srcModule canModule of
                         Left typeErrors ->
                           pure
                             ( Single
@@ -368,6 +371,20 @@ loadSingle root path =
               Nothing
               Nothing
           )
+
+
+typeCheck :: 
+  Src.Module 
+    -> Can.Module 
+    -> Either 
+        (NE.List
+            Reporting.Error.Type.Error) 
+        (Map.Map Name.Name Can.Annotation)
+typeCheck modul canonical =
+  System.IO.Unsafe.unsafePerformIO (Type.Solve.run =<< Type.Constrain.Module.constrain canonical)
+    
+
+
 
 -- Helpers
 

@@ -6,6 +6,7 @@ import qualified Data.ByteString as B
 import qualified AST.Optimized as Opt
 import qualified AST.Source as Src
 import qualified Reporting.Error.Type
+import qualified Canonicalize.Module
 import qualified Data.NonEmptyList
 import qualified Data.Map as Map
 import qualified Data.Name as Name
@@ -14,14 +15,18 @@ import qualified Elm.Details as Details
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
-import qualified Reporting.Error
+import qualified Nitpick.PatternMatches
+
 import qualified System.IO.Unsafe
-import qualified Type.Constrain.Module as Type
-import qualified Type.Solve as Type
+import qualified Reporting.Render.Type.Localizer
+import qualified Type.Constrain.Module
+import qualified Type.Solve
 import qualified Reporting.Task as Task
 import qualified Reporting.Exit as Exit
-import qualified Reporting.Error as Error
+import qualified Reporting.Error
+import qualified Reporting.Result
 import qualified StandaloneInstances
+import qualified Optimize.Module
 import qualified Compile
 import qualified Make
 import qualified Generate
@@ -58,18 +63,7 @@ toUnique oneOrMore =
     OneOrMore.More _ _  -> Nothing
 
 
-
-typeCheck :: 
-  Src.Module 
-    -> Can.Module 
-    -> Either 
-        (Data.NonEmptyList.List
-            Reporting.Error.Type.Error) 
-        (Map.Map Name.Name Can.Annotation)
-typeCheck modul canonical =
-  System.IO.Unsafe.unsafePerformIO (Type.run =<< Type.constrain canonical)
-    
-
+{- COMPILATION!!!! -}
 
 data CompilationFlags =
   CompilationFlags
@@ -85,14 +79,60 @@ compilationModsFromFlags mode =
 
 -- This is weirdly named becase it mirrors Compile.compile
 -- but does our Canonical updates
-compile :: CompilationFlags -> Pkg.Name -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> Either Error.Error Compile.Artifacts
+compile :: CompilationFlags -> Pkg.Name -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> Either Reporting.Error.Error Compile.Artifacts
 compile (CompilationFlags modifications) pkg ifaces modul =
-  do  dirtyCanonical   <- Compile.canonicalize pkg ifaces modul
+  do  dirtyCanonical   <- canonicalize pkg ifaces modul
       let canonical = Modify.update modifications dirtyCanonical
-      annotations <- Compile.typeCheck modul canonical
-      ()          <- Compile.nitpick canonical
-      objects     <- Compile.optimize modul annotations canonical
+      annotations <- typeCheck modul canonical
+      ()          <- nitpick canonical
+      objects     <- optimize modul annotations canonical
       return (Compile.Artifacts canonical annotations objects)
+
+
+-- PHASES.  These mirror what is in Compile.hs
+
+
+canonicalize :: Pkg.Name -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> Either Reporting.Error.Error Can.Module
+canonicalize pkg ifaces modul =
+  case snd $ Reporting.Result.run $ Canonicalize.Module.canonicalize pkg ifaces modul of
+    Right canonical ->
+      Right canonical
+
+    Left errors ->
+      Left $ Reporting.Error.BadNames errors
+
+
+typeCheck :: Src.Module -> Can.Module -> Either Reporting.Error.Error (Map.Map Name.Name Can.Annotation)
+typeCheck modul canonical =
+  case System.IO.Unsafe.unsafePerformIO (Type.Solve.run =<< Type.Constrain.Module.constrain canonical) of
+    Right annotations ->
+      Right annotations
+
+    Left errors ->
+      Left (Reporting.Error.BadTypes (Reporting.Render.Type.Localizer.fromModule modul) errors)
+
+
+nitpick :: Can.Module -> Either Reporting.Error.Error ()
+nitpick canonical =
+  case Nitpick.PatternMatches.check canonical of
+    Right () ->
+      Right ()
+
+    Left errors ->
+      Left (Reporting.Error.BadPatterns errors)
+
+
+optimize :: Src.Module -> Map.Map Name.Name Can.Annotation -> Can.Module -> Either Reporting.Error.Error Opt.LocalGraph
+optimize modul annotations canonical =
+  case snd $ Reporting.Result.run $ Optimize.Module.optimize annotations canonical of
+    Right localGraph ->
+      Right localGraph
+
+    Left errors ->
+      Left (Reporting.Error.BadMains (Reporting.Render.Type.Localizer.fromModule modul) errors)
+
+
+
 
 
 -- For running compilation
@@ -178,8 +218,8 @@ checkRoot flags env@(Build.Env _ root _ _ _ _ _) results rootStatus =
               return Build.ROutsideBlocked
 
             Build.DepsNotFound problems ->
-              return $ Build.ROutsideErr $ Error.Module (Src.getName modul) path time source $
-                  Error.BadImports (Build.toImportErrors env results imports problems)
+              return $ Build.ROutsideErr $ Reporting.Error.Module (Src.getName modul) path time source $
+                  Reporting.Error.BadImports (Build.toImportErrors env results imports problems)
 
 
 compileOutside :: CompilationFlags -> Build.Env -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Build.RootResult
@@ -195,5 +235,5 @@ compileOutside flags (Build.Env key _ projectType _ _ _ _) (Details.Local path t
       return $ Build.ROutsideOk name (I.fromModule pkg canonical annotations) objects
 
     Left errors ->
-      return $ Build.ROutsideErr $ Error.Module name path time source errors
+      return $ Build.ROutsideErr $ Reporting.Error.Module name path time source errors
 
