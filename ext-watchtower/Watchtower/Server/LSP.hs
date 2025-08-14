@@ -1138,22 +1138,22 @@ handleDiagnostic state diagnosticParams = do
         Left (Watchtower.Live.Client.ProjectNotFound _) -> 
           return $ Right []  -- File not in any project, return empty diagnostics
         Right (projectCache, _) -> do
-          let flags = Ext.CompileHelpers.Generic.Flags Ext.CompileHelpers.Generic.Dev Ext.CompileHelpers.Generic.NoOutput
-          compileResult <- Watchtower.State.Compile.compile flags projectCache [filePath]
-          Ext.Log.log Ext.Log.LSP $ "COMPILE RESULT" ++ Watchtower.Live.Client.getProjectRoot projectCache
-          case compileResult of
-            Right success ->
-              do
-                Ext.Log.log Ext.Log.LSP "COMPILATION SUCCESSFUL, NO DIAGNOSTICS?"
-                return $ Right []  -- Compilation successful, no diagnostics
-            Left (Watchtower.Live.Client.ReactorError exitReactor) -> 
-              do
-                Ext.Log.log Ext.Log.LSP "COMPILATION FAILED, EXTRACTING DIAGNOSTICS"
-                return $ Right $ extractDiagnosticsFromReactor uri exitReactor
-            Left (Watchtower.Live.Client.GenerationError _) -> 
-              do
-                Ext.Log.log Ext.Log.LSP "COMPILATION FAILED, GENERATION ERROR"
-                return $ Right []  -- Generation errors are not file-specific
+          -- Read the existing compile result from the project cache instead of re-running compile
+          currentResult <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult projectCache)
+          Ext.Log.log Ext.Log.LSP $ "READ COMPILE RESULT for " ++ Watchtower.Live.Client.getProjectRoot projectCache
+          case currentResult of
+            Watchtower.Live.Client.Success _ -> do
+              Ext.Log.log Ext.Log.LSP "COMPILE RESULT SUCCESS, NO DIAGNOSTICS"
+              return $ Right []
+            Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
+              Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Reactor), EXTRACTING DIAGNOSTICS"
+              return $ Right $ extractDiagnosticsFromReactor uri exitReactor
+            Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
+              Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Generation), NO FILE-SPECIFIC DIAGNOSTICS"
+              return $ Right []
+            Watchtower.Live.Client.NotCompiled -> do
+              Ext.Log.log Ext.Log.LSP "COMPILE RESULT NOT COMPILED YET, NO DIAGNOSTICS"
+              return $ Right []
 
   case result of
     Right diagnostics -> do
