@@ -12,7 +12,6 @@ import qualified Ext.Dev.Project
 import qualified Ext.FileCache
 import qualified Ext.Filewatch
 import qualified Ext.Log
-import qualified Ext.Sentry
 import qualified Ext.VirtualFile
 import qualified Gen.Config
 import qualified Gen.Generate
@@ -43,11 +42,10 @@ upsertVirtual state@(Client.State mClients mProjects) flags root entrypoint = do
       putStrLn (show err)
       pure Nothing
     Right virtualRoot -> do
-      sentryCache <- Ext.Sentry.init
       let docsInfo = Gen.Config.defaultDocs
       let newProject = Ext.Dev.Project.Project virtualRoot virtualRoot (NE.List entrypoint [])
       mCompileResult <- STM.newTVarIO Client.NotCompiled
-      let newProjectCache = Client.ProjectCache newProject docsInfo sentryCache mCompileResult
+      let newProjectCache = Client.ProjectCache newProject docsInfo mCompileResult
       pure (Just newProjectCache)
 
 insertVirtualElmJson :: FilePath -> IO (Either String FilePath)
@@ -93,11 +91,10 @@ insertVirtualElmJson root = do
 
 upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO Client.ProjectCache
 upsert state@(Client.State mClients mProjects) flags root entrypoints = do
-  sentryCache <- Ext.Sentry.init
   docsInfo <- readDocsInfo root
   let newProject = Ext.Dev.Project.Project root root entrypoints 
   mCompileResult <- STM.newTVarIO Client.NotCompiled
-  let newProjectCache = Client.ProjectCache newProject docsInfo sentryCache mCompileResult
+  let newProjectCache = Client.ProjectCache newProject docsInfo mCompileResult
 
   (isNew, project) <- STM.atomically $ do
     existingProjects <- STM.readTVar mProjects

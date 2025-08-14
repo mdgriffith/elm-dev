@@ -568,7 +568,7 @@ allProjectStatuses (Watchtower.Live.Client.State clients mProjects) =
     projects <- STM.readTVarIO mProjects
     projectStatuses <-
       Monad.foldM
-        ( \gathered (Watchtower.Live.Client.ProjectCache proj docsInfo _ mCompileResult) -> do
+        ( \gathered (Watchtower.Live.Client.ProjectCache proj docsInfo mCompileResult) -> do
             result <- STM.readTVarIO mCompileResult
             let projectStatus =
                   case result of

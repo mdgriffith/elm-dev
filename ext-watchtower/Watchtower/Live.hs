@@ -117,7 +117,7 @@ websocket_ state@(Client.State mClients mProjects) = do
             projects <- STM.readTVarIO mProjects
             statuses <-
               Monad.foldM
-                ( \gathered (Client.ProjectCache proj docsInfo _ mCompileResult) -> do
+                ( \gathered (Client.ProjectCache proj docsInfo mCompileResult) -> do
                     result <- STM.readTVarIO mCompileResult
                     let projectStatus =
                           case result of

@@ -19,7 +19,7 @@ import qualified Watchtower.Live.Client as Client
 
 
 compile :: CompileHelpers.Flags -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compile flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo projectCompilationCache mCompileResult) files = do
+compile flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo mCompileResult) files = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run
@@ -34,11 +34,6 @@ compile flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project proje
               Right result -> Client.Success result
               Left exit -> Client.Error (Client.ReactorError exit)
         STM.atomically $ STM.writeTVar mCompileResult newResult
-
-        -- unpack the compilation result and call Sentry.updateJsOutput if the result was js.
-        case compilationResult of
-          Right (CompileHelpers.CompiledJs js) -> Sentry.updateJsOutput projectCompilationCache (pure $ BS.toStrict $ B.toLazyByteString js)
-          _ -> pure ()
 
         pure $ case compilationResult of
           Right result -> Right result
