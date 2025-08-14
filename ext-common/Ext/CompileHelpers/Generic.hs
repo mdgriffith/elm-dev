@@ -25,6 +25,7 @@ import qualified Reporting.Task as Task
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Error
 import qualified Reporting.Result
+import qualified Reporting.Warning
 import qualified StandaloneInstances
 import qualified Optimize.Module
 import qualified Compile
@@ -79,27 +80,42 @@ compilationModsFromFlags mode =
 
 -- This is weirdly named becase it mirrors Compile.compile
 -- but does our Canonical updates
-compile :: CompilationFlags -> Pkg.Name -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> Either Reporting.Error.Error Compile.Artifacts
+compile :: CompilationFlags -> Pkg.Name -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> ([Reporting.Warning.Warning], Either Reporting.Error.Error Compile.Artifacts)
 compile (CompilationFlags modifications) pkg ifaces modul =
-  do  dirtyCanonical   <- canonicalize pkg ifaces modul
-      let canonical = Modify.update modifications dirtyCanonical
-      annotations <- typeCheck modul canonical
-      ()          <- nitpick canonical
-      objects     <- optimize modul annotations canonical
-      return (Compile.Artifacts canonical annotations objects)
+  let
+    (canonWarnings, canonResult) = canonicalize pkg ifaces modul
+  in
+  case canonResult of
+    Left err -> (canonWarnings, Left err)
+    Right dirtyCanonical ->
+      let
+        canonical = Modify.update modifications dirtyCanonical
+      in
+      case typeCheck modul canonical of
+        Left err -> (canonWarnings, Left err)
+        Right annotations ->
+          case nitpick canonical of
+            Left err -> (canonWarnings, Left err)
+            Right () ->
+              let
+                (optWarnings, optResult) = optimize modul annotations canonical
+              in
+              case optResult of
+                Left err -> (canonWarnings ++ optWarnings, Left err)
+                Right objects -> (canonWarnings ++ optWarnings, Right (Compile.Artifacts canonical annotations objects))
 
 
 -- PHASES.  These mirror what is in Compile.hs
 
 
-canonicalize :: Pkg.Name -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> Either Reporting.Error.Error Can.Module
+canonicalize :: Pkg.Name -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> ([Reporting.Warning.Warning], Either Reporting.Error.Error Can.Module)
 canonicalize pkg ifaces modul =
-  case snd $ Reporting.Result.run $ Canonicalize.Module.canonicalize pkg ifaces modul of
-    Right canonical ->
-      Right canonical
+  case Reporting.Result.run (Canonicalize.Module.canonicalize pkg ifaces modul) of
+    (warnings, Right canonical) ->
+      (warnings, Right canonical)
 
-    Left errors ->
-      Left $ Reporting.Error.BadNames errors
+    (warnings, Left errors) ->
+      (warnings, Left $ Reporting.Error.BadNames errors)
 
 
 typeCheck :: Src.Module -> Can.Module -> Either Reporting.Error.Error (Map.Map Name.Name Can.Annotation)
@@ -122,14 +138,14 @@ nitpick canonical =
       Left (Reporting.Error.BadPatterns errors)
 
 
-optimize :: Src.Module -> Map.Map Name.Name Can.Annotation -> Can.Module -> Either Reporting.Error.Error Opt.LocalGraph
+optimize :: Src.Module -> Map.Map Name.Name Can.Annotation -> Can.Module -> ([Reporting.Warning.Warning], Either Reporting.Error.Error Opt.LocalGraph)
 optimize modul annotations canonical =
-  case snd $ Reporting.Result.run $ Optimize.Module.optimize annotations canonical of
-    Right localGraph ->
-      Right localGraph
+  case Reporting.Result.run (Optimize.Module.optimize annotations canonical) of
+    (warnings, Right localGraph) ->
+      (warnings, Right localGraph)
 
-    Left errors ->
-      Left (Reporting.Error.BadMains (Reporting.Render.Type.Localizer.fromModule modul) errors)
+    (warnings, Left errors) ->
+      (warnings, Left (Reporting.Error.BadMains (Reporting.Render.Type.Localizer.fromModule modul) errors))
 
 
 
@@ -229,11 +245,11 @@ compileOutside flags (Build.Env key _ projectType _ _ _ _) (Details.Local path t
     name = Src.getName modul
   in
   case compile flags pkg ifaces modul of
-    Right (Compile.Artifacts canonical annotations objects) -> do
+    (_warnings, Right (Compile.Artifacts canonical annotations objects)) -> do
       
       Reporting.report key Reporting.BDone
       return $ Build.ROutsideOk name (I.fromModule pkg canonical annotations) objects
 
-    Left errors ->
+    (_warnings, Left errors) ->
       return $ Build.ROutsideErr $ Reporting.Error.Module name path time source errors
 
