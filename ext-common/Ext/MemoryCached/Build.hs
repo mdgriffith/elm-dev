@@ -446,7 +446,8 @@ loadInterface root (name, ciMvar) =
 compile :: CompileHelpers.CompilationFlags -> Build.Env -> Build.DocsNeed -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Build.Result
 compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.Local path time deps main lastChange _) source ifaces modul = do
   let pkg = Build.projectTypeToPkg projectType
-  case CompileHelpers.compile flags pkg ifaces modul of
+  let (warnings, compilationResult) = CompileHelpers.compile flags pkg ifaces modul
+  case compilationResult of
     Right (Compile.Artifacts canonical annotations objects) -> do
       case Build.makeDocs docsNeed canonical of
         Left err ->
@@ -670,12 +671,12 @@ compileOutside flags (Build.Env key _ projectType _ _ _ _) (Details.Local path t
     name = Src.getName modul
   in
   case CompileHelpers.compile flags pkg ifaces modul of
-    Right (Compile.Artifacts canonical annotations objects) -> do
+    (_warnings, Right (Compile.Artifacts canonical annotations objects)) -> do
      
       Reporting.report key Reporting.BDone
       return $ Build.ROutsideOk name (I.fromModule pkg canonical annotations) objects
 
-    Left errors ->
+    (_warnings, Left errors) ->
       return $ Build.ROutsideErr $ Error.Module name path time source errors
 
 

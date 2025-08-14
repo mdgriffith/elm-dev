@@ -223,8 +223,9 @@ compile :: CompileHelpers.CompilationFlags -> Build.Env -> Build.DocsNeed -> Det
 compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.Local path time deps main lastChange _) source ifaces modul =
   let
     pkg = Build.projectTypeToPkg projectType
+    (warnings, compilationResult) = CompileHelpers.compile flags pkg ifaces modul
   in
-  case CompileHelpers.compile flags pkg ifaces modul of
+  case compilationResult of
     Right (Compile.Artifacts canonical annotations objects) -> do
       case Build.makeDocs docsNeed canonical of
         Left err ->

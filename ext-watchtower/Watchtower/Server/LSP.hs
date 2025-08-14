@@ -1146,11 +1146,11 @@ handleDiagnostic state diagnosticParams = do
               do
                 Ext.Log.log Ext.Log.LSP "COMPILATION SUCCESSFUL, NO DIAGNOSTICS?"
                 return $ Right []  -- Compilation successful, no diagnostics
-            Left (Watchtower.State.Compile.ReactorError exitReactor) -> 
+            Left (Watchtower.Live.Client.ReactorError exitReactor) -> 
               do
                 Ext.Log.log Ext.Log.LSP "COMPILATION FAILED, EXTRACTING DIAGNOSTICS"
                 return $ Right $ extractDiagnosticsFromReactor uri exitReactor
-            Left (Watchtower.State.Compile.GenerationError _) -> 
+            Left (Watchtower.Live.Client.GenerationError _) -> 
               do
                 Ext.Log.log Ext.Log.LSP "COMPILATION FAILED, GENERATION ERROR"
                 return $ Right []  -- Generation errors are not file-specific

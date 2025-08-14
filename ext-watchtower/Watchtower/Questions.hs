@@ -351,9 +351,9 @@ ask state question =
       projectCache <- Watchtower.State.Project.upsert state flags cwd entrypoints
       compilationResult <- Watchtower.State.Compile.compile flags projectCache []
       case compilationResult of
-        Left (Watchtower.State.Compile.ReactorError reactorExit) ->
+        Left (Watchtower.Live.Client.ReactorError reactorExit) ->
           pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
-        Left (Watchtower.State.Compile.GenerationError err) ->
+        Left (Watchtower.Live.Client.GenerationError err) ->
           pure (Json.Encode.encodeUgly (Json.Encode.chars err))
         Right (CompileHelpers.CompiledJs js) -> do
           putStrLn "Success, returning JS"
@@ -568,14 +568,12 @@ allProjectStatuses (Watchtower.Live.Client.State clients mProjects) =
     projects <- STM.readTVarIO mProjects
     projectStatuses <-
       Monad.foldM
-        ( \gathered (Watchtower.Live.Client.ProjectCache proj docsInfo sentry) -> do
-            jsonStatusResult <- Ext.Sentry.getCompileResult sentry
+        ( \gathered (Watchtower.Live.Client.ProjectCache proj docsInfo _ mCompileResult) -> do
+            result <- STM.readTVarIO mCompileResult
             let projectStatus =
-                  Watchtower.Live.Client.ProjectStatus
-                    proj
-                    (isSuccess jsonStatusResult)
-                    (flattenJsonStatus jsonStatusResult)
-                    docsInfo
+                  case result of
+                    Watchtower.Live.Client.Success _ -> Watchtower.Live.Client.ProjectStatus proj True (Watchtower.Live.Client.toOldJSON result) docsInfo
+                    _ -> Watchtower.Live.Client.ProjectStatus proj False (Watchtower.Live.Client.toOldJSON result) docsInfo
             pure $ projectStatus : gathered
         )
         []

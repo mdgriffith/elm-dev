@@ -117,14 +117,12 @@ websocket_ state@(Client.State mClients mProjects) = do
             projects <- STM.readTVarIO mProjects
             statuses <-
               Monad.foldM
-                ( \gathered (Client.ProjectCache proj docsInfo sentry) -> do
-                    jsonStatusResult <- Ext.Sentry.getCompileResult sentry
+                ( \gathered (Client.ProjectCache proj docsInfo _ mCompileResult) -> do
+                    result <- STM.readTVarIO mCompileResult
                     let projectStatus =
-                          Client.ProjectStatus
-                            proj
-                            (isSuccess jsonStatusResult)
-                            (flattenJsonStatus jsonStatusResult)
-                            docsInfo
+                          case result of
+                            Client.Success _ -> Client.ProjectStatus proj True (Client.toOldJSON result) docsInfo
+                            _ -> Client.ProjectStatus proj False (Client.toOldJSON result) docsInfo
                     pure $ projectStatus : gathered
                 )
                 []
