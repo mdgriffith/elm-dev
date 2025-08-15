@@ -5,6 +5,8 @@ module Watchtower.Live.Client
     ClientId,
     ProjectRoot,
     State (..),
+    FileInfo (..),
+    MaybeInfo (..),
     ProjectCache (..),
     ProjectStatus (..),
     FileWatchType,
@@ -82,7 +84,8 @@ data State = State
   { clients :: STM.TVar [Client],
     projects ::
       STM.TVar
-        [ProjectCache]
+        [ProjectCache],
+    fileInfo :: STM.TVar (Map.Map FilePath FileInfo)
   }
 
 data ProjectCache = ProjectCache
@@ -114,6 +117,12 @@ toOldJSON (Error (GenerationError err)) =
 type ClientId = T.Text
 
 type Client = Watchtower.Websocket.Client Watching
+
+data MaybeInfo a = Unknown | Known a
+
+data FileInfo = FileInfo
+  { warnings :: MaybeInfo [Warning.Warning]
+  }
 
 emptyWatch :: Watching
 emptyWatch =
@@ -162,7 +171,7 @@ watchedFiles (Watching _ files) =
   files
 
 getClientData :: ClientId -> State -> IO (Maybe Watching)
-getClientData clientId (State mClients _) = do
+getClientData clientId (State mClients _ _) = do
   clients <- STM.atomically $ STM.readTVar mClients
 
   pure
@@ -207,7 +216,7 @@ isWatchingFileForDocs file (Watching watchingProjects watchingFiles) =
       watchForDocs
 
 getRoot :: FilePath -> State -> IO (Maybe FilePath)
-getRoot path (State mClients mProjects) =
+getRoot path (State mClients mProjects _) =
   do
     projects <- STM.readTVarIO mProjects
     pure (getRootHelp path projects Nothing)
@@ -244,7 +253,7 @@ sortProjects projects =
   List.sortBy (\(ProjectCache p1 _ _) (ProjectCache p2 _ _) -> compare (List.length (Ext.Dev.Project._root p2)) (List.length (Ext.Dev.Project._root p1))) projects
 
 getExistingProject :: FilePath -> State -> IO (Either GetExistingProjectError (ProjectCache, [ProjectCache]))
-getExistingProject path (State _ mProjects) = do
+getExistingProject path (State _ mProjects _) = do
   projects <- STM.readTVarIO mProjects
   case projects of
     [] -> pure $ Left NoProjectsRegistered
@@ -260,7 +269,7 @@ matchingProject (ProjectCache one _ _) (ProjectCache two _ _) =
   Ext.Dev.Project.equal one two
 
 getAllStatuses :: State -> IO [ProjectStatus]
-getAllStatuses state@(State mClients mProjects) =
+getAllStatuses state@(State mClients mProjects _) =
   do
     projects <- STM.readTVarIO mProjects
 

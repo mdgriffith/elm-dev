@@ -63,6 +63,7 @@ init =
   Client.State
     <$> Watchtower.Websocket.clientsInit
     <*> STM.newTVarIO []
+    <*> STM.newTVarIO mempty
 
 -- initWith :: FilePath -> IO Client.State
 -- initWith root =
@@ -109,7 +110,7 @@ flattenJsonStatus (Left json) = json
 flattenJsonStatus (Right json) = json
 
 websocket_ :: Client.State -> Snap ()
-websocket_ state@(Client.State mClients mProjects) = do
+websocket_ state@(Client.State mClients mProjects _) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
@@ -158,7 +159,7 @@ receive state clientId text = do
       receiveAction state clientId action
 
 receiveAction :: Client.State -> Client.ClientId -> Client.Incoming -> IO ()
-receiveAction state@(Client.State mClients mProjects) senderClientId incoming =
+receiveAction state@(Client.State mClients mProjects _) senderClientId incoming =
   case incoming of
     Client.Changed fileChanged ->
       do
@@ -209,7 +210,7 @@ receiveAction state@(Client.State mClients mProjects) senderClientId incoming =
         (Client.EditorJumpTo file position)
 
 broadCastToEveryoneNotMe :: Client.State -> Client.ClientId -> Client.Outgoing -> IO ()
-broadCastToEveryoneNotMe (Client.State mClients _) myClientId =
+broadCastToEveryoneNotMe (Client.State mClients _ _) myClientId =
   Client.broadcastToMany
     mClients
     ( not . Watchtower.Websocket.matchId myClientId

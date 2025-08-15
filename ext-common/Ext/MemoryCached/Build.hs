@@ -1,7 +1,7 @@
 -- Clone of builder/src/Build.hs modified to use MemoryCached.*
 
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
-{-# LANGUAGE BangPatterns, GADTs, OverloadedStrings #-}
+{-# LANGUAGE GADTs, OverloadedStrings #-}
 module Ext.MemoryCached.Build
   ( fromPathsMemoryCached
   , bustArtifactsCache
@@ -50,6 +50,7 @@ import qualified Reporting.Error.Syntax as Syntax
 import qualified Reporting.Error.Import as Import
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type.Localizer as L
+import qualified Reporting.Warning as Warning
 import qualified Stuff
 import qualified Ext.Log
 
@@ -77,26 +78,26 @@ artifactCache = unsafePerformIO $ newMVar Nothing
 bustArtifactsCache = modifyMVar_ artifactCache (\_ -> pure Nothing)
 
 
-fromPathsMemoryCached :: CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
+fromPathsMemoryCached :: CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem (Artifacts, Map.Map FilePath [Warning.Warning]))
 fromPathsMemoryCached flags style root details paths = do
   artifaceCacheM <- readMVar artifactCache
   case artifaceCacheM of
     Just artifacts -> do
-      debug $ "🎯 artifacts cache hit"
-      pure $ Right artifacts
+      debug "🎯 artifacts cache hit"
+      pure $ Right (artifacts, Map.empty)
     Nothing -> do
-      debug $ "❌ artifacts cache miss"
+      debug "❌ artifacts cache miss"
       modifyMVar artifactCache (\_ -> do
           artifactsR <- fromPathsMemoryCached_ flags style root details paths
           case artifactsR of
-            Right artifacts -> do
-              pure (Just artifacts, artifactsR)
+            Right (artifacts, warns) -> do
+              pure (Just artifacts, Right (artifacts, warns))
             _ ->
               pure (Nothing, artifactsR)
         )
 
 
-fromPathsMemoryCached_ :: CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts)
+fromPathsMemoryCached_ :: CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem (Artifacts, Map.Map FilePath [Warning.Warning]))
 fromPathsMemoryCached_ flags style root details paths =
   Reporting.trackBuild style $ \key ->
   do  env <- Build.makeEnv key root details
@@ -123,8 +124,9 @@ fromPathsMemoryCached_ flags style root details paths =
                 Right foreigns ->
                   do  -- compile
                       rmvar <- newEmptyMVar
+                      warningsVar <- newMVar Map.empty
                       -- debug $ "statuses: " <> show statuses
-                      resultsMVars <- Build.forkWithKey (checkModule flags env foreigns rmvar) statuses
+                      resultsMVars <- Build.forkWithKey (checkModule flags env foreigns rmvar warningsVar) statuses
 
                       putMVar rmvar resultsMVars
                       rrootMVars <- traverse (Build.fork . checkRoot flags env resultsMVars) sroots
@@ -134,11 +136,14 @@ fromPathsMemoryCached_ flags style root details paths =
                       -- Needs to NOT be Build.writeDetails, because it's writing the cached version
                       writeDetails root details results
                       x <- Build.toArtifacts env foreigns results <$> traverse readMVar rrootMVars
+                      warningsByPath <- readMVar warningsVar
                       -- case x of
                       --   Right v ->
                       --     debug $ show v
                       --   _ -> pure ()
-                      pure x
+                      case x of
+                        Left err -> pure (Left err)
+                        Right arts -> pure (Right (arts, warningsByPath))
 
 
 
@@ -250,19 +255,19 @@ crawlFile env@(Build.Env _ root projectType _ buildID _ _) mvar docsNeed expecte
 -- CHECK MODULE
 
 
-checkModule :: CompileHelpers.CompilationFlags -> Build.Env -> Build.Dependencies -> MVar Build.ResultDict -> ModuleName.Raw -> Build.Status -> IO Build.Result
-checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar name status =
+checkModule :: CompileHelpers.CompilationFlags -> Build.Env -> Build.Dependencies -> MVar Build.ResultDict -> MVar (Map.Map FilePath [Warning.Warning]) -> ModuleName.Raw -> Build.Status -> IO Build.Result
+checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar warningsVar name status =
  do
   case status of
-    Build.SCached local@(Details.Local path time deps hasMain lastChange lastCompile) ->
+    Build.SCached local@(Details.Local path time deps hasMain lastChange _) ->
       do  results <- readMVar resultsMVar
-          depsStatus <- checkDeps root results deps lastCompile
+          depsStatus <- checkDeps root results deps lastChange
           case depsStatus of
             Build.DepsChange ifaces ->
               do  source <- File.readUtf8 path
                   -- debug $ "checkModule:SCached:DepsChange " ++ show name
                   case Parse.fromByteString projectType source of
-                    Right modul -> compile flags env (Build.DocsNeed False) local source ifaces modul
+                    Right modul -> compile flags env (Build.DocsNeed False) local source ifaces modul warningsVar
                     Left err ->
                       return $ Build.RProblem $
                         Error.Module name path time source (Error.BadSyntax err)
@@ -295,14 +300,14 @@ checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVa
             Build.DepsChange ifaces ->
              do
               -- debug $ "checkModule:SChanged:DepsChange " ++ show name
-              compile flags env docsNeed local source ifaces modul
+              compile flags env docsNeed local source ifaces modul warningsVar
 
             Build.DepsSame same cached ->
               do  -- debug $ "checkModule:SChanged:DepsSame " ++ show name
                   maybeLoaded <- loadInterfaces root same cached
                   case maybeLoaded of
                     Nothing     -> return Build.RBlocked
-                    Just ifaces -> compile flags env docsNeed local source ifaces modul
+                    Just ifaces -> compile flags env docsNeed local source ifaces modul warningsVar
 
             Build.DepsBlock ->
              do
@@ -443,10 +448,11 @@ loadInterface root (name, ciMvar) =
 -- COMPILE MODULE
 
 
-compile :: CompileHelpers.CompilationFlags -> Build.Env -> Build.DocsNeed -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> IO Build.Result
-compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.Local path time deps main lastChange _) source ifaces modul = do
+compile :: CompileHelpers.CompilationFlags -> Build.Env -> Build.DocsNeed -> Details.Local -> B.ByteString -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> MVar (Map.Map FilePath [Warning.Warning]) -> IO Build.Result
+compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.Local path time deps main lastChange _) source ifaces modul warningsVar = do
   let pkg = Build.projectTypeToPkg projectType
   let (warnings, compilationResult) = CompileHelpers.compile flags pkg ifaces modul
+  modifyMVar_ warningsVar (\m -> pure (Map.insert path warnings m))
   case compilationResult of
     Right (Compile.Artifacts canonical annotations objects) -> do
       case Build.makeDocs docsNeed canonical of

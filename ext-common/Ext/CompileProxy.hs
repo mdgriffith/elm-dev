@@ -22,8 +22,7 @@ where
    that ensures we can transparently swap compilation providers/methods
    (i.e. Disk vs MemoryCached)
 
-
-The general process for `compile` is 
+The general process for `compile` is
 
 We have three parts to this.
 - Details.load,
@@ -51,7 +50,6 @@ If deps change, we call compile on the module.  Compile does
 - typecheck's the canonicalized AST (the prophesized step of legend),
 - And calls Optimize.Module.module which produces a AST.Optimized.LocalGraph. (Our 3rd AST, ready for JS generation.)
 
-
  -}
 
 import qualified AST.Canonical as Can
@@ -65,8 +63,6 @@ import qualified Canonicalize.Environment.Foreign
 import qualified Canonicalize.Environment.Local
 import qualified Canonicalize.Module as Canonicalize
 import qualified Compile
-import qualified Type.Constrain.Module
-import qualified Type.Solve
 import Control.Concurrent.MVar
 import qualified Control.Monad (filterM, foldM_, mapM)
 import qualified Data.ByteString as BS
@@ -94,6 +90,7 @@ import qualified Ext.Log
 import qualified Ext.Project.Find
 import Json.Encode ((==>))
 import qualified Json.Encode as Encode
+import qualified Make
 import qualified Nitpick.PatternMatches
 import qualified Optimize.Module as Optimize
 import qualified Parse.Module as Parse
@@ -114,7 +111,8 @@ import qualified System.Directory as Dir
 import qualified System.FilePath as Path
 import qualified System.IO
 import System.IO.Unsafe (unsafePerformIO)
-import qualified Make
+import qualified Type.Constrain.Module
+import qualified Type.Solve
 
 type AggregateStatistics = Map.Map CompileMode Double
 
@@ -176,18 +174,25 @@ compileToDocs :: FilePath -> NE.List ModuleName.Raw -> Details.Details -> IO (Ei
 compileToDocs root modules details =
   Ext.CompileHelpers.Disk.compileToDocsCached root modules details
 
-
-
 {- Get the full result of the project.
 
 -}
-compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor CompileHelpers.CompilationResult)
+-- Now returns per-file warnings collected during compile
+compile ::
+  FilePath ->
+  NE.List FilePath ->
+  CompileHelpers.Flags ->
+  IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath [Warning.Warning]))
 compile root paths flags =
   modeRunner
     "compile"
-    (Ext.CompileHelpers.Disk.compile root paths flags)
+    ( do
+        r <- Ext.CompileHelpers.Disk.compile root paths flags
+        case r of
+          Left e -> pure (Left e)
+          Right result -> pure (Right (result, Map.empty))
+    )
     (Ext.CompileHelpers.Memory.compile root paths flags)
-
 
 allPackageArtifacts :: FilePath -> IO CompileHelpers.Artifacts
 allPackageArtifacts root =
@@ -372,19 +377,16 @@ loadSingle root path =
               Nothing
           )
 
-
-typeCheck :: 
-  Src.Module 
-    -> Can.Module 
-    -> Either 
-        (NE.List
-            Reporting.Error.Type.Error) 
-        (Map.Map Name.Name Can.Annotation)
+typeCheck ::
+  Src.Module ->
+  Can.Module ->
+  Either
+    ( NE.List
+        Reporting.Error.Type.Error
+    )
+    (Map.Map Name.Name Can.Annotation)
 typeCheck modul canonical =
   System.IO.Unsafe.unsafePerformIO (Type.Solve.run =<< Type.Constrain.Module.constrain canonical)
-    
-
-
 
 -- Helpers
 

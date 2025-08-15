@@ -349,7 +349,7 @@ ask state question =
               )
               (CompileHelpers.OutputTo CompileHelpers.Js)
       projectCache <- Watchtower.State.Project.upsert state flags cwd entrypoints
-      compilationResult <- Watchtower.State.Compile.compile flags projectCache []
+      compilationResult <- Watchtower.State.Compile.compile state flags projectCache []
       case compilationResult of
         Left (Watchtower.Live.Client.ReactorError reactorExit) ->
           pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
@@ -563,7 +563,7 @@ flattenJsonStatus (Left json) = json
 flattenJsonStatus (Right json) = json
 
 allProjectStatuses :: Watchtower.Live.Client.State -> IO Data.ByteString.Builder.Builder
-allProjectStatuses (Watchtower.Live.Client.State clients mProjects) =
+allProjectStatuses (Watchtower.Live.Client.State clients mProjects _) =
   do
     projects <- STM.readTVarIO mProjects
     projectStatuses <-

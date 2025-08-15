@@ -23,8 +23,11 @@ import qualified Reporting.Task as Task
 import qualified System.Directory as Dir
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Make
+import qualified Data.Map as Map
+import qualified Reporting.Warning as Warning
 
 
+debug :: String -> IO ()
 debug =
   Ext.Log.log Ext.Log.MemoryCache
 
@@ -45,7 +48,8 @@ debug =
 --       )
 
 
-compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor CompileHelpers.CompilationResult)
+-- Returns compilation result plus a map of absolute file paths to warnings
+compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath [Warning.Warning]))
 compile root paths flags@(CompileHelpers.Flags mode output) = do
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope ->
@@ -58,10 +62,10 @@ compile root paths flags@(CompileHelpers.Flags mode output) = do
           Task.io $ Ext.MemoryCached.Build.bustArtifactsCache
           let compilationFlags = CompileHelpers.compilationModsFromFlags mode
           details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root
-          artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached compilationFlags Reporting.silent root details paths
+          (artifacts, warningsByPath) <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached compilationFlags Reporting.silent root details paths
 
-          -- let (NE.List name _) = Ext.MemoryCached.Build.getRootNames artifacts
-          CompileHelpers.generate root details mode artifacts output
+          compiled <- CompileHelpers.generate root details mode artifacts output
+          pure (compiled, warningsByPath)
           
 
 {-# NOINLINE artifactsCache #-}

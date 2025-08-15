@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
-{-# LANGUAGE BangPatterns, GADTs, OverloadedStrings #-}
+{-# LANGUAGE GADTs, OverloadedStrings #-}
 module Ext.Disk.Build
   ( fromPaths
   )

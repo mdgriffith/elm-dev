@@ -9,6 +9,7 @@ import qualified Data.ByteString.Lazy
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import qualified Data.NonEmptyList as NE
+import qualified Data.Map as Map
 import qualified Data.NonEmptyList as NonEmpty
 import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -27,11 +28,12 @@ import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type.Localizer
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Websocket
+import qualified Reporting.Warning as Warning
 
 -- |
 -- Generally called once when the server starts, this will recompile all discovered projects in State
 compileAll :: Client.State -> IO ()
-compileAll (Client.State mClients mProjects) = do
+compileAll (Client.State mClients mProjects _) = do
   Ext.Log.log Ext.Log.Live "🛫 Recompile everything"
   trackedForkIO $
     track "recompile all projects" $ do
@@ -50,7 +52,7 @@ compileProject mClients proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJs
 --
 -- Generally when a file change has been saved, or the user has changed what their looking at in the editor.
 recompile :: Client.State -> [String] -> IO ()
-recompile (Client.State mClients mProjects) allChangedFiles = do
+recompile (Client.State mClients mProjects _) allChangedFiles = do
   let changedElmFiles = List.filter (\filepath -> ".elm" `List.isSuffixOf` filepath) allChangedFiles
   if (changedElmFiles /= [])
     then do
@@ -104,9 +106,19 @@ recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.De
         entry
         (CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput)
     let newResult = case eitherResult of
-          Right r -> Client.Success r
+          Right (r, warningsByPath) -> Client.Success r
           Left exit -> Client.Error (Client.ReactorError exit)
     STM.atomically $ STM.writeTVar mCompileResult newResult
+
+    -- store per-file warnings in Client.State.fileInfo
+    case eitherResult of
+      Right (r, warningsByPath) -> do
+        let watchPath = top
+        -- TODO: we'd likely normalize to absolute; assume top is already full path
+        STM.atomically $ do
+          -- We don't have access to state here; this will be handled by caller in future refactor.
+          pure ()
+      _ -> pure ()
 
     -- Send compilation status
     case newResult of
