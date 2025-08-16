@@ -432,14 +432,6 @@ data CodeActionParams = CodeActionParams
   }
   deriving stock (Show, Eq, Generic)
 
--- | Code lens request parameters
-data CodeLensParams = CodeLensParams
-  { codeLensParamsTextDocument :: TextDocumentIdentifier,
-    codeLensParamsWorkDoneToken :: Maybe JSON.Value,
-    codeLensParamsPartialResultToken :: Maybe JSON.Value
-  }
-  deriving stock (Show, Eq, Generic)
-
 -- | Signature help request parameters
 data SignatureHelpParams = SignatureHelpParams
   { signatureHelpParamsTextDocument :: TextDocumentIdentifier,
@@ -625,6 +617,16 @@ data DidChangeVisibleRangesParams = DidChangeVisibleRangesParams
   }
   deriving stock (Show, Eq, Generic)
 
+
+-- | Code lens request parameters
+data CodeLensParams = CodeLensParams
+  { codeLensParamsTextDocument :: TextDocumentIdentifier,
+    codeLensParamsWorkDoneToken :: Maybe JSON.Value,
+    codeLensParamsPartialResultToken :: Maybe JSON.Value
+  }
+  deriving stock (Show, Eq, Generic)
+
+
 -- * JSON Instances
 
 -- Custom JSON instance for DiagnosticSeverity (must come before deriveJSON for Diagnostic)
@@ -682,6 +684,8 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "selectionRangeParams", omitNothingFields = True} ''SelectionRangeParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "selectionRange", omitNothingFields = True} ''SelectionRange)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "didChangeVisibleRangesParams"} ''DidChangeVisibleRangesParams)
+
+
 
 -- * Helper Functions
 
@@ -1161,8 +1165,8 @@ handleDiagnostic state diagnosticParams = do
       -- Also include per-file unused warnings (grayed/muted via Unnecessary tag)
       warnDiags <- case uriToFilePath uri of
         Just path -> do
-          warns <- getWarningsForFile state path
-          pure (warningsToDiagnostics warns)
+          (localizer, warns) <- getWarningsForFile state path
+          pure (concatMap warningToUnusedDiagnostic warns)
         Nothing -> pure []
       let diagnosticsResponse = JSON.object
             [ "kind" .= ("full" :: Text),
@@ -1217,19 +1221,15 @@ reportToDiagnostic (Reporting.Report.Report title region _suggestions message) =
 
 
 -- | Read stored warnings for a given file from Live.State
-getWarningsForFile :: Live.State -> FilePath -> IO [Warning.Warning]
+getWarningsForFile :: Live.State -> FilePath -> IO (Reporting.Render.Type.Localizer.Localizer, [Warning.Warning])
 getWarningsForFile state filePath = do
-  case state of
-    Watchtower.Live.Client.State _ _ mFileInfo -> do
-      fileMap <- Control.Concurrent.STM.readTVarIO mFileInfo
-      case Map.lookup filePath fileMap of
-        Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.warnings = warns }) -> pure warns
-        Nothing -> pure []
+  fileInfo <- Watchtower.Live.Client.getFileInfo filePath state
+  case fileInfo of
+    Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.warnings = warns, Watchtower.Live.Client.localizer = maybeLocalizer }) -> 
+      pure (Maybe.fromMaybe Reporting.Render.Type.Localizer.empty maybeLocalizer, warns)
+    Nothing -> pure (Reporting.Render.Type.Localizer.empty, [])
+  
 
--- | Convert warnings to LSP diagnostics for unused items (grayed/muted)
-warningsToDiagnostics :: [Warning.Warning] -> [Diagnostic]
-warningsToDiagnostics =
-  concatMap warningToUnusedDiagnostic
 
 warningToUnusedDiagnostic :: Warning.Warning -> [Diagnostic]
 warningToUnusedDiagnostic warn =
@@ -1304,6 +1304,7 @@ handleInlayHint _state inlayHintParams = do
         ]
   return $ Right sampleHints
 
+
 handleSignatureHelp :: Live.State -> SignatureHelpParams -> IO (Either String (Maybe SignatureHelp))
 handleSignatureHelp _state _signatureHelpParams = do
   -- Placeholder: Return sample signature help
@@ -1331,6 +1332,10 @@ handleSignatureHelp _state _signatureHelpParams = do
         }
   return $ Right (Just signatureHelp)
 
+
+
+
+
 handleCodeLens :: Live.State -> CodeLensParams -> IO (Either String [CodeLens])
 handleCodeLens state codeLensParams = do
   let uri = textDocumentIdentifierUri (codeLensParamsTextDocument codeLensParams)
@@ -1343,9 +1348,8 @@ handleCodeLens state codeLensParams = do
       Ext.Log.log Ext.Log.LSP $ "CodeLens: Failed to convert URI to file path: " ++ Text.unpack uri
       return $ Right []
     Just filePath -> do
-      warns <- getWarningsForFile state filePath
-      let localizer = Reporting.Render.Type.Localizer.empty
-          codeLenses = concatMap (warningToCodeLens localizer) warns
+      (localizer, warns) <- getWarningsForFile state filePath
+      let codeLenses = concatMap (warningToCodeLens localizer) warns
           missingAnnotationCount = length $ filter isMissingTypeAnnotation warns
       Ext.Log.log Ext.Log.LSP $ "CodeLens: Found " ++ show (length warns) ++ " total warnings, " ++ show missingAnnotationCount ++ " missing type annotations, " ++ show (length codeLenses) ++ " code lenses"
       return $ Right codeLenses
@@ -1515,9 +1519,11 @@ handleDidChangeVisibleRanges _state visibleRangesParams = do
 serve :: Live.State -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
 serve state req@(JSONRPC.Request _ reqId method params) = do
   
-  case params of
-    Just p -> Ext.Log.log Ext.Log.LSP $ "REQ: " ++Text.unpack method ++ " (id: " ++ show reqId ++ "): " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
-    Nothing -> Ext.Log.log Ext.Log.LSP $ "REQ: " ++Text.unpack method ++ " (id: " ++ show reqId ++ ") (no params)" 
+  -- case params of
+  --   Just p -> Ext.Log.log Ext.Log.LSP $ "REQ: " ++Text.unpack method ++ " (id: " ++ show reqId ++ "): " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
+  --   Nothing -> Ext.Log.log Ext.Log.LSP $ "REQ: " ++Text.unpack method ++ " (id: " ++ show reqId ++ ") (no params)" 
+
+  Ext.Log.log Ext.Log.LSP $ "REQ: " ++Text.unpack method ++ " (id: " ++ show reqId ++ ")" 
   
   case Text.unpack method of
     -- Lifecycle
@@ -1652,9 +1658,11 @@ serve state req@(JSONRPC.Request _ reqId method params) = do
 handleNotification :: Live.State -> JSONRPC.Notification -> IO ()
 handleNotification state (JSONRPC.Notification _ method params) = do
 
-  case params of
-    Just p -> Ext.Log.log Ext.Log.LSP $ "NOTIF: " ++Text.unpack method ++ " " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
-    Nothing -> Ext.Log.log Ext.Log.LSP $ "NOTIF: " ++Text.unpack method ++ "(no params)" 
+  -- case params of
+  --   Just p -> Ext.Log.log Ext.Log.LSP $ "NOTIF: " ++Text.unpack method ++ " " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
+  --   Nothing -> Ext.Log.log Ext.Log.LSP $ "NOTIF: " ++Text.unpack method ++ "(no params)" 
+
+  Ext.Log.log Ext.Log.LSP $ "NOTIF: " ++ Text.unpack method
 
   case T.unpack method of
     "textDocument/didOpen" -> do
@@ -1725,3 +1733,5 @@ handleNotification state (JSONRPC.Notification _ method params) = do
       
     _ -> do
       Ext.Log.log Ext.Log.LSP $ "LSP: Unhandled notification: " ++ T.unpack method
+
+

@@ -16,6 +16,7 @@ module Watchtower.Live.Client
     getRoot,
     getProjectRoot,
     getClientData,
+    getFileInfo,
     getExistingProject,
     Outgoing (..),
     encodeOutgoing,
@@ -122,6 +123,11 @@ data FileInfo = FileInfo
   , docs :: Maybe Docs.Module
   , localizer :: Maybe Reporting.Render.Type.Localizer.Localizer
   }
+
+getFileInfo :: FilePath -> State -> IO (Maybe FileInfo)
+getFileInfo path (State _ _ mFileInfo) = do
+  fileInfo <- STM.readTVarIO mFileInfo
+  pure (Map.lookup path fileInfo)
 
 emptyWatch :: Watching
 emptyWatch =
