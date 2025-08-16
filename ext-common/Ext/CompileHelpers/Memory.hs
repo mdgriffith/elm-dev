@@ -25,6 +25,9 @@ import System.IO.Unsafe (unsafePerformIO)
 import qualified Make
 import qualified Data.Map as Map
 import qualified Reporting.Warning as Warning
+import qualified Elm.Docs
+import qualified Reporting.Render.Type.Localizer
+import qualified Watchtower.Live.Client
 
 
 debug :: String -> IO ()
@@ -48,8 +51,8 @@ debug =
 --       )
 
 
--- Returns compilation result plus a map of absolute file paths to warnings
-compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath [Warning.Warning]))
+-- Returns compilation result plus maps of absolute file paths to warnings and docs
+compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo))
 compile root paths flags@(CompileHelpers.Flags mode output) = do
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope ->
@@ -62,10 +65,10 @@ compile root paths flags@(CompileHelpers.Flags mode output) = do
           Task.io $ Ext.MemoryCached.Build.bustArtifactsCache
           let compilationFlags = CompileHelpers.compilationModsFromFlags mode
           details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root
-          (artifacts, warningsByPath) <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached compilationFlags Reporting.silent root details paths
+          (artifacts, fileInfoByPath) <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached compilationFlags Reporting.silent root details paths
 
           compiled <- CompileHelpers.generate root details mode artifacts output
-          pure (compiled, warningsByPath)
+          pure (compiled, fileInfoByPath)
           
 
 {-# NOINLINE artifactsCache #-}
