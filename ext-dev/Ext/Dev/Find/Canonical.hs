@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Ext.Dev.Find.Canonical
   ( usedModules
   , usedValues
@@ -17,11 +15,9 @@ import qualified Data.Text as T
 import Data.Function ((&))
 import Data.Name (Name)
 import qualified Data.Name as Name
-
 import qualified Elm.Details
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.String
-import qualified Ext.CompileProxy
 import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Json.String
