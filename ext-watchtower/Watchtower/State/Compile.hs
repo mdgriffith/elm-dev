@@ -18,6 +18,7 @@ import qualified Reporting.Exit as Exit
 import qualified System.Directory as Dir (withCurrentDirectory)
 import qualified Watchtower.Live.Client as Client
 import qualified Reporting.Warning as Warning
+-- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
 
 compile :: Client.State -> CompileHelpers.Flags -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
@@ -33,24 +34,29 @@ compile state@(Client.State _ _ mFileInfo) flags projCache@(Client.ProjectCache 
 
         -- Update the compilation result TVar
         let newResult = case compilationResult of
-              Right (result, _warningsByPath) -> Client.Success result
+              Right (result, _warningsByPath, _docsByPath) -> Client.Success result
               Left exit -> Client.Error (Client.ReactorError exit)
         STM.atomically $ STM.writeTVar mCompileResult newResult
 
-        -- Merge warningsByPath into State.fileInfo
+        -- Merge warningsByPath and docs into State.fileInfo
         case compilationResult of
-          Right (_result, warningsByPath) -> do
+          Right (_result, warningsByPath, docsByPath) -> do
             STM.atomically $ do
               current <- STM.readTVar mFileInfo
-              let merged = Map.foldlWithKey'
-                    (\acc path warns -> Map.insert path (Client.FileInfo { Client.warnings = Client.Known warns }) acc)
-                    current
-                    warningsByPath
-              STM.writeTVar mFileInfo merged
+              let withWarns = Map.foldlWithKey'
+                                (\acc path warns -> Map.insert path (Client.FileInfo { Client.warnings = warns, Client.docs = Map.lookup path docsByPath }) acc)
+                                current
+                                warningsByPath
+              -- Also insert docs for any files that had docs but no warnings
+              let withDocs = Map.foldlWithKey'
+                                (\acc path doc -> Map.insertWith (\new old -> old { Client.docs = Just doc }) path (Client.FileInfo { Client.warnings = [], Client.docs = Just doc }) acc)
+                                withWarns
+                                docsByPath
+              STM.writeTVar mFileInfo withDocs
           Left _ -> pure ()
 
         pure $ case compilationResult of
-          Right (result, _) -> Right result
+          Right (result, _, _) -> Right result
           Left exit -> Left (Client.ReactorError exit)
       Left err -> do
         -- Update compile result TVar with the error

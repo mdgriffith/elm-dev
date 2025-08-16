@@ -106,13 +106,13 @@ recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.De
         entry
         (CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput)
     let newResult = case eitherResult of
-          Right (r, warningsByPath) -> Client.Success r
+          Right (r, _warningsByPath, _docsByPath) -> Client.Success r
           Left exit -> Client.Error (Client.ReactorError exit)
     STM.atomically $ STM.writeTVar mCompileResult newResult
 
     -- store per-file warnings in Client.State.fileInfo
     case eitherResult of
-      Right (r, warningsByPath) -> do
+      Right (r, _warningsByPath, _docsByPath) -> do
         let watchPath = top
         -- TODO: we'd likely normalize to absolute; assume top is already full path
         STM.atomically $ do

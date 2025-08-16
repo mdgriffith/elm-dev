@@ -6,7 +6,6 @@ module Watchtower.Live.Client
     ProjectRoot,
     State (..),
     FileInfo (..),
-    MaybeInfo (..),
     ProjectCache (..),
     ProjectStatus (..),
     FileWatchType,
@@ -118,10 +117,9 @@ type ClientId = T.Text
 
 type Client = Watchtower.Websocket.Client Watching
 
-data MaybeInfo a = Unknown | Known a
-
 data FileInfo = FileInfo
-  { warnings :: MaybeInfo [Warning.Warning]
+  { warnings :: [Warning.Warning]
+  , docs :: Maybe Docs.Module
   }
 
 emptyWatch :: Watching
