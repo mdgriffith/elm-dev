@@ -12,7 +12,7 @@ module Ext.Dev
 import qualified System.IO
 
 import qualified Data.Maybe as Maybe
-
+import qualified Data.Set as Set
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Docs
 import qualified Reporting.Exit as Exit
@@ -20,20 +20,18 @@ import qualified Reporting.Warning as Warning
 import qualified Data.NonEmptyList as NonEmpty
 import qualified AST.Source as Src
 import qualified Data.NonEmptyList as NE
-
+import qualified AST.Canonical as Can
 import qualified Ext.CompileProxy
 import qualified Ext.Dev.Docs
 import qualified Ext.Dev.Warnings
 import qualified Ext.Dev.EntryPoints
+import qualified Ext.Dev.Find.Canonical
 
 
 warnings :: FilePath -> FilePath -> IO (Either () (Src.Module, [ Warning.Warning ]))
 warnings root path = do
-    loaded <- Ext.CompileProxy.loadSingle root path
-    let processed = Ext.Dev.Warnings.addAliasOptionsToWarnings
-                        (Ext.Dev.Warnings.addUnusedDeclarations
-                            (Ext.Dev.Warnings.addUnusedImports loaded)
-                        )
+    processed <- Ext.CompileProxy.loadSingle root path
+    
     let (Ext.CompileProxy.Single source maybeWarnings interfaces canonical compiled) = processed
     case source of
         Right sourceMod ->
@@ -53,11 +51,8 @@ data Info =
 info :: FilePath -> FilePath -> IO Info
 info root path = do
     loaded <- Ext.CompileProxy.loadSingle root path
-    let (Ext.CompileProxy.Single source maybeWarnings interfaces canonical compiled) =
-            Ext.Dev.Warnings.addAliasOptionsToWarnings
-                        (Ext.Dev.Warnings.addUnusedDeclarations
-                            (Ext.Dev.Warnings.addUnusedImports loaded)
-                        )
+    let (Ext.CompileProxy.Single source maybeWarnings interfaces canonical compiled) = loaded
+                        
     let docs = case compiled of
                     Just (Right artifacts) ->
                         case  Ext.Dev.Docs.fromArtifacts artifacts of
@@ -103,3 +98,6 @@ docs root path = do
 entrypoints :: FilePath -> IO (Either Ext.CompileProxy.CompilationError [Ext.Dev.EntryPoints.EntryPoint])
 entrypoints root =
     Ext.Dev.EntryPoints.entrypoints root
+
+
+

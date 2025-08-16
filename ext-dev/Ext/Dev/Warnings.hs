@@ -2,19 +2,15 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Ext.Dev.Warnings
-  ( addUnusedImports
-  , addUnusedDeclarations
-  , addAliasOptionsToWarnings
+  ( addAliasesToMissingTypeSignatures
+  , unusedWarnings
   )
 where
 
 import qualified Data.Set as Set
 import Data.Name (Name)
 import qualified Data.Map
-
-import qualified Ext.CompileProxy
 import qualified Ext.Dev.Find.Canonical
-
 import qualified Elm.Interface
 import qualified Elm.ModuleName
 import qualified Reporting.Annotation as A
@@ -25,21 +21,41 @@ import qualified Debug.Trace
 
 
 
-addAliasOptionsToWarnings :: Ext.CompileProxy.SingleFileResult -> Ext.CompileProxy.SingleFileResult 
-addAliasOptionsToWarnings untouched@(Ext.CompileProxy.Single source maybeWarnings maybeInterfaces canonical compiled) =
-    case (canonical, maybeInterfaces, maybeWarnings) of
-        (Just canModule, Just interfaces, Just warnings) ->
-            let 
-                newWarnings = fmap (addAliasesHelper canModule interfaces) warnings
-            in
-            Ext.CompileProxy.Single 
-              source (Just newWarnings) maybeInterfaces canonical compiled
+unusedWarnings :: Src.Module -> Can.Module -> Interfaces -> [Warning.Warning]
+unusedWarnings srcModule canModule interfaces =
+    let 
+        (Can.Module _ exports _ decls _ _ _ _) = canModule
 
-        _ ->
-            untouched
+        unusedDecls = case exports of
+            Can.ExportEverything _ ->
+                []
 
-addAliasesHelper :: Can.Module -> Data.Map.Map Elm.ModuleName.Raw Elm.Interface.Interface -> Warning.Warning -> Warning.Warning
-addAliasesHelper canModule interfaces warning =
+            Can.Export exportMap -> do
+                let usedValues = Ext.Dev.Find.Canonical.usedValues canModule 
+                let (Can.Module _ _ _ decls _ _ _ _) = canModule
+                let unusedDecls = filterOutUsedDecls (Can._name canModule) exportMap usedValues decls
+                let unusedDeclWarnings = fmap declsToWarning unusedDecls
+                unusedDeclWarnings
+
+
+        usedModules = Ext.Dev.Find.Canonical.usedModules canModule
+
+        unusedImports = do
+            let (Src.Module _ _ _ imports _ _ _ _ _) = srcModule
+            let filteredImports = filterOutDefaultImports imports
+            let importNames = Set.fromList $ fmap Src.getImportName filteredImports
+            let usedModuleNames = Set.map canModuleName usedModules
+            let unusedImports = Set.difference importNames usedModuleNames
+            importsToWarnings (Set.toList unusedImports) filteredImports
+    in
+    unusedDecls <> unusedImports
+    
+
+
+type Interfaces = Data.Map.Map Elm.ModuleName.Raw Elm.Interface.Interface
+
+addAliasesToMissingTypeSignatures :: Can.Module -> Interfaces -> Warning.Warning -> Warning.Warning
+addAliasesToMissingTypeSignatures canModule interfaces warning =
     case warning of
         Warning.UnusedImport _ _ ->
             warning 
@@ -49,6 +65,8 @@ addAliasesHelper canModule interfaces warning =
           
         Warning.MissingTypeAnnotation region name canType ->
             Warning.MissingTypeAnnotation region name (addAliasesToType canModule interfaces canType)
+
+
 
 addAliasesToType :: Can.Module -> Data.Map.Map Elm.ModuleName.Raw Elm.Interface.Interface -> Can.Type -> Can.Type
 addAliasesToType canModule interfaces canType =
@@ -293,25 +311,25 @@ unifyType one two =
 
 
 
-addUnusedDeclarations :: Ext.CompileProxy.SingleFileResult -> Ext.CompileProxy.SingleFileResult 
-addUnusedDeclarations untouched@(Ext.CompileProxy.Single source warnings interfaces canonical compiled) =
-    case canonical of
-        Nothing -> untouched
+-- addUnusedDeclarations :: Ext.CompileProxy.SingleFileResult -> Ext.CompileProxy.SingleFileResult 
+-- addUnusedDeclarations untouched@(Ext.CompileProxy.Single source warnings interfaces canonical compiled) =
+--     case canonical of
+--         Nothing -> untouched
 
-        Just canModule -> 
-            let 
-                (Can.Module _ exports _ decls _ _ _ _) = canModule
-            in
-            case exports of
-                Can.ExportEverything _ ->
-                    untouched 
+--         Just canModule -> 
+            -- let 
+            --     (Can.Module _ exports _ decls _ _ _ _) = canModule
+            -- in
+            -- case exports of
+            --     Can.ExportEverything _ ->
+            --         untouched 
 
-                Can.Export exportMap -> do
-                    let usedValues = Ext.Dev.Find.Canonical.usedValues canModule 
-                    let (Can.Module _ _ _ decls _ _ _ _) = canModule
-                    let unusedDecls = filterOutUsedDecls (Can._name canModule) exportMap usedValues decls
-                    let unusedDeclWarnings = fmap declsToWarning unusedDecls
-                    Ext.CompileProxy.Single source (addUnused unusedDeclWarnings warnings) interfaces canonical compiled
+                -- Can.Export exportMap -> do
+                --     let usedValues = Ext.Dev.Find.Canonical.usedValues canModule 
+                --     let (Can.Module _ _ _ decls _ _ _ _) = canModule
+                --     let unusedDecls = filterOutUsedDecls (Can._name canModule) exportMap usedValues decls
+                --     let unusedDeclWarnings = fmap declsToWarning unusedDecls
+--                     Ext.CompileProxy.Single source (addUnused unusedDeclWarnings warnings) interfaces canonical compiled
 
 
 declsToWarning :: Can.Def -> Warning.Warning
@@ -360,24 +378,24 @@ filterOutUsedDecls modName exportMap used decls =
                 [def] <> filterOutUsedDecls modName exportMap used moarDecls
 
 
-addUnusedImports :: Ext.CompileProxy.SingleFileResult -> Ext.CompileProxy.SingleFileResult 
-addUnusedImports untouched@(Ext.CompileProxy.Single source warnings interfaces canonical compiled) =
-    case source of
-        Left _ -> untouched
+-- addUnusedImports :: Ext.CompileProxy.SingleFileResult -> Ext.CompileProxy.SingleFileResult 
+-- addUnusedImports untouched@(Ext.CompileProxy.Single source warnings interfaces canonical compiled) =
+--     case source of
+--         Left _ -> untouched
 
-        Right srcModule ->
-            case fmap Ext.Dev.Find.Canonical.usedModules canonical of
-                Nothing -> untouched
+--         Right srcModule ->
+            -- case fmap Ext.Dev.Find.Canonical.usedModules canonical of
+            --     Nothing -> untouched
 
-                Just usedModules -> do
-                    let (Src.Module _ _ _ imports _ _ _ _ _) = srcModule
-                    let filteredImports = filterOutDefaultImports imports
-                    let importNames = Set.fromList $ fmap Src.getImportName filteredImports
-                    let usedModuleNames = Set.map canModuleName usedModules
-                    let unusedImports = Set.difference importNames usedModuleNames
-                    let unusedImportWarnings = importsToWarnings (Set.toList unusedImports) filteredImports
+            --     Just usedModules -> do
+            --         let (Src.Module _ _ _ imports _ _ _ _ _) = srcModule
+            --         let filteredImports = filterOutDefaultImports imports
+            --         let importNames = Set.fromList $ fmap Src.getImportName filteredImports
+            --         let usedModuleNames = Set.map canModuleName usedModules
+            --         let unusedImports = Set.difference importNames usedModuleNames
+            --         let unusedImportWarnings = importsToWarnings (Set.toList unusedImports) filteredImports
 
-                    Ext.CompileProxy.Single source (addUnused unusedImportWarnings warnings) interfaces canonical compiled
+--                     Ext.CompileProxy.Single source (addUnused unusedImportWarnings warnings) interfaces canonical compiled
 
 canModuleName :: Elm.ModuleName.Canonical -> Name
 canModuleName (Elm.ModuleName.Canonical pkg modName) =
