@@ -75,7 +75,6 @@ import qualified Data.NonEmptyList as NE
 import Data.OneOrMore (OneOrMore (..))
 import qualified Data.Set as Set
 import qualified Elm.Details as Details
-import qualified Elm.Docs as Docs
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline
@@ -105,6 +104,7 @@ import qualified Reporting.Render.Type.Localizer as Localizer
 import qualified Reporting.Result
 import qualified Reporting.Task as Task
 import qualified Reporting.Warning as Warning
+import qualified Elm.Docs as Docs
 import StandaloneInstances
 import qualified Stuff
 import qualified System.Directory as Dir
@@ -182,7 +182,7 @@ compile ::
   FilePath ->
   NE.List FilePath ->
   CompileHelpers.Flags ->
-  IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath [Warning.Warning]))
+  IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath [Warning.Warning], Map.Map FilePath Docs.Module))
 compile root paths flags =
   modeRunner
     "compile"
@@ -190,7 +190,7 @@ compile root paths flags =
         r <- Ext.CompileHelpers.Disk.compile root paths flags
         case r of
           Left e -> pure (Left e)
-          Right result -> pure (Right (result, Map.empty))
+          Right result -> pure (Right (result, Map.empty, Map.empty))
     )
     (Ext.CompileHelpers.Memory.compile root paths flags)
 
