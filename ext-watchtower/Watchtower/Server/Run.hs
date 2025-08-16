@@ -3,14 +3,15 @@
 module Watchtower.Server.Run where
 
 import Control.Concurrent (forkIO)
+import qualified Control.Concurrent.STM as STM
 import Control.Exception (IOException, try)
 import Control.Monad (forever, void)
 import Control.Monad.Trans (MonadIO (liftIO))
 import qualified Data.Aeson as JSON
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Lazy.Char8 as LBS.Char8
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Lazy.Char8 as LBS.Char8
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Ext.Common
@@ -22,8 +23,31 @@ import System.IO (hFlush, hPutStrLn, stderr, stdin, stdout)
 import qualified System.IO as IO
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import System.IO.Unsafe (unsafePerformIO)
 
 data Mode = StdIO | HTTP (Maybe Int)
+
+-- | Event emitter for sending server-initiated JSON-RPC notifications
+type EventEmitter = JSONRPC.EventEmitter
+
+-- Global emitter for ad-hoc signals (set when the server starts)
+{-# NOINLINE globalEmitterRef #-}
+globalEmitterRef :: IORef (Maybe EventEmitter)
+globalEmitterRef = unsafePerformIO (newIORef Nothing)
+
+-- | Emit a server-initiated notification from anywhere
+emit :: JSONRPC.Outbound -> IO ()
+emit notif = do
+  Ext.Log.log Ext.Log.LSP $ "Emitting notification: " ++ outboudnName notif
+  maybeEmit <- readIORef globalEmitterRef
+  case maybeEmit of
+    Just f -> f notif
+    Nothing -> pure ()
+
+outboudnName :: JSONRPC.Outbound -> String
+outboudnName (JSONRPC.OutboundNotification (JSONRPC.Notification _ method _)) = "notification: " ++ T.unpack method
+outboudnName (JSONRPC.OutboundRequest method _) = "req: " ++ T.unpack method
 
 run :: Live.State -> Mode -> Handler -> NotificationHandler -> IO ()
 run state mode handler notificationHandler =
@@ -49,14 +73,14 @@ logger bs =
   Ext.Log.log Ext.Log.VerboseServer $ T.unpack $ T.decodeUtf8 bs
 
 -- | Type for handling JSON-RPC requests
-type Handler = Live.State -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
+type Handler = Live.State -> EventEmitter -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
 
 -- | Type for handling JSON-RPC notifications
-type NotificationHandler = Live.State -> JSONRPC.Notification -> IO ()
+type NotificationHandler = Live.State -> EventEmitter -> JSONRPC.Notification -> IO ()
 
-handleRequest :: Live.State -> Handler -> JSONRPC.Request -> IO JSONRPC.Message
-handleRequest st hdlr req = do
-  result <- hdlr st req
+handleRequest :: Live.State -> EventEmitter -> Handler -> JSONRPC.Request -> IO JSONRPC.Message
+handleRequest st emitEvent hdlr req = do
+  result <- hdlr st emitEvent req
   case result of
     Left err ->
       return $ JSONRPC.ErrorMessage err
@@ -114,6 +138,26 @@ runStdIO state handler notificationHandler = do
   IO.hSetBuffering stdout IO.LineBuffering
   IO.hSetBuffering IO.stderr IO.LineBuffering
   
+  -- Create an event channel and a background thread to forward events to stdout
+  eventsChan <- STM.newTChanIO :: IO (STM.TChan JSONRPC.Outbound)
+  let emitEvent :: EventEmitter
+      emitEvent notif = STM.atomically (STM.writeTChan eventsChan notif)
+
+  -- Expose global emitter for ad-hoc signals
+  writeIORef globalEmitterRef (Just emitEvent)
+
+  _ <- forkIO $ forever $ do
+    outbound <- STM.atomically (STM.readTChan eventsChan)
+    case outbound of
+      JSONRPC.OutboundNotification notif -> do
+        let msg = JSON.encode (JSONRPC.NotificationMessage notif)
+        sendWithContentLength msg
+      JSONRPC.OutboundRequest method params -> do
+        -- For stdio, encode as a JSON-RPC request without id (notification) since there is no reply path here
+        let notif = JSONRPC.Notification "2.0" method params
+        let msg = JSON.encode (JSONRPC.NotificationMessage notif)
+        sendWithContentLength msg
+  
   forever $ do
     maybeMessage <- readStdInMessage
     case maybeMessage of
@@ -129,10 +173,10 @@ runStdIO state handler notificationHandler = do
           Right jsonMsg -> do
             case jsonMsg of
               JSONRPC.RequestMessage req@(JSONRPC.Request _ _ reqMethod _) -> do
-                response <- handleRequest state handler req
+                response <- handleRequest state emitEvent handler req
                 sendWithContentLength (JSON.encode response)
               JSONRPC.NotificationMessage notif@(JSONRPC.Notification _ notifMethod _) -> do
-                notificationHandler state notif
+                notificationHandler state emitEvent notif
               JSONRPC.ResponseMessage _ ->
                 return ()
               JSONRPC.ErrorMessage _ -> do
@@ -141,10 +185,18 @@ runStdIO state handler notificationHandler = do
 -- | Run JSON-RPC server over HTTP using Snap
 runHttp :: Live.State -> Handler -> NotificationHandler -> Snap ()
 runHttp state handler notificationHandler = do
-  route [("", jsonRPCHandler)]
+  -- Create an event channel per server instance
+  eventsChan <- liftIO (STM.newTChanIO :: IO (STM.TChan JSONRPC.Outbound))
+  let emitEvent :: EventEmitter
+      emitEvent notif = STM.atomically (STM.writeTChan eventsChan notif)
+
+  -- Expose global emitter for ad-hoc signals
+  liftIO $ writeIORef globalEmitterRef (Just emitEvent)
+
+  route [("", jsonRPCHandler emitEvent), ("/events", sseHandler eventsChan)]
   where
-    jsonRPCHandler :: Snap ()
-    jsonRPCHandler = do
+    jsonRPCHandler :: EventEmitter -> Snap ()
+    jsonRPCHandler emitEvent = do
       method <- rqMethod <$> getRequest
       case method of
         POST -> do
@@ -155,10 +207,10 @@ runHttp state handler notificationHandler = do
             Right jsonMsg -> do
               case jsonMsg of
                 JSONRPC.RequestMessage req -> do
-                  response <- liftIO $ handleRequest state handler req
+                  response <- liftIO $ handleRequest state emitEvent handler req
                   writeJSON response
                 JSONRPC.NotificationMessage notif -> do
-                  liftIO $ notificationHandler state notif
+                  liftIO $ notificationHandler state emitEvent notif
                   writeBS "OK"
                 JSONRPC.ResponseMessage _ -> do
                   -- We shouldn't receive responses when acting as a server
@@ -168,6 +220,26 @@ runHttp state handler notificationHandler = do
                   writeBS "Invalid: received error"
         _ -> do
           writeBS "Only POST method is supported"
+
+    sseHandler :: STM.TChan JSONRPC.Outbound -> Snap ()
+    sseHandler chan = do
+      -- Allow cross-origin access for local tooling
+      CORS.applyCORS CORS.defaultOptions $ do
+        modifyResponse $ setContentType "text/event-stream"
+        modifyResponse $ addHeader "Cache-Control" "no-cache"
+        modifyResponse $ addHeader "Connection" "keep-alive"
+        -- Each client gets its own read end of the channel
+        dup <- liftIO $ STM.atomically (STM.dupTChan chan)
+        let loop = do
+              outbound <- liftIO $ STM.atomically (STM.readTChan dup)
+              let bytes = case outbound of
+                             JSONRPC.OutboundNotification notif -> JSON.encode (JSONRPC.NotificationMessage notif)
+                             JSONRPC.OutboundRequest method params -> JSON.encode (JSONRPC.NotificationMessage (JSONRPC.Notification "2.0" method params))
+              writeBS "data: "
+              writeLBS bytes
+              writeBS "\n\n"
+              loop
+        loop
 
     writeJSON :: (JSON.ToJSON a) => a -> Snap ()
     writeJSON obj = do

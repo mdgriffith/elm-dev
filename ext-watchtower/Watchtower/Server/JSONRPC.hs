@@ -12,6 +12,7 @@ import Data.Aeson
 import Data.Aeson.TH
 import Data.Text (Text, pack)
 import GHC.Generics
+import qualified Data.Aeson as JSON
 
 -- * Core JSON-RPC Types
 
@@ -81,6 +82,14 @@ data Error = Error
   deriving stock (Show, Eq, Generic)
 
 $(deriveJSON defaultOptions ''Error)
+
+-- | Outbound messages that the server can emit to the client
+data Outbound
+  = OutboundNotification Notification
+  | OutboundRequest Text (Maybe Value)
+
+-- | Event emitter used by servers to send JSON-RPC messages to the client
+type EventEmitter = Outbound -> IO ()
 
 -- | A JSON-RPC notification (no response expected)
 data Notification = Notification
@@ -178,3 +187,5 @@ internalErrorCode = -32603
 
 serverErrorCode :: Int -> Int
 serverErrorCode n = -32000 - n -- Server error codes from -32000 to -32099
+
+

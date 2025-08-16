@@ -401,8 +401,8 @@ availablePrompts =
 -- * Tool Implementations
 
 -- | Main MCP server handler
-serve :: Live.State -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
-serve _state req@(JSONRPC.Request _ reqId method params) = do
+serve :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
+serve _state _emit req@(JSONRPC.Request _ reqId method params) = do
   case Text.unpack method of
     -- Core MCP methods
     "initialize" -> do
