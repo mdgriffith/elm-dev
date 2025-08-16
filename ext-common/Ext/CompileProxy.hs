@@ -104,6 +104,7 @@ import qualified Reporting.Render.Type.Localizer as Localizer
 import qualified Reporting.Result
 import qualified Reporting.Task as Task
 import qualified Reporting.Warning as Warning
+import qualified Watchtower.Live.Client
 import qualified Elm.Docs as Docs
 import StandaloneInstances
 import qualified Stuff
@@ -182,7 +183,7 @@ compile ::
   FilePath ->
   NE.List FilePath ->
   CompileHelpers.Flags ->
-  IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath [Warning.Warning], Map.Map FilePath Docs.Module))
+  IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo))
 compile root paths flags =
   modeRunner
     "compile"
@@ -190,7 +191,7 @@ compile root paths flags =
         r <- Ext.CompileHelpers.Disk.compile root paths flags
         case r of
           Left e -> pure (Left e)
-          Right result -> pure (Right (result, Map.empty, Map.empty))
+          Right result -> pure (Right (result, Map.empty))
     )
     (Ext.CompileHelpers.Memory.compile root paths flags)
 
