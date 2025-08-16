@@ -53,6 +53,7 @@ import qualified Reporting.Render.Code
 import qualified Data.NonEmptyList
 import qualified System.FilePath
 import qualified Data.List
+import qualified Data.Map as Map
 import qualified Ext.CompileHelpers.Generic
 import qualified Control.Concurrent.STM
 import qualified Ext.Log
@@ -1157,9 +1158,15 @@ handleDiagnostic state diagnosticParams = do
 
   case result of
     Right diagnostics -> do
+      -- Also include per-file unused warnings (grayed/muted via Unnecessary tag)
+      warnDiags <- case uriToFilePath uri of
+        Just path -> do
+          warns <- getWarningsForFile state path
+          pure (warningsToDiagnostics warns)
+        Nothing -> pure []
       let diagnosticsResponse = JSON.object
             [ "kind" .= ("full" :: Text),
-              "items" .= diagnostics
+              "items" .= (diagnostics ++ warnDiags)
             ]
       Ext.Log.log Ext.Log.LSP $ "Diagnostics: " ++ show diagnosticsResponse
       return $ Right diagnosticsResponse
@@ -1207,6 +1214,57 @@ reportToDiagnostic (Reporting.Report.Report title region _suggestions message) =
       diagnosticRelatedInformation = Nothing,
       diagnosticData = Nothing
     }
+
+
+-- | Read stored warnings for a given file from Live.State
+getWarningsForFile :: Live.State -> FilePath -> IO [Warning.Warning]
+getWarningsForFile state filePath = do
+  case state of
+    Watchtower.Live.Client.State _ _ mFileInfo -> do
+      fileMap <- Control.Concurrent.STM.readTVarIO mFileInfo
+      case Map.lookup filePath fileMap of
+        Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.warnings = warns }) -> pure warns
+        Nothing -> pure []
+
+-- | Convert warnings to LSP diagnostics for unused items (grayed/muted)
+warningsToDiagnostics :: [Warning.Warning] -> [Diagnostic]
+warningsToDiagnostics =
+  concatMap warningToUnusedDiagnostic
+
+warningToUnusedDiagnostic :: Warning.Warning -> [Diagnostic]
+warningToUnusedDiagnostic warn =
+  case warn of
+    Warning.UnusedImport region moduleName ->
+      [ Diagnostic
+          { diagnosticRange = regionToRange region,
+            diagnosticSeverity = Just (DiagnosticSeverity 3), -- Information
+            diagnosticCode = Nothing,
+            diagnosticCodeDescription = Nothing,
+            diagnosticSource = Just "elm",
+            diagnosticMessage = Text.pack ("Unused import: " ++ Name.toChars moduleName),
+            diagnosticTags = Just [1], -- Unnecessary (This is what makes it grayed out )
+            diagnosticRelatedInformation = Nothing,
+            diagnosticData = Nothing
+          }
+      ]
+    Warning.UnusedVariable region context name ->
+      let thing = case context of
+            Warning.Def -> "definition"
+            Warning.Pattern -> "variable"
+      in
+      [ Diagnostic
+          { diagnosticRange = regionToRange region,
+            diagnosticSeverity = Just (DiagnosticSeverity 3), -- Information
+            diagnosticCode = Nothing,
+            diagnosticCodeDescription = Nothing,
+            diagnosticSource = Just "elm",
+            diagnosticMessage = Text.pack ("Unused " ++ thing ++ ": " ++ Name.toChars name),
+            diagnosticTags = Just [1], -- Unnecessary (This is what makes it grayed out )
+            diagnosticRelatedInformation = Nothing,
+            diagnosticData = Nothing
+          }
+      ]
+    _ -> []
 
 
 -- | Convert LSP URI to file path (basic implementation)
@@ -1285,30 +1343,12 @@ handleCodeLens state codeLensParams = do
       Ext.Log.log Ext.Log.LSP $ "CodeLens: Failed to convert URI to file path: " ++ Text.unpack uri
       return $ Right []
     Just filePath -> do
-      -- Ext.Log.log Ext.Log.LSP $ "CodeLens: File path: " ++ filePath
-      
-      -- -- Get project root
-      -- maybeRoot <- Watchtower.Live.Client.getRoot filePath state
-      -- let root = Maybe.fromMaybe "." maybeRoot
-      
-      -- Ext.Log.log Ext.Log.LSP $ "CodeLens: Project root: " ++ root
-      
-      -- -- Get warnings for the file
-      -- eitherWarnings <- Ext.Dev.warnings root filePath
-      
-      -- case eitherWarnings of
-      --   Left () -> do
-      --     Ext.Log.log Ext.Log.LSP $ "CodeLens: Failed to get warnings for: " ++ filePath
-      --     return $ Right []
-      --   Right (sourceMod, warnings) -> do
-      --     let localizer = Reporting.Render.Type.Localizer.fromModule sourceMod
-      --         codeLenses = concatMap (warningToCodeLens localizer) warnings
-      --         missingAnnotationCount = length $ filter isMissingTypeAnnotation warnings
-          
-      --     Ext.Log.log Ext.Log.LSP $ "CodeLens: Found " ++ show (length warnings) ++ " total warnings, " ++ show missingAnnotationCount ++ " missing type annotations, " ++ show (length codeLenses) ++ " code lenses"
-      --     Ext.Log.log Ext.Log.LSP $ "CodeLens: " ++ show codeLenses
-      --     return $ Right codeLenses
-      return $ Right []
+      warns <- getWarningsForFile state filePath
+      let localizer = Reporting.Render.Type.Localizer.empty
+          codeLenses = concatMap (warningToCodeLens localizer) warns
+          missingAnnotationCount = length $ filter isMissingTypeAnnotation warns
+      Ext.Log.log Ext.Log.LSP $ "CodeLens: Found " ++ show (length warns) ++ " total warnings, " ++ show missingAnnotationCount ++ " missing type annotations, " ++ show (length codeLenses) ++ " code lenses"
+      return $ Right codeLenses
 
 -- Helper to check if a warning is a MissingTypeAnnotation
 isMissingTypeAnnotation :: Warning.Warning -> Bool
