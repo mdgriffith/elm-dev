@@ -1,4 +1,6 @@
-module Watchtower.State.Compile (compile) where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Watchtower.State.Compile (compile, compileRelevantProjects) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -11,6 +13,8 @@ import qualified Ext.Dev.Project
 import qualified Ext.Dev.Project as Project
 import qualified Ext.Sentry as Sentry
 import qualified Control.Concurrent.STM as STM
+import qualified Data.List as List
+import qualified Ext.Common
 import qualified Gen.Generate
 import Json.Encode ((==>))
 import qualified Json.Encode as Json
@@ -57,3 +61,31 @@ compile state@(Client.State _ _ mFileInfo) flags projCache@(Client.ProjectCache 
         -- Update compile result TVar with the error
         STM.atomically $ STM.writeTVar mCompileResult (Client.Error (Client.GenerationError err))
         pure $ Left (Client.GenerationError err)
+
+
+-- | Compile any projects that are relevant to the given file paths.
+--   A project is considered relevant if it contains at least one of the provided files.
+--   Compilation is performed asynchronously.
+compileRelevantProjects :: Client.State -> CompileHelpers.Flags -> [FilePath] -> IO ()
+compileRelevantProjects state@(Client.State _ mProjects _) flags elmFiles = do
+  if elmFiles == []
+    then pure ()
+    else do
+      projects <- STM.readTVarIO mProjects
+      let relevant = List.filter (projectTouchesAny elmFiles) projects
+      case relevant of
+        [] -> pure ()
+        _ ->
+          Ext.Common.trackedForkIO $
+            Ext.Common.track "compile relevant projects" $ do
+              mapM_ (compileProjectFiles elmFiles) relevant
+  where
+    projectTouchesAny :: [FilePath] -> Client.ProjectCache -> Bool
+    projectTouchesAny paths (Client.ProjectCache proj _ _) =
+      any (\p -> Ext.Dev.Project.contains p proj) paths
+
+    compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO ()
+    compileProjectFiles paths projCache@(Client.ProjectCache proj _ _) = do
+      let projectFiles = List.filter (\p -> Ext.Dev.Project.contains p proj) paths
+      _ <- compile state flags projCache projectFiles
+      pure ()

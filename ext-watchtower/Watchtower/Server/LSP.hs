@@ -14,7 +14,7 @@ Can be tested with any LSP client. For VS Code, you can connect via the extensio
 
 import Control.Exception (SomeException, try)
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson ((.=))
+import Data.Aeson
 import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Encode.Pretty
 import qualified Data.Text as T
@@ -38,7 +38,6 @@ import qualified Reporting.Render.Type
 import qualified Reporting.Render.Type.Localizer
 import qualified Reporting.Warning as Warning
 import System.Process (readProcess)
-import System.IO (hPutStrLn, stderr, hFlush)
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.State.Discover as Discover
@@ -57,6 +56,7 @@ import qualified Data.Map as Map
 import qualified Ext.CompileHelpers.Generic
 import qualified Control.Concurrent.STM
 import qualified Ext.Log
+
 
 -- * Core LSP Types
 
@@ -715,27 +715,15 @@ handleLSPRequest :: (JSON.FromJSON a, JSON.ToJSON b) =>
                    (a -> IO (Either String b)) -> 
                    IO (Either JSONRPC.Error JSONRPC.Response)
 handleLSPRequest reqId params paramType handler = do
-  -- hPutStrLn stderr $ "=== HANDLING " ++ paramType ++ " REQUEST ==="
-  -- hFlush stderr
-  
   case parseParams reqId params paramType of
     Right parsed -> do
-      -- hPutStrLn stderr $ "Parameters parsed successfully for " ++ paramType
-      -- hFlush stderr
-      
       result <- handler parsed
       case result of
         Right response -> do
-          -- hPutStrLn stderr $ "Handler returned success for " ++ paramType
-          -- hFlush stderr
           return $ success reqId (JSON.toJSON response)
         Left errorMsg -> do
-          -- hPutStrLn stderr $ "Handler returned error for " ++ paramType ++ ": " ++ errorMsg
-          -- hFlush stderr
           return $ err reqId errorMsg
     Left jsonRpcError -> do
-      -- hPutStrLn stderr $ "Parameter parsing failed for " ++ paramType ++ ": " ++ show jsonRpcError
-      -- hFlush stderr
       return $ Left jsonRpcError
 
 -- * Default Server Capabilities
@@ -818,8 +806,7 @@ handleInitialize state initParams = do
       Discover.discover state root
     Nothing -> do
       -- Log that no root was provided
-      hPutStrLn stderr "LSP Initialize: No root path provided"
-      hFlush stderr
+      Ext.Log.log Ext.Log.LSP "LSP Initialize: No root path provided"
   
   let initResult = InitializeResult
         { initializeResultCapabilities = defaultServerCapabilities,
@@ -831,7 +818,7 @@ handleInitialize state initParams = do
   return $ Right initResult
 
 handleDidOpen :: Live.State -> DidOpenTextDocumentParams -> IO (Either String JSON.Value)
-handleDidOpen _state openParams = do
+handleDidOpen state openParams = do
   -- Handle document open notification
   let doc = didOpenTextDocumentParamsTextDocument openParams
       uri = textDocumentItemUri doc
@@ -839,12 +826,27 @@ handleDidOpen _state openParams = do
       version = textDocumentItemVersion doc
       text = textDocumentItemText doc
   
-  hPutStrLn stderr $ "LSP: textDocument/didOpen - URI: " ++ Text.unpack uri
-  hPutStrLn stderr $ "LSP: Language: " ++ Text.unpack languageId ++ ", Version: " ++ show version
-  hPutStrLn stderr $ "LSP: Document length: " ++ show (Text.length text) ++ " characters"
-  hFlush stderr
-  
-  return $ Right JSON.Null
+  -- On open: compile only if any relevant project is currently uncompiled
+  case uriToFilePath uri of
+    Nothing -> return $ Right JSON.Null
+    Just filePath -> do
+      projectResult <- Watchtower.Live.Client.getExistingProject filePath state
+      case projectResult of
+        Left _ -> return $ Right JSON.Null
+        Right (first, rest) -> do
+          firstStatus <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult first)
+          restStatuses <- mapM (\p -> Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult p)) rest
+          let anyUncompiled = any isUncompiled (firstStatus : restStatuses)
+          if anyUncompiled
+            then do
+              let flags = Ext.CompileHelpers.Generic.Flags Ext.CompileHelpers.Generic.Dev Ext.CompileHelpers.Generic.NoOutput
+              Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
+              return $ Right JSON.Null
+            else return $ Right JSON.Null
+  where
+    isUncompiled res = case res of
+      Watchtower.Live.Client.NotCompiled -> True
+      _ -> False
 
 handleDidChange :: Live.State -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
 handleDidChange state changeParams = do
@@ -868,7 +870,8 @@ handleDidChange state changeParams = do
         Left (Ext.FileCache.InvalidEdit err) -> 
           return $ Left $ "Invalid edit: " ++ err
         Right () -> do
-            Watchtower.Live.Compile.recompile state [filePath]
+            let flags = Ext.CompileHelpers.Generic.Flags Ext.CompileHelpers.Generic.Dev Ext.CompileHelpers.Generic.NoOutput
+            Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
             return $ Right JSON.Null
 
 -- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
@@ -900,26 +903,22 @@ handleDidClose _state closeParams = do
   -- Handle document close notification
   let doc = didCloseTextDocumentParamsTextDocument closeParams
       uri = textDocumentIdentifierUri doc
-  
-  hPutStrLn stderr $ "LSP: textDocument/didClose - URI: " ++ Text.unpack uri
-  hFlush stderr
-  
+    
   return $ Right JSON.Null
 
 handleDidSave :: Live.State -> DidSaveTextDocumentParams -> IO (Either String JSON.Value)
-handleDidSave _state saveParams = do
+handleDidSave state saveParams = do
   -- Handle document save notification
   let doc = didSaveTextDocumentParamsTextDocument saveParams
       uri = textDocumentIdentifierUri doc
       text = didSaveTextDocumentParamsText saveParams
   
-  hPutStrLn stderr $ "LSP: textDocument/didSave - URI: " ++ Text.unpack uri
-  case text of
-    Just content -> hPutStrLn stderr $ "LSP: Save with content, length: " ++ show (Text.length content)
-    Nothing -> hPutStrLn stderr "LSP: Save without content"
-  hFlush stderr
-  
-  return $ Right JSON.Null
+  case uriToFilePath uri of
+    Nothing -> return $ Right JSON.Null
+    Just filePath -> do
+      let flags = Ext.CompileHelpers.Generic.Flags Ext.CompileHelpers.Generic.Dev Ext.CompileHelpers.Generic.NoOutput
+      Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
+      return $ Right JSON.Null
 
 handleHover :: Live.State -> HoverParams -> IO (Either String (Maybe Hover))
 handleHover _state hoverParams = do
@@ -1148,16 +1147,16 @@ handleDiagnostic state diagnosticParams = do
           Ext.Log.log Ext.Log.LSP $ "READ COMPILE RESULT for " ++ Watchtower.Live.Client.getProjectRoot projectCache
           case currentResult of
             Watchtower.Live.Client.Success _ -> do
-              Ext.Log.log Ext.Log.LSP "COMPILE RESULT SUCCESS, NO DIAGNOSTICS"
+              Ext.Log.log Ext.Log.LSP "COMPILE RESULT SUCCESS"
               return $ Right []
             Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
               Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Reactor), EXTRACTING DIAGNOSTICS"
               return $ Right $ extractDiagnosticsFromReactor uri exitReactor
             Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
-              Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Generation), NO FILE-SPECIFIC DIAGNOSTICS"
+              Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Generation)"
               return $ Right []
             Watchtower.Live.Client.NotCompiled -> do
-              Ext.Log.log Ext.Log.LSP "COMPILE RESULT NOT COMPILED YET, NO DIAGNOSTICS"
+              Ext.Log.log Ext.Log.LSP "COMPILE RESULT NOT COMPILED YET"
               return $ Right []
 
   case result of
@@ -1168,11 +1167,12 @@ handleDiagnostic state diagnosticParams = do
           (localizer, warns) <- getWarningsForFile state path
           pure (concatMap warningToUnusedDiagnostic warns)
         Nothing -> pure []
+      let allDiags = diagnostics ++ warnDiags
       let diagnosticsResponse = JSON.object
             [ "kind" .= ("full" :: Text),
-              "items" .= (diagnostics ++ warnDiags)
+              "items" .= allDiags
             ]
-      Ext.Log.log Ext.Log.LSP $ "Diagnostics: " ++ show diagnosticsResponse
+      Ext.Log.log Ext.Log.LSP $ "Diagnostics: " ++ show (length allDiags) 
       return $ Right diagnosticsResponse
     Left err -> do 
       Ext.Log.log Ext.Log.LSP $ "Diagnostics FAILURE: " ++ show err
@@ -1516,8 +1516,8 @@ handleDidChangeVisibleRanges _state visibleRangesParams = do
 -- * Main LSP Server Handler
 
 -- | Main LSP server handler
-serve :: Live.State -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
-serve state req@(JSONRPC.Request _ reqId method params) = do
+serve :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
+serve state _emit req@(JSONRPC.Request _ reqId method params) = do
   
   -- case params of
   --   Just p -> Ext.Log.log Ext.Log.LSP $ "REQ: " ++Text.unpack method ++ " (id: " ++ show reqId ++ "): " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
@@ -1528,7 +1528,15 @@ serve state req@(JSONRPC.Request _ reqId method params) = do
   case Text.unpack method of
     -- Lifecycle
     "initialize" -> 
-      handleLSPRequest reqId params "initialize" (handleInitialize state)
+      handleLSPRequest reqId params "initialize" (\p -> do
+        res <- handleInitialize state p
+        case res of
+          Right _ -> do
+            -- Inform the client the server is ready
+            -- _emit (showMessage LogMessageTypeInfo "Elm Dev LSP ready")
+            return res
+          Left _ -> return res
+        )
         
     "initialized" -> do
       -- Client finished initialization
@@ -1655,8 +1663,8 @@ serve state req@(JSONRPC.Request _ reqId method params) = do
       return $ Left (JSONRPC.errorMethodNotFound reqId method)
 
 -- | Handle LSP notifications (no response expected)
-handleNotification :: Live.State -> JSONRPC.Notification -> IO ()
-handleNotification state (JSONRPC.Notification _ method params) = do
+handleNotification :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.Notification -> IO ()
+handleNotification state send (JSONRPC.Notification _ method params) = do
 
   -- case params of
   --   Just p -> Ext.Log.log Ext.Log.LSP $ "NOTIF: " ++Text.unpack method ++ " " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
@@ -1671,6 +1679,7 @@ handleNotification state (JSONRPC.Notification _ method params) = do
           case JSON.fromJSON p of
             JSON.Success openParams -> do
               _ <- handleDidOpen state openParams
+              send (logMessage LogMessageTypeInfo "Opened document")
               return ()
             JSON.Error err -> do
               Ext.Log.log Ext.Log.LSP $ "Failed to parse didOpen params: " ++ err
@@ -1683,6 +1692,14 @@ handleNotification state (JSONRPC.Notification _ method params) = do
           case JSON.fromJSON p of
             JSON.Success changeParams -> do
               _ <- handleDidChange state changeParams
+              -- Emit code lens refresh + diagnostics publish
+              send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
+              let docId = didChangeTextDocumentParamsTextDocument changeParams
+                  uri = versionedTextDocumentIdentifierUri docId
+                  version = versionedTextDocumentIdentifierVersion docId
+              diags <- getDiagnosticsForUri state uri
+              send (publishDiagnostics uri version diags)
+              send (logMessage LogMessageTypeLog "Document changed")
               return ()
             JSON.Error err -> do
               Ext.Log.log Ext.Log.LSP $ "Failed to parse didChange params: " ++ err
@@ -1695,6 +1712,7 @@ handleNotification state (JSONRPC.Notification _ method params) = do
           case JSON.fromJSON p of
             JSON.Success closeParams -> do
               _ <- handleDidClose state closeParams
+              send (logMessage LogMessageTypeInfo "Closed document")
               return ()
             JSON.Error err -> do
               Ext.Log.log Ext.Log.LSP $ "Failed to parse didClose params: " ++ err
@@ -1707,6 +1725,13 @@ handleNotification state (JSONRPC.Notification _ method params) = do
           case JSON.fromJSON p of
             JSON.Success saveParams -> do
               _ <- handleDidSave state saveParams
+              -- Emit code lens refresh + diagnostics publish
+              send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
+              let docId = didSaveTextDocumentParamsTextDocument saveParams
+                  uri = textDocumentIdentifierUri docId
+              diags <- getDiagnosticsForUri state uri
+              send (publishDiagnostics uri Nothing diags)
+              send (logMessage LogMessageTypeInfo "Saved document")
               return ()
             JSON.Error err -> do
               Ext.Log.log Ext.Log.LSP $ "Failed to parse didSave params: " ++ err
@@ -1735,3 +1760,76 @@ handleNotification state (JSONRPC.Notification _ method params) = do
       Ext.Log.log Ext.Log.LSP $ "LSP: Unhandled notification: " ++ T.unpack method
 
 
+
+
+
+
+-- | LSP window/showMessage and window/logMessage severity
+data LogMessageType
+  = LogMessageTypeError
+  | LogMessageTypeWarning
+  | LogMessageTypeInfo
+  | LogMessageTypeLog
+  deriving stock (Show, Eq)
+
+instance ToJSON LogMessageType where
+  toJSON t = case t of
+    LogMessageTypeError -> JSON.Number 1
+    LogMessageTypeWarning -> JSON.Number 2
+    LogMessageTypeInfo -> JSON.Number 3
+    LogMessageTypeLog -> JSON.Number 4
+
+-- | Build a window/logMessage notification as Outbound
+logMessage :: LogMessageType -> Text -> JSONRPC.Outbound
+logMessage typ msg =
+  JSONRPC.OutboundNotification (JSONRPC.Notification "2.0" "window/logMessage" (Just (object ["type" .= typ, "message" .= msg])))
+
+-- | Build a window/showMessage notification as Outbound
+showMessage :: LogMessageType -> Text -> JSONRPC.Outbound
+showMessage typ msg =
+  JSONRPC.OutboundNotification (JSONRPC.Notification "2.0" "window/showMessage" (Just (object ["type" .= typ, "message" .= msg])))
+
+-- Build a textDocument/publishDiagnostics notification
+publishDiagnostics :: Text -> Maybe Int -> [Diagnostic] -> JSONRPC.Outbound
+publishDiagnostics uri version diagnostics =
+  let base = [ "uri" .= uri
+             , "diagnostics" .= diagnostics
+             ]
+      params = case version of
+        Just v -> object ( ("version" .= v) : base )
+        Nothing -> object base
+  in JSONRPC.OutboundNotification (JSONRPC.Notification "2.0" "textDocument/publishDiagnostics" (Just params))
+
+-- Compute diagnostics for a given document URI using current compile results and stored warnings
+getDiagnosticsForUri :: Live.State -> Text -> IO [Diagnostic]
+getDiagnosticsForUri state uri = do
+  result <- case uriToFilePath uri of
+    Nothing -> return $ Right []
+    Just filePath -> do
+      projectResult <- Watchtower.Live.Client.getExistingProject filePath state
+      case projectResult of
+        Left Watchtower.Live.Client.NoProjectsRegistered -> return $ Right []
+        Left (Watchtower.Live.Client.ProjectNotFound _) -> return $ Right []
+        Right (projectCache, _) -> do
+          currentResult <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult projectCache)
+          Ext.Log.log Ext.Log.LSP $ "READ COMPILE RESULT for " ++ Watchtower.Live.Client.getProjectRoot projectCache
+          case currentResult of
+            Watchtower.Live.Client.Success _ -> return $ Right []
+            Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
+              Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Reactor), EXTRACTING DIAGNOSTICS"
+              return $ Right $ extractDiagnosticsFromReactor uri exitReactor
+            Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
+              Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Generation)"
+              return $ Right []
+            Watchtower.Live.Client.NotCompiled -> do
+              Ext.Log.log Ext.Log.LSP "COMPILE RESULT NOT COMPILED YET"
+              return $ Right []
+  case result of
+    Right diagnostics -> do
+      warnDiags <- case uriToFilePath uri of
+        Just path -> do
+          (_localizer, warns) <- getWarningsForFile state path
+          pure (concatMap warningToUnusedDiagnostic warns)
+        Nothing -> pure []
+      pure (diagnostics ++ warnDiags)
+    Left _err -> pure []
