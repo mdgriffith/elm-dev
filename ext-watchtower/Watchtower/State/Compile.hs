@@ -52,7 +52,12 @@ compile state@(Client.State _ _ mFileInfo) flags projCache@(Client.ProjectCache 
                              current
                              fileInfoByPath
               STM.writeTVar mFileInfo merged
-          Left _ -> pure ()
+          Left _ -> do
+            -- On compile failure, remove all FileInfo entries that belong to this project
+            STM.atomically $ do
+              current <- STM.readTVar mFileInfo
+              let filtered = Map.filterWithKey (\path _ -> not (Ext.Dev.Project.contains path proj)) current
+              STM.writeTVar mFileInfo filtered
 
         pure $ case compilationResult of
           Right (result, _) -> Right result
@@ -60,6 +65,11 @@ compile state@(Client.State _ _ mFileInfo) flags projCache@(Client.ProjectCache 
       Left err -> do
         -- Update compile result TVar with the error
         STM.atomically $ STM.writeTVar mCompileResult (Client.Error (Client.GenerationError err))
+        -- On generation failure, also clear FileInfo entries for this project
+        STM.atomically $ do
+          current <- STM.readTVar mFileInfo
+          let filtered = Map.filterWithKey (\path _ -> not (Ext.Dev.Project.contains path proj)) current
+          STM.writeTVar mFileInfo filtered
         pure $ Left (Client.GenerationError err)
 
 
