@@ -20,11 +20,17 @@ import Snap.Core hiding (method)
 import qualified Snap.Http.Server as Server
 import qualified Snap.Util.CORS as CORS
 import System.IO (hFlush, hPutStrLn, stderr, stdin, stdout)
+import Data.Char (toLower)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
+import System.IO.Unsafe (unsafePerformIO)
 import qualified System.IO as IO
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
-import System.IO.Unsafe (unsafePerformIO)
+{-# NOINLINE stdoutWriteLock #-}
+stdoutWriteLock :: MVar ()
+stdoutWriteLock = unsafePerformIO (newMVar ())
+
 
 data Mode = StdIO | HTTP (Maybe Int)
 
@@ -89,45 +95,57 @@ handleRequest st emitEvent hdlr req = do
 
 
 
--- | Parse Content-Length header
+-- | Parse Content-Length header (case-insensitive)
 parseContentLength :: String -> Maybe Int
 parseContentLength line = 
-  case break (== ':') line of
-    ("Content-Length", ':':' ':rest) -> readMaybe (takeWhile (\c -> c /= '\r' && c /= '\n') rest)
-    ("Content-Length", ':':rest) -> readMaybe (takeWhile (\c -> c /= '\r' && c /= '\n') (dropWhile (== ' ') rest))
-    _ -> Nothing
+  let (name, rest0) = break (== ':') line
+      valueRaw = case rest0 of
+        ':' : rest1 -> dropWhile (== ' ') rest1
+        _ -> ""
+      nameLower = map toLower name
+      value = takeWhile (\c -> c /= '\r' && c /= '\n') valueRaw
+   in if nameLower == "content-length"
+        then readInt value
+        else Nothing
   where
-    readMaybe s = case reads s of
+    readInt s = case reads s of
       [(x, "")] -> Just x
       _ -> Nothing
 
 -- | Read stdin message with Content-Length header
 readStdInMessage :: IO (Maybe LBS.ByteString)
 readStdInMessage = do
-  headerLine <- getLine
-  let cleanHeaderLine = filter (/= '\r') headerLine  -- Remove any remaining \r
-  case parseContentLength cleanHeaderLine of
+  -- Read headers until an empty line, extracting Content-Length
+  let loop accLen = do
+        line <- getLine
+        let clean = filter (/= '\r') line
+        if clean == ""
+          then pure accLen
+          else case parseContentLength clean of
+                 Just n -> loop (Just n)
+                 Nothing -> loop accLen
+  mLen <- loop Nothing
+  case mLen of
     Nothing -> do
-      IO.hPutStrLn IO.stderr $ "Invalid Content-Length header: " ++ cleanHeaderLine
+      IO.hPutStrLn IO.stderr "Missing Content-Length header"
       IO.hFlush IO.stderr
-      return Nothing  -- Invalid header
+      pure Nothing
     Just contentLength -> do
-      -- Read the empty line separator
-      emptyLine <- getLine      
       -- Read the exact number of content bytes
       content <- LBS.hGet stdin contentLength
-
-      return (Just content)
+      pure (Just content)
 
 -- | Send JSON RPC message with Content-Length header  
 sendWithContentLength :: LBS.ByteString -> IO ()
 sendWithContentLength content = do
   let contentLength = LBS.length content
-  -- Use proper CRLF line endings for stdio based JSON RPC.
-  putStr $ "Content-Length: " ++ show contentLength ++ "\r\n"
-  putStr "\r\n"  -- Empty line separator with CRLF
-  LBS.putStr content
-  hFlush stdout
+  -- Ensure frames are not interleaved across threads.
+  withMVar stdoutWriteLock $ \_ -> do
+    -- Use proper CRLF line endings for stdio based JSON RPC.
+    putStr $ "Content-Length: " ++ show contentLength ++ "\r\n"
+    putStr "\r\n"  -- Empty line separator with CRLF
+    LBS.putStr content
+    hFlush stdout
 
 
 -- | Run JSON-RPC server over stdio
