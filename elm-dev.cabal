@@ -289,6 +289,18 @@ Executable elm-dev
         Ext.Log
         Ext.Sanity
 
+        -- alternate reporting
+        Ext.Reporting.Error
+        Ext.Reporting.Render.Code
+        Ext.Reporting.Error.Type
+        Ext.Reporting.Error.Syntax
+        Ext.Reporting.Error.Pattern
+        Ext.Reporting.Error.Main
+        Ext.Reporting.Error.Json
+        Ext.Reporting.Error.Import
+        Ext.Reporting.Error.Docs
+        Ext.Reporting.Error.Canonicalize
+
         Gen.Commands
         Gen.Commands.Init
         Gen.Commands.Make

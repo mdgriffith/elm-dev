@@ -56,6 +56,7 @@ import qualified Data.Map as Map
 import qualified Ext.CompileHelpers.Generic
 import qualified Control.Concurrent.STM
 import qualified Ext.Log
+import qualified Ext.Reporting.Error
 
 
 -- * Core LSP Types
@@ -1201,7 +1202,7 @@ moduleErrorsToDiagnostics targetFilePath (Reporting.Error.Module _name absoluteP
 -- | Convert Elm errors to LSP diagnostics
 errorToDiagnostics :: Reporting.Render.Code.Source -> Reporting.Error.Error -> [Diagnostic]
 errorToDiagnostics source err =
-  let reports = Reporting.Error.toReports source err
+  let reports = Ext.Reporting.Error.toReports source err
   in map reportToDiagnostic (Data.NonEmptyList.toList reports)
 
 -- | Convert a Report to an LSP Diagnostic

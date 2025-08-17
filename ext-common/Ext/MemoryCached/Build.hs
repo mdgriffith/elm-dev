@@ -459,7 +459,7 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
     Right (Compile.Artifacts canonical annotations objects) -> do
 
       let enrichedWarnings = fmap (Ext.Dev.Warnings.addAliasesToMissingTypeSignatures canonical ifaces) warnings
-      let unusedWarnings = Ext.Dev.Warnings.unusedWarnings modul canonical ifaces
+      let unusedWarnings = Ext.Dev.Warnings.unusedWarnings modul canonical
 
       let combinedWarnings = enrichedWarnings <> unusedWarnings
       
