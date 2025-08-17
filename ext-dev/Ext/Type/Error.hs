@@ -1,21 +1,10 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Type.Error
-  ( Type(..)
-  , Super(..)
-  , Extension(..)
-  , iteratedDealias
-  , toDoc
+module Ext.Type.Error
+  ( toDoc
   , Problem(..)
   , Direction(..)
   , toComparison
-  , isInt
-  , isFloat
-  , isString
-  , isChar
-  , isList
-  , isMaybe
-  , isBool
   )
   where
 
@@ -30,49 +19,8 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Reporting.Doc as D
 import qualified Reporting.Render.Type as RT
 import qualified Reporting.Render.Type.Localizer as L
+import Type.Error hiding (toDoc, Problem(..), Direction(..), toComparison)
 
-
-
--- ERROR TYPES
-
-
-data Type
-  = Lambda Type Type [Type]
-  | Infinite
-  | Error
-  | FlexVar Name.Name
-  | FlexSuper Super Name.Name
-  | RigidVar Name.Name
-  | RigidSuper Super Name.Name
-  | Type ModuleName.Canonical Name.Name [Type]
-  | Record (Map.Map Name.Name Type) Extension
-  | Unit
-  | Tuple Type Type (Maybe Type)
-  | Alias ModuleName.Canonical Name.Name [(Name.Name, Type)] Type
-
-
-data Super
-  = Number
-  | Comparable
-  | Appendable
-  | CompAppend
-  deriving (Eq)
-
-
-data Extension
-  = Closed
-  | FlexOpen Name.Name
-  | RigidOpen Name.Name
-
-
-iteratedDealias :: Type -> Type
-iteratedDealias tipe =
-  case tipe of
-    Alias _ _ _ real ->
-      iteratedDealias real
-
-    _ ->
-      tipe
 
 
 
@@ -397,44 +345,6 @@ isSimilar (Diff _ _ status) =
     Similar -> True
     Different _ -> False
 
-
-
--- IS TYPE?
-
-
-isBool :: ModuleName.Canonical -> Name.Name -> Bool
-isBool home name =
-  home == ModuleName.basics && name == Name.bool
-
-
-isInt :: ModuleName.Canonical -> Name.Name -> Bool
-isInt home name =
-  home == ModuleName.basics && name == Name.int
-
-
-isFloat :: ModuleName.Canonical -> Name.Name -> Bool
-isFloat home name =
-  home == ModuleName.basics && name == Name.float
-
-
-isString :: ModuleName.Canonical -> Name.Name -> Bool
-isString home name =
-  home == ModuleName.string && name == Name.string
-
-
-isChar :: ModuleName.Canonical -> Name.Name -> Bool
-isChar home name =
-  home == ModuleName.char && name == Name.char
-
-
-isMaybe :: ModuleName.Canonical -> Name.Name -> Bool
-isMaybe home name =
-  home == ModuleName.maybe && name == Name.maybe
-
-
-isList :: ModuleName.Canonical -> Name.Name -> Bool
-isList home name =
-  home == ModuleName.list && name == Name.list
 
 
 

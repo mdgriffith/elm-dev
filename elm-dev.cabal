@@ -290,6 +290,7 @@ Executable elm-dev
         Ext.Sanity
 
         -- alternate reporting
+        Ext.Type.Error
         Ext.Reporting.Error
         Ext.Reporting.Render.Code
         Ext.Reporting.Error.Type
@@ -300,6 +301,7 @@ Executable elm-dev
         Ext.Reporting.Error.Import
         Ext.Reporting.Error.Docs
         Ext.Reporting.Error.Canonicalize
+        
 
         Gen.Commands
         Gen.Commands.Init
