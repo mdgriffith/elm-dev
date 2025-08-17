@@ -65,7 +65,8 @@ compile state@(Client.State _ _ mFileInfo) flags projCache@(Client.ProjectCache 
 
 -- | Compile any projects that are relevant to the given file paths.
 --   A project is considered relevant if it contains at least one of the provided files.
---   Compilation is performed asynchronously.
+--   Compilation is performed synchronously here so the caller can rely on
+--   fresh results when this function returns.
 compileRelevantProjects :: Client.State -> CompileHelpers.Flags -> [FilePath] -> IO ()
 compileRelevantProjects state@(Client.State _ mProjects _) flags elmFiles = do
   if elmFiles == []
@@ -76,9 +77,17 @@ compileRelevantProjects state@(Client.State _ mProjects _) flags elmFiles = do
       case relevant of
         [] -> pure ()
         _ ->
-          Ext.Common.trackedForkIO $
-            Ext.Common.track "compile relevant projects" $ do
-              mapM_ (compileProjectFiles elmFiles) relevant
+          Ext.Common.track "compile relevant projects" $ do
+            counter <- STM.newTVarIO (List.length relevant)
+            let runOne projCache = do
+                  compileProjectFiles elmFiles projCache
+                  STM.atomically $ do
+                    n <- STM.readTVar counter
+                    STM.writeTVar counter (n - 1)
+            mapM_ (\proj -> Ext.Common.trackedForkIO (runOne proj)) relevant
+            STM.atomically $ do
+              n <- STM.readTVar counter
+              STM.check (n == 0)
   where
     projectTouchesAny :: [FilePath] -> Client.ProjectCache -> Bool
     projectTouchesAny paths (Client.ProjectCache proj _ _) =
