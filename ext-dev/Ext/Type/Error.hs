@@ -4,6 +4,9 @@ module Ext.Type.Error
   ( toDoc
   , Problem(..)
   , Direction(..)
+  , RecordDiff(..)
+  , IncorrectField(..)
+  , renderRecordDiff
   , toComparison
   )
   where
@@ -168,14 +171,188 @@ merge status1 status2 =
 -- COMPARISON
 
 
-toComparison :: L.Localizer -> Type -> Type -> (D.Doc, D.Doc, [Problem])
+data RecordDiff = RecordDiff
+  { missing        :: [(Name.Name, Type)]
+  , unexpected     :: [(Name.Name, Type)]
+  , incorrect      :: [(Name.Name, IncorrectField)]
+  , correct        :: [(Name.Name, Type)]
+  , aliasExpected  :: Maybe (ModuleName.Canonical, Name.Name)
+  , aliasProvided  :: Maybe (ModuleName.Canonical, Name.Name)
+  }
+
+
+data IncorrectField = IncorrectField
+  { incorrectFieldExpected :: Type
+  , incorrectFieldProvided :: Type
+  }
+
+
+toComparison :: L.Localizer -> Type -> Type -> (D.Doc, D.Doc, Maybe RecordDiff, [Problem])
 toComparison localizer tipe1 tipe2 =
   case toDiff localizer RT.None tipe1 tipe2 of
     Diff doc1 doc2 Similar ->
-      (doc1, doc2, [])
+      (doc1, doc2, toRecordDiff localizer tipe1 tipe2, [])
 
     Diff doc1 doc2 (Different problems) ->
-      (doc1, doc2, Bag.toList problems)
+      (doc1, doc2, toRecordDiff localizer tipe1 tipe2, Bag.toList problems)
+
+
+toRecordDiff :: L.Localizer -> Type -> Type -> Maybe RecordDiff
+toRecordDiff localizer actualType expectedType =
+  case (actualType, expectedType) of
+    -- Direct record types
+    (Record actualFields _ , Record expectedFields _) ->
+      Just (computeRecordDiff localizer Nothing Nothing actualFields expectedFields)
+
+    -- Both are aliases that resolve to records
+    (Alias homeA nameA _ realA, Alias homeE nameE _ realE) ->
+      case (iteratedDealias realA, iteratedDealias realE) of
+        (Record actualFields _ , Record expectedFields _) ->
+          Just (computeRecordDiff localizer (Just (homeE, nameE)) (Just (homeA, nameA)) actualFields expectedFields)
+        _ -> Nothing
+
+    _ ->
+      case (iteratedDealias actualType, iteratedDealias expectedType) of
+        (Record actualFields _ , Record expectedFields _) ->
+          -- One side (or neither) is an alias, but both normalize to records.
+          Just (computeRecordDiff localizer Nothing Nothing actualFields expectedFields)
+        _ -> Nothing
+
+
+computeRecordDiff :: L.Localizer
+                  -> Maybe (ModuleName.Canonical, Name.Name)  -- aliasExpected
+                  -> Maybe (ModuleName.Canonical, Name.Name)  -- aliasProvided
+                  -> Map.Map Name.Name Type                   -- actual fields
+                  -> Map.Map Name.Name Type                   -- expected fields
+                  -> RecordDiff
+computeRecordDiff localizer aliasExpectedM aliasProvidedM actualFields expectedFields =
+  let
+    missingFields :: [(Name.Name, Type)]
+    missingFields = Map.toList (Map.difference expectedFields actualFields)
+
+    unexpectedFields :: [(Name.Name, Type)]
+    unexpectedFields = Map.toList (Map.difference actualFields expectedFields)
+
+    overlap :: Map.Map Name.Name (Type, Type)
+    overlap = Map.intersectionWith (,) actualFields expectedFields
+
+    foldOverlap name (providedT, expectedT) (incs, cors) =
+      case toDiff localizer RT.None providedT expectedT of
+        Diff _ _ Similar -> (incs, (name, expectedT) : cors)
+        Diff _ _ (Different _) -> ( (name, IncorrectField expectedT providedT) : incs, cors )
+
+    (incorrectFields, correctFields) =
+      Map.foldrWithKey foldOverlap ([], []) overlap
+  in
+  RecordDiff missingFields unexpectedFields incorrectFields correctFields aliasExpectedM aliasProvidedM
+
+
+-- RENDER RECORD DIFF
+
+
+-- Render a block with a header and list of entries. Adds a newline before the
+-- header only if a previous block produced output. Ensures only the first
+-- field across all blocks has no leading comma; all subsequent fields are
+-- comma-prefixed. The entry renderer returns the first line (without prefix)
+-- and any subsequent lines for that entry.
+renderBlock
+  :: Bool                         -- ^ isFirstFieldSoFar
+  -> D.Doc                        -- ^ header label (e.g. "missing")
+  -> [a]                          -- ^ entries
+  -> (a -> (D.Doc, [D.Doc]))      -- ^ entry renderer
+  -> (Bool, [D.Doc])              -- ^ (isFirstFieldAfter, docs)
+renderBlock isFirst header entries renderEntry =
+  case entries of
+    [] -> ( isFirst, [] )
+    _  ->
+      let
+        headerDoc =
+          if isFirst then
+            "  -- " <> header
+          else
+            "\n  -- " <> header
+
+        foldEntry (firstSoFar, acc) entry =
+          let (firstLine, restLines) = renderEntry entry
+              prefix = if firstSoFar then "  " else ",  "
+              firstWithPrefix = prefix <> firstLine
+          in ( False, acc ++ (firstWithPrefix : restLines) )
+
+        (_firstAfterAll, entryDocs) =
+          foldl foldEntry (isFirst, []) entries
+      in
+      ( isFirst || not (null entries), headerDoc : entryDocs )
+
+
+renderRecordDiff :: L.Localizer -> RecordDiff -> [D.Doc]
+renderRecordDiff localizer diff =
+  let
+    opening =
+      case aliasExpected diff of
+        Nothing -> ["{..."]
+        Just (home, name) ->
+          [ "{... " <> L.toDoc localizer home name  ]
+
+    -- Render blocks with shared rules for commas and newlines between blocks
+    (firstAfterMissing, missingBlock) =
+      renderBlock True "missing" (missing diff) (\(fname, ftype) ->
+        ( D.fromName fname <> " : " <> toDoc localizer RT.None ftype
+        , []
+        )
+      )
+
+    (firstAfterUnexpected, unexpectedBlock) =
+      renderBlock firstAfterMissing "unexpected field" (unexpected diff) (\(fname, ftype) ->
+        ( D.fromName fname <> " : " <> toDoc localizer RT.None ftype
+        , []
+        )
+      )
+
+    (_firstAfterIncorrect, incorrectBlock) =
+      renderBlock firstAfterUnexpected "incorrect" (incorrect diff) (\(fname, IncorrectField expectedT providedT) ->
+        let
+          {-
+          If the fieldname is shorter than `--expected`
+            ```
+            fieldname   :   ProvidedTyoe
+            -- expected :  ExpectedType
+            ```
+
+            If fieldname is longer
+
+            ```
+            fieldnameIsLongerThan : ProvidedTyoe
+                      -- expected : ExpectedType
+            ```
+           
+           -}
+          fieldChars = Name.toChars fname
+          fieldLen = length fieldChars
+          labelPre = "-- expected"
+          labelLen = length labelPre
+          targetWidth = max fieldLen labelLen
+          padRight = replicate (targetWidth - fieldLen) ' '
+          leftPad = replicate (targetWidth - labelLen) ' '   
+        in
+        ( D.fromChars fieldChars
+              <> D.fromChars padRight
+              <> " :  "
+              <> toDoc localizer RT.None providedT
+        , [ D.fromChars leftPad
+              <> D.fromChars labelPre
+              <> " :  "
+              <> toDoc localizer RT.None expectedT
+          ]
+        )
+      )
+
+    closeBrace = [ "}" ]
+  in
+  opening
+    ++ missingBlock
+    ++ unexpectedBlock
+    ++ incorrectBlock
+    ++ closeBrace
 
 
 toDiff :: L.Localizer -> RT.Context -> Type -> Type -> Diff D.Doc
