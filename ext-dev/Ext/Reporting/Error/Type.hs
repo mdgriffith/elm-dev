@@ -21,7 +21,7 @@ import qualified Reporting.Report as Report
 import qualified Reporting.Suggest as Suggest
 import qualified Type.Error as T
 import Reporting.Error.Type hiding (toReport)
-
+import qualified Ext.Type.Error
 
 
 -- TO REPORT
@@ -33,8 +33,8 @@ toReport source localizer err =
     BadExpr region category actualType expected ->
       toExprReport source localizer region category actualType expected
 
-    BadPattern region category tipe expected ->
-      toPatternReport source localizer region category tipe expected
+    BadPattern region category actualType expected ->
+      toPatternReport source localizer region category actualType expected
 
     InfiniteType region name overallType ->
       toInfiniteReport source localizer region name overallType
@@ -139,8 +139,8 @@ toPatternReport source localizer patternRegion category tipe expected =
 patternTypeComparison :: L.Localizer -> T.Type -> T.Type -> String -> String -> [D.Doc] -> D.Doc
 patternTypeComparison localizer actual expected iAmSeeing insteadOf contextHints =
   let
-    (actualDoc, expectedDoc, problems) =
-      T.toComparison localizer actual expected
+    (actualDoc, expectedDoc, _, problems) =
+      Ext.Type.Error.toComparison localizer actual expected
   in
   D.stack $
     [ D.reflow iAmSeeing
@@ -174,8 +174,8 @@ addPatternCategory iAmTryingToMatch category =
 typeComparison :: L.Localizer -> T.Type -> T.Type -> String -> String -> [D.Doc] -> D.Doc
 typeComparison localizer actual expected iAmSeeing insteadOf contextHints =
   let
-    (actualDoc, expectedDoc, problems) =
-      T.toComparison localizer actual expected
+    (actualDoc, expectedDoc, maybeRecordDiff, problems) =
+      Ext.Type.Error.toComparison localizer actual expected
   in
   D.stack $
     [ D.reflow iAmSeeing
@@ -187,11 +187,81 @@ typeComparison localizer actual expected iAmSeeing insteadOf contextHints =
     ++ problemsToHint problems
 
 
+
+{-
+
+We have 2 situations.
+
+1. We show both the actual and expected types.  However, this can get incredibly verbose when we're showing records.ArgError
+2. In that case we can show the record diff directly.
+
+
+So, this function ha two modes, record diff and typecomparison.
+
+--- Type comparison example
+
+Something is off with the {thing}
+
+This X value is a:
+
+    {expected}
+
+But the type annotation on `{name}` says it should be:
+
+    {provided}
+
+{context}
+{hints}
+
+--- Record diff example
+
+Something is off with the {thing}
+
+    {recordDiff}
+
+{context}
+{hints}
+
+
+
+
+-}
+typeComparisonWithRecordDiff :: L.Localizer -> T.Type -> T.Type -> String -> String -> [D.Doc] -> D.Doc
+typeComparisonWithRecordDiff localizer actual expected iAmSeeing insteadOf contextHints =
+  let
+    (actualDoc, expectedDoc, maybeRecordDiff, problems) =
+      Ext.Type.Error.toComparison localizer actual expected
+  in
+  case maybeRecordDiff of
+    Just recordDiff ->
+      let
+        recordDiffDoc = Ext.Type.Error.renderRecordDiff localizer recordDiff
+      in
+      D.vcat $
+        [ D.fromChars ""
+        , recordDiffDoc
+        ]
+        ++ contextHints
+        ++ problemsToHint problems
+
+
+    Nothing ->
+      D.stack $
+        [ D.reflow iAmSeeing
+        , D.indent 4 actualDoc
+        , D.reflow insteadOf
+        , D.indent 4 expectedDoc
+        ]
+        ++ contextHints
+        ++ problemsToHint problems
+
+
+
 loneType :: L.Localizer -> T.Type -> T.Type -> D.Doc -> [D.Doc] -> D.Doc
 loneType localizer actual expected iAmSeeing furtherDetails =
   let
-    (actualDoc, _, problems) =
-      T.toComparison localizer actual expected
+    (actualDoc, _, _, problems) =
+      Ext.Type.Error.toComparison localizer actual expected
   in
   D.stack $
     [ iAmSeeing
@@ -229,7 +299,7 @@ addCategory thisIs category =
         OpName _ -> thisIs <> ":"
 
 
-problemsToHint :: [T.Problem] -> [D.Doc]
+problemsToHint :: [Ext.Type.Error.Problem] -> [D.Doc]
 problemsToHint problems =
   case problems of
     [] ->
@@ -239,10 +309,10 @@ problemsToHint problems =
       problemToHint problem
 
 
-problemToHint :: T.Problem -> [D.Doc]
+problemToHint :: Ext.Type.Error.Problem -> [D.Doc]
 problemToHint problem =
   case problem of
-    T.IntFloat ->
+    Ext.Type.Error.IntFloat ->
       [ D.fancyLink "Note" ["Read"] "implicit-casts"
           ["to","learn","why","Elm","does","not","implicitly","convert"
           ,"Ints","to","Floats.","Use",D.green "toFloat","and"
@@ -250,41 +320,41 @@ problemToHint problem =
           ]
       ]
 
-    T.StringFromInt ->
+    Ext.Type.Error.StringFromInt ->
       [ D.toFancyHint
           ["Want","to","convert","an","Int","into","a","String?"
           ,"Use","the",D.green "String.fromInt","function!"
           ]
       ]
 
-    T.StringFromFloat ->
+    Ext.Type.Error.StringFromFloat ->
       [ D.toFancyHint
           ["Want","to","convert","a","Float","into","a","String?"
           ,"Use","the",D.green "String.fromFloat","function!"
           ]
       ]
 
-    T.StringToInt ->
+    Ext.Type.Error.StringToInt ->
       [ D.toFancyHint
           ["Want","to","convert","a","String","into","an","Int?"
           ,"Use","the",D.green "String.toInt","function!"
           ]
       ]
 
-    T.StringToFloat ->
+    Ext.Type.Error.StringToFloat ->
       [ D.toFancyHint
           ["Want","to","convert","a","String","into","a","Float?"
           ,"Use","the",D.green "String.toFloat","function!"
           ]
       ]
 
-    T.AnythingToBool ->
+    Ext.Type.Error.AnythingToBool ->
       [ D.toSimpleHint $
           "Elm does not have “truthiness” such that ints and strings and lists\
           \ are automatically converted to booleans. Do that conversion explicitly!"
       ]
 
-    T.AnythingFromMaybe ->
+    Ext.Type.Error.AnythingFromMaybe ->
       [ D.toFancyHint
           ["Use",D.green "Maybe.withDefault","to","handle","possible","errors."
           ,"Longer","term,","it","is","usually","better","to","write","out","the"
@@ -292,7 +362,7 @@ problemToHint problem =
           ]
       ]
 
-    T.ArityMismatch x y ->
+    Ext.Type.Error.ArityMismatch x y ->
       [ D.toSimpleHint $
           if x < y then
             "It looks like it takes too few arguments. I was expecting " ++ show (y - x) ++ " more."
@@ -300,7 +370,7 @@ problemToHint problem =
             "It looks like it takes too many arguments. I see " ++ show (x - y) ++ " extra."
       ]
 
-    T.BadFlexSuper direction super _ tipe ->
+    Ext.Type.Error.BadFlexSuper direction super _ tipe ->
       case tipe of
         T.Lambda _ _ _   -> badFlexSuper direction super tipe
         T.Infinite       -> []
@@ -315,7 +385,7 @@ problemToHint problem =
         T.Tuple _ _ _    -> badFlexSuper direction super tipe
         T.Alias _ _ _ _  -> badFlexSuper direction super tipe
 
-    T.BadRigidVar x tipe ->
+    Ext.Type.Error.BadRigidVar x tipe ->
       case tipe of
         T.Lambda _ _ _   -> badRigidVar x "a function"
         T.Infinite       -> []
@@ -330,7 +400,7 @@ problemToHint problem =
         T.Tuple _ _ _    -> badRigidVar x "a tuple"
         T.Alias _ n _ _  -> badRigidVar x ("a `" ++ Name.toChars n ++ "` value")
 
-    T.BadRigidSuper super x tipe ->
+    Ext.Type.Error.BadRigidSuper super x tipe ->
       case tipe of
         T.Lambda _ _ _   -> badRigidSuper super "a function"
         T.Infinite       -> []
@@ -345,7 +415,7 @@ problemToHint problem =
         T.Tuple _ _ _    -> badRigidSuper super "a tuple"
         T.Alias _ n _ _  -> badRigidSuper super ("a `" ++ Name.toChars n ++ "` value")
 
-    T.FieldsMissing fields ->
+    Ext.Type.Error.FieldsMissing fields ->
       case map (D.green . D.fromName) fields of
         [] ->
           []
@@ -360,7 +430,7 @@ problemToHint problem =
           ]
 
 
-    T.FieldTypo typo possibilities ->
+    Ext.Type.Error.FieldTypo typo possibilities ->
       case Suggest.sort (Name.toChars typo) Name.toChars possibilities of
         [] ->
           []
@@ -416,7 +486,7 @@ toASuperThing super =
 -- BAD SUPER HINTS
 
 
-badFlexSuper :: T.Direction -> T.Super -> T.Type -> [D.Doc]
+badFlexSuper :: Ext.Type.Error.Direction -> T.Super -> T.Type -> [D.Doc]
 badFlexSuper direction super tipe =
   case super of
     T.Comparable ->
@@ -455,11 +525,11 @@ badFlexSuper direction super tipe =
       case tipe of
         T.Type home name _ | T.isString home name ->
           case direction of
-            T.Have ->
+            Ext.Type.Error.Have ->
               [ D.toFancyHint ["Try","using",D.green "String.fromInt","to","convert","it","to","a","string?"]
               ]
 
-            T.Need ->
+            Ext.Type.Error.Need ->
               [ D.toFancyHint ["Try","using",D.green "String.toInt","to","convert","it","to","an","integer?"]
               ]
 
@@ -514,7 +584,7 @@ toExprReport source localizer exprRegion category tipe expected =
       Report.Report "TYPE MISMATCH" exprRegion [] $
         Ext.Reporting.Render.Code.toSnippet source exprRegion Nothing
           ( "This expression is being used in an unexpected way:"
-          , typeComparison localizer tipe expectedType
+          , typeComparisonWithRecordDiff localizer tipe expectedType
               (addCategory "It is" category)
               "But you are trying to use it as:"
               []
@@ -535,9 +605,9 @@ toExprReport source localizer exprRegion category tipe expected =
             TypedBody             -> "The body is"
       in
       Report.Report "TYPE MISMATCH" exprRegion [] $
-        Ext.Reporting.Render.Code.toSnippet source exprRegion Nothing $
+        Ext.Reporting.Render.Code.toSnippet source exprRegion Nothing
           ( D.reflow ("Something is off with the " <> thing)
-          , typeComparison localizer tipe expectedType
+          , typeComparisonWithRecordDiff localizer tipe expectedType
               (addCategory itIs category)
               ("But the type annotation on `" <> Name.toChars name <> "` says it should be:")
               []
@@ -549,7 +619,7 @@ toExprReport source localizer exprRegion category tipe expected =
           Report.Report "TYPE MISMATCH" exprRegion [] $
             Ext.Reporting.Render.Code.toSnippet source region maybeHighlight
               ( D.reflow problem
-              , typeComparison localizer tipe expectedType (addCategory thisIs category) insteadOf furtherDetails
+              , typeComparisonWithRecordDiff localizer tipe expectedType (addCategory thisIs category) insteadOf furtherDetails
               )
 
         badType (maybeHighlight, problem, thisIs, furtherDetails) =
@@ -962,8 +1032,8 @@ opRightToDocs localizer category op tipe expected =
       case (tipe, expected) of
         (T.Lambda expectedArgType _ _, T.Lambda argType _ _) ->
           EmphRight
-            ( D.reflow $ "This function cannot handle the argument sent through the (|>) pipe:"
-            , typeComparison localizer argType expectedArgType
+            ( D.reflow "This function cannot handle the argument sent through the (|>) pipe:"
+            , typeComparisonWithRecordDiff localizer argType expectedArgType
                 "The argument is:"
                 "But (|>) is piping it to a function that expects:"
                 []
@@ -971,7 +1041,7 @@ opRightToDocs localizer category op tipe expected =
 
         _ ->
           EmphRight
-            ( D.reflow $ "The right side of (|>) needs to be a function so I can pipe arguments to it!"
+            ( D.reflow "The right side of (|>) needs to be a function so I can pipe arguments to it!"
             , loneType localizer tipe expected
                 (D.reflow (addCategory "But instead of a function, I am seeing" category))
                 []
@@ -986,7 +1056,7 @@ badOpRightFallback localizer category op tipe expected =
   EmphRight
     ( D.reflow $
         "The right argument of (" <> Name.toChars op <> ") is causing problems."
-    , typeComparison localizer tipe expected
+    , typeComparisonWithRecordDiff localizer tipe expected
         (addCategory "The right argument is" category)
         ("But (" <> Name.toChars op <> ") needs the right argument to be:")
         [ D.toSimpleHint $
@@ -1180,7 +1250,7 @@ badAppendRight localizer category tipe expected =
 
     (_,_) ->
       EmphBoth
-        ( D.reflow $
+        ( D.reflow
             "The (++) operator cannot append these two values:"
         , typeComparison localizer expected tipe
             "I already figured out that the left side of (++) is:"
@@ -1412,11 +1482,9 @@ badCompLeft localizer category op direction tipe expected =
 badCompRight :: L.Localizer -> String -> T.Type -> T.Type -> RightDocs
 badCompRight localizer op tipe expected =
   EmphBoth
-    (
-      D.reflow $
+    ( D.reflow $
         "I need both sides of (" <> op <> ") to be the same type:"
-    ,
-      typeComparison localizer expected tipe
+    , typeComparison localizer expected tipe
         ("The left side of (" <> op <> ") is:")
         "But the right side is:"
         [ D.reflow $
@@ -1432,11 +1500,9 @@ badCompRight localizer op tipe expected =
 badEquality :: L.Localizer -> String -> T.Type -> T.Type -> RightDocs
 badEquality localizer op tipe expected =
   EmphBoth
-    (
-      D.reflow $
+    ( D.reflow $
         "I need both sides of (" <> op <> ") to be the same type:"
-    ,
-      typeComparison localizer expected tipe
+    , typeComparison localizer expected tipe
         ("The left side of (" <> op <> ") is:")
         "But the right side is:"
         [ if isFloat tipe || isFloat expected then

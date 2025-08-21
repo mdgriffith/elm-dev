@@ -267,10 +267,7 @@ renderBlock isFirst header entries renderEntry =
     _  ->
       let
         headerDoc =
-          if isFirst then
             "  -- " <> header
-          else
-            "\n  -- " <> header
 
         foldEntry (firstSoFar, acc) entry =
           let (firstLine, restLines) = renderEntry entry
@@ -284,7 +281,7 @@ renderBlock isFirst header entries renderEntry =
       ( isFirst || not (null entries), headerDoc : entryDocs )
 
 
-renderRecordDiff :: L.Localizer -> RecordDiff -> [D.Doc]
+renderRecordDiff :: L.Localizer -> RecordDiff -> D.Doc
 renderRecordDiff localizer diff =
   let
     opening =
@@ -309,13 +306,13 @@ renderRecordDiff localizer diff =
       )
 
     (_firstAfterIncorrect, incorrectBlock) =
-      renderBlock firstAfterUnexpected "incorrect" (incorrect diff) (\(fname, IncorrectField expectedT providedT) ->
+      renderBlock firstAfterUnexpected "found" (incorrect diff) (\(fname, IncorrectField expectedT providedT) ->
         let
           {-
           If the fieldname is shorter than `--expected`
             ```
-            fieldname   :   ProvidedTyoe
-            -- expected :  ExpectedType
+            fieldname   : ProvidedTyoe
+            -- expected : ExpectedType
             ```
 
             If fieldname is longer
@@ -327,20 +324,15 @@ renderRecordDiff localizer diff =
            
            -}
           fieldChars = Name.toChars fname
-          fieldLen = length fieldChars
-          labelPre = "-- expected"
-          labelLen = length labelPre
-          targetWidth = max fieldLen labelLen
-          padRight = replicate (targetWidth - fieldLen) ' '
-          leftPad = replicate (targetWidth - labelLen) ' '   
+       
         in
         ( D.fromChars fieldChars
-              <> D.fromChars padRight
-              <> " :  "
+              <> " : "
               <> toDoc localizer RT.None providedT
-        , [ D.fromChars leftPad
-              <> D.fromChars labelPre
-              <> " :  "
+        , [ D.fromChars ""
+          , D.fromChars "-- expected"
+          , D.fromChars fieldChars
+              <> " : "
               <> toDoc localizer RT.None expectedT
           ]
         )
@@ -348,11 +340,10 @@ renderRecordDiff localizer diff =
 
     closeBrace = [ "}" ]
   in
-  opening
-    ++ missingBlock
-    ++ unexpectedBlock
-    ++ incorrectBlock
-    ++ closeBrace
+  D.vcat $
+    opening
+        ++ [ D.indent 2 (D.vcat (missingBlock ++ unexpectedBlock ++ incorrectBlock)) ]
+        ++ closeBrace
 
 
 toDiff :: L.Localizer -> RT.Context -> Type -> Type -> Diff D.Doc
