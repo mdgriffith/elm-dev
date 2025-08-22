@@ -1,0 +1,5 @@
+[submodule "vendor/elm-format"]
+	path = vendor/elm-format
+	url = git@github.com:lamdera/elm-format.git
+
+
