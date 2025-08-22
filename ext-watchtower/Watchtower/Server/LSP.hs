@@ -25,6 +25,7 @@ import Data.Char (toLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding
+import qualified Ext.ElmFormat
 import qualified Ext.Common
 import qualified Ext.Dev
 import qualified Ext.FileCache
@@ -450,6 +451,24 @@ data InlayHintParams = InlayHintParams
   }
   deriving stock (Show, Eq, Generic)
 
+-- | Formatting options (subset of LSP options we care about)
+data FormattingOptions = FormattingOptions
+  { formattingOptionsTabSize :: Int,
+    formattingOptionsInsertSpaces :: Bool,
+    formattingOptionsTrimTrailingWhitespace :: Maybe Bool,
+    formattingOptionsInsertFinalNewline :: Maybe Bool,
+    formattingOptionsTrimFinalNewlines :: Maybe Bool
+  }
+  deriving stock (Show, Eq, Generic)
+
+-- | Document formatting request parameters
+data DocumentFormattingParams = DocumentFormattingParams
+  { documentFormattingParamsTextDocument :: TextDocumentIdentifier,
+    documentFormattingParamsOptions :: FormattingOptions,
+    documentFormattingParamsWorkDoneToken :: Maybe JSON.Value
+  }
+  deriving stock (Show, Eq, Generic)
+
 -- | Type hierarchy prepare request parameters
 data TypeHierarchyPrepareParams = TypeHierarchyPrepareParams
   { typeHierarchyPrepareParamsTextDocument :: TextDocumentIdentifier,
@@ -668,6 +687,8 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "codeLensParams", omitNothingFields = True} ''CodeLensParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "signatureHelpParams", omitNothingFields = True} ''SignatureHelpParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "inlayHintParams", omitNothingFields = True} ''InlayHintParams)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "formattingOptions", omitNothingFields = True} ''FormattingOptions)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "documentFormattingParams", omitNothingFields = True} ''DocumentFormattingParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "typeHierarchyPrepareParams", omitNothingFields = True} ''TypeHierarchyPrepareParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "documentDiagnosticParams", omitNothingFields = True} ''DocumentDiagnosticParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "codeLensResolveParams", omitNothingFields = True} ''CodeLensResolveParams)
@@ -1205,6 +1226,22 @@ errorToDiagnostics source err =
   let reports = Ext.Reporting.Error.toReports source err
   in map reportToDiagnostic (Data.NonEmptyList.toList reports)
 
+-- Convert an Elm region to an LSP range
+regionToRange :: Ann.Region -> Range
+regionToRange (Ann.Region start end) =
+  Range
+    { rangeStart = positionToLSPPosition start,
+      rangeEnd = positionToLSPPosition end
+    }
+
+-- Convert an Elm position to an LSP position (converting from 1-based to 0-based)
+positionToLSPPosition :: Ann.Position -> Position
+positionToLSPPosition (Ann.Position row col) =
+  Position
+    { positionLine = fromIntegral row - 1,
+      positionCharacter = fromIntegral col - 1
+    }
+
 -- | Convert a Report to an LSP Diagnostic
 reportToDiagnostic :: Reporting.Report.Report -> Diagnostic
 reportToDiagnostic (Reporting.Report.Report title region _suggestions message) =
@@ -1337,6 +1374,53 @@ handleSignatureHelp _state _signatureHelpParams = do
 
 
 
+-- | LSP TextEdit response item (range + newText)
+data TextEditResponse = TextEditResponse
+  { textEditResponseRange :: Range,
+    textEditResponseNewText :: Text
+  }
+  deriving stock (Show, Eq, Generic)
+
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "textEditResponse"} ''TextEditResponse)
+
+-- Full document formatting using elm-format
+handleDocumentFormatting :: Live.State -> DocumentFormattingParams -> IO (Either String [TextEditResponse])
+handleDocumentFormatting _state fmtParams = do
+  let uri = textDocumentIdentifierUri (documentFormattingParamsTextDocument fmtParams)
+  case uriToFilePath uri of
+    Nothing -> pure $ Left ("Failed to convert URI to file path: " ++ Text.unpack uri)
+    Just filePath -> do
+      -- Read latest content from the file cache (or disk)
+      bytes <- Ext.FileCache.readUtf8 filePath
+      let inputText = Data.Text.Encoding.decodeUtf8 bytes
+      -- Run formatter via local elm-format binary; on failure, return no edits
+      formatted_ <- Ext.ElmFormat.format inputText
+      case formatted_ of
+        Left _err -> pure $ Right []
+        Right formatted ->
+          if formatted == inputText
+            then pure $ Right []
+            else do
+              let (endLine, endChar) = fullDocumentEnd inputText
+                  fullRange = Range { rangeStart = Position 0 0
+                                    , rangeEnd = Position endLine endChar
+                                    }
+              pure $ Right [ TextEditResponse { textEditResponseRange = fullRange
+                                              , textEditResponseNewText = formatted
+                                              }
+                           ]
+  where
+    -- Compute end position (last line index and last character index) for full replacement
+    fullDocumentEnd :: Text -> (Int, Int)
+    fullDocumentEnd txt =
+      let ls = Text.lines txt in
+      case ls of
+        [] -> (0, 0)
+        _  -> let lastLineIndex = length ls - 1
+                  lastLineText = last ls
+              in ( lastLineIndex, Text.length lastLineText )
+
+
 handleCodeLens :: Live.State -> CodeLensParams -> IO (Either String [CodeLens])
 handleCodeLens state codeLensParams = do
   let uri = textDocumentIdentifierUri (codeLensParamsTextDocument codeLensParams)
@@ -1385,21 +1469,6 @@ warningToCodeLens localizer warning =
          ]
     _ -> []
 
--- Convert an Elm region to an LSP range
-regionToRange :: Ann.Region -> Range
-regionToRange (Ann.Region start end) =
-  Range
-    { rangeStart = positionToLSPPosition start,
-      rangeEnd = positionToLSPPosition end
-    }
-
--- Convert an Elm position to an LSP position (converting from 1-based to 0-based)
-positionToLSPPosition :: Ann.Position -> Position
-positionToLSPPosition (Ann.Position row col) =
-  Position
-    { positionLine = fromIntegral row - 1,
-      positionCharacter = fromIntegral col - 1
-    }
 
 handleCodeAction :: Live.State -> CodeActionParams -> IO (Either String [CodeAction])
 handleCodeAction _state _codeActionParams = do
@@ -1626,6 +1695,11 @@ serve state _emit req@(JSONRPC.Request _ reqId method params) = do
     -- https://code.visualstudio.com/api/language-extensions/programmatic-language-features#help-with-function-and-method-signatures
     "textDocument/signatureHelp" -> 
       handleLSPRequest reqId params "signatureHelp" (handleSignatureHelp state)
+
+    -- Document Formatting Provider: Format the entire file
+    -- Returns a list of TextEdits; typically a single full-document replacement
+    "textDocument/formatting" ->
+      handleLSPRequest reqId params "documentFormatting" (handleDocumentFormatting state)
 
     -- Code Lens Provider: Show inline actionable information
     -- Provides clickable links above code elements (e.g., "run test", "X references")
