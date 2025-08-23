@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 
-import { ElmFormatProvider, ElmRangeFormatProvider } from "./elmFormat";
 import * as log from "./utils/log";
 import * as VSCodeStyle from "./utils/vscodeColorPalette";
 import * as Watchtower from "./watchtower";
@@ -30,19 +29,6 @@ export async function activate(context: vscode.ExtensionContext) {
     // Continue with other functionality even if LSP fails
   }
 
-  // Elm Format (keep existing formatting functionality)
-  context.subscriptions.push(
-    vscode.languages.registerDocumentFormattingEditProvider(
-      ElmLanguage,
-      new ElmFormatProvider()
-    )
-  );
-  context.subscriptions.push(
-    vscode.languages.registerDocumentRangeFormattingEditProvider(
-      ElmLanguage,
-      new ElmRangeFormatProvider()
-    )
-  );
 
   /* 
       Keep existing Watchtower functionality alongside LSP
