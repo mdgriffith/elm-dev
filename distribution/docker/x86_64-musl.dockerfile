@@ -42,7 +42,7 @@ WORKDIR /elm-dev
 COPY elm-dev.cabal ./
 COPY cabal.project ./
 # COPY cabal.project.freeze ./
-# COPY vendor/elm-format vendor/elm-format
+COPY vendor/elm-format vendor/elm-format
 
 RUN cabal update
 

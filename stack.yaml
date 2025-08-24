@@ -14,6 +14,12 @@ extra-deps:
 - readable-0.3.1
 - fsnotify-0.4.1.0
 
+# Elm-format vendoring
+- 'vendor/elm-format/elm-format-markdown'
+- 'vendor/elm-format/elm-format-lib'
+- 'vendor/elm-format/avh4-lib'
+- 'vendor/elm-format'
+
 # Required to build on windows
 - regex-posix-0.96.0.1
 
