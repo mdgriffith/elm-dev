@@ -6,6 +6,9 @@ module Ext.Log
     , isActive
     , ifActive
     , Ext.Log.log
+    , TempChannel(..)
+    , logTemp
+    , logTempBytes
     , with
     , withAllBut
     , withPrintLockIf
@@ -21,6 +24,7 @@ import qualified Control.Monad as Monad
 import qualified Data.List as List
 import System.IO.Unsafe as Unsafe (unsafePerformIO)
 import qualified System.IO as IO
+import qualified Data.ByteString as BS
 
 {-|
 
@@ -183,7 +187,7 @@ withAllBut but io = do
 data PrintMode = StdOut | TempFile
 
 mode :: PrintMode
-mode = TempFile
+mode = StdOut
 
 log :: Flag -> String -> IO ()
 log flag message = do
@@ -205,6 +209,40 @@ log flag message = do
             putMVar printLock () -- Release the lock
     Nothing -> pure ()
 
+
+-- Always-on temp-file logging for binary-safe streams (e.g. LSP/MCP proxy)
+data TempChannel = TempLSP | TempMCP deriving (Eq)
+
+tempChannelPath :: TempChannel -> FilePath
+tempChannelPath chan =
+  case chan of
+    TempLSP -> "/tmp/elm-dev-lsp.log"
+    TempMCP -> "/tmp/elm-dev-mcp.log"
+
+-- String helper
+logTemp :: TempChannel -> String -> IO ()
+logTemp chan msg =
+  withMVar printLock (\_ -> do
+    handle <- IO.openFile (tempChannelPath chan) IO.AppendMode
+    IO.hSetBuffering handle IO.NoBuffering
+    IO.hPutStr handle msg
+    IO.hPutStr handle "\n"
+    IO.hFlush handle
+    IO.hClose handle
+  )
+
+-- ByteString (binary-safe) helper
+logTempBytes :: TempChannel -> BS.ByteString -> IO ()
+logTempBytes chan bytes =
+  withMVar printLock (\_ -> do
+    handle <- IO.openFile (tempChannelPath chan) IO.AppendMode
+    IO.hSetBinaryMode handle True
+    IO.hSetBuffering handle IO.NoBuffering
+    BS.hPut handle bytes
+    IO.hPutStr handle "\n"
+    IO.hFlush handle
+    IO.hClose handle
+  )
 
 
 

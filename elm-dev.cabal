@@ -255,6 +255,7 @@ Executable elm-dev
         Watchtower.Server.JSONRPC
         Watchtower.Server.MCP
         Watchtower.Server.LSP
+        Watchtower.Server.Daemon
 
         Watchtower.StaticAssets
         Watchtower.Test
@@ -382,3 +383,10 @@ Executable elm-dev
         websockets-snap,
         aeson,
         aeson-pretty
+
+    if os(windows)
+        Build-depends:
+            Win32
+    else
+        Build-depends:
+            unix

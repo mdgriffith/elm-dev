@@ -4,7 +4,7 @@ module Watchtower.Server.Run where
 
 import Control.Concurrent (forkIO)
 import qualified Control.Concurrent.STM as STM
-import Control.Exception (IOException, try)
+import Control.Exception (IOException, try, finally)
 import Control.Monad (forever, void)
 import Control.Monad.Trans (MonadIO (liftIO))
 import qualified Data.Aeson as JSON
@@ -21,9 +21,11 @@ import qualified Snap.Http.Server as Server
 import qualified Snap.Util.CORS as CORS
 import System.IO (hFlush, hPutStrLn, stderr, stdin, stdout)
 import Data.Char (toLower)
-import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import System.IO.Unsafe (unsafePerformIO)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar, modifyMVar_, readMVar)
+import qualified Network.Socket as Net
+import System.IO (Handle)
 import qualified System.IO as IO
+import System.IO.Unsafe (unsafePerformIO)
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -37,19 +39,28 @@ data Mode = StdIO | HTTP (Maybe Int)
 -- | Event emitter for sending server-initiated JSON-RPC notifications
 type EventEmitter = JSONRPC.EventEmitter
 
--- Global emitter for ad-hoc signals (set when the server starts)
-{-# NOINLINE globalEmitterRef #-}
-globalEmitterRef :: IORef (Maybe EventEmitter)
-globalEmitterRef = unsafePerformIO (newIORef Nothing)
+-- Global emitters list for ad-hoc signals (multiple listeners: LSP, MCP, SSE)
+{-# NOINLINE globalEmittersVar #-}
+globalEmittersVar :: MVar [EventEmitter]
+globalEmittersVar = unsafePerformIO (newMVar [])
+
+-- | Specialize try to IOException to avoid ambiguous types without ScopedTypeVariables
+tryIO :: IO a -> IO (Either IOException a)
+tryIO = try
+
+-- Register an emitter; returns an unregister action (currently no-op)
+registerEmitter :: EventEmitter -> IO (IO ())
+registerEmitter f = do
+  modifyMVar_ globalEmittersVar (\fs -> pure (f : fs))
+  -- TODO: implement proper unregister by identity; for now it's a no-op
+  pure (pure ())
 
 -- | Emit a server-initiated notification from anywhere
 emit :: JSONRPC.Outbound -> IO ()
 emit notif = do
   Ext.Log.log Ext.Log.LSP $ "Emitting notification: " ++ outboudnName notif
-  maybeEmit <- readIORef globalEmitterRef
-  case maybeEmit of
-    Just f -> f notif
-    Nothing -> pure ()
+  emitters <- readMVar globalEmittersVar
+  mapM_ (\f -> f notif) emitters
 
 outboudnName :: JSONRPC.Outbound -> String
 outboudnName (JSONRPC.OutboundNotification (JSONRPC.Notification _ method _)) = "notification: " ++ T.unpack method
@@ -65,6 +76,110 @@ run state mode handler notificationHandler =
       Ext.Common.atomicPutStrLn $ "elm-dev is now running at http://localhost:" ++ show port
       Server.httpServe (config port debug) $
         runHttp state handler notificationHandler
+
+-- | Read a JSON-RPC message framed with Content-Length from a Handle
+readHandleMessage :: Handle -> IO (Maybe LBS.ByteString)
+readHandleMessage h = do
+  let loop accLen = do
+        eof <- IO.hIsEOF h
+        if eof
+          then pure accLen
+          else do
+            line <- IO.hGetLine h
+            let clean = filter (/= '\r') line
+            if clean == ""
+              then pure accLen
+              else case parseContentLength clean of
+                     Just n -> loop (Just n)
+                     Nothing -> loop accLen
+  mLen <- loop Nothing
+  case mLen of
+    Nothing -> pure Nothing
+    Just contentLength -> do
+      content <- LBS.hGet h contentLength
+      pure (Just content)
+
+-- | Send JSON-RPC message with Content-Length header to a Handle
+sendWithContentLengthHandle :: Handle -> LBS.ByteString -> IO ()
+sendWithContentLengthHandle h content = do
+  let contentLength = LBS.length content
+  IO.hPutStr h ("Content-Length: " ++ show contentLength ++ "\r\n")
+  IO.hPutStr h "\r\n"
+  LBS.hPut h content
+  IO.hFlush h
+
+-- | Send JSON-RPC message with Content-Length header to a Handle using a lock
+sendWithContentLengthHandleLocked :: MVar () -> Handle -> LBS.ByteString -> IO ()
+sendWithContentLengthHandleLocked lock h content = do
+  let contentLength = LBS.length content
+  withMVar lock $ \_ -> do
+    IO.hPutStr h ("Content-Length: " ++ show contentLength ++ "\r\n")
+    IO.hPutStr h "\r\n"
+    LBS.hPut h content
+    IO.hFlush h
+
+-- | Run JSON-RPC server over TCP on the given host and port (127.0.0.1 recommended)
+runTcp :: Live.State -> Handler -> NotificationHandler -> String -> Int -> IO ()
+runTcp state handler notificationHandler host port = do
+  addrInfos <- Net.getAddrInfo (Just (Net.defaultHints { Net.addrFlags = [Net.AI_PASSIVE] })) (Just host) (Just (show port))
+  let serverAddr = head addrInfos
+  bracketedSocket serverAddr $ \sock -> do
+    Net.setSocketOption sock Net.ReuseAddr 1
+    Net.bind sock (Net.addrAddress serverAddr)
+    Net.listen sock 5
+    forever $ do
+      (conn, _peer) <- Net.accept sock
+      void $ forkIO $ do
+        h <- Net.socketToHandle conn IO.ReadWriteMode
+        IO.hSetBuffering h IO.NoBuffering
+        writeLock <- newMVar ()
+        eventsChan <- STM.newTChanIO :: IO (STM.TChan JSONRPC.Outbound)
+        let emitEvent :: EventEmitter
+            emitEvent notif = STM.atomically (STM.writeTChan eventsChan notif)
+        _ <- registerEmitter emitEvent
+        -- Forward events to this TCP connection
+        _ <- forkIO $ forever $ do
+          outbound <- STM.atomically (STM.readTChan eventsChan)
+          let msg = case outbound of
+                      JSONRPC.OutboundNotification notif -> JSON.encode (JSONRPC.NotificationMessage notif)
+                      JSONRPC.OutboundRequest method params -> JSON.encode (JSONRPC.NotificationMessage (JSONRPC.Notification "2.0" method params))
+          ok <- tryIO (sendWithContentLengthHandleLocked writeLock h msg)
+          case ok of
+            Left _ -> IO.hClose h
+            Right _ -> pure ()
+        -- Main read loop per connection
+        let loop = do
+              maybeMessage <- readHandleMessage h
+              case maybeMessage of
+                Nothing -> pure ()
+                Just bytes -> do
+                  case JSON.eitherDecode bytes of
+                    Left err -> do
+                      let errorResponse = JSON.encode (JSONRPC.parseError (T.pack err))
+                      _ <- tryIO (sendWithContentLengthHandleLocked writeLock h errorResponse)
+                      loop
+                    Right jsonMsg -> do
+                      case jsonMsg of
+                        JSONRPC.RequestMessage req -> do
+                          response <- handleRequest state emitEvent handler req
+                          _ <- tryIO (sendWithContentLengthHandleLocked writeLock h (JSON.encode response))
+                          loop
+                        JSONRPC.NotificationMessage notif -> do
+                          notificationHandler state emitEvent notif
+                          loop
+                        JSONRPC.ResponseMessage _ -> loop
+                        JSONRPC.ErrorMessage _ -> loop
+        loop `finally` IO.hClose h
+
+-- Small helper: manage socket lifetime
+bracketedSocket :: Net.AddrInfo -> (Net.Socket -> IO a) -> IO a
+bracketedSocket addr action = do
+  sock <- Net.socket (Net.addrFamily addr) Net.Stream Net.defaultProtocol
+  res <- tryIO (action sock)
+  Net.close sock
+  case res of
+    Left _ -> ioError (userError "TCP server error")
+    Right v -> pure v
 
 config :: Int -> Bool -> Server.Config Snap a
 config port isDebug =
@@ -161,8 +276,8 @@ runStdIO state handler notificationHandler = do
   let emitEvent :: EventEmitter
       emitEvent notif = STM.atomically (STM.writeTChan eventsChan notif)
 
-  -- Expose global emitter for ad-hoc signals
-  writeIORef globalEmitterRef (Just emitEvent)
+  -- Register emitter for ad-hoc signals
+  _ <- registerEmitter emitEvent
 
   _ <- forkIO $ forever $ do
     outbound <- STM.atomically (STM.readTChan eventsChan)
@@ -208,8 +323,8 @@ runHttp state handler notificationHandler = do
   let emitEvent :: EventEmitter
       emitEvent notif = STM.atomically (STM.writeTChan eventsChan notif)
 
-  -- Expose global emitter for ad-hoc signals
-  liftIO $ writeIORef globalEmitterRef (Just emitEvent)
+  -- Register emitter for ad-hoc signals
+  _ <- liftIO $ registerEmitter emitEvent
 
   route [("", jsonRPCHandler emitEvent), ("/events", sseHandler eventsChan)]
   where

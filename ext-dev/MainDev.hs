@@ -69,6 +69,11 @@ import qualified Watchtower.Server
 import qualified Watchtower.Server.LSP
 import qualified Watchtower.Server.MCP
 import qualified Watchtower.Server.Run
+import qualified Watchtower.Server.Daemon as Daemon
+import qualified Network.Socket as Net
+import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay)
+import qualified Control.Exception as Exception
+import qualified Text.Read as Read
 
 parseModuleList :: String -> Maybe (NE.List Elm.ModuleName.Raw)
 parseModuleList str = case Data.Maybe.catMaybes $ fmap parseElmModule (splitOn ',' str) of
@@ -118,45 +123,114 @@ serverCommand = CommandParser.command ["server"] "Start the Elm Dev server" devG
     portFlag = CommandParser.flagWithArg "port" "Port to run the server on" Text.Read.readMaybe
     parseServerFlags = CommandParser.parseFlag portFlag
     runServer _ maybePort = do
-      Ext.CompileMode.setModeMemory
+      -- Ext.CompileMode.setModeMemory
       -- Ext.CompileMode.setModeDisk
       Ext.Log.withAllBut [Ext.Log.Performance] $ Watchtower.Server.serve Nothing (Watchtower.Server.Flags maybePort)
 
 mcpCommand :: CommandParser.Command
 mcpCommand = CommandParser.command ["mcp"] "Start the Elm Dev MCP server" devGroup CommandParser.noArg parseServerFlags runServer
   where
-    useHttpFlag = CommandParser.flag "http" "Use HTTP instead of stdio"
-    parseServerFlags = CommandParser.parseFlag useHttpFlag
-    runServer _ maybeUseHttp = do
-      Ext.CompileMode.setModeMemory
-      liveState <- Watchtower.Live.init
-      Ext.Log.withAllBut [Ext.Log.Performance] $
-        Watchtower.Server.Run.run
-          liveState
-          ( if Ext.Common.withDefault False maybeUseHttp
-              then Watchtower.Server.Run.HTTP Nothing
-              else Watchtower.Server.Run.StdIO
-          )
-          Watchtower.Server.MCP.serve
-          (\_ _ _ -> return ()) -- MCP doesn't need notification handling
+    parseServerFlags = CommandParser.noFlag
+    runServer _ _ = do
+      -- Ext.CompileMode.setModeMemory
+      _state <- Daemon.ensureRunning
+      proxyStdioToTcp Ext.Log.TempMCP "127.0.0.1" (Daemon.mcpPort _state)
 
 lspCommand :: CommandParser.Command
 lspCommand = CommandParser.command ["lsp"] "Start the Elm Dev LSP server" devGroup CommandParser.noArg parseServerFlags runServer
   where
-    useHttpFlag = CommandParser.flag "http" "Use HTTP instead of stdio"
-    parseServerFlags = CommandParser.parseFlag useHttpFlag
-    runServer _ maybeUseHttp = do
+    parseServerFlags = CommandParser.noFlag
+    runServer _ _ = do
       Ext.CompileMode.setModeMemory
-      liveState <- Watchtower.Live.init
-      Ext.Log.withAllBut [Ext.Log.Performance] $
-        Watchtower.Server.Run.run
-          liveState
-          ( if Ext.Common.withDefault False maybeUseHttp
-              then Watchtower.Server.Run.HTTP Nothing
-              else Watchtower.Server.Run.StdIO
-          )
-          Watchtower.Server.LSP.serve
-          Watchtower.Server.LSP.handleNotification
+      _state <- Daemon.ensureRunning
+      proxyStdioToTcp Ext.Log.TempLSP "127.0.0.1" (Daemon.lspPort _state)
+
+-- | Transparent stdio <-> TCP proxy; no protocol logic, binary-safe
+proxyStdioToTcp :: Ext.Log.TempChannel -> String -> Int -> IO ()
+proxyStdioToTcp chan host port = do
+  let attempts = 50
+  let backoffUs = 100000 -- 100ms
+  let connectWithRetry n = do
+        addrs <- Net.getAddrInfo Nothing (Just host) (Just (show port))
+        let serverAddr = head addrs
+        sock <- Net.socket (Net.addrFamily serverAddr) Net.Stream Net.defaultProtocol
+        result <- Exception.try (Net.connect sock (Net.addrAddress serverAddr)) :: IO (Either IOError ())
+        case result of
+          Right _ -> pure sock
+          Left _ -> do
+            Net.close sock
+            if n <= 0 then ioError (userError "daemon LSP not accepting connections") else do
+              threadDelay backoffUs
+              connectWithRetry (n - 1)
+  sock <- connectWithRetry attempts
+  h <- Net.socketToHandle sock IO.ReadWriteMode
+  IO.hSetBinaryMode h True
+  IO.hSetBuffering h IO.NoBuffering
+  IO.hSetBinaryMode IO.stdin True
+  IO.hSetBinaryMode IO.stdout True
+  done <- newEmptyMVar
+  _ <- forkIO $ do
+    let loop = do
+          chunk <- BS.hGetSome IO.stdin 4096
+          if BS.null chunk then putMVar done () else do
+            Ext.Log.logTempBytes chan chunk
+            BS.hPut h chunk
+            IO.hFlush h
+            loop
+    loop
+  _ <- forkIO $ do
+    let loop = do
+          chunk <- BS.hGetSome h 4096
+          if BS.null chunk then putMVar done () else do
+            Ext.Log.logTempBytes chan chunk
+            BS.hPut IO.stdout chunk
+            IO.hFlush IO.stdout
+            loop
+    loop
+  _ <- takeMVar done
+  IO.hClose h
+
+-- Daemon commands
+daemonServeCommand :: CommandParser.Command
+daemonServeCommand = CommandParser.command ["daemon","serve"] "Run the Elm Dev daemon (internal)" devGroup parseArgs parseFlags runCmd
+  where
+    parseArgs = CommandParser.noArg
+    parseFlags = CommandParser.noFlag
+    runCmd _ _ = do
+      Daemon.serve
+
+daemonStartCommand :: CommandParser.Command
+daemonStartCommand = CommandParser.command ["daemon","start"] "Start daemon if not running" devGroup parseArgs parseFlags runCmd
+  where
+    parseArgs = CommandParser.noArg
+    parseFlags = CommandParser.noFlag
+    runCmd _ _ = do
+      _ <- Daemon.start
+      pure ()
+
+daemonStopCommand :: CommandParser.Command
+daemonStopCommand = CommandParser.command ["daemon","stop"] "Stop daemon" devGroup parseArgs parseFlags runCmd
+  where
+    parseArgs = CommandParser.noArg
+    parseFlags = CommandParser.noFlag
+    runCmd _ _ = do
+      Daemon.stop
+
+daemonStatusCommand :: CommandParser.Command
+daemonStatusCommand = CommandParser.command ["daemon","status"] "Show daemon status" devGroup parseArgs parseFlags runCmd
+  where
+    parseArgs = CommandParser.noArg
+    parseFlags = CommandParser.noFlag
+    runCmd _ _ = do
+      st <- Daemon.status
+      case st of
+        Nothing -> IO.hPutStrLn IO.stderr "daemon: not running"
+        Just s -> LBSChar.putStrLn (Data.ByteString.Builder.toLazyByteString (Json.Encode.encodeUgly (Json.Encode.object [
+                    ("pid" ==> Json.Encode.int (Daemon.pid s)),
+                    ("lspPort" ==> Json.Encode.int (Daemon.lspPort s)),
+                    ("mcpPort" ==> Json.Encode.int (Daemon.mcpPort s)),
+                    ("httpPort" ==> Json.Encode.int (Daemon.httpPort s)),
+                    ("version" ==> Json.Encode.string (Json.String.fromChars (Daemon.version s)))])))
 
 docsCommand :: CommandParser.Command
 docsCommand = CommandParser.command ["inspect", "docs"] "Report the docs.json" inspectGroup parseDocsArgs parseDocsFlags runDocs
@@ -416,6 +490,10 @@ main = do
       Gen.Commands.customize,
       serverCommand,
       mcpCommand,
+      daemonServeCommand,
+      daemonStartCommand,
+      daemonStopCommand,
+      daemonStatusCommand,
       lspCommand,
       entrypointsCommand,
       docsCommand,
