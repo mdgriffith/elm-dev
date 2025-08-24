@@ -21,8 +21,8 @@ import qualified Debug.Trace
 
 
 
-unusedWarnings :: Src.Module -> Can.Module -> Interfaces -> [Warning.Warning]
-unusedWarnings srcModule canModule interfaces =
+unusedWarnings :: Src.Module -> Can.Module -> [Warning.Warning]
+unusedWarnings srcModule canModule =
     let 
         (Can.Module _ exports _ decls _ _ _ _) = canModule
 
@@ -104,7 +104,7 @@ addAliasesToType canModule interfaces canType =
             Can.TTuple 
                 (addAliasesToType canModule interfaces one) 
                 (addAliasesToType canModule interfaces two)
-                (Just ((addAliasesToType canModule interfaces three)))
+                (Just (addAliasesToType canModule interfaces three))
 
         Can.TAlias moduleName name vars (Can.Holey holeyType) ->
             canType
