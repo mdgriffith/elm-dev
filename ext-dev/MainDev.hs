@@ -70,6 +70,7 @@ import qualified Watchtower.Server.LSP
 import qualified Watchtower.Server.MCP
 import qualified Watchtower.Server.Run
 import qualified Watchtower.Server.Daemon as Daemon
+import qualified Ext.Test.Runner as TestRunner
 import qualified Network.Socket as Net
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay)
 import qualified Control.Exception as Exception
@@ -502,3 +503,19 @@ main = do
       usageCommand,
       explainCommand
     ]
+
+-- Test command
+testCommand :: CommandParser.Command
+testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tests" devGroup CommandParser.noArg parseFlags runCmd
+  where
+    parseFlags = CommandParser.noFlag
+    runCmd _ _ = do
+      Ext.CompileMode.setModeMemory
+      maybeRoot <- Stuff.findRoot
+      case maybeRoot of
+        Nothing -> IO.hPutStrLn IO.stderr "Could not find project root"
+        Just root -> do
+          result <- TestRunner.run root
+          case result of
+            Left err -> IO.hPutStrLn IO.stderr err
+            Right json -> LBSChar.putStrLn (Data.ByteString.Builder.toLazyByteString (Json.Encode.encodeUgly (Json.Encode.string (Json.String.fromChars json))))

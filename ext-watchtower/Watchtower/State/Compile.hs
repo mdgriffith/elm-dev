@@ -26,7 +26,7 @@ import qualified Reporting.Warning as Warning
 
 
 compile :: Client.State -> CompileHelpers.Flags -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compile state@(Client.State _ _ mFileInfo) flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo mCompileResult) files = do
+compile state@(Client.State _ _ mFileInfo) flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo mCompileResult _) files = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run
@@ -100,11 +100,11 @@ compileRelevantProjects state@(Client.State _ mProjects _) flags elmFiles = do
               STM.check (n == 0)
   where
     projectTouchesAny :: [FilePath] -> Client.ProjectCache -> Bool
-    projectTouchesAny paths (Client.ProjectCache proj _ _) =
+    projectTouchesAny paths (Client.ProjectCache proj _ _ _) =
       any (\p -> Ext.Dev.Project.contains p proj) paths
 
     compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO ()
-    compileProjectFiles paths projCache@(Client.ProjectCache proj _ _) = do
+    compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _) = do
       let projectFiles = List.filter (\p -> Ext.Dev.Project.contains p proj) paths
       _ <- compile state flags projCache projectFiles
       pure ()

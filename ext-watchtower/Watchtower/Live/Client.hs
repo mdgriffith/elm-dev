@@ -91,7 +91,8 @@ data State = State
 data ProjectCache = ProjectCache
   { project :: Ext.Dev.Project.Project,
     docsInfo :: Gen.Config.DocsConfig,
-    compileResult :: STM.TVar CompilationResult
+    compileResult :: STM.TVar CompilationResult,
+    testResults :: STM.TVar (Maybe TestResults)
   }
 
 data CompilationResult =
@@ -104,6 +105,8 @@ data Error
   | GenerationError String
 
 toOldJSON :: CompilationResult -> Json.Encode.Value
+toOldJSON NotCompiled =
+  Json.Encode.object ["compiled" ==> Json.Encode.bool False]
 toOldJSON (Success result) =
   Json.Encode.object ["compiled" ==> Json.Encode.bool True]
 toOldJSON (Error (ReactorError exit)) =
@@ -162,6 +165,7 @@ data Outgoing
   | Docs FilePath [Docs.Module]
   | EditorViewing [ViewingInEditorDetails]
   | EditorJumpTo FilePath Ann.Region
+  | Tests FilePath TestResults
 
 data ViewingInEditorDetails = ViewingInEditorDetails
   { _viewingFilepath :: FilePath,
@@ -230,7 +234,7 @@ getRootHelp :: FilePath -> [ProjectCache] -> Maybe FilePath -> Maybe [Char]
 getRootHelp path projects found =
   case projects of
     [] -> found
-    (ProjectCache project _ _) : remain ->
+    (ProjectCache project _ _ _) : remain ->
       if Ext.Dev.Project.contains path project
         then case found of
           Nothing ->
@@ -242,7 +246,7 @@ getRootHelp path projects found =
         else getRootHelp path remain found
 
 getProjectRoot :: ProjectCache -> FilePath
-getProjectRoot (ProjectCache proj _ _) =
+getProjectRoot (ProjectCache proj _ _ _) =
   Ext.Dev.Project.getRoot proj
 
 
@@ -255,7 +259,7 @@ data GetExistingProjectError
 -- Sorts projects by root path length, with shortest root first
 sortProjects :: [ProjectCache] -> [ProjectCache]
 sortProjects projects =
-  List.sortBy (\(ProjectCache p1 _ _) (ProjectCache p2 _ _) -> compare (List.length (Ext.Dev.Project._root p2)) (List.length (Ext.Dev.Project._root p1))) projects
+  List.sortBy (\(ProjectCache p1 _ _ _) (ProjectCache p2 _ _ _) -> compare (List.length (Ext.Dev.Project._root p2)) (List.length (Ext.Dev.Project._root p1))) projects
 
 getExistingProject :: FilePath -> State -> IO (Either GetExistingProjectError (ProjectCache, [ProjectCache]))
 getExistingProject path (State _ mProjects _) = do
@@ -263,14 +267,14 @@ getExistingProject path (State _ mProjects _) = do
   case projects of
     [] -> pure $ Left NoProjectsRegistered
     _ -> do
-      let containingProjects = List.filter (\(ProjectCache project _ _) -> Ext.Dev.Project.contains path project) projects
+      let containingProjects = List.filter (\(ProjectCache project _ _ _) -> Ext.Dev.Project.contains path project) projects
       pure $ case sortProjects containingProjects of
         [] -> Left (ProjectNotFound path)
         (first : rest) ->
           Right (first, rest)
 
 matchingProject :: ProjectCache -> ProjectCache -> Bool
-matchingProject (ProjectCache one _ _) (ProjectCache two _ _) =
+matchingProject (ProjectCache one _ _ _) (ProjectCache two _ _ _) =
   Ext.Dev.Project.equal one two
 
 getAllStatuses :: State -> IO [ProjectStatus]
@@ -288,7 +292,7 @@ getAllStatuses state@(State mClients mProjects _) =
       projects
 
 getStatus :: ProjectCache -> IO ProjectStatus
-getStatus (ProjectCache proj docsInfo mCompileResult) =
+getStatus (ProjectCache proj docsInfo mCompileResult _) =
   do
     result <- STM.readTVarIO mCompileResult
     let successful =
@@ -311,6 +315,8 @@ outgoingToLog outgoing =
       "EditorViewing"
     EditorJumpTo _ _ ->
       "EditorJumpTo"
+    Tests _ _ ->
+      "Tests"
 
 projectStatusToString :: ProjectStatus -> String
 projectStatusToString (ProjectStatus proj success json docs) =
@@ -407,6 +413,11 @@ encodeOutgoing out =
                 [ "path" ==> Json.Encode.string (Json.String.fromChars path),
                   "region" ==> Watchtower.Editor.encodeRegion region
                 ]
+          ]
+      Tests path results ->
+        Json.Encode.object
+          [ "msg" ==> Json.Encode.string (Json.String.fromChars "Tests"),
+            "details" ==> encodeTestResults path results
           ]
 
 {- Decoding -}
@@ -626,6 +637,9 @@ broadcast mClients msg =
           mClients
           (\client -> True)
           msg
+    Tests _ _ ->
+      do
+        broadcastToMany mClients (\_ -> True) msg
 
 -- Helper function to encode DocsConfig using Json.Encode functions
 -- Needs to be kept in sync with the values in Config
@@ -638,3 +652,21 @@ encodeDocsConfig (Gen.Config.DocsConfig modules guides interactive) =
         fmap (\g -> ("guides", Json.Encode.list (Json.Encode.string . Json.String.fromChars . T.unpack) g)) guides,
         fmap (\i -> ("interactive", Json.Encode.list (Json.Encode.string . Json.String.fromChars . T.unpack) i)) interactive
       ]
+
+-- Test results types and encoding
+data TestResults = TestResults
+  { _total :: Int
+  , _passed :: Int
+  , _failed :: Int
+  , _failures :: [String]
+  }
+
+encodeTestResults :: FilePath -> TestResults -> Json.Encode.Value
+encodeTestResults path (TestResults total passed failed failures) =
+  Json.Encode.object
+    [ "filepath" ==> Json.Encode.string (Json.String.fromChars path)
+    , "total" ==> Json.Encode.int total
+    , "passed" ==> Json.Encode.int passed
+    , "failed" ==> Json.Encode.int failed
+    , "failures" ==> Json.Encode.list Json.Encode.string (map Json.String.fromChars failures)
+    ]

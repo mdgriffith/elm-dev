@@ -226,6 +226,12 @@ Executable elm-dev
         Ext.VirtualFile
         Ext.CompileProxy
         Ext.CompileMode
+        Ext.Test.Discover
+        Ext.Test.Introspect
+        Ext.Test.Generate
+        Ext.Test.Compile
+        Ext.Test.Runner
+        Ext.Test.Templates.Loader
         Ext.MemoryCached.BackgroundWriter
         Ext.MemoryCached.Build
         Ext.MemoryCached.Details
