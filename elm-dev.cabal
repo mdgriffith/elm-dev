@@ -232,6 +232,9 @@ Executable elm-dev
         Ext.Test.Compile
         Ext.Test.Runner
         Ext.Test.Templates.Loader
+        Ext.Test.Install
+
+        -- 
         Ext.MemoryCached.BackgroundWriter
         Ext.MemoryCached.Build
         Ext.MemoryCached.Details

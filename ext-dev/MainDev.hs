@@ -71,6 +71,8 @@ import qualified Watchtower.Server.MCP
 import qualified Watchtower.Server.Run
 import qualified Watchtower.Server.Daemon as Daemon
 import qualified Ext.Test.Runner as TestRunner
+import qualified Ext.Test.Install as TestInstall
+import qualified Ext.Test.Templates.Loader as TestTemplates
 import qualified Network.Socket as Net
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay)
 import qualified Control.Exception as Exception
@@ -501,7 +503,9 @@ main = do
       warningsCommand,
       importsCommand,
       usageCommand,
-      explainCommand
+      explainCommand,
+      testInitCommand,
+      testCommand
     ]
 
 -- Test command
@@ -519,3 +523,30 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
           case result of
             Left err -> IO.hPutStrLn IO.stderr err
             Right json -> LBSChar.putStrLn (Data.ByteString.Builder.toLazyByteString (Json.Encode.encodeUgly (Json.Encode.string (Json.String.fromChars json))))
+
+
+-- elm-dev test init
+testInitCommand :: CommandParser.Command
+testInitCommand = CommandParser.command ["test","init"] "Initialize tests: install elm-explorations/test and add Example.elm" devGroup CommandParser.noArg parseFlags runCmd
+  where
+    parseFlags = CommandParser.noFlag
+    runCmd _ _ = do
+      Ext.CompileMode.setModeMemory
+      maybeRoot <- Stuff.findRoot
+      case maybeRoot of
+        Nothing -> IO.hPutStrLn IO.stderr "Could not find project root"
+        Just root -> do
+          -- Install elm-explorations/test into test-dependencies
+          result <- TestInstall.installTestDependency (Pkg.toName (Utf8.fromChars "elm-explorations") "test")
+          case result of
+            Left _ -> IO.hPutStrLn IO.stderr "Failed to install elm-explorations/test"
+            Right _ -> pure ()
+          -- Write tests/Example.elm if it does not exist
+          let testsDir = root Path.</> "tests"
+          Dir.createDirectoryIfMissing True testsDir
+          let examplePath = testsDir Path.</> "Example.elm"
+          exists <- Dir.doesFileExist examplePath
+          if exists
+            then pure ()
+            else BS.writeFile examplePath TestTemplates.exampleElm
+          putStrLn "\nCheck out the documentation for getting started at https://package.elm-lang.org/packages/elm-explorations/test/latest"

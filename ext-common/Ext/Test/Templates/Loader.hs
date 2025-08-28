@@ -2,6 +2,7 @@
 module Ext.Test.Templates.Loader
   ( runnerElm
   , runnerJs
+  , exampleElm
   ) where
 
 import qualified Data.ByteString as BS
@@ -17,5 +18,9 @@ runnerElm = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ex
 runnerJs :: BS.ByteString
 runnerJs = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "templates" </> "runner.js")) )
 
+
+
+exampleElm :: BS.ByteString
+exampleElm = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "templates" </> "Example.elm")) )
 
 
