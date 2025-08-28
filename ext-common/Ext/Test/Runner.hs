@@ -31,26 +31,26 @@ run root = do
     Ext.CompileMode.setModeMemory
     testFiles <- Discover.discoverTestFiles root
     Ext.Log.log Ext.Log.Test ("Found " <> show testFiles)
-    discoveryR <- TestCompile.compileForDiscovery root testFiles
-    case discoveryR of
-      Left err -> pure (Left (show err))
-      Right ifaces -> do
-        let tests = Introspect.findTests ifaces
-        _ <- Generate.writeAggregator root tests
-        let genDir = Generate.generatedDir root
-        Dir.createDirectoryIfMissing True genDir
-        let runnerPath = genDir `FP.combine` "Runner.elm"
-        BS.writeFile runnerPath Templates.runnerElm
-        compiledR <- TestCompile.compileRunner root [runnerPath]
-        case compiledR of
+    case testFiles of
+      [] -> pure (Left "Need at least one file")
+      (top:rest) -> do
+        discoveryR <- TestCompile.compileForDiscovery root (NE.List top rest)
+        case discoveryR of
           Left err -> pure (Left (show err))
-          Right _ -> pure (Right "{\"total\":0,\"passed\":0,\"failed\":0,\"failures\":[]}")
+          Right ifaces -> do
+            let tests = Introspect.findTests ifaces
+            _ <- Generate.writeAggregator root tests
+            let genDir = Generate.generatedDir root
+            Dir.createDirectoryIfMissing True genDir
+            let runnerPath = genDir `FP.combine` "Runner.elm"
+            BS.writeFile runnerPath Templates.runnerElm
+            compiledR <- TestCompile.compileRunner root (NE.List runnerPath [])
+            case compiledR of
+              Left err -> pure (Left (show err))
+              Right _ -> pure (Right "{\"total\":0,\"passed\":0,\"failed\":0,\"failures\":[]}")
 
 
-toNonEmpty :: [a] -> NE.List a
-toNonEmpty xs = case xs of
-  [] -> error "toNonEmpty called with empty list"
-  (y:ys) -> NE.List y ys
+ 
 
 
 
