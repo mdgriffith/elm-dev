@@ -41,6 +41,7 @@ data Flag
     | PerformanceTiming
     | Live
     | Questions
+    | Test
     | VerboseServer
     | MemoryCache
     | FileProxy
@@ -59,6 +60,7 @@ all =
     , PerformanceTiming
     , Live
     , Questions
+    , Test
     , VerboseServer
     , FileProxy
     , FileWatch
@@ -87,6 +89,9 @@ toString flag =
 
         Questions ->
             "ElmDevQuestions"
+
+        Test ->
+            "ElmDevTest"
 
         VerboseServer ->
             "ElmDevVerboseServer"
@@ -129,6 +134,9 @@ toLabel flag =
 
         Questions ->
             "❓"
+
+        Test ->
+            "🧪"
 
         VerboseServer ->
             "💁"

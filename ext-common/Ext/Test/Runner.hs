@@ -14,13 +14,14 @@ import qualified Ext.CompileMode
 import qualified Ext.Test.Discover as Discover
 import qualified Ext.Test.Introspect as Introspect
 import qualified Ext.Test.Generate as Generate
-import qualified Ext.MemoryCached.Details
-import qualified Ext.MemoryCached.Build
-import qualified Ext.CompileHelpers.Generic as CompileHelpers
+import qualified Ext.Test.Compile as TestCompile
 import qualified Reporting
 import qualified Reporting.Exit as Exit
 import qualified System.Directory as Dir
-
+import qualified System.FilePath as FP
+import qualified Data.ByteString as BS
+import qualified Ext.Test.Templates.Loader as Templates
+import qualified Ext.Log
 
 
 -- | Orchestrates discovery, aggregator generation, compilation. Returns JSON test result as a String.
@@ -29,26 +30,21 @@ run root = do
   BackgroundWriter.withScope $ \scope -> do
     Ext.CompileMode.setModeMemory
     testFiles <- Discover.discoverTestFiles root
-    -- Load details and build artifacts for tests to extract interfaces
-    detailsR <- Ext.MemoryCached.Details.load Reporting.silent scope root
-    case detailsR of
+    Ext.Log.log Ext.Log.Test ("Found " <> show testFiles)
+    discoveryR <- TestCompile.compileForDiscovery root testFiles
+    case discoveryR of
       Left err -> pure (Left (show err))
-      Right details -> do
-        artifactsR <- Ext.MemoryCached.Build.fromPathsMemoryCached (CompileHelpers.compilationModsFromFlags CompileHelpers.Dev) Reporting.silent root details (toNonEmpty testFiles)
-        case artifactsR of
-          Left buildErr -> pure (Left (show buildErr))
-          Right (artifacts, _fileInfo) -> do
-            -- Extract public interfaces for local modules
-            deps <- Ext.MemoryCached.Details.loadInterfaces root details
-            depsM <- MVar.readMVar deps
-            case depsM of
-              Nothing -> pure (Left "No interfaces available")
-              Just depIfaces -> do
-                let ifaces = CompileHelpers.toInterfaces depIfaces
-                let tests = Introspect.findTests ifaces
-                _ <- Generate.writeAggregator root tests
-                -- TODO: compile Runner.elm and execute with JS harness, parse JSON
-                pure (Right "{\"total\":0,\"passed\":0,\"failed\":0,\"failures\":[]}")
+      Right ifaces -> do
+        let tests = Introspect.findTests ifaces
+        _ <- Generate.writeAggregator root tests
+        let genDir = Generate.generatedDir root
+        Dir.createDirectoryIfMissing True genDir
+        let runnerPath = genDir `FP.combine` "Runner.elm"
+        BS.writeFile runnerPath Templates.runnerElm
+        compiledR <- TestCompile.compileRunner root [runnerPath]
+        case compiledR of
+          Left err -> pure (Left (show err))
+          Right _ -> pure (Right "{\"total\":0,\"passed\":0,\"failed\":0,\"failures\":[]}")
 
 
 toNonEmpty :: [a] -> NE.List a

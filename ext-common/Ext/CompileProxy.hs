@@ -6,6 +6,7 @@ module Ext.CompileProxy
     SingleFileResult (..),
     loadFileSource,
     loadCanonicalizeEnv,
+    allInterfaces,
     loadProject,
     allPackageArtifacts,
     parse,
