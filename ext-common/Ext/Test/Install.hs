@@ -50,16 +50,15 @@ makeAppPlan (Solver.Env cache _ connection registry) pkg outline@(Outline.AppOut
       result <- Task.io $ Solver.addToApp cache connection registry pkg outline
       case result of
         Solver.Ok (Solver.AppSolution _old new _appWithDeps) -> do
-          -- Move the newly added package from direct/indirect deps to test deps
-          let isNew name = Map.notMember name (Map.union direct indirect)
-          let testDirect' = Map.filterWithKey (\k _ -> isNew k) new
-          let depsDirect' = Map.filterWithKey (\k _ -> not (isNew k)) new
-          let depsTransitive' = Map.difference depsDirect' direct
+          -- Preserve existing normal deps exactly; only compute test maps.
+          -- Normal deps (direct/indirect) are NOT modified by installing a test dep.
+          let testDirectKept = Map.intersection new (Map.delete pkg testDirect)
+          let pkgVsn = new Map.! pkg
+          let testDirect = Map.insert pkg pkgVsn testDirectKept
+          --  Update the existing outline with the new test-dependencies
           let outline' = outline
-                { Outline._app_deps_direct = depsDirect'
-                , Outline._app_deps_indirect = depsTransitive'
-                , Outline._app_test_direct = Map.union testDirect testDirect'
-                , Outline._app_test_indirect = Map.difference new (Map.union depsDirect' (Map.union depsTransitive' (Map.union testDirect (Map.union testIndirect testDirect'))))
+                { Outline._app_test_direct = testDirect
+                , Outline._app_test_indirect =  Map.difference new (Map.unions [direct, indirect, testDirect])
                 }
           return (ChangesPlan (Outline.App outline'))
         Solver.NoSolution -> Task.throw (Exit.InstallNoOnlineAppSolution pkg)

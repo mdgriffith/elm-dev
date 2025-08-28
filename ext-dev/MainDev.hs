@@ -505,6 +505,7 @@ main = do
       usageCommand,
       explainCommand,
       testInitCommand,
+      testInstallCommand,
       testCommand
     ]
 
@@ -550,3 +551,28 @@ testInitCommand = CommandParser.command ["test","init"] "Initialize tests: insta
             then pure ()
             else BS.writeFile examplePath TestTemplates.exampleElm
           putStrLn "\nCheck out the documentation for getting started at https://package.elm-lang.org/packages/elm-explorations/test/latest"
+
+
+-- elm-dev test install <author/project>
+testInstallCommand :: CommandParser.Command
+testInstallCommand = CommandParser.command ["test","install"] "Install a package into test-dependencies" devGroup parseArgs parseFlags runCmd
+  where
+    parseArgs = CommandParser.parseArg (CommandParser.arg "author/project")
+    parseFlags = CommandParser.noFlag
+    runCmd pkgStr _ = do
+      Ext.CompileMode.setModeMemory
+      case parsePkgName pkgStr of
+        Nothing -> IO.hPutStrLn IO.stderr "Invalid package name. Expected author/project"
+        Just pkg -> do
+          result <- TestInstall.installTestDependency pkg
+          case result of
+            Left _ -> IO.hPutStrLn IO.stderr "Failed to install test dependency"
+            Right _ -> pure ()
+
+-- Helper: parse "author/project" into Pkg.Name
+parsePkgName :: String -> Maybe Pkg.Name
+parsePkgName str =
+  case break (== '/') str of
+    (author, '/':project) | not (null author) && not (null project) ->
+      Just (Pkg.toName (Utf8.fromChars author) project)
+    _ -> Nothing
