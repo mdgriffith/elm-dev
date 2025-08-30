@@ -20,7 +20,7 @@ aggregatorModuleName = "Everything"
 
 
 generatedDir :: FilePath -> FilePath
-generatedDir root = root `FP.combine` "elm-stuff" `FP.combine` "generated"
+generatedDir root = root `FP.combine` "elm-stuff" `FP.combine` "elm-dev-test"
 
 
 writeAggregator :: FilePath -> [(ModuleName.Raw, Name.Name)] -> IO FilePath
@@ -39,8 +39,8 @@ renderAggregator pairs =
       importLines = map (\m -> "import " <> m) imports
       refs = map (\(m,v) -> ModuleName.toChars m ++ "." ++ Name.toChars v) pairs
       body = case refs of
-        [] -> "Test.concat []"
-        _  -> "Test.concat [ " ++ List.intercalate ", " refs ++ " ]"
+        [] -> "[]"
+        _  -> "[ " ++ List.intercalate ", " refs ++ " ]"
       lines_ =
         [ "module " ++ aggregatorModuleName ++ " exposing (tests)"
         , ""
@@ -48,7 +48,7 @@ renderAggregator pairs =
         ]
         ++ importLines
         ++ [ ""
-           , "tests : Test"
+           , "tests : List Test"
            , "tests = " ++ body
            , ""
            ]

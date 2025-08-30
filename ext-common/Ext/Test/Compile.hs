@@ -21,12 +21,13 @@ import qualified System.Directory as Dir
 import System.FilePath ((</>))
 import qualified System.FilePath as FP
 import qualified Deps.Solver as Solver
+import qualified Ext.Test.Generate as Generate
 
 
 compileForDiscovery :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor (Map.Map ModuleName.Raw I.Interface))
 compileForDiscovery root entrypoints = do
   BackgroundWriter.withScope $ \scope -> do
-    let testRoot = root </> "elm-stuff" </> "elm-dev-test"
+    let testRoot = Generate.generatedDir root
     Dir.createDirectoryIfMissing True testRoot
     outlineR <- Outline.read root
     case outlineR of
@@ -111,7 +112,7 @@ writeTestElmJson testRoot (Outline.AppOutline _ srcDirs depsDirect depsIndirect 
           Outline.RelativeSrcDir dir -> Outline.RelativeSrcDir ("../../" </> dir)
   let newSrcDirsList = fmap rewriteSrcDir (NE.toList srcDirs)
                       ++ [ Outline.RelativeSrcDir ("../../" </> "tests")
-                         , Outline.RelativeSrcDir ("../../" </> "elm-stuff" </> "generated")
+                         , Outline.RelativeSrcDir (".")
                          ]
   let newSrcDirs = case newSrcDirsList of
         [] -> error "No source directories found in elm.json"
