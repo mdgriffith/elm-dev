@@ -8,15 +8,19 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
 import qualified Elm.Interface as I
 import qualified AST.Canonical as Can
+import qualified Ext.Log
+import           StandaloneInstances ()
 
 
 type ModuleName = ModuleName.Raw
 type ValueName = Name.Name
 
 
-findTests :: Map.Map ModuleName I.Interface -> [(ModuleName, ValueName)]
-findTests ifaceByModule =
-  Map.foldrWithKey collect [] ifaceByModule
+findTests :: Map.Map ModuleName I.Interface -> IO [(ModuleName, ValueName)]
+findTests ifaceByModule = do
+  -- Map.foldrWithKey collect [] ifaceByModule
+  Ext.Log.log Ext.Log.Test ("Found " <> show ifaceByModule)
+  pure (Map.foldrWithKey collect [] ifaceByModule)
   where
     collect modName iface acc =
       let vals = I._values iface
@@ -34,11 +38,37 @@ resultType tipe =
     _ -> tipe
 
 
+
+{-
+Example real interface we're looking for:
+
+    { _home = Name "author" "project"
+    , _values = 
+        [ ("suite"
+          ,(Forall (Map.fromList []) 
+                (TAlias 
+                    (Module.Canonical  (Name "elm-explorations" "test") "Test") 
+                    "Test" 
+                    [] 
+                    (Filled 
+                    (TType (Module.Canonical (Name "elm-explorations" "test") "Test.Internal") "Test" []
+                
+                )))))]
+    , _unions = fromList []
+    , _aliases = fromList []
+    , _binops = fromList []
+    }
+    )]
+
+
+-}
 isTestType :: Can.Type -> Bool
 isTestType tipe =
   case tipe of
-    Can.TType (ModuleName.Canonical pkg mod_) name _args ->
-      pkgIsElmExplorations pkg && Name.toChars mod_ == "Test" && Name.toChars name == "Test"
+    Can.TType (ModuleName.Canonical pkg moduleNmae) name _args ->
+      pkgIsElmExplorations pkg
+        && Name.toChars name == "Test"
+        && (Name.toChars mod_ == "Test" || Name.toChars moduleNmae == "Test.Internal")
     Can.TAlias _ _ _ aliasBody ->
       case aliasBody of
         Can.Filled t -> isTestType t
@@ -48,8 +78,7 @@ isTestType tipe =
 
 pkgIsElmExplorations :: Pkg.Name -> Bool
 pkgIsElmExplorations pkg =
-  let authorProject = Pkg.toChars pkg
-  in take 18 authorProject == "elm-explorations/"
+  Pkg.toChars pkg == "elm-explorations/test"
 
 
 
