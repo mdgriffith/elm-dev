@@ -36,9 +36,10 @@ run root = do
       (top:rest) -> do
         discoveryR <- TestCompile.compileForDiscovery root (NE.List top rest)
         case discoveryR of
-          Left err -> pure (Left (show err))
+          Left err -> pure (Left (Exit.toString (Exit.reactorToReport err)))
           Right ifaces -> do
-            let tests = Introspect.findTests ifaces
+            tests <- Introspect.findTests ifaces
+            Ext.Log.log Ext.Log.Test ("Tests " <> show tests)
             _ <- Generate.writeAggregator root tests
             let genDir = Generate.generatedDir root
             Dir.createDirectoryIfMissing True genDir
@@ -46,7 +47,7 @@ run root = do
             BS.writeFile runnerPath Templates.runnerElm
             compiledR <- TestCompile.compileRunner root (NE.List runnerPath [])
             case compiledR of
-              Left err -> pure (Left (show err))
+              Left err -> pure (Left (Exit.toString (Exit.reactorToReport err)))
               Right _ -> pure (Right "{\"total\":0,\"passed\":0,\"failed\":0,\"failures\":[]}")
 
 
