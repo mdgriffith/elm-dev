@@ -68,7 +68,7 @@ isTestType tipe =
     Can.TType (ModuleName.Canonical pkg moduleNmae) name _args ->
       pkgIsElmExplorations pkg
         && Name.toChars name == "Test"
-        && (Name.toChars mod_ == "Test" || Name.toChars moduleNmae == "Test.Internal")
+        && (Name.toChars moduleNmae == "Test" || Name.toChars moduleNmae == "Test.Internal")
     Can.TAlias _ _ _ aliasBody ->
       case aliasBody of
         Can.Filled t -> isTestType t

@@ -37,10 +37,13 @@ renderAggregator :: [(ModuleName.Raw, Name.Name)] -> BS.ByteString
 renderAggregator pairs =
   let imports = unique (map (ModuleName.toChars . fst) pairs)
       importLines = map (\m -> "import " <> m) imports
-      refs = map (\(m,v) -> ModuleName.toChars m ++ "." ++ Name.toChars v) pairs
+      refs = map (\(moduleName,value) -> 
+                    let name = ModuleName.toChars moduleName ++ "." ++ Name.toChars value in
+                    "(\"" ++ name ++ "\", " ++ name ++ ")"
+                  ) pairs
       body = case refs of
         [] -> "[]"
-        _  -> "[ " ++ List.intercalate ", " refs ++ " ]"
+        _  -> "\n    [ " ++ List.intercalate ",\n    " refs ++ "\n    ]"
       lines_ =
         [ "module " ++ aggregatorModuleName ++ " exposing (tests)"
         , ""
@@ -48,7 +51,8 @@ renderAggregator pairs =
         ]
         ++ importLines
         ++ [ ""
-           , "tests : List Test"
+           , ""
+           , "tests : List (String, Test)"
            , "tests = " ++ body
            , ""
            ]

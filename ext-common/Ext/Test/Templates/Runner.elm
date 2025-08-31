@@ -10,23 +10,22 @@ import List
 import Everything
 
 
-
-
 type alias TestId = String
 
- 
 
 type alias Flags =
     { seed : Int
     , runs : Int
     }
 
+
 type alias Model =
     { seed : Int
     , runs : Int
     }
 
-main : Program Flags () msg
+
+main : Program Flags Model Msg
 main =
     Platform.worker
         { init = init
@@ -37,7 +36,7 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { seed = flags.seed,
+    ( { seed = flags.seed
       , runs = flags.runs
       }
     , Cmd.none
@@ -52,21 +51,21 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Run testId ->
-            case runTest model testId of
+            case run model testId of
                 Ok report ->
                     ( model, sendReport report )
-                Err error ->
-                    ( model, error error )
+                Err message ->
+                    ( model, error message )
 
 
 
 
-runTest : Model -> TestId -> Result String Report
-runTest flags testId =
+run : Model -> TestId -> Result String Report
+run flags testId =
     let
         maybeRunner =
             Everything.tests
-                |> List.filter (\(testId, test) -> test.id == testId)
+                |> List.filter (\(id, test) -> id == testId)
                 |> List.head
        
     in
@@ -74,49 +73,31 @@ runTest flags testId =
         Nothing ->
             Err "Test not found"
             
-        Just seededRunner ->
+        Just (_, seededRunner) ->
             case Test.Runner.fromTest flags.runs (Random.initialSeed flags.seed) seededRunner of
                 Test.Runner.Invalid message -> Err message
                 Test.Runner.Plain runners ->
                     Ok
-                        { id = testId,
-                        , runs =
-                            runners 
-                                |> List.map 
-                                    (\runner -> 
-                                        { label = runner.labels,
-                                        , result =
-                                            runner.run ()
-                                                |> List.map runRunner
-                                        }
-                                    )
+                        { id = testId
+                        , runs = List.map runRunner runners
                         , isOnly = False
                         }
 
                 Test.Runner.Only runners ->
                     Ok
-                        { id = testId,
-                        , runs =
-                            runners 
-                                |> List.map 
-                                    (\runner -> 
-                                        { label = runner.labels,
-                                        , result =
-                                            runner.run ()
-                                                |> List.map runRunner
-                                        }
-                                    )
+                        { id = testId
+                        , runs = List.map runRunner runners
                         , isOnly = True
                         }
 
                 Test.Runner.Skipping runners ->
                     Ok
-                        { id = testId,
+                        { id = testId
                         , runs =
                             runners 
                                 |> List.map 
                                     (\runner -> 
-                                        { label = runner.labels,
+                                        { label = runner.labels
                                         , result = [ Skipped ]
                                         }
                                     )
@@ -128,7 +109,7 @@ runTest flags testId =
 
 runRunner : Test.Runner.Runner -> TestRun
 runRunner runner =
-    { label = runner.labels,
+    { label = runner.labels
     , result =
         runner.run ()
             |> List.map 
@@ -136,7 +117,7 @@ runRunner runner =
                     case Test.Runner.getFailureReason expectation of
                         Just failure ->
                             Failed
-                                { given = failure.given,
+                                { given = failure.given
                                 , description = failure.description
                                 , reason = failure.reason
                                 }
@@ -169,10 +150,10 @@ type TestResult
         }
 
 encodeTestRun : TestRun -> Encode.Value
-encodeTestRun run =
+encodeTestRun testRun =
     Encode.object
-        [ ( "label", Encode.list Encode.string run.label )
-        , ( "result", Encode.list encodeTestResult run.result )
+        [ ( "label", Encode.list Encode.string testRun.label )
+        , ( "result", Encode.list encodeTestResult testRun.result )
         ]
 
 
@@ -210,13 +191,10 @@ encodeReason reason =
                 ]
 
         Test.Runner.Failure.TODO ->
-            Encode.string "TODO"
+            Encode.string "Marked as TODO"
 
-        Test.Runner.Failure.Invalid BadDescription ->
-            Encode.string "Invalid, Bad description"
-
-        Test.Runner.Failure.Invalid _ ->
-            Encode.string "Invalid"
+        Test.Runner.Failure.Invalid invalidReason ->
+            Encode.string (invalidReasonToString invalidReason)
 
         Test.Runner.Failure.ListDiff expected actual ->
             Encode.object 
@@ -235,6 +213,17 @@ encodeReason reason =
                 ]
 
 
+invalidReasonToString : Test.Runner.Failure.InvalidReason -> String
+invalidReasonToString invalidReason =
+    case invalidReason of
+        Test.Runner.Failure.BadDescription -> "Bad description"
+        Test.Runner.Failure.InvalidFuzzer -> "Invalid fuzzer"
+        Test.Runner.Failure.NonpositiveFuzzCount -> "Nonpositive fuzz count"
+        Test.Runner.Failure.EmptyList -> "Empty list"
+        Test.Runner.Failure.DuplicatedName -> "Duplicated name"
+        Test.Runner.Failure.DistributionInsufficient -> "Distribution insufficient"
+        Test.Runner.Failure.DistributionBug -> "Distribution bug"
+
 
 -- Incoming
 port runTest : (TestId -> msg) -> Sub msg
@@ -249,6 +238,6 @@ sendReport : Report -> Cmd msg
 sendReport { id, runs, isOnly } =
     reportSent
         { id = id
-        , runs = encodeTestRun result
+        , runs = Encode.list encodeTestRun runs
         , isOnly = isOnly
         }

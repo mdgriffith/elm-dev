@@ -24,3 +24,5 @@ exampleElm :: BS.ByteString
 exampleElm = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "templates" </> "Example.elm")) )
 
 
+version :: Int
+version = 10
