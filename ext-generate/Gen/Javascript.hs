@@ -29,7 +29,7 @@ interactiveJs =
          (BS.readFile ("ext-generate" </> "generator" </> "dist" </> "interactive-run.js"))
    )
 
--- | Execute embedded JavaScript using Bun
+-- | Execute embedded JavaScript using Node
 run :: BS.ByteString -> BS.ByteString -> IO (Either String String)
 run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
   -- Write the embedded code to a temporary file

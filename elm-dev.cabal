@@ -226,6 +226,8 @@ Executable elm-dev
         Ext.VirtualFile
         Ext.CompileProxy
         Ext.CompileMode
+
+        Ext.Test.Result
         Ext.Test.Discover
         Ext.Test.Introspect
         Ext.Test.Generate

@@ -174,7 +174,10 @@ encodeReason : Test.Runner.Failure.Reason -> Encode.Value
 encodeReason reason =
     case reason of
         Test.Runner.Failure.Custom ->
-            Encode.string "Custom"
+            Encode.object 
+                [ ( "type", Encode.string "Custom"
+                  )
+                ]
 
         Test.Runner.Failure.Equality expected actual ->
             Encode.object 
@@ -191,10 +194,17 @@ encodeReason reason =
                 ]
 
         Test.Runner.Failure.TODO ->
-            Encode.string "Marked as TODO"
+            Encode.object 
+                [ ( "type", Encode.string "TODO"
+                  )
+                ]
 
         Test.Runner.Failure.Invalid invalidReason ->
-            Encode.string (invalidReasonToString invalidReason)
+            Encode.object 
+                [ ( "type", Encode.string "Invalid"
+                  )
+                , ( "data", Encode.string invalidReason )
+                ]
 
         Test.Runner.Failure.ListDiff expected actual ->
             Encode.object 

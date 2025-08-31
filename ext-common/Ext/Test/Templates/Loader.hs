@@ -2,6 +2,7 @@
 module Ext.Test.Templates.Loader
   ( runnerElm
   , runnerJs
+  , nodeRunnerJs
   , exampleElm
   ) where
 
@@ -20,9 +21,14 @@ runnerJs = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext
 
 
 
+nodeRunnerJs :: BS.ByteString
+nodeRunnerJs = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "templates" </> "node-runner.js")) )
+
+
+
 exampleElm :: BS.ByteString
 exampleElm = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "templates" </> "Example.elm")) )
 
 
 version :: Int
-version = 10
+version = 11
