@@ -13,7 +13,8 @@ function parseInputFromStdin() {
         process.stdin.on('data', (c) => chunks.push(c));
         process.stdin.on('end', () => {
             try {
-                const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                const raw = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                const input = validateInput(raw);
                 resolve(input);
             } catch (e) {
                 reject(e);
@@ -24,16 +25,69 @@ function parseInputFromStdin() {
     });
 }
 
+function validateInput(raw) {
+    if (!isPlainObject(raw)) {
+        throw new Error('Input must be a JSON object');
+    }
+
+    const allowedTopKeys = new Set(['flags', 'tests']);
+    for (const key of Object.keys(raw)) {
+        if (!allowedTopKeys.has(key)) {
+            throw new Error('Unexpected top-level field: ' + key);
+        }
+    }
+
+    if (!('flags' in raw)) {
+        throw new Error('Missing required field: flags');
+    }
+    if (!('tests' in raw)) {
+        throw new Error('Missing required field: tests');
+    }
+
+    const flags = raw.flags;
+    if (!isPlainObject(flags)) {
+        throw new Error('flags must be an object');
+    }
+    const allowedFlagKeys = new Set(['seed', 'runs']);
+    for (const key of Object.keys(flags)) {
+        if (!allowedFlagKeys.has(key)) {
+            throw new Error('Unexpected field in flags: ' + key);
+        }
+    }
+    if (!Number.isFinite(flags.seed) || !Number.isInteger(flags.seed) || flags.seed < 0) {
+        throw new Error('flags.seed must be a non-negative integer');
+    }
+    if (!Number.isFinite(flags.runs) || !Number.isInteger(flags.runs) || flags.runs < 1) {
+        throw new Error('flags.runs must be a positive integer');
+    }
+
+    const tests = raw.tests;
+    if (!Array.isArray(tests)) {
+        throw new Error('tests must be an array of strings');
+    }
+    for (let i = 0; i < tests.length; i++) {
+        const v = tests[i];
+        if (typeof v !== 'string' || v.length === 0) {
+            throw new Error('tests[' + i + '] must be a non-empty string');
+        }
+    }
+
+    return { flags: { seed: flags.seed, runs: flags.runs }, tests };
+}
+
+function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 if (isMainThread) {
     (async () => {
         try {
             const input = await parseInputFromStdin();
-            const flags = input.flags || { seed: 0, runs: 100 };
-            const tests = Array.isArray(input.tests) ? input.tests : [];
-            const concurrency = Math.max(
-                1,
-                Math.min((os.cpus() && os.cpus().length) || 1, 8)
-            );
+            const flags = input.flags;
+            const tests = input.tests;
+            const cpuCount = (os.cpus() && os.cpus().length) || 1;
+            const desiredByTests = Math.floor(tests.length / 4);
+            const concurrency = Math.max(1, Math.min(cpuCount, desiredByTests));
 
             let nextIndex = 0;
             const reports = [];

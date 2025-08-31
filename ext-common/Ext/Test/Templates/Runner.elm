@@ -201,9 +201,8 @@ encodeReason reason =
 
         Test.Runner.Failure.Invalid invalidReason ->
             Encode.object 
-                [ ( "type", Encode.string "Invalid"
-                  )
-                , ( "data", Encode.string invalidReason )
+                [ ( "type", Encode.string "Invalid")
+                , ( "data", Encode.string (invalidReasonToString invalidReason) )
                 ]
 
         Test.Runner.Failure.ListDiff expected actual ->

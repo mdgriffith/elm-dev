@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Ext.Test.Runner
   ( run
-  , runParsed
   ) where
 
 import qualified Control.Concurrent.MVar as MVar
@@ -32,9 +31,18 @@ import qualified System.CPUTime as CPUTime
 import qualified Ext.Test.Result
 
 
--- | Orchestrates discovery, aggregator generation, compilation. Returns JSON test result as a String.
-run :: FilePath -> IO (Either String String)
+-- | Same as 'run' but decodes the raw JSON stdout into Elm-mirrored Haskell types.
+run :: FilePath -> IO (Either String [Ext.Test.Result.Report])
 run root = do
+  r <- runNode root
+  case r of
+    Left e -> pure (Left e)
+    Right s -> pure (Ext.Test.Result.decodeReportsString s)
+
+
+-- | Orchestrates discovery, aggregator generation, compilation. Returns JSON test result as a String.
+runNode :: FilePath -> IO (Either String String)
+runNode root = do
   BackgroundWriter.withScope $ \scope -> do
     Ext.CompileMode.setModeMemory
     testFiles <- Discover.discoverTestFiles root
@@ -75,13 +83,6 @@ run root = do
                   Right out -> pure (Right out)
 
 
--- | Same as 'run' but decodes the raw JSON stdout into Elm-mirrored Haskell types.
-runParsed :: FilePath -> IO (Either String [Ext.Test.Result.Report])
-runParsed root = do
-  r <- run root
-  case r of
-    Left e -> pure (Left e)
-    Right s -> pure (Ext.Test.Result.decodeReportsString s)
 
 
 -- | Replace first occurrence of a substring with a replacement
