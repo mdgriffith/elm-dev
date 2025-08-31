@@ -97,7 +97,7 @@ run flags testId =
                             runners 
                                 |> List.map 
                                     (\runner -> 
-                                        { label = runner.labels
+                                        { label = List.reverse runner.labels
                                         , result = [ Skipped ]
                                         }
                                     )
@@ -109,7 +109,7 @@ run flags testId =
 
 runRunner : Test.Runner.Runner -> TestRun
 runRunner runner =
-    { label = runner.labels
+    { label = List.reverse runner.labels
     , result =
         runner.run ()
             |> List.map 

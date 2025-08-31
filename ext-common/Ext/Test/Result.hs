@@ -94,9 +94,7 @@ instance Data.Aeson.FromJSON TestResult where
 
 instance Data.Aeson.FromJSON Reason where
   parseJSON v =
-    case v of
-      Data.Aeson.String t -> parseReasonString (Data.Text.unpack t)
-      _ -> withObject "Reason" (\o -> do
+    withObject "Reason" (\o -> do
             typ <- (o .: "type" :: Data.Aeson.Types.Parser String)
             case typ of
               "Custom" -> pure Custom
