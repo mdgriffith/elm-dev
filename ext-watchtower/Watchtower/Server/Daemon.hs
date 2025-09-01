@@ -30,7 +30,7 @@ import qualified Watchtower.Server.Run
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.MCP as MCP
 import qualified Snap.Http.Server as Server
-import qualified Watchtower.Questions as Questions
+import qualified Watchtower.Server.Dev
 import qualified Data.Bits as Bits
 import qualified Data.Word as Word
 import qualified System.Process as Process
@@ -181,7 +181,11 @@ serve = do
     httpP <- allocatePort
     live <- Watchtower.Live.init
     let debug = False
-    _ <- Concurrent.forkIO $ Server.httpServe (Watchtower.Server.Run.config httpP debug) (Watchtower.Live.websocket live <|> Questions.serve live)
+    _ <- Concurrent.forkIO $ Server.httpServe 
+          (Watchtower.Server.Run.config httpP debug)
+          (Watchtower.Live.websocket live 
+            <|> Watchtower.Server.Run.runHttp live Watchtower.Server.Dev.serve (\_ _ _ -> pure ())
+          )
     -- Start LSP TCP
     _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live LSP.serve LSP.handleNotification "127.0.0.1" lspP
     -- Start MCP TCP

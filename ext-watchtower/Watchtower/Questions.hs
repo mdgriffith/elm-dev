@@ -116,10 +116,6 @@ pageToFile page =
 
 serve :: Watchtower.Live.State -> Snap ()
 serve state = do
-  -- mcpState <- liftIO $ do
-  --   initialState <- Watchtower.MCP.newMCPState
-  --   return $ Watchtower.MCP.registerCommand initialState (Watchtower.MCP.uptimeCommand initialState)
-
   route
     [ ("/docs/:owner/:package/:version/:readme", docsHandler state),
       -- ("/mcp/:action", Watchtower.MCP.handleMCP mcpState),
