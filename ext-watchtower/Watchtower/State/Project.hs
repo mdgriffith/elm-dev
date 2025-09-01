@@ -45,7 +45,8 @@ upsertVirtual state@(Client.State mClients mProjects _) flags root entrypoint = 
       let docsInfo = Gen.Config.defaultDocs
       let newProject = Ext.Dev.Project.Project virtualRoot virtualRoot (NE.List entrypoint [])
       mCompileResult <- STM.newTVarIO Client.NotCompiled
-      let newProjectCache = Client.ProjectCache newProject docsInfo mCompileResult
+      mTestResults <- STM.newTVarIO Nothing
+      let newProjectCache = Client.ProjectCache newProject docsInfo mCompileResult mTestResults
       pure (Just newProjectCache)
 
 insertVirtualElmJson :: FilePath -> IO (Either String FilePath)
@@ -94,7 +95,8 @@ upsert state@(Client.State mClients mProjects _) flags root entrypoints = do
   docsInfo <- readDocsInfo root
   let newProject = Ext.Dev.Project.Project root root entrypoints 
   mCompileResult <- STM.newTVarIO Client.NotCompiled
-  let newProjectCache = Client.ProjectCache newProject docsInfo mCompileResult
+  mTestResults <- STM.newTVarIO Nothing
+  let newProjectCache = Client.ProjectCache newProject docsInfo mCompileResult mTestResults
 
   (isNew, project) <- STM.atomically $ do
     existingProjects <- STM.readTVar mProjects
@@ -107,14 +109,15 @@ upsert state@(Client.State mClients mProjects _) flags root entrypoints = do
 
   if isNew
     then do
-      Ext.Filewatch.watch
-        root
-        ( \filesChanged -> do
-            Ext.Log.log Ext.Log.Live $ "👀 files changed: " <> List.intercalate ", " (map FilePath.takeFileName filesChanged)
-            mapM_ Ext.FileCache.delete filesChanged
-            Watchtower.State.Compile.compile state flags newProjectCache filesChanged
-            pure ()
-        )
+      -- Ext.Filewatch.watch
+      --   root
+      --   ( \filesChanged -> do
+      --       Ext.Log.log Ext.Log.Live $ "👀 files changed: " <> List.intercalate ", " (map FilePath.takeFileName filesChanged)
+      --       mapM_ Ext.FileCache.delete filesChanged
+      --       Watchtower.State.Compile.compile state flags newProjectCache filesChanged
+      --       pure ()
+      --   )
+      pure ()
     else pure ()
 
   pure project
