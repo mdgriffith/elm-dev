@@ -60,6 +60,7 @@ import qualified Reporting.Annotation as A
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Stuff
+import qualified Ext.PackageOverride as PkgOverride
 
 
 
@@ -748,28 +749,27 @@ toDocs result =
 
 
 downloadPackage :: Stuff.PackageCache -> Http.Manager -> Pkg.Name -> V.Version -> IO (Either Exit.PackageProblem ())
-downloadPackage cache manager pkg vsn =
-  let
-    url = Website.metadata pkg vsn "endpoint.json"
-  in
-  do  eitherByteString <-
-        Http.get manager url [] id (return . Right)
-
-      case eitherByteString of
-        Left err ->
-          return $ Left $ Exit.PP_BadEndpointRequest err
-
-        Right byteString ->
-          case D.fromByteString endpointDecoder byteString of
-            Left _ ->
-              return $ Left $ Exit.PP_BadEndpointContent url
-
-            Right (endpoint, expectedHash) ->
-              Http.getArchive manager endpoint Exit.PP_BadArchiveRequest (Exit.PP_BadArchiveContent endpoint) $
-                \(sha, archive) ->
-                  if expectedHash == Http.shaToChars sha
-                  then Right <$> File.writePackage (Stuff.package cache pkg vsn) archive
-                  else return $ Left $ Exit.PP_BadArchiveHash endpoint expectedHash (Http.shaToChars sha)
+downloadPackage cache manager pkg vsn = do
+  hot <- PkgOverride.hotEnabled
+  case (hot, PkgOverride.overrideUrl pkg) of
+    (True, Just zipUrl) ->
+      Http.getArchive manager zipUrl Exit.PP_BadArchiveRequest (Exit.PP_BadArchiveContent zipUrl) $ \(_sha, archive) ->
+        Right <$> File.writePackage (Stuff.package cache pkg vsn) archive
+    _ ->
+      let url = Website.metadata pkg vsn "endpoint.json" in
+      do  eitherByteString <- Http.get manager url [] id (return . Right)
+          case eitherByteString of
+            Left err ->
+              return $ Left $ Exit.PP_BadEndpointRequest err
+            Right byteString ->
+              case D.fromByteString endpointDecoder byteString of
+                Left _ ->
+                  return $ Left $ Exit.PP_BadEndpointContent url
+                Right (endpoint, expectedHash) ->
+                  Http.getArchive manager endpoint Exit.PP_BadArchiveRequest (Exit.PP_BadArchiveContent endpoint) $ \(sha, archive) ->
+                    if expectedHash == Http.shaToChars sha
+                    then Right <$> File.writePackage (Stuff.package cache pkg vsn) archive
+                    else return $ Left $ Exit.PP_BadArchiveHash endpoint expectedHash (Http.shaToChars sha)
 
 
 endpointDecoder :: D.Decoder e (String, String)
