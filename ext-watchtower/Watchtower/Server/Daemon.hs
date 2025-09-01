@@ -10,6 +10,7 @@ module Watchtower.Server.Daemon
   , serve
   ) where
 
+import Control.Applicative ((<|>))
 import qualified Control.Concurrent as Concurrent
 import qualified Control.Monad as Monad
 import qualified Control.Exception as Exception
@@ -24,10 +25,12 @@ import qualified System.Environment as Env
 import qualified System.FilePath as Path
 import qualified System.IO as IO
 import qualified Network.Socket as Net
-import qualified Watchtower.Live as Live
-import qualified Watchtower.Server.Run as Run
+import qualified Watchtower.Live
+import qualified Watchtower.Server.Run
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.MCP as MCP
+import qualified Snap.Http.Server as Server
+import qualified Watchtower.Questions as Questions
 import qualified Data.Bits as Bits
 import qualified Data.Word as Word
 import qualified System.Process as Process
@@ -176,19 +179,19 @@ serve = do
     lspP <- allocatePort
     mcpP <- allocatePort
     httpP <- allocatePort
-    live <- Live.init
-    -- Start Snap HTTP in background
---     _ <- Concurrent.forkIO $ do
-      -- Run.run live (Run.HTTP (Just httpP)) (\_ _ _ -> pure (Right (Watchtower.Server.JSONRPC.success (Watchtower.Server.JSONRPC.NumberId 0) JSON.Null))) (\_ _ _ -> pure ())
+    live <- Watchtower.Live.init
+    let debug = False
+    _ <- Concurrent.forkIO $ Server.httpServe (Watchtower.Server.Run.config httpP debug) (Watchtower.Live.websocket live <|> Questions.serve live)
     -- Start LSP TCP
-    _ <- Concurrent.forkIO $ Run.runTcp live LSP.serve LSP.handleNotification "127.0.0.1" lspP
+    _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live LSP.serve LSP.handleNotification "127.0.0.1" lspP
     -- Start MCP TCP
-    _ <- Concurrent.forkIO $ Run.runTcp live MCP.serve (\_ _ _ -> pure ()) "127.0.0.1" mcpP
+    _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live MCP.serve (\_ _ _ -> pure ()) "127.0.0.1" mcpP
     -- Wait until listeners accept connections before writing state
     let waitReady attempts = do
           l1 <- canConnect "127.0.0.1" lspP
           l2 <- canConnect "127.0.0.1" mcpP
-          if l1 && l2 then pure () else if attempts <= (0 :: Int)
+          l3 <- canConnect "127.0.0.1" httpP
+          if l1 && l2 && l3 then pure () else if attempts <= (0 :: Int)
             then ioError (userError "daemon failed to start listeners")
             else do
               Concurrent.threadDelay 100000 -- 100ms
