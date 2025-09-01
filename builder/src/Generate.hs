@@ -32,6 +32,9 @@ import qualified Nitpick.Debug as Nitpick
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Stuff
+-- elm-dev: overrides
+import qualified Ext.PackageOverride as PackageOverride
+import qualified Ext.HotClient as HotClient
 
 
 -- NOTE: This is used by Make, Repl, and Reactor right now. But it may be
@@ -55,7 +58,10 @@ debug root details (Build.Artifacts pkg ifaces roots modules) =
       let mode = Mode.Dev (Just types)
       let graph = objectsToGlobalGraph objects
       let mains = gatherMains pkg objects roots
-      return $ JS.generate mode graph mains
+      base <- pure (JS.generate mode graph mains)
+      -- elm-dev: overrides
+      hot <- Task.io PackageOverride.hotEnabled
+      return $ HotClient.appendHotClient hot base
 
 
 dev :: FilePath -> Details.Details -> Build.Artifacts -> Task B.Builder
@@ -64,7 +70,10 @@ dev root details (Build.Artifacts pkg _ roots modules) =
       let mode = Mode.Dev Nothing
       let graph = objectsToGlobalGraph objects
       let mains = gatherMains pkg objects roots
-      return $ JS.generate mode graph mains
+      base <- pure (JS.generate mode graph mains)
+      -- elm-dev: overrides
+      hot <- Task.io PackageOverride.hotEnabled
+      return $ HotClient.appendHotClient hot base
 
 
 prod :: FilePath -> Details.Details -> Build.Artifacts -> Task B.Builder
@@ -74,6 +83,7 @@ prod root details (Build.Artifacts pkg _ roots modules) =
       let graph = objectsToGlobalGraph objects
       let mode = Mode.Prod (Mode.shortenFieldNames graph)
       let mains = gatherMains pkg objects roots
+      -- Never inject hot client for prod builds
       return $ JS.generate mode graph mains
 
 
