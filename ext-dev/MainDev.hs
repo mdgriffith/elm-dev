@@ -70,8 +70,9 @@ import qualified Watchtower.Server.LSP
 import qualified Watchtower.Server.MCP
 import qualified Watchtower.Server.Run
 import qualified Watchtower.Server.Daemon as Daemon
-import qualified Ext.Test.Runner as TestRunner
-import qualified Ext.Test.Install as TestInstall
+import qualified Ext.Test.Runner
+import qualified Ext.Test.Install
+import qualified Ext.Test.Result.Report
 import qualified Ext.Test.Templates.Loader as TestTemplates
 import qualified Network.Socket as Net
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay)
@@ -514,16 +515,16 @@ testCommand :: CommandParser.Command
 testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tests" devGroup CommandParser.noArg parseFlags runCmd
   where
     parseFlags = CommandParser.noFlag
-    runCmd _ _ = do
+    runCmd _ _ =  Ext.Log.withAllBut [Ext.Log.Performance] $ do
       Ext.CompileMode.setModeMemory
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
         Nothing -> IO.hPutStrLn IO.stderr "Could not find project root"
         Just root -> do
-          result <- TestRunner.run root
+          result <- Ext.Test.Runner.run root
           case result of
             Left err -> IO.hPutStrLn IO.stderr err
-            Right json -> LBSChar.putStrLn (Data.ByteString.Builder.toLazyByteString (Json.Encode.encodeUgly (Json.Encode.string (Json.String.fromChars json))))
+            Right runResults -> Ext.Test.Result.Report.printReports runResults
 
 
 -- elm-dev test init
@@ -538,7 +539,7 @@ testInitCommand = CommandParser.command ["test","init"] "Initialize tests: insta
         Nothing -> IO.hPutStrLn IO.stderr "Could not find project root"
         Just root -> do
           -- Install elm-explorations/test into test-dependencies
-          result <- TestInstall.installTestDependency (Pkg.toName (Utf8.fromChars "elm-explorations") "test")
+          result <- Ext.Test.Install.installTestDependency (Pkg.toName (Utf8.fromChars "elm-explorations") "test")
           case result of
             Left _ -> IO.hPutStrLn IO.stderr "Failed to install elm-explorations/test"
             Right _ -> pure ()
@@ -564,7 +565,7 @@ testInstallCommand = CommandParser.command ["test","install"] "Install a package
       case parsePkgName pkgStr of
         Nothing -> IO.hPutStrLn IO.stderr "Invalid package name. Expected author/project"
         Just pkg -> do
-          result <- TestInstall.installTestDependency pkg
+          result <- Ext.Test.Install.installTestDependency pkg
           case result of
             Left _ -> IO.hPutStrLn IO.stderr "Failed to install test dependency"
             Right _ -> pure ()
