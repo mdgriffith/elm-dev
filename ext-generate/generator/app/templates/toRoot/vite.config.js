@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
-import elmDevPlugin from "./viteElm";
+import elmDev from "./viteElm";
 
 
 export default defineConfig(({ mode }) => {
@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
     },
 
     plugins: [
-      elmDevPlugin({
+      elmDev({
         debug: isDev,
         optimize: !isDev,
       }),

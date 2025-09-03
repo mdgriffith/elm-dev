@@ -201,7 +201,8 @@ daemonServeCommand = CommandParser.command ["daemon","serve"] "Run the Elm Dev d
     parseArgs = CommandParser.noArg
     parseFlags = CommandParser.noFlag
     runCmd _ _ = do
-      Daemon.serve
+      params <- Daemon.allocateServeParams
+      Daemon.serve params
 
 daemonStartCommand :: CommandParser.Command
 daemonStartCommand = CommandParser.command ["daemon","start"] "Start daemon if not running" devGroup parseArgs parseFlags runCmd
@@ -229,12 +230,19 @@ daemonStatusCommand = CommandParser.command ["daemon","status"] "Show daemon sta
       st <- Daemon.status
       case st of
         Nothing -> IO.hPutStrLn IO.stderr "daemon: not running"
-        Just s -> LBSChar.putStrLn (Data.ByteString.Builder.toLazyByteString (Json.Encode.encodeUgly (Json.Encode.object [
+        Just s ->
+          let domainStr = Json.Encode.string (Json.String.fromChars (Daemon.domain s)) in
+          LBSChar.putStrLn (Data.ByteString.Builder.toLazyByteString (
+            let lspObj = Json.Encode.object [ ("domain" ==> domainStr), ("port" ==> Json.Encode.int (Daemon.lspPort s)) ]
+                mcpObj = Json.Encode.object [ ("domain" ==> domainStr), ("port" ==> Json.Encode.int (Daemon.mcpPort s)) ]
+                httpObj = Json.Encode.object [ ("domain" ==> domainStr), ("port" ==> Json.Encode.int (Daemon.httpPort s)) ]
+            in Json.Encode.encodeUgly (Json.Encode.object [
                     ("pid" ==> Json.Encode.int (Daemon.pid s)),
-                    ("lspPort" ==> Json.Encode.int (Daemon.lspPort s)),
-                    ("mcpPort" ==> Json.Encode.int (Daemon.mcpPort s)),
-                    ("httpPort" ==> Json.Encode.int (Daemon.httpPort s)),
-                    ("version" ==> Json.Encode.string (Json.String.fromChars (Daemon.version s)))])))
+                    ("lsp" ==> lspObj),
+                    ("mcp" ==> mcpObj),
+                    ("http" ==> httpObj),
+                    ("version" ==> Json.Encode.string (Json.String.fromChars (Daemon.version s)))])
+            ))
 
 docsCommand :: CommandParser.Command
 docsCommand = CommandParser.command ["inspect", "docs"] "Report the docs.json" inspectGroup parseDocsArgs parseDocsFlags runDocs

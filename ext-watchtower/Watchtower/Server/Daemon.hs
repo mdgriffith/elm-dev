@@ -3,6 +3,8 @@
 
 module Watchtower.Server.Daemon
   ( StateInfo(..)
+  , ServeParams(..)
+  , allocateServeParams
   , start
   , stop
   , status
@@ -46,6 +48,7 @@ import qualified System.Win32.Process as Win32
 
 data StateInfo = StateInfo
   { pid :: !Int
+  , domain :: !String
   , lspPort :: !Int
   , mcpPort :: !Int
   , httpPort :: !Int
@@ -56,6 +59,7 @@ data StateInfo = StateInfo
 instance JSON.ToJSON StateInfo where
   toJSON s = JSON.object
     [ ("pid", JSON.toJSON (pid s))
+    , ("domain", JSON.toJSON (domain s))
     , ("lspPort", JSON.toJSON (lspPort s))
     , ("mcpPort", JSON.toJSON (mcpPort s))
     , ("httpPort", JSON.toJSON (httpPort s))
@@ -65,7 +69,10 @@ instance JSON.ToJSON StateInfo where
 
 instance JSON.FromJSON StateInfo where
   parseJSON = JSON.withObject "StateInfo" $ \o -> do
+    -- domain was introduced later; default to 127.0.0.1 for older state files
+    domainVal <- o JSON..:? "domain" JSON..!= "127.0.0.1"
     StateInfo <$> o JSON..: "pid"
+              <*> pure domainVal
               <*> o JSON..: "lspPort"
               <*> o JSON..: "mcpPort"
               <*> o JSON..: "httpPort"
@@ -136,6 +143,22 @@ getPid = do
 versionString :: String
 versionString = "1.0.0"
 
+-- Parameters for starting the daemon services
+data ServeParams = ServeParams
+  { spDomain :: !String
+  , spLspPort :: !Int
+  , spMcpPort :: !Int
+  , spHttpPort :: !Int
+  }
+
+-- Allocate domain and free ports required for all services
+allocateServeParams :: IO ServeParams
+allocateServeParams = do
+  lspP <- allocatePort
+  mcpP <- allocatePort
+  httpP <- allocatePort
+  pure (ServeParams { spDomain = "127.0.0.1", spLspPort = lspP, spMcpPort = mcpP, spHttpPort = httpP })
+
 -- | Start the daemon servers for a workspace root; if already running and healthy, return its state
 ensureRunning :: IO StateInfo
 ensureRunning = do
@@ -170,40 +193,38 @@ start = do
   waitLoop (50 :: Int)
 
 -- | Blocking daemon server: start services and keep running
-serve :: IO ()
-serve = do
+serve :: ServeParams -> IO ()
+serve params = do
   IO.hSetBuffering IO.stdout IO.LineBuffering
   IO.hSetBuffering IO.stderr IO.LineBuffering
   Ext.Log.withAllBut [Ext.Log.Performance, Ext.Log.FileProxy] $ do
     Ext.CompileMode.setModeMemory
-    lspP <- allocatePort
-    mcpP <- allocatePort
-    httpP <- allocatePort
     live <- Watchtower.Live.init
     let debug = False
     _ <- Concurrent.forkIO $ Server.httpServe 
-          (Watchtower.Server.Run.config httpP debug)
+          (Watchtower.Server.Run.config (spHttpPort params) debug)
           (Watchtower.Live.websocket live 
             <|> Watchtower.Server.Run.runHttp live Watchtower.Server.Dev.serve (\_ _ _ -> pure ())
           )
     -- Start LSP TCP
-    _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live LSP.serve LSP.handleNotification "127.0.0.1" lspP
+    _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live LSP.serve LSP.handleNotification (spDomain params) (spLspPort params)
     -- Start MCP TCP
-    _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live MCP.serve (\_ _ _ -> pure ()) "127.0.0.1" mcpP
+    _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live MCP.serve (\_ _ _ -> pure ()) (spDomain params) (spMcpPort params)
     -- Wait until listeners accept connections before writing state
     let waitReady attempts = do
-          l1 <- canConnect "127.0.0.1" lspP
-          l2 <- canConnect "127.0.0.1" mcpP
-          l3 <- canConnect "127.0.0.1" httpP
+          l1 <- canConnect (spDomain params) (spLspPort params)
+          l2 <- canConnect (spDomain params) (spMcpPort params)
+          l3 <- canConnect (spDomain params) (spHttpPort params)
           if l1 && l2 && l3 then pure () else if attempts <= (0 :: Int)
             then ioError (userError "daemon failed to start listeners")
             else do
               Concurrent.threadDelay 100000 -- 100ms
               waitReady (attempts - 1)
     waitReady (100 :: Int)
+    printBanner params
     now <- fmap show getCurrentTime
     p <- getPid
-    let st = StateInfo { pid = p, lspPort = lspP, mcpPort = mcpP, httpPort = httpP, startedAt = now, version = versionString }
+    let st = StateInfo { pid = p, domain = spDomain params, lspPort = spLspPort params, mcpPort = spMcpPort params, httpPort = spHttpPort params, startedAt = now, version = versionString }
     writeState st
     -- Block forever
     let loop = do Concurrent.threadDelay 10000000 >> loop
@@ -235,5 +256,23 @@ isHealthy st = do
   l <- canConnect "127.0.0.1" (lspPort st)
   m <- canConnect "127.0.0.1" (mcpPort st)
   pure (l && m)
+
+-- Pretty startup banner with colors and service ports
+printBanner :: ServeParams -> IO ()
+printBanner sp = do
+  let cyan s  = "\ESC[36m" ++ s ++ "\ESC[0m"
+  let grey s  = "\ESC[90m" ++ s ++ "\ESC[0m"
+  let yellow s = "\ESC[33m" ++ s ++ "\ESC[0m"
+  let logo =
+        [ ""
+        , cyan "                Elm Dev Server"
+        , ""
+        ]
+  mapM_ (IO.hPutStrLn IO.stderr) logo
+  let host = spDomain sp
+  IO.hPutStrLn IO.stderr (yellow (" HTTP ") ++ " http://" ++ host ++ ":" ++ show (spHttpPort sp) ++ grey "  (dev server)")
+  IO.hPutStrLn IO.stderr (yellow ("  LSP ") ++ "  tcp://" ++ host ++ ":" ++ show (spLspPort sp))
+  IO.hPutStrLn IO.stderr (yellow ("  MCP ") ++ "  tcp://" ++ host ++ ":" ++ show (spMcpPort sp))
+  IO.hPutStrLn IO.stderr ""
 
 
