@@ -861,7 +861,9 @@ handleDidOpen state openParams = do
           let anyUncompiled = any isUncompiled (firstStatus : restStatuses)
           if anyUncompiled
             then do
-              let flags = Ext.CompileHelpers.Generic.Flags Ext.CompileHelpers.Generic.Dev Ext.CompileHelpers.Generic.NoOutput
+              let flags = Ext.CompileHelpers.Generic.Flags
+                            Ext.CompileHelpers.Generic.Dev
+                            (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
               Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
               return $ Right JSON.Null
             else return $ Right JSON.Null
@@ -892,7 +894,9 @@ handleDidChange state changeParams = do
         Left (Ext.FileCache.InvalidEdit err) -> 
           return $ Left $ "Invalid edit: " ++ err
         Right () -> do
-            let flags = Ext.CompileHelpers.Generic.Flags Ext.CompileHelpers.Generic.Dev Ext.CompileHelpers.Generic.NoOutput
+            let flags = Ext.CompileHelpers.Generic.Flags
+                            Ext.CompileHelpers.Generic.Dev
+                            (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
             Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
             return $ Right JSON.Null
 

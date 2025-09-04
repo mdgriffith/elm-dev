@@ -12,6 +12,7 @@ module Watchtower.Live.Client
     GetExistingProjectError (..),
     Error (..),
     CompilationResult (..),
+    encodeCompilationResult,
     getAllStatuses,
     getRoot,
     getProjectRoot,
@@ -48,6 +49,8 @@ import Control.Monad as Monad (foldM, guard)
 import Data.Aeson (ToJSON (toJSON))
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
+import qualified Data.Aeson as Aeson
+import Data.Aeson ((.=))
 import qualified Data.Either as Either
 import qualified Data.List as List
 import qualified Data.Map as Map
@@ -113,6 +116,39 @@ toOldJSON (Error (ReactorError exit)) =
   Reporting.Exit.toJson (Reporting.Exit.reactorToReport exit)
 toOldJSON (Error (GenerationError err)) =
   Json.Encode.chars err
+
+
+-- New JSON encoder (Aeson) that includes generated JS/HTML when available
+encodeCompilationResult :: CompilationResult -> Aeson.Value
+encodeCompilationResult NotCompiled =
+  Aeson.object [ "compiled" .= False ]
+encodeCompilationResult (Success result) =
+  case result of
+    Ext.CompileHelpers.Generic.CompiledJs builder ->
+      let codeText = builderToString builder in
+      Aeson.object
+        [ "compiled" .= True
+        , "code" .= codeText
+        ]
+    Ext.CompileHelpers.Generic.CompiledHtml builder ->
+      let codeText = builderToString builder in
+      Aeson.object
+        [ "compiled" .= True
+        , "code" .= codeText
+        ]
+    Ext.CompileHelpers.Generic.CompiledSkippedOutput ->
+      Aeson.object
+        [ "compiled" .= True
+        , "code" .= Aeson.Null
+        ]
+encodeCompilationResult (Error (ReactorError exit)) =
+  let v = Reporting.Exit.toJson (Reporting.Exit.reactorToReport exit)
+      lbs = Data.ByteString.Builder.toLazyByteString (Json.Encode.encodeUgly v)
+  in case Aeson.eitherDecode lbs of
+       Left _ -> Aeson.object [ "compiled" .= False, "code" .= T.pack "", "error" .= T.pack "reactor" ]
+       Right val -> val
+encodeCompilationResult (Error (GenerationError err)) =
+  Aeson.String (T.pack err)
 
 
 -- Client
