@@ -344,6 +344,7 @@ ask state question =
                       _ -> CompileHelpers.Dev
               )
               (CompileHelpers.OutputTo CompileHelpers.Js)
+              Nothing
       projectCache <- Watchtower.State.Project.upsert state flags cwd entrypoints
       compilationResult <- Watchtower.State.Compile.compile state flags projectCache []
       case compilationResult of
@@ -397,6 +398,7 @@ ask state question =
           CompileHelpers.Flags
             CompileHelpers.Debug
             (CompileHelpers.OutputTo CompileHelpers.Js)
+            Nothing
     maybeProjectCache <-
       Watchtower.State.Project.upsertVirtual
         state
@@ -559,7 +561,7 @@ flattenJsonStatus (Left json) = json
 flattenJsonStatus (Right json) = json
 
 allProjectStatuses :: Watchtower.Live.Client.State -> IO Data.ByteString.Builder.Builder
-allProjectStatuses (Watchtower.Live.Client.State clients mProjects _) =
+allProjectStatuses (Watchtower.Live.Client.State clients mProjects _ _) =
   do
     projects <- STM.readTVarIO mProjects
     projectStatuses <-

@@ -35,7 +35,7 @@ This means
 
 -}
 upsertVirtual :: Client.State -> CompileHelpers.Flags -> FilePath -> FilePath -> IO (Maybe Client.ProjectCache)
-upsertVirtual state@(Client.State mClients mProjects _) flags root entrypoint = do
+upsertVirtual state@(Client.State mClients mProjects _ _) flags root entrypoint = do
   elmJsonResult <- insertVirtualElmJson root
   case elmJsonResult of
     Left err -> do
@@ -91,7 +91,7 @@ insertVirtualElmJson root = do
       pure (Left "TODO: Implement packages for interactive stuff")
 
 upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO Client.ProjectCache
-upsert state@(Client.State mClients mProjects _) flags root entrypoints = do
+upsert state@(Client.State mClients mProjects _ _) flags root entrypoints = do
   docsInfo <- readDocsInfo root
   let newProject = Ext.Dev.Project.Project root root entrypoints 
   mCompileResult <- STM.newTVarIO Client.NotCompiled

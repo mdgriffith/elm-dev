@@ -5,6 +5,7 @@ module Watchtower.Live.Client
     ClientId,
     ProjectRoot,
     State (..),
+    Urls (..),
     FileInfo (..),
     ProjectCache (..),
     ProjectStatus (..),
@@ -83,12 +84,21 @@ import qualified Ext.CompileHelpers.Generic
 
 
 
+data Urls = Urls
+  { urlsLsp :: Maybe String,
+    urlsMcp :: Maybe String,
+    urlsDevHttp :: String,
+    urlsDevWebsocket :: String
+  }
+
+
 data State = State
   { clients :: STM.TVar [Client],
     projects ::
       STM.TVar
         [ProjectCache],
-    fileInfo :: STM.TVar (Map.Map FilePath FileInfo)
+    fileInfo :: STM.TVar (Map.Map FilePath FileInfo),
+    urls :: Urls
   }
 
 data ProjectCache = ProjectCache
@@ -164,7 +174,7 @@ data FileInfo = FileInfo
   }
 
 getFileInfo :: FilePath -> State -> IO (Maybe FileInfo)
-getFileInfo path (State _ _ mFileInfo) = do
+getFileInfo path (State _ _ mFileInfo _) = do
   fileInfo <- STM.readTVarIO mFileInfo
   pure (Map.lookup path fileInfo)
 
@@ -216,7 +226,7 @@ watchedFiles (Watching _ files) =
   files
 
 getClientData :: ClientId -> State -> IO (Maybe Watching)
-getClientData clientId (State mClients _ _) = do
+getClientData clientId (State mClients _ _ _) = do
   clients <- STM.atomically $ STM.readTVar mClients
 
   pure
@@ -261,7 +271,7 @@ isWatchingFileForDocs file (Watching watchingProjects watchingFiles) =
       watchForDocs
 
 getRoot :: FilePath -> State -> IO (Maybe FilePath)
-getRoot path (State mClients mProjects _) =
+getRoot path (State _ mProjects _ _) =
   do
     projects <- STM.readTVarIO mProjects
     pure (getRootHelp path projects Nothing)
@@ -298,7 +308,7 @@ sortProjects projects =
   List.sortBy (\(ProjectCache p1 _ _ _) (ProjectCache p2 _ _ _) -> compare (List.length (Ext.Dev.Project._root p2)) (List.length (Ext.Dev.Project._root p1))) projects
 
 getExistingProject :: FilePath -> State -> IO (Either GetExistingProjectError (ProjectCache, [ProjectCache]))
-getExistingProject path (State _ mProjects _) = do
+getExistingProject path (State _ mProjects _ _) = do
   projects <- STM.readTVarIO mProjects
   case projects of
     [] -> pure $ Left NoProjectsRegistered
@@ -314,7 +324,7 @@ matchingProject (ProjectCache one _ _ _) (ProjectCache two _ _ _) =
   Ext.Dev.Project.equal one two
 
 getAllStatuses :: State -> IO [ProjectStatus]
-getAllStatuses state@(State mClients mProjects _) =
+getAllStatuses state@(State _ mProjects _ _) =
   do
     projects <- STM.readTVarIO mProjects
 

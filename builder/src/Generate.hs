@@ -32,9 +32,6 @@ import qualified Nitpick.Debug as Nitpick
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Stuff
--- elm-dev: overrides
-import qualified Ext.PackageOverride as PackageOverride
-import qualified Ext.HotClient as HotClient
 
 
 -- NOTE: This is used by Make, Repl, and Reactor right now. But it may be
@@ -59,10 +56,7 @@ debug root details (Build.Artifacts pkg ifaces roots modules) maybeInjectJs =
       let graph = objectsToGlobalGraph objects
       let mains = gatherMains pkg objects roots
       -- elm-dev: overrides
-      base <- pure (JS.generate mode graph mains maybeInjectJs)
-      -- elm-dev: overrides
-      hot <- Task.io PackageOverride.hotEnabled
-      return $ HotClient.appendHotClient hot base
+      return (JS.generate mode graph mains maybeInjectJs)
 
 
 dev :: FilePath -> Details.Details -> Build.Artifacts -> Maybe B.Builder -> Task B.Builder
@@ -72,10 +66,7 @@ dev root details (Build.Artifacts pkg _ roots modules) maybeInjectJs =
       let graph = objectsToGlobalGraph objects
       let mains = gatherMains pkg objects roots
       -- elm-dev: overrides
-      base <- pure (JS.generate mode graph mains maybeInjectJs)
-      -- elm-dev: overrides
-      hot <- Task.io PackageOverride.hotEnabled
-      return $ HotClient.appendHotClient hot base
+      return (JS.generate mode graph mains maybeInjectJs)
 
 
 prod :: FilePath -> Details.Details -> Build.Artifacts -> Maybe B.Builder -> Task B.Builder

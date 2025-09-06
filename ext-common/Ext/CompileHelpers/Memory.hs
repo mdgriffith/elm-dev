@@ -53,7 +53,7 @@ debug =
 
 -- Returns compilation result plus maps of absolute file paths to warnings and docs
 compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo))
-compile root paths flags@(CompileHelpers.Flags mode output) = do
+compile root paths flags@(CompileHelpers.Flags mode output maybeInjectHotJs) = do
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope ->
         -- @TODO root lock shouldn't be needed unless we're falling through to disk compile
@@ -67,7 +67,7 @@ compile root paths flags@(CompileHelpers.Flags mode output) = do
           details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root
           (artifacts, fileInfoByPath) <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached compilationFlags Reporting.silent root details paths
 
-          compiled <- CompileHelpers.generate root details mode artifacts output
+          compiled <- CompileHelpers.generate root details mode artifacts output maybeInjectHotJs
           pure (compiled, fileInfoByPath)
           
 

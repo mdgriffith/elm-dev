@@ -21,6 +21,7 @@ import qualified Data.Text as T
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.TH
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Builder
 import Data.Char (toLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -864,6 +865,7 @@ handleDidOpen state openParams = do
               let flags = Ext.CompileHelpers.Generic.Flags
                             Ext.CompileHelpers.Generic.Dev
                             (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
+                            Nothing
               Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
               return $ Right JSON.Null
             else return $ Right JSON.Null
@@ -894,9 +896,11 @@ handleDidChange state changeParams = do
         Left (Ext.FileCache.InvalidEdit err) -> 
           return $ Left $ "Invalid edit: " ++ err
         Right () -> do
-            let flags = Ext.CompileHelpers.Generic.Flags
+            let wsUrl = Watchtower.Live.Client.urlsDevWebsocket (Watchtower.Live.Client.urls state)
+                flags = Ext.CompileHelpers.Generic.Flags
                             Ext.CompileHelpers.Generic.Dev
                             (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
+                            (Just (Ext.CompileHelpers.Generic.ElmDevWsUrl (Data.ByteString.Builder.string8 wsUrl)))
             Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
             return $ Right JSON.Null
 
@@ -942,7 +946,11 @@ handleDidSave state saveParams = do
   case uriToFilePath uri of
     Nothing -> return $ Right JSON.Null
     Just filePath -> do
-      let flags = Ext.CompileHelpers.Generic.Flags Ext.CompileHelpers.Generic.Dev Ext.CompileHelpers.Generic.NoOutput
+      let wsUrl = Watchtower.Live.Client.urlsDevWebsocket (Watchtower.Live.Client.urls state)
+          flags = Ext.CompileHelpers.Generic.Flags
+                      Ext.CompileHelpers.Generic.Dev
+                      (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
+                      (Just (Ext.CompileHelpers.Generic.ElmDevWsUrl (Data.ByteString.Builder.string8 wsUrl)))
       Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
       return $ Right JSON.Null
 

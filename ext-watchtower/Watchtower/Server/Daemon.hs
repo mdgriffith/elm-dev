@@ -28,6 +28,7 @@ import qualified System.FilePath as Path
 import qualified System.IO as IO
 import qualified Network.Socket as Net
 import qualified Watchtower.Live
+import qualified Watchtower.Live.Client
 import qualified Watchtower.Server.Run
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.MCP as MCP
@@ -199,7 +200,11 @@ serve params = do
   IO.hSetBuffering IO.stderr IO.LineBuffering
   Ext.Log.withAllBut [Ext.Log.Performance, Ext.Log.FileProxy] $ do
     Ext.CompileMode.setModeMemory
-    live <- Watchtower.Live.init
+    let httpUrl = "http://" ++ spDomain params ++ ":" ++ show (spHttpPort params)
+    let wsUrl = "ws://" ++ spDomain params ++ ":" ++ show (spHttpPort params) ++ "/ws"
+    let lspUrl = "tcp://" ++ spDomain params ++ ":" ++ show (spLspPort params)
+    let mcpUrl = "tcp://" ++ spDomain params ++ ":" ++ show (spMcpPort params)
+    live <- Watchtower.Live.initWithUrls (Watchtower.Live.Client.Urls (Just lspUrl) (Just mcpUrl) httpUrl wsUrl)
     let debug = False
     _ <- Concurrent.forkIO $ Server.httpServe 
           (Watchtower.Server.Run.config (spHttpPort params) debug)

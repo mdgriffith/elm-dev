@@ -124,7 +124,7 @@ getProjectStatus liveState root = do
 compileJs :: FilePath -> FilePath -> Bool -> Bool -> IO (Either String JSON.Value)
 compileJs root file debug optimize = do
   let desired = CompileHelpers.getMode debug optimize
-  let flags = CompileHelpers.Flags desired (CompileHelpers.OutputTo CompileHelpers.Js)
+  let flags = CompileHelpers.Flags desired (CompileHelpers.OutputTo CompileHelpers.Js) Nothing
   compiledR <- CompileProxy.compile root (NE.List file []) flags
   case compiledR of
     Left reactorErr -> do

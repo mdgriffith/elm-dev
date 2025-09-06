@@ -26,7 +26,7 @@ import qualified Reporting.Warning as Warning
 
 
 compile :: Client.State -> CompileHelpers.Flags -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compile state@(Client.State _ _ mFileInfo) flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo mCompileResult _) files = do
+compile state@(Client.State _ _ mFileInfo _) flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo mCompileResult _) files = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run
@@ -78,7 +78,7 @@ compile state@(Client.State _ _ mFileInfo) flags projCache@(Client.ProjectCache 
 --   Compilation is performed synchronously here so the caller can rely on
 --   fresh results when this function returns.
 compileRelevantProjects :: Client.State -> CompileHelpers.Flags -> [FilePath] -> IO ()
-compileRelevantProjects state@(Client.State _ mProjects _) flags elmFiles = do
+compileRelevantProjects state@(Client.State _ mProjects _ _) flags elmFiles = do
   if elmFiles == []
     then pure ()
     else do

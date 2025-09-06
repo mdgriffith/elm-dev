@@ -138,7 +138,7 @@ compile (A.Artifacts interfaces objects) source =
                     mains = Map.singleton home main_
                     graph = Opt.addLocalGraph locals objects
                   in
-                  Success $ Html.sandwich name $ JS.generate mode graph mains
+                  Success $ Html.sandwich name $ JS.generate mode graph mains Nothing
 
 
 checkImports :: Map.Map ModuleName.Raw I.Interface -> [Src.Import] -> Either (NE.List Import.Error) (Map.Map ModuleName.Raw I.Interface)
@@ -229,5 +229,5 @@ loadErrorJS =
     do  root <- Dir.getCurrentDirectory
         details <- run $ Details.load Reporting.silent scope root
         artifacts <- run $ Build.fromPaths Reporting.silent root details (NE.List "src/Errors.elm" [])
-        javascript <- run $ Task.run $ Generate.prod root details artifacts
+        javascript <- run $ Task.run $ Generate.prod root details artifacts Nothing
         return $ LBS.toStrict $ B.toLazyByteString javascript

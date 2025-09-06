@@ -58,12 +58,18 @@ encodeWarning =
   Client.encodeWarning
 
 
+-- Deprecated
 init :: IO Client.State
-init =
+init = do
+  initWithUrls (Client.Urls { Client.urlsLsp = Nothing, Client.urlsMcp = Nothing, Client.urlsDevHttp = "http://localhost:51213", Client.urlsDevWebsocket = "ws://localhost:51213/ws" })
+
+initWithUrls :: Client.Urls -> IO Client.State
+initWithUrls urls =
   Client.State
     <$> Watchtower.Websocket.clientsInit
     <*> STM.newTVarIO []
     <*> STM.newTVarIO mempty
+    <*> pure urls
 
 -- initWith :: FilePath -> IO Client.State
 -- initWith root =
@@ -110,7 +116,7 @@ flattenJsonStatus (Left json) = json
 flattenJsonStatus (Right json) = json
 
 websocket_ :: Client.State -> Snap ()
-websocket_ state@(Client.State mClients mProjects _) = do
+websocket_ state@(Client.State mClients mProjects _ _) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
@@ -159,7 +165,7 @@ receive state clientId text = do
       receiveAction state clientId action
 
 receiveAction :: Client.State -> Client.ClientId -> Client.Incoming -> IO ()
-receiveAction state@(Client.State mClients mProjects _) senderClientId incoming =
+receiveAction state@(Client.State mClients mProjects _ _) senderClientId incoming =
   case incoming of
     Client.Changed fileChanged ->
       do
@@ -209,8 +215,9 @@ receiveAction state@(Client.State mClients mProjects _) senderClientId incoming 
         senderClientId
         (Client.EditorJumpTo file position)
 
+-- helper broadcast (typo retained to preserve call sites)
 broadCastToEveryoneNotMe :: Client.State -> Client.ClientId -> Client.Outgoing -> IO ()
-broadCastToEveryoneNotMe (Client.State mClients _ _) myClientId =
+broadCastToEveryoneNotMe (Client.State mClients _ _ _) myClientId =
   Client.broadcastToMany
     mClients
     ( not . Watchtower.Websocket.matchId myClientId
