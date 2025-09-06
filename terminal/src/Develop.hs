@@ -162,7 +162,7 @@ compile path =
           BW.withScope $ \scope -> Stuff.withRootLock root $ Task.run $
             do  details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
                 artifacts <- Task.eio Exit.ReactorBadBuild $ Build.fromPaths Reporting.silent root details (NE.List path [])
-                javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts
+                javascript <- Task.mapError Exit.ReactorBadGenerate $ Generate.dev root details artifacts Nothing
                 let (NE.List name _) = Build.getRootNames artifacts
                 return $ Html.sandwich name javascript
 

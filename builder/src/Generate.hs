@@ -50,41 +50,42 @@ type Task a =
   Task.Task Exit.Generate a
 
 
-debug :: FilePath -> Details.Details -> Build.Artifacts -> Task B.Builder
-debug root details (Build.Artifacts pkg ifaces roots modules) =
+debug :: FilePath -> Details.Details -> Build.Artifacts -> Maybe B.Builder -> Task B.Builder
+debug root details (Build.Artifacts pkg ifaces roots modules) maybeInjectJs =
   do  loading <- loadObjects root details modules
       types   <- loadTypes root ifaces modules
       objects <- finalizeObjects loading
       let mode = Mode.Dev (Just types)
       let graph = objectsToGlobalGraph objects
       let mains = gatherMains pkg objects roots
-      base <- pure (JS.generate mode graph mains)
+      -- elm-dev: overrides
+      base <- pure (JS.generate mode graph mains maybeInjectJs)
       -- elm-dev: overrides
       hot <- Task.io PackageOverride.hotEnabled
       return $ HotClient.appendHotClient hot base
 
 
-dev :: FilePath -> Details.Details -> Build.Artifacts -> Task B.Builder
-dev root details (Build.Artifacts pkg _ roots modules) =
+dev :: FilePath -> Details.Details -> Build.Artifacts -> Maybe B.Builder -> Task B.Builder
+dev root details (Build.Artifacts pkg _ roots modules) maybeInjectJs =
   do  objects <- finalizeObjects =<< loadObjects root details modules
       let mode = Mode.Dev Nothing
       let graph = objectsToGlobalGraph objects
       let mains = gatherMains pkg objects roots
-      base <- pure (JS.generate mode graph mains)
+      -- elm-dev: overrides
+      base <- pure (JS.generate mode graph mains maybeInjectJs)
       -- elm-dev: overrides
       hot <- Task.io PackageOverride.hotEnabled
       return $ HotClient.appendHotClient hot base
 
 
-prod :: FilePath -> Details.Details -> Build.Artifacts -> Task B.Builder
-prod root details (Build.Artifacts pkg _ roots modules) =
+prod :: FilePath -> Details.Details -> Build.Artifacts -> Maybe B.Builder -> Task B.Builder
+prod root details (Build.Artifacts pkg _ roots modules) maybeInjectJs =
   do  objects <- finalizeObjects =<< loadObjects root details modules
       checkForDebugUses objects
       let graph = objectsToGlobalGraph objects
       let mode = Mode.Prod (Mode.shortenFieldNames graph)
       let mains = gatherMains pkg objects roots
-      -- Never inject hot client for prod builds
-      return $ JS.generate mode graph mains
+      return $ JS.generate mode graph mains maybeInjectJs
 
 
 repl :: FilePath -> Details.Details -> Bool -> Build.ReplArtifacts -> N.Name -> Task B.Builder

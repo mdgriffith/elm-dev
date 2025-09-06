@@ -271,9 +271,9 @@ toBuilder :: FilePath -> Details.Details -> DesiredMode -> Build.Artifacts -> Ta
 toBuilder root details desiredMode artifacts =
   Task.mapError Exit.MakeBadGenerate $
     case desiredMode of
-      Debug -> Generate.debug root details artifacts
-      Dev   -> Generate.dev   root details artifacts
-      Prod  -> Generate.prod  root details artifacts
+      Debug -> Generate.debug root details artifacts Nothing
+      Dev   -> Generate.dev   root details artifacts Nothing
+      Prod  -> Generate.prod  root details artifacts Nothing
 
 
 

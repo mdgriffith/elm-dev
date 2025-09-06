@@ -191,9 +191,9 @@ generate root details desiredMode artifacts output =
     OutputTo format ->
       Task.mapError Exit.ReactorBadGenerate $ do
         js <- case desiredMode of
-                Debug -> Generate.debug root details artifacts
-                Dev   -> Generate.dev   root details artifacts
-                Prod  -> Generate.prod  root details artifacts
+                Debug -> Generate.debug root details artifacts Nothing
+                Dev   -> Generate.dev   root details artifacts Nothing
+                Prod  -> Generate.prod  root details artifacts Nothing
         case format of
           Html -> 
               pure (CompiledHtml (Generate.Html.sandwich (Name.fromChars "Main") js))

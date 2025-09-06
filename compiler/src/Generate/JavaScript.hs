@@ -40,14 +40,16 @@ type Graph = Map.Map Opt.Global Opt.Node
 type Mains = Map.Map ModuleName.Canonical Opt.Main
 
 
-generate :: Mode.Mode -> Opt.GlobalGraph -> Mains -> B.Builder
-generate mode (Opt.GlobalGraph graph _) mains =
+generate :: Mode.Mode -> Opt.GlobalGraph -> Mains -> Maybe B.Builder -> B.Builder
+generate mode (Opt.GlobalGraph graph _) mains maybeInjectJs =
   let
     state = Map.foldrWithKey (addMain mode graph) emptyState mains
   in
   "(function(scope){\n'use strict';"
   <> Functions.functions
   <> perfNote mode
+  -- elm dev injection
+  <> maybe mempty id maybeInjectJs
   <> stateToBuilder state
   <> toMainExports mode mains
   <> "}(this));"
