@@ -34,6 +34,7 @@ import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.MCP as MCP
 import qualified Snap.Http.Server as Server
 import qualified Watchtower.Server.Dev
+import qualified Snap.Core (route)
 import qualified Data.Bits as Bits
 import qualified Data.Word as Word
 import qualified System.Process as Process
@@ -209,7 +210,7 @@ serve params = do
     _ <- Concurrent.forkIO $ Server.httpServe 
           (Watchtower.Server.Run.config (spHttpPort params) debug)
           (Watchtower.Live.websocket live 
-            <|> Watchtower.Server.Run.runHttp live Watchtower.Server.Dev.serve (\_ _ _ -> pure ())
+            <|> Snap.Core.route (Watchtower.Server.Dev.routes live)
           )
     -- Start LSP TCP
     _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live LSP.serve LSP.handleNotification (spDomain params) (spLspPort params)

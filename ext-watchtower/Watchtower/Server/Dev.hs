@@ -2,7 +2,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Server.Dev (serve) where
+module Watchtower.Server.Dev (routes) where
 
 import qualified Control.Concurrent.STM as STM
 import Data.Aeson ((.=))
@@ -22,9 +22,13 @@ import qualified Json.Encode
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.JSONRPC as JSONRPC
-import qualified Ext.CompileProxy as CompileProxy
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Data.NonEmptyList as NE
+import qualified Data.List as List
+import qualified Watchtower.State.Project
+import qualified Watchtower.State.Compile
+import Snap.Core
+import Control.Monad.Trans (liftIO)
 
 -- | JSON decoders/encoders live in Watchtower.Server.JSONRPC; we mirror MCP style here
 
@@ -69,41 +73,13 @@ instance JSON.FromJSON InteractiveParams where
   parseJSON = JSON.withObject "InteractiveParams" $ \o ->
     InteractiveParams <$> o JSON..: "dir" <*> o JSON..: "file"
 
--- | Main JSON-RPC server for Dev methods
-serve :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
-serve state _emit (JSONRPC.Request _ reqId method params) = do
-  case Text.unpack method of
-    "js" -> do
-      case params of
-        Just p ->
-          case JSON.fromJSON p of
-            JSON.Success (JsParams root _file _mDebug _mOptimize) -> do
-              -- For dev server, do not compile. Read compile status from Live.State instead.
-              result <- getProjectStatus state root
-              case result of
-                Left errStr -> pure (Left (JSONRPC.err reqId (Text.pack errStr)))
-                Right json -> pure (Right (JSONRPC.success reqId json))
-            JSON.Error e -> pure (Left (JSONRPC.err reqId (Text.pack ("Invalid params for js: " <> e))))
-        Nothing -> pure (Left (JSONRPC.err reqId (Text.pack "Missing params for js")))
-    "log" -> do
-      case params of
-        Just p ->
-          case JSON.fromJSON p of
-            JSON.Success (LogParams _root _mod _ident _payload) -> do
-              -- Placeholder: accept and acknowledge
-              pure (Right (JSONRPC.success reqId (JSON.object ["ok" .= True])))
-            JSON.Error e -> pure (Left (JSONRPC.err reqId (Text.pack ("Invalid params for log: " <> e))))
-        Nothing -> pure (Left (JSONRPC.err reqId (Text.pack "Missing params for log")))
-    "interactive" -> do
-      case params of
-        Just p ->
-          case JSON.fromJSON p of
-            JSON.Success (InteractiveParams root path) -> do
-              value <- interactiveDocs state root path
-              pure (Right (JSONRPC.success reqId value))
-            JSON.Error e -> pure (Left (JSONRPC.err reqId (Text.pack ("Invalid params for interactive: " <> e))))
-        Nothing -> pure (Left (JSONRPC.err reqId (Text.pack "Missing params for interactive")))
-    _ -> pure (Left (JSONRPC.errorMethodNotFound reqId method))
+-- | Snap routes for dev endpoints (non-JSON-RPC)
+routes :: Live.State -> [(BS.ByteString, Snap ())]
+routes state =
+  [ ("/dev/js", jsHandler state)
+  , ("/dev/interactive", interactiveHandler state)
+  , ("/dev/log", logHandler)
+  ]
 
 -- Helpers
 
@@ -120,26 +96,82 @@ getProjectStatus liveState root = do
       result <- STM.readTVarIO mCompileResult
       pure (Right (Client.encodeCompilationResult result))
 
--- Compile a specific Elm file to JS and return JSON with code
-compileJs :: FilePath -> FilePath -> Bool -> Bool -> IO (Either String JSON.Value)
-compileJs root file debug optimize = do
-  let desired = CompileHelpers.getMode debug optimize
-  let flags = CompileHelpers.Flags desired (CompileHelpers.OutputTo CompileHelpers.Js) Nothing
-  compiledR <- CompileProxy.compile root (NE.List file []) flags
+-- Snap handlers
+
+jsHandler :: Live.State -> Snap ()
+jsHandler state = do
+  mDir <- getParam "dir"
+  mFile <- getParam "file"
+  mDebug <- getParam "debug"
+  mOptimize <- getParam "optimize"
+  case (mDir, mFile) of
+    (Nothing, _) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: dir")
+    (_, Nothing) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: file")
+    (Just dirBs, Just fileBs) -> do
+      let dir = Text.unpack (Data.Text.Encoding.decodeUtf8 dirBs)
+      let file = Text.unpack (Data.Text.Encoding.decodeUtf8 fileBs)
+      let debug = parseBoolParamWithDefault False mDebug
+      let optimize = parseBoolParamWithDefault False mOptimize
+      e <- liftIO (compile state dir file debug optimize)
+      case e of
+        Left err -> problemSnap 422 "compile_failed" (Text.pack err)
+        Right jsBuilder -> do
+          modifyResponse $ setContentType "application/javascript; charset=utf-8"
+          writeBuilder jsBuilder
+
+interactiveHandler :: Live.State -> Snap ()
+interactiveHandler state = do
+  mDir <- getParam "dir"
+  mFile <- getParam "file"
+  case (mDir, mFile) of
+    (Nothing, _) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: dir")
+    (_, Nothing) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: file")
+    (Just dirBs, Just fileBs) -> do
+      let dir = Text.unpack (Data.Text.Encoding.decodeUtf8 dirBs)
+      let file = Text.unpack (Data.Text.Encoding.decodeUtf8 fileBs)
+      value <- liftIO (interactiveDocs state dir file)
+      modifyResponse $ setContentType "application/json"
+      writeLBS (JSON.encode value)
+
+logHandler :: Snap ()
+logHandler = do
+  body <- readRequestBody 1048576 -- 1MB
+  case decodeAsValue body of
+    Left _ -> problemSnap 400 "bad_request" (Text.pack "Invalid JSON body")
+    Right _ -> do
+      modifyResponse $ setContentType "application/json"
+      writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
+
+-- Return raw JS as a Builder for efficient streaming to Snap
+compile :: Live.State -> FilePath -> FilePath -> Bool -> Bool -> IO (Either String Builder.Builder)
+compile state root file debug optimize = do
+  let wsUrl = Client.urlsDevWebsocket (Client.urls state)
+      desired = CompileHelpers.getMode debug optimize
+      flags = CompileHelpers.Flags
+                desired
+                (CompileHelpers.OutputTo CompileHelpers.Js)
+                (Just (CompileHelpers.ElmDevWsUrl (Builder.string8 wsUrl)))
+
+  -- Find an existing project whose elm.json root equals the given root; otherwise create it
+  existingProjects <- STM.readTVarIO (Client.projects state)
+  projCache <- case List.find (\pc -> Client.getProjectRoot pc == root) existingProjects of
+    Just pc -> pure pc
+    Nothing -> Watchtower.State.Project.upsert state flags root (NE.List file [])
+
+  compiledR <- Watchtower.State.Compile.compile state flags projCache [file]
   case compiledR of
-    Left reactorErr -> do
-      -- Serialize reactor error as string for now
-      pure (Left (show reactorErr))
-    Right (result, _fileInfo) ->
+    Left clientErr ->
+      case clientErr of
+        Client.ReactorError exit -> pure (Left (show exit))
+        Client.GenerationError err -> pure (Left err)
+    Right result ->
       case result of
-        CompileHelpers.CompiledJs builder -> do
-          let jsBytes = BL.toStrict (BB.toLazyByteString builder)
-          let jsText = Data.Text.Encoding.decodeUtf8 jsBytes
-          pure (Right (JSON.object [ "compiled" JSON..= True, "code" JSON..= jsText ]))
+        CompileHelpers.CompiledJs jsBuilder ->
+          pure (Right jsBuilder)
         CompileHelpers.CompiledHtml _ ->
-          pure (Right (JSON.object [ "compiled" JSON..= True, "code" JSON..= (Text.pack "") ]))
+          pure (Left "HTML output not supported on /dev/js")
         CompileHelpers.CompiledSkippedOutput ->
-          pure (Right (JSON.object [ "compiled" JSON..= False, "code" JSON..= (Text.pack "") ]))
+          pure (Left "Compilation skipped")
 
 -- Perform the same logic as Questions.Interactive branch
 interactiveDocs :: Live.State -> FilePath -> FilePath -> IO JSON.Value
@@ -164,5 +196,33 @@ interactiveDocs liveState cwd filepath = do
               case JSON.eitherDecode lbs of
                 Left e -> pure (JSON.String (Text.pack e))
                 Right v -> pure v
+
+-- Utilities
+
+parseBoolParamWithDefault :: Bool -> Maybe BS.ByteString -> Bool
+parseBoolParamWithDefault def m =
+  case fmap (Text.toLower . Data.Text.Encoding.decodeUtf8) m of
+    Just "1" -> True
+    Just "true" -> True
+    Just "yes" -> True
+    Just "0" -> False
+    Just "false" -> False
+    Just "no" -> False
+    _ -> def
+
+problemSnap :: Int -> BS.ByteString -> Text.Text -> Snap ()
+problemSnap code problemCode detail = do
+  modifyResponse $ setResponseCode code
+  modifyResponse $ setContentType "application/json"
+  writeLBS (JSON.encode (JSON.object
+    [ "type" JSON..= (Text.pack "about:blank")
+    , "status" JSON..= code
+    , "code" JSON..= (Data.Text.Encoding.decodeUtf8 problemCode)
+    , "detail" JSON..= detail
+    ]))
+
+-- Explicitly-typed JSON decode helper to avoid inline annotations at call-site
+decodeAsValue :: LBS.ByteString -> Either String JSON.Value
+decodeAsValue = JSON.eitherDecode
 
 
