@@ -61,6 +61,18 @@ import qualified Ext.Log
 import qualified Ext.Reporting.Error
 
 
+
+
+-- Helper to compile relevant projects with a websocket URL
+compile :: Live.State -> [FilePath] -> IO ()
+compile state files = do
+  let wsUrl = Watchtower.Live.Client.urlsDevWebsocket (Watchtower.Live.Client.urls state)
+      flags = Ext.CompileHelpers.Generic.Flags
+                Ext.CompileHelpers.Generic.Dev
+                (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
+                (Just (Ext.CompileHelpers.Generic.ElmDevWsUrl (Data.ByteString.Builder.string8 wsUrl)))
+  Watchtower.State.Compile.compileRelevantProjects state flags files
+
 -- * Core LSP Types
 
 -- | Position in a text document (zero-based)
@@ -862,11 +874,7 @@ handleDidOpen state openParams = do
           let anyUncompiled = any isUncompiled (firstStatus : restStatuses)
           if anyUncompiled
             then do
-              let flags = Ext.CompileHelpers.Generic.Flags
-                            Ext.CompileHelpers.Generic.Dev
-                            (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
-                            Nothing
-              Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
+              compile state [filePath]
               return $ Right JSON.Null
             else return $ Right JSON.Null
   where
@@ -896,12 +904,7 @@ handleDidChange state changeParams = do
         Left (Ext.FileCache.InvalidEdit err) -> 
           return $ Left $ "Invalid edit: " ++ err
         Right () -> do
-            let wsUrl = Watchtower.Live.Client.urlsDevWebsocket (Watchtower.Live.Client.urls state)
-                flags = Ext.CompileHelpers.Generic.Flags
-                            Ext.CompileHelpers.Generic.Dev
-                            (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
-                            (Just (Ext.CompileHelpers.Generic.ElmDevWsUrl (Data.ByteString.Builder.string8 wsUrl)))
-            Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
+            compile state [filePath]
             return $ Right JSON.Null
 
 -- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
@@ -946,12 +949,7 @@ handleDidSave state saveParams = do
   case uriToFilePath uri of
     Nothing -> return $ Right JSON.Null
     Just filePath -> do
-      let wsUrl = Watchtower.Live.Client.urlsDevWebsocket (Watchtower.Live.Client.urls state)
-          flags = Ext.CompileHelpers.Generic.Flags
-                      Ext.CompileHelpers.Generic.Dev
-                      (Ext.CompileHelpers.Generic.OutputTo Ext.CompileHelpers.Generic.Js)
-                      (Just (Ext.CompileHelpers.Generic.ElmDevWsUrl (Data.ByteString.Builder.string8 wsUrl)))
-      Watchtower.State.Compile.compileRelevantProjects state flags [filePath]
+      compile state [filePath]
       return $ Right JSON.Null
 
 handleHover :: Live.State -> HoverParams -> IO (Either String (Maybe Hover))
