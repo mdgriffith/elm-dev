@@ -11,6 +11,7 @@ module CommandParser
     parseFlag2,
     parseFlag3,
     parseFlag4,
+    parseFlag5,
     -- Flag constructors
     flag,
     flagWithArg,
@@ -355,6 +356,28 @@ parseFlag4 flag1 flag2 flag3 flag4 parsed =
                   if null (parsedFlags parsed4)
                     then Right ((maybeA, maybeB, maybeC, maybeD), parsed4)
                     else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed4)
+
+-- | Parse five flags
+parseFlag5 :: Flag a -> Flag b -> Flag c -> Flag d -> Flag e -> ParsedArgs -> Either String ((Maybe a, Maybe b, Maybe c, Maybe d, Maybe e), ParsedArgs)
+parseFlag5 flag1 flag2 flag3 flag4 flag5 parsed =
+  case parseFlag flag1 parsed of
+    Left err -> Left err
+    Right (maybeA, parsed1) ->
+      case parseFlag flag2 parsed1 of
+        Left err -> Left err
+        Right (maybeB, parsed2) ->
+          case parseFlag flag3 parsed2 of
+            Left err -> Left err
+            Right (maybeC, parsed3) ->
+              case parseFlag flag4 parsed3 of
+                Left err -> Left err
+                Right (maybeD, parsed4) ->
+                  case parseFlag flag5 parsed4 of
+                    Left err -> Left err
+                    Right (maybeE, parsed5) ->
+                      if null (parsedFlags parsed5)
+                        then Right ((maybeA, maybeB, maybeC, maybeD, maybeE), parsed5)
+                        else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed5)
 
 -- | Run a list of commands with parsed arguments
 run :: ([CommandMetadata] -> [String] -> String) -> [Command] -> IO ()
