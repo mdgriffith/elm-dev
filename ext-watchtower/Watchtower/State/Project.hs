@@ -46,7 +46,7 @@ upsertVirtual state@(Client.State mClients mProjects _ _) flags root entrypoint 
       let newProject = Ext.Dev.Project.Project virtualRoot virtualRoot (NE.List entrypoint [])
       mCompileResult <- STM.newTVarIO Client.NotCompiled
       mTestResults <- STM.newTVarIO Nothing
-      let newProjectCache = Client.ProjectCache newProject docsInfo mCompileResult mTestResults
+      let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults
       pure (Just newProjectCache)
 
 insertVirtualElmJson :: FilePath -> IO (Either String FilePath)
@@ -96,7 +96,7 @@ upsert state@(Client.State mClients mProjects _ _) flags root entrypoints = do
   let newProject = Ext.Dev.Project.Project root root entrypoints 
   mCompileResult <- STM.newTVarIO Client.NotCompiled
   mTestResults <- STM.newTVarIO Nothing
-  let newProjectCache = Client.ProjectCache newProject docsInfo mCompileResult mTestResults
+  let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults
 
   (isNew, project) <- STM.atomically $ do
     existingProjects <- STM.readTVar mProjects

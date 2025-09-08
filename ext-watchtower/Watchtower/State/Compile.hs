@@ -25,8 +25,8 @@ import qualified Reporting.Warning as Warning
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
 
-compile :: Client.State -> CompileHelpers.Flags -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compile state@(Client.State _ _ mFileInfo _) flags projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo mCompileResult _) files = do
+compile :: Client.State -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
+compile state@(Client.State _ _ mFileInfo _) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints) docsInfo flags mCompileResult _) files = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run
@@ -77,8 +77,8 @@ compile state@(Client.State _ _ mFileInfo _) flags projCache@(Client.ProjectCach
 --   A project is considered relevant if it contains at least one of the provided files.
 --   Compilation is performed synchronously here so the caller can rely on
 --   fresh results when this function returns.
-compileRelevantProjects :: Client.State -> CompileHelpers.Flags -> [FilePath] -> IO ()
-compileRelevantProjects state@(Client.State _ mProjects _ _) flags elmFiles = do
+compileRelevantProjects :: Client.State -> [FilePath] -> IO ()
+compileRelevantProjects state@(Client.State _ mProjects _ _) elmFiles = do
   if elmFiles == []
     then pure ()
     else do
@@ -100,11 +100,11 @@ compileRelevantProjects state@(Client.State _ mProjects _ _) flags elmFiles = do
               STM.check (n == 0)
   where
     projectTouchesAny :: [FilePath] -> Client.ProjectCache -> Bool
-    projectTouchesAny paths (Client.ProjectCache proj _ _ _) =
+    projectTouchesAny paths (Client.ProjectCache proj _ _ _ _) =
       any (\p -> Ext.Dev.Project.contains p proj) paths
 
     compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO ()
-    compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _) = do
+    compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _ _) = do
       let projectFiles = List.filter (\p -> Ext.Dev.Project.contains p proj) paths
-      _ <- compile state flags projCache projectFiles
+      _ <- compile state projCache projectFiles
       pure ()

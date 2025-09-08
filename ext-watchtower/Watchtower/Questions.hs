@@ -346,7 +346,7 @@ ask state question =
               (CompileHelpers.OutputTo CompileHelpers.Js)
               Nothing
       projectCache <- Watchtower.State.Project.upsert state flags cwd entrypoints
-      compilationResult <- Watchtower.State.Compile.compile state flags projectCache []
+      compilationResult <- Watchtower.State.Compile.compile state projectCache []
       case compilationResult of
         Left (Watchtower.Live.Client.ReactorError reactorExit) ->
           pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))
@@ -410,7 +410,7 @@ ask state question =
       Nothing ->
         pure (Json.Encode.encodeUgly (Json.Encode.chars "Error creating project"))
       Just projectCache -> do
-        compilationResult <- Watchtower.State.Compile.compile flags projectCache
+        compilationResult <- Watchtower.State.Compile.compile projectCache
         case compilationResult of
           Left (Watchtower.State.Compile.ReactorError reactorExit) -> do
             Ext.FileCache.debug
@@ -566,7 +566,7 @@ allProjectStatuses (Watchtower.Live.Client.State clients mProjects _ _) =
     projects <- STM.readTVarIO mProjects
     projectStatuses <-
       Monad.foldM
-        ( \gathered (Watchtower.Live.Client.ProjectCache proj docsInfo mCompileResult _) -> do
+        ( \gathered (Watchtower.Live.Client.ProjectCache proj docsInfo _ mCompileResult _) -> do
             result <- STM.readTVarIO mCompileResult
             let projectStatus =
                   case result of

@@ -92,7 +92,7 @@ getProjectStatus liveState root = do
       pure $ Left "No projects registered"
     Left (Client.ProjectNotFound _) ->
       pure $ Left "Project not found"
-    Right (Client.ProjectCache _ _ mCompileResult _, _) -> do
+    Right (Client.ProjectCache _ _ _ mCompileResult _, _) -> do
       result <- STM.readTVarIO mCompileResult
       pure (Right (Client.encodeCompilationResult result))
 
@@ -158,7 +158,7 @@ compile state root file debug optimize = do
     Just pc -> pure pc
     Nothing -> Watchtower.State.Project.upsert state flags root (NE.List file [])
 
-  compiledR <- Watchtower.State.Compile.compile state flags projCache [file]
+  compiledR <- Watchtower.State.Compile.compile state projCache [file]
   case compiledR of
     Left clientErr ->
       case clientErr of
