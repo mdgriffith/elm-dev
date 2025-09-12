@@ -27,7 +27,7 @@ import qualified System.Environment as Env
 import qualified System.FilePath as Path
 import qualified System.IO as IO
 import qualified Network.Socket as Net
-import qualified Watchtower.Live
+import qualified Watchtower.Server.DevWS as DevWS
 import qualified Watchtower.Live.Client
 import qualified Watchtower.Server.Run
 import qualified Watchtower.Server.LSP as LSP
@@ -205,11 +205,11 @@ serve params = do
     let wsUrl = "ws://" ++ spDomain params ++ ":" ++ show (spHttpPort params) ++ "/ws"
     let lspUrl = "tcp://" ++ spDomain params ++ ":" ++ show (spLspPort params)
     let mcpUrl = "tcp://" ++ spDomain params ++ ":" ++ show (spMcpPort params)
-    live <- Watchtower.Live.initWithUrls (Watchtower.Live.Client.Urls (Just lspUrl) (Just mcpUrl) httpUrl wsUrl)
+    live <- DevWS.init (Watchtower.Live.Client.Urls (Just lspUrl) (Just mcpUrl) httpUrl wsUrl)
     let debug = False
     _ <- Concurrent.forkIO $ Server.httpServe 
           (Watchtower.Server.Run.config (spHttpPort params) debug)
-          (Watchtower.Live.websocket live 
+          (DevWS.websocket live 
             <|> Snap.Core.route (Watchtower.Server.Dev.routes live)
           )
     -- Start LSP TCP

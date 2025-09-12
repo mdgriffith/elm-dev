@@ -21,6 +21,7 @@ import qualified Gen.Javascript
 import qualified Json.Encode
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Live.Client as Client
+import qualified Watchtower.Server.DevWS as DevWS
 import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Data.NonEmptyList as NE
@@ -158,13 +159,16 @@ compile state root file debug optimize = do
 
   compiledR <- Watchtower.State.Compile.compile state projCache [file]
   case compiledR of
-    Left clientErr ->
+    Left clientErr -> do
+      let errJson = Client.encodeCompilationResult (Client.Error clientErr)
+      DevWS.broadcastCompilationError state errJson
       case clientErr of
         Client.ReactorError exit -> pure (Left (show exit))
         Client.GenerationError err -> pure (Left err)
     Right result ->
       case result of
-        CompileHelpers.CompiledJs jsBuilder ->
+        CompileHelpers.CompiledJs jsBuilder -> do
+          DevWS.broadcastCompiled state (Client.builderToString jsBuilder)
           pure (Right jsBuilder)
         CompileHelpers.CompiledHtml _ ->
           pure (Left "HTML output not supported on /dev/js")
