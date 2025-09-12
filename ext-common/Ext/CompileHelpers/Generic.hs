@@ -164,21 +164,26 @@ data Flags =
     , _output :: Output
     , _injectHotJs :: Maybe ElmDevWsUrl
     }
-    deriving (Show)
+    deriving (Show, Eq)
 
 data Output = NoOutput | OutputTo OutputFormat
-  deriving (Show)
+  deriving (Show, Eq)
 
 data OutputFormat = Html | Js
-  deriving (Show)
+  deriving (Show, Eq)
 
 data DesiredMode = Debug | Dev | Prod
-  deriving (Show)
+  deriving (Show, Eq)
 
 newtype ElmDevWsUrl = ElmDevWsUrl B.Builder
 
 instance Show ElmDevWsUrl where
   show _ = "ElmDevWsUrl <builder>"
+
+-- Equality is only used to detect whether flags changed.
+-- We treat any two ElmDevWsUrl values as equal to avoid comparing builders.
+instance Eq ElmDevWsUrl where
+  _ == _ = True
 
 data CompilationResult
     = CompiledJs B.Builder

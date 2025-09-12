@@ -154,9 +154,7 @@ compile state root file debug optimize = do
 
   -- Find an existing project whose elm.json root equals the given root; otherwise create it
   existingProjects <- STM.readTVarIO (Client.projects state)
-  projCache <- case List.find (\pc -> Client.getProjectRoot pc == root) existingProjects of
-    Just pc -> pure pc
-    Nothing -> Watchtower.State.Project.upsert state flags root (NE.List file [])
+  projCache <- Watchtower.State.Project.upsert state flags root (NE.List file [])
 
   compiledR <- Watchtower.State.Compile.compile state projCache [file]
   case compiledR of

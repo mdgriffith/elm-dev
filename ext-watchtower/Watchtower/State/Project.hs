@@ -22,6 +22,28 @@ import qualified System.FilePath as FilePath
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.State.Compile
 
+
+entrypointsIncluded :: NE.List FilePath -> NE.List FilePath -> Bool
+entrypointsIncluded provided existing =
+  let providedList = NE.toList provided
+      existingList = NE.toList existing
+  in List.all (\p -> List.elem p existingList) providedList
+
+updateProjectIfNecessary :: Client.ProjectCache -> CompileHelpers.Flags -> NE.List FilePath -> Maybe Client.ProjectCache
+updateProjectIfNecessary existingProjectCache newFlags providedEntrypoints =
+  case existingProjectCache of
+    Client.ProjectCache proj docsInfo0 oldFlags mCompileResult mTestResults ->
+      let Ext.Dev.Project.Project root0 projectRoot0 existingEntrypoints = proj
+      in if oldFlags == newFlags && entrypointsIncluded providedEntrypoints existingEntrypoints
+           then Nothing
+           else
+             let existingList = NE.toList existingEntrypoints
+                 providedList = NE.toList providedEntrypoints
+                 extras = List.filter (\p -> not (List.elem p existingList)) providedList
+                 combinedEntrypoints = NE.append extras existingEntrypoints
+                 updatedProj = Ext.Dev.Project.Project root0 projectRoot0 combinedEntrypoints
+             in Just (Client.ProjectCache updatedProj docsInfo0 newFlags mCompileResult mTestResults)
+
 {-
 This is for creating a virtual project.
 
@@ -102,7 +124,14 @@ upsert state@(Client.State mClients mProjects _ _) flags root entrypoints = do
     existingProjects <- STM.readTVar mProjects
     case List.find (Client.matchingProject newProjectCache) existingProjects of
       Just existingProject -> do
-        pure (False, existingProject)
+        case updateProjectIfNecessary existingProject flags entrypoints of
+          Nothing -> do
+            pure (False, existingProject)
+          Just updatedProjectCache -> do
+            let updatedProjects =
+                  updatedProjectCache : List.filter (not . Client.matchingProject newProjectCache) existingProjects
+            STM.writeTVar mProjects updatedProjects
+            pure (False, updatedProjectCache)
       Nothing -> do
         STM.writeTVar mProjects (newProjectCache : existingProjects)
         pure (True, newProjectCache)
