@@ -227,6 +227,7 @@ Executable elm-dev
         Ext.CompileProxy
         Ext.CompileMode
         Ext.PackageOverride
+        
 
         Ext.Test.Discover
         Ext.Test.Introspect
@@ -267,6 +268,8 @@ Executable elm-dev
         Watchtower.Server.Run
         Watchtower.Server.JSONRPC
         Watchtower.Server.MCP
+        Watchtower.Server.Dev
+        Watchtower.Server.DevWS
         Watchtower.Server.LSP
         Watchtower.Server.Daemon
 
@@ -329,6 +332,7 @@ Executable elm-dev
 
         Modify
         Modify.Ui
+        Modify.Inject.Loader
 
 
         Util
