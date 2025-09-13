@@ -18,6 +18,12 @@ function emptyAllCache(compilationCache) {
     }
 }
 
+const loggingEnabled = false;
+function log(...args) {
+    if (loggingEnabled) console.log(...args);
+}
+
+
 async function discoverDevServer() {
     return new Promise((resolve) => {
         const child = spawn('elm-dev', ['daemon', 'status'], { shell: true });
@@ -29,8 +35,14 @@ async function discoverDevServer() {
             try {
                 const json = JSON.parse(out);
                 if (json && json.http && json.http.domain && json.http.port) {
+                    if (process.env.NODE_ENV !== 'production') {
+                        log('discovered dev server', json.http.domain, json.http.port);
+                    }
                     resolve({ domain: json.http.domain, httpPort: json.http.port });
                 } else if (json && json.httpPort) {
+                    if (process.env.NODE_ENV !== 'production') {
+                        log('discovered dev server (legacy key) 127.0.0.1', json.httpPort);
+                    }
                     resolve({ domain: '127.0.0.1', httpPort: json.httpPort });
                 } else {
                     resolve(null);
@@ -42,34 +54,52 @@ async function discoverDevServer() {
     });
 }
 
-async function rpc(serverInfo, method, params) {
-    const body = { jsonrpc: '2.0', id: 1, method, params };
-    const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/`;
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+// Fetch compiled JS from the dev server's HTTP endpoint
+async function fetchCompiledJs(serverInfo, dir, file, debug, optimize) {
+    const params = new URLSearchParams({
+        dir,
+        file,
+        debug: debug ? 'true' : 'false',
+        optimize: optimize ? 'true' : 'false',
+    });
+    const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/dev/js?${params.toString()}`;
+    const res = await fetch(url, { method: 'GET' });
     if (!res.ok) throw new Error(`Dev server HTTP ${res.status}`);
-    const data = await res.json();
-    if (data && data.result !== undefined) return data.result;
-    throw new Error(data && data.error ? JSON.stringify(data.error) : 'Invalid JSON-RPC response');
+    return await res.text();
 }
 
 function wrapCompiledElmCode(id, code) {
     const elmModuleName = guessElmModuleName(id);
-    const wrappedCode = `\nconst scope = {};\nfunction start() {\n    ${code}\n}\nstart.call(scope);\nexport default scope.Elm.${elmModuleName};\n`;
+    const wrappedCode = `
+const scope = {};
+
+function start() {
+    ${code}
+}
+
+start.call(scope);
+export default scope.Elm.${elmModuleName};
+
+if (import.meta.hot) {
+    import.meta.hot.accept(() => {});
+}
+`;
     return wrappedCode;
 }
 
 async function compileWithDevServer(id, debug, optimize, serverInfo) {
     const options = {
         dir: process.cwd(),
-        file: path.isAbsolute(id) ? id : path.resolve(id),
+        // The dev server expects file paths relative to the project root (dir)
+        file: path.isAbsolute(id) ? path.relative(process.cwd(), id) : id,
         debug,
         optimize,
     };
 
-    const result = await rpc(serverInfo, 'js', options);
-    if (!result || !result.compiled || !result.code) throw new Error('Compilation failed');
-
-    const wrappedCode = wrapCompiledElmCode(id, result.code);
+    const compiledJs = await fetchCompiledJs(serverInfo, options.dir, options.file, options.debug, options.optimize);
+    if (!compiledJs || compiledJs.length === 0) throw new Error('Compilation failed');
+    log("Fetched compiled code, wrapped")
+    const wrappedCode = wrapCompiledElmCode(id, compiledJs);
     return wrappedCode;
 }
 
@@ -114,6 +144,7 @@ export default function elmDevPlugin(options = {}) {
             if (!id.endsWith('.elm')) {
                 return null;
             }
+            if (loggingEnabled) log('load', id);
 
             let moduleState = compilationCache.get(id);
             if (!moduleState) {
@@ -121,10 +152,12 @@ export default function elmDevPlugin(options = {}) {
             }
 
             if (moduleState.code) {
+                if (loggingEnabled) log('cache hit for', id);
                 return moduleState.code;
             }
 
             if (moduleState.isCompiling && moduleState.compilationPromise) {
+                if (loggingEnabled) log('already compiling, returning promise for', id);
                 return moduleState.compilationPromise;
             }
 
@@ -140,6 +173,7 @@ export default function elmDevPlugin(options = {}) {
                         }
                     }
                     if (useDevServer && devServer) {
+                        if (loggingEnabled) log('compiling with dev server', id);
                         const wrappedCode = await compileWithDevServer(id, debug, optimize, devServer);
                         moduleState.code = wrappedCode;
                         moduleState.isCompiling = false;
@@ -163,68 +197,42 @@ export default function elmDevPlugin(options = {}) {
             return compilationPromise;
         },
 
-        configureServer(server) {
-            server.watcher.add('**/*.elm');
-
-            server.watcher.on('change', (file) => {
-                if (file.endsWith('.elm') && !file.includes('elm-stuff')) {
-                    for (const [loadedId] of compilationCache) {
-                        const moduleState = {
-                            code: null,
-                            isCompiling: false,
-                            compilationPromise: null
-                        };
-                        compilationCache.set(loadedId, moduleState);
-                        const modules = server.moduleGraph.getModulesByFile(loadedId);
-                        if (modules) {
-                            for (const m of modules) {
-                                server.moduleGraph.invalidateModule(m);
-                            }
-                        } else {
-                            // eslint-disable-next-line no-console
-                            console.log('Module not found in moduleGraph', modules);
-                        }
-                    }
-
-                    server.ws.send({ type: 'full-reload' });
-                }
-            });
-
-            server.watcher.add('elm.json');
-            server.watcher.add('elm.generate.json');
-            server.watcher.on('change', (file) => {
-                if (file === 'elm.json') {
-                    emptyAllCache(compilationCache);
-                    server.ws.send({ type: 'full-reload' });
-                }
-            });
-
-            if (useDevServer) {
-                (async () => {
-                    try {
-                        const discovered = await discoverDevServer();
-                        if (!discovered) return;
-                        const wsUrl = `ws://${discovered.domain}:${discovered.httpPort}/ws`;
-                        let WSImpl;
-                        try {
-                            WSImpl = (await import('ws')).default;
-                        } catch (_e) {
-                            return;
-                        }
-                        const ws = new WSImpl(wsUrl);
-                        ws.on('message', (_data) => {
-                            for (const [loadedId] of compilationCache) {
-                                compilationCache.set(loadedId, { code: null, isCompiling: false, compilationPromise: null });
-                            }
-                            server.ws.send({ type: 'full-reload' });
-                        });
-                        ws.on('close', () => { });
-                    } catch (_e) {
-                        // ignore
-                    }
-                })();
+        async handleHotUpdate(ctx) {
+            const { file, server, modules } = ctx;
+            if (!file.endsWith('.elm') || file.includes('elm-stuff')) {
+                return;
             }
+
+            // HMR strategy: 
+            if (useDevServer && devServer) {
+                try {
+                    if (debug) log('compiling with dev server', file);
+                    await compileWithDevServer(file, debug, optimize, devServer);
+                } catch (_e) {
+                    log('dev server compile failed, doing a full reload', _e);
+                }
+                return [];
+            }
+
+            // No Dev server
+            // Fallback when not using the dev server: invalidate cached Elm entries so next load recompiles
+            const modulesToReload = new Set();
+            for (const [loadedId] of compilationCache) {
+                setEmptyCacheFor(loadedId, compilationCache);
+
+                const byId = server.moduleGraph.getModuleById(loadedId);
+                if (byId) modulesToReload.add(byId);
+
+                const byFile = server.moduleGraph.getModulesByFile(loadedId);
+                if (byFile) {
+                    for (const m of byFile) modulesToReload.add(m);
+                }
+            }
+
+            server.ws.send({ type: 'full-reload' });
+            return Array.from(modulesToReload);
         },
+
     };
 }
 
