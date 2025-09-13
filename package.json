@@ -16,6 +16,7 @@
     "build": "stack build",
     "test-all": "bash scripts/test-project.sh",
     "test-generation": "bash scripts/test-generation.sh",
-    "stack:run": "stack run --"
+    "stack:run": "stack run --",
+    "check:ts-tools": "cd ts-tool && tsc"
   }
 }

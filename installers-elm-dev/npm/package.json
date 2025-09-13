@@ -17,13 +17,15 @@
     "node": ">=7.0.0"
   },
   "scripts": {
-    "install": "node install.js"
+    "install": "node install.js",
+    "prepack": "node scripts/prepack.js"
   },
   "files": [
     "install.js",
     "binary.js",
     "bin",
-    "bin/elm-dev"
+    "bin/elm-dev",
+    "ts-tool"
   ],
   "keywords": [
     "bin",
@@ -36,6 +38,19 @@
   ],
   "bin": {
     "elm-dev": "bin/elm-dev"
+  },
+  "exports": {
+    "./vite": {
+      "import": "./ts-tool/vite.mjs",
+      "default": "./ts-tool/vite.mjs"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "vite": [
+        "ts-tool/vite.d.ts"
+      ]
+    }
   },
   "optionalDependencies": {
     "@elm_dev_binaries/darwin_arm64": "0.1.3",

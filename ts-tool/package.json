@@ -1,0 +1,19 @@
+{
+    "name": "@ts-tool/vite",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Local Vite plugin for elm-dev (workspace package)",
+    "types": "./vite.d.ts",
+    "exports": {
+        ".": {
+            "import": "./vite.mjs",
+            "types": "./vite.d.ts"
+        }
+    },
+    "files": [
+        "vite.mjs",
+        "vite.d.ts",
+        "node-shims.d.ts"
+    ]
+}

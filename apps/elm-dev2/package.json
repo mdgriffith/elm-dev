@@ -14,6 +14,7 @@
     "@tauri-apps/plugin-opener": "^2"
   },
   "devDependencies": {
+    "@ts-tool/vite": "file:../../ts-tool",
     "@tauri-apps/cli": "^2",
     "@types/node": "^22.15.21",
     "launch-editor": "^2.10.0",
