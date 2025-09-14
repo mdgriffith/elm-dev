@@ -162,7 +162,6 @@ data Flags =
   Flags
     { _mode :: DesiredMode
     , _output :: Output
-    , _injectHotJs :: Maybe ElmDevWsUrl
     }
     deriving (Show, Eq)
 
@@ -200,24 +199,16 @@ getMode debug optimize =
     (False, True ) -> Prod
 
 
-generate :: FilePath -> Details.Details -> DesiredMode -> Build.Artifacts -> Output -> Maybe ElmDevWsUrl -> Task.Task Exit.Reactor CompilationResult
-generate root details desiredMode artifacts output maybeWsUrl =
+generate :: FilePath -> Details.Details -> DesiredMode -> Build.Artifacts -> Output -> Task.Task Exit.Reactor CompilationResult
+generate root details desiredMode artifacts output =
   case output of
     NoOutput -> pure CompiledSkippedOutput
     OutputTo format ->
       Task.mapError Exit.ReactorBadGenerate $ do
-        let maybeInjectJs =
-              case maybeWsUrl of
-                Nothing -> Nothing
-                Just (ElmDevWsUrl urlBuilder) ->
-                  let urlText =
-                        Data.Text.Encoding.decodeUtf8
-                          (Data.ByteString.Lazy.toStrict (Data.ByteString.Builder.toLazyByteString urlBuilder))
-                  in Just (Modify.Inject.Loader.hotJs (Data.Text.unpack urlText))
         js <- case desiredMode of
-                Debug -> Generate.debug root details artifacts maybeInjectJs
-                Dev   -> Generate.dev   root details artifacts maybeInjectJs
-                Prod  -> Generate.prod  root details artifacts maybeInjectJs
+                Debug -> Generate.debug root details artifacts Nothing
+                Dev   -> Generate.dev   root details artifacts Nothing
+                Prod  -> Generate.prod  root details artifacts Nothing
         case format of
           Html -> 
               pure (CompiledHtml (Generate.Html.sandwich (Name.fromChars "Main") js))

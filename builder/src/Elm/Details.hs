@@ -60,7 +60,7 @@ import qualified Reporting.Annotation as A
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Stuff
-import qualified Ext.PackageOverride as PkgOverride
+import qualified Modify.PackageOverride
 
 
 
@@ -750,8 +750,8 @@ toDocs result =
 
 downloadPackage :: Stuff.PackageCache -> Http.Manager -> Pkg.Name -> V.Version -> IO (Either Exit.PackageProblem ())
 downloadPackage cache manager pkg vsn = do
-  hot <- PkgOverride.hotEnabled
-  case (hot, PkgOverride.overrideUrl pkg) of
+  hot <- Modify.PackageOverride.hotEnabled
+  case (hot, Modify.PackageOverride.overrideUrl pkg) of
     (True, Just zipUrl) ->
       Http.getArchive manager zipUrl Exit.PP_BadArchiveRequest (Exit.PP_BadArchiveContent zipUrl) $ \(_sha, archive) ->
         Right <$> File.writePackage (Stuff.package cache pkg vsn) archive

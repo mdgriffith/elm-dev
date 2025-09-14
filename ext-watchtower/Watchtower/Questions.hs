@@ -344,7 +344,6 @@ ask state question =
                       _ -> CompileHelpers.Dev
               )
               (CompileHelpers.OutputTo CompileHelpers.Js)
-              Nothing
       projectCache <- Watchtower.State.Project.upsert state flags cwd entrypoints
       compilationResult <- Watchtower.State.Compile.compile state projectCache []
       case compilationResult of

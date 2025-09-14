@@ -104,7 +104,7 @@ recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.De
       Ext.CompileProxy.compile
         elmJsonRoot
         entry
-        (CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput Nothing)
+        (CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput)
     let newResult = case eitherResult of
           Right (r, _fileInfoByPath) -> Client.Success r
           Left exit -> Client.Error (Client.ReactorError exit)

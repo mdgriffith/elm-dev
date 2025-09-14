@@ -23,11 +23,14 @@ import qualified Watchtower.Live as Live
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.DevWS as DevWS
 import qualified Watchtower.Server.JSONRPC as JSONRPC
+import qualified Watchtower.State.Project
+import qualified Watchtower.State.Compile
+import qualified Modify.Inject.Loader
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Data.NonEmptyList as NE
 import qualified Data.List as List
-import qualified Watchtower.State.Project
-import qualified Watchtower.State.Compile
+
+import qualified Ext.Log
 import Snap.Core
 import Control.Monad.Trans (liftIO)
 
@@ -151,15 +154,16 @@ compile state root file debug optimize = do
       flags = CompileHelpers.Flags
                 desired
                 (CompileHelpers.OutputTo CompileHelpers.Js)
-                (Just (CompileHelpers.ElmDevWsUrl (Builder.string8 wsUrl)))
+      hotJs = Modify.Inject.Loader.hotJs wsUrl
 
   -- Find an existing project whose elm.json root equals the given root; otherwise create it
   existingProjects <- STM.readTVarIO (Client.projects state)
   projCache <- Watchtower.State.Project.upsert state flags root (NE.List file [])
-
   compiledR <- Watchtower.State.Compile.compile state projCache [file]
+  Ext.Log.log Ext.Log.Live ("Recompiled")
   case compiledR of
     Left clientErr -> do
+      Ext.Log.log Ext.Log.Live ("Compilation error")
       let errJson = Client.encodeCompilationResult (Client.Error clientErr)
       DevWS.broadcastCompilationError state errJson
       case clientErr of
@@ -168,11 +172,14 @@ compile state root file debug optimize = do
     Right result ->
       case result of
         CompileHelpers.CompiledJs jsBuilder -> do
+          Ext.Log.log Ext.Log.Live ("Attempting to broadcast compiled JS")
           DevWS.broadcastCompiled state (Client.builderToString jsBuilder)
-          pure (Right jsBuilder)
-        CompileHelpers.CompiledHtml _ ->
+          pure (Right (hotJs <> jsBuilder))
+        CompileHelpers.CompiledHtml _ -> do
+          Ext.Log.log Ext.Log.Live ("HTML output not supported on /dev/js")
           pure (Left "HTML output not supported on /dev/js")
-        CompileHelpers.CompiledSkippedOutput ->
+        CompileHelpers.CompiledSkippedOutput -> do
+          Ext.Log.log Ext.Log.Live ("Compilation skipped")
           pure (Left "Compilation skipped")
 
 -- Perform the same logic as Questions.Interactive branch

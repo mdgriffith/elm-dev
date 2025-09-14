@@ -54,7 +54,7 @@ import qualified Ext.Disk.Build
 import Ext.Sanity
 
 compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor CompileHelpers.CompilationResult)
-compile root paths flags@(CompileHelpers.Flags mode output maybeInjectHotJs) = do
+compile root paths flags@(CompileHelpers.Flags mode output) = do
   Dir.withCurrentDirectory root $
     BW.withScope $ \scope -> Stuff.withRootLock root $
       Task.run $ do
@@ -62,7 +62,7 @@ compile root paths flags@(CompileHelpers.Flags mode output maybeInjectHotJs) = d
           details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
           artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.Disk.Build.fromPaths compilationFlags Reporting.silent root details paths
           
-          CompileHelpers.generate root details mode artifacts output maybeInjectHotJs
+          CompileHelpers.generate root details mode artifacts output
 
 
 compileToDocs :: FilePath -> NE.List ModuleName.Raw -> IO (Either Exit.Reactor Elm.Docs.Documentation)
