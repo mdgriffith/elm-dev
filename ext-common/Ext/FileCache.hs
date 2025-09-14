@@ -63,6 +63,10 @@ virtualDir :: FilePath
 virtualDir =
   "elm-stuff" </> "virtual"
 
+-- Toggle for allowing filesystem writes
+allowWrites :: Bool
+allowWrites = False
+
 {-# NOINLINE fileCache #-}
 fileCache :: HashTable FilePath (Time, BS.ByteString)
 fileCache = unsafePerformIO H.new
@@ -247,7 +251,7 @@ writeUtf8 :: FilePath -> BS.ByteString -> IO ()
 writeUtf8 path content = do
   log $ \() -> "✍️ " ++ System.FilePath.takeFileName (show path)
   insert path content
-  Monad.unless (isVirtualPath path) $
+  Monad.when (allowWrites && not (isVirtualPath path)) $
     File.writeUtf8 path content
 
 -- @TODO potentially skip binary serialisation entirely
@@ -255,7 +259,7 @@ writeBinary :: (Binary.Binary a) => FilePath -> a -> IO ()
 writeBinary path value = do
   log $ \() -> "✍️  Binary " ++ System.FilePath.takeFileName (show path)
   insert path $ BSL.toStrict $ Binary.encode value
-  Monad.unless (isVirtualPath path) $
+  Monad.when (allowWrites && not (isVirtualPath path)) $
     File.writeBinary path value
 
 -- @TODO potentially skip binary serialisation entirely
@@ -311,23 +315,27 @@ zeroTime =
 
 -- Not needed in cache?
 writePackage :: FilePath -> Zip.Archive -> IO ()
-writePackage = File.writePackage
+writePackage path archive =
+  Monad.when allowWrites $
+    File.writePackage path archive
 
 writeBuilder :: FilePath -> B.Builder -> IO ()
 writeBuilder path builder = do
   insert path $ BSL.toStrict $ B.toLazyByteString builder
-  Monad.unless (isVirtualPath path) $
+  Monad.when (allowWrites && not (isVirtualPath path)) $
     File.writeBuilder path builder
 
 remove :: FilePath -> IO ()
 remove path = do
   delete path
-  File.remove path
+  Monad.when allowWrites $
+    File.remove path
 
 removeDir :: FilePath -> IO ()
 removeDir path = do
   delete path
-  File.removeDir path
+  Monad.when allowWrites $
+    File.removeDir path
 
 -- Debugging
 debugSummary :: IO ()
