@@ -226,7 +226,7 @@ Executable elm-dev
         Ext.VirtualFile
         Ext.CompileProxy
         Ext.CompileMode
-        Ext.PackageOverride
+        
         
 
         Ext.Test.Discover
@@ -333,6 +333,7 @@ Executable elm-dev
         Modify
         Modify.Ui
         Modify.Inject.Loader
+        Modify.PackageOverride
 
 
         Util

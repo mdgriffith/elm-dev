@@ -1,4 +1,4 @@
-module Ext.PackageOverride where
+module Modify.PackageOverride where
 
 import qualified System.Environment as Env
 import qualified Elm.Package as Pkg
