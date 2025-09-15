@@ -26,7 +26,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import Ext.Common
-import Ext.Log
+import qualified Ext.Log
 import Llamadera
 import qualified Network.WebSockets as WS
 import qualified Network.WebSockets.Snap as WS
@@ -43,7 +43,7 @@ leaderInit = newTVarIO Nothing
 
 socketHandler :: TVar [Client clientData] -> OnJoined -> OnReceive -> T.Text -> clientData -> WS.ServerApp
 socketHandler mClients onJoined onReceive clientId initialClientData pending = do
-  Ext.Log.log Ext.Log.Live $ "❇️  " <> T.unpack clientId
+  Ext.Log.log Ext.Log.Live $ "Websocket client joined " <> T.unpack clientId
   conn <- WS.acceptRequest pending
 
   let client = Client clientId conn initialClientData
@@ -52,7 +52,7 @@ socketHandler mClients onJoined onReceive clientId initialClientData pending = d
           clients <- readTVar mClients
           let remainingClients = removeClient client clients
           writeTVar mClients remainingClients
-        Ext.Log.log Ext.Log.Live $ "🚫  " <> T.unpack clientId
+        Ext.Log.log Ext.Log.Live $ "Websocket client left  " <> T.unpack clientId
 
   flip finally disconnect $ do
     clientCount <- atomically $ do
@@ -111,8 +111,11 @@ sendImpl mClients clientId message = do
 
 broadcastWith :: TVar [Client clientData] -> (Client clientData -> Bool) -> T.Text -> IO ()
 broadcastWith mClients filterTo message = do
+ 
   clients <- atomically $ readTVar mClients
-  broadcast_ (List.filter filterTo clients) message
+  let filteredClients = List.filter filterTo clients
+  Ext.Log.log Ext.Log.Live $ " Broadcasting!" <> show (length filteredClients) <> " " <> show (T.take 500 message)
+  broadcast_ filteredClients message
 
 filterMap :: (a -> Maybe b) -> [a] -> [b]
 filterMap toMaybe list =

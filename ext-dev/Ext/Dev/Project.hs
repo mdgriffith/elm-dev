@@ -26,6 +26,7 @@ import qualified Data.Set as Set
 import qualified Elm.Details
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline
+import qualified Elm.Package
 import qualified Ext.Log
 import qualified Json.Decode
 import Json.Encode ((==>))
@@ -207,7 +208,8 @@ captureProjectIfEntrypoints :: FilePath -> FilePath -> IO (Maybe Project)
 captureProjectIfEntrypoints projectRoot elmJsonRoot = do
   outlineResult <- Elm.Outline.read elmJsonRoot
   case outlineResult of
-    Right (Elm.Outline.App _) -> do
+    Right (Elm.Outline.App app) -> do
+      Ext.Log.log Ext.Log.Live ("Found App: " <> elmJsonRoot)
       maybeElmMain <- findFirstFileNamed "Main.elm" elmJsonRoot
       case maybeElmMain of
         Nothing ->
@@ -215,6 +217,7 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
         Just main -> do
           pure (Just (Project elmJsonRoot projectRoot (NE.List main [])))
     Right (Elm.Outline.Pkg pkg) -> do
+      Ext.Log.log Ext.Log.Live ("Found package: " <> Elm.Package.toChars (Elm.Outline._pkg_name pkg) <> " at " <> elmJsonRoot)
       case Elm.Outline._pkg_exposed pkg of
         Elm.Outline.ExposedList rawModNameList ->
           let paths = rawModuleNameToPackagePath elmJsonRoot <$> rawModNameList
@@ -227,10 +230,9 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
                [] -> pure Nothing
                (x:xs) -> pure (Just (Project elmJsonRoot projectRoot (NE.List x xs)))
     Left err -> do
-      _ <-
-        Ext.Log.log
+      Ext.Log.log
           Ext.Log.Live
-          ( "Elm Outline Error: " <> Exit.toString (Exit.toOutlineReport err)
+          ("Skipping: " <> elmJsonRoot <> " Elm Outline Error: " <> Exit.toString (Exit.toOutlineReport err)
           )
       pure Nothing
 

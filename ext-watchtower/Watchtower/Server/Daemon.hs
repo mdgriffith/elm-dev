@@ -277,8 +277,9 @@ printBanner sp = do
   mapM_ (IO.hPutStrLn IO.stderr) logo
   let host = spDomain sp
   IO.hPutStrLn IO.stderr (yellow (" HTTP ") ++ " http://" ++ host ++ ":" ++ show (spHttpPort sp) ++ grey "  (dev server)")
-  IO.hPutStrLn IO.stderr (yellow ("  LSP ") ++ "  tcp://" ++ host ++ ":" ++ show (spLspPort sp))
-  IO.hPutStrLn IO.stderr (yellow ("  MCP ") ++ "  tcp://" ++ host ++ ":" ++ show (spMcpPort sp))
+  IO.hPutStrLn IO.stderr (yellow (" WS   ") ++ "   ws://" ++ host ++ ":" ++ show (spHttpPort sp) ++ "/ws")
+  IO.hPutStrLn IO.stderr (yellow (" LSP  ") ++ "  tcp://" ++ host ++ ":" ++ show (spLspPort sp))
+  IO.hPutStrLn IO.stderr (yellow (" MCP  ") ++ "  tcp://" ++ host ++ ":" ++ show (spMcpPort sp))
   IO.hPutStrLn IO.stderr ""
 
 
