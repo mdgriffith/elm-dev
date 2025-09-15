@@ -118,7 +118,10 @@ jsHandler state = do
       let optimize = parseBoolParamWithDefault False mOptimize
       e <- liftIO (compile state dir file debug optimize)
       case e of
-        Left err -> problemSnap 422 "compile_failed" (Text.pack err)
+        Left errJson -> do
+          modifyResponse $ setResponseCode 422
+          modifyResponse $ setContentType "application/json"
+          writeLBS (JSON.encode errJson)
         Right jsBuilder -> do
           modifyResponse $ setContentType "application/javascript; charset=utf-8"
           writeBuilder jsBuilder
@@ -147,7 +150,7 @@ logHandler = do
       writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
 
 -- Return raw JS as a Builder for efficient streaming to Snap
-compile :: Live.State -> FilePath -> FilePath -> Bool -> Bool -> IO (Either String Builder.Builder)
+compile :: Live.State -> FilePath -> FilePath -> Bool -> Bool -> IO (Either JSON.Value Builder.Builder)
 compile state root file debug optimize = do
   let wsUrl = Client.urlsDevWebsocket (Client.urls state)
       desired = CompileHelpers.getMode debug optimize
@@ -166,9 +169,7 @@ compile state root file debug optimize = do
       Ext.Log.log Ext.Log.Live ("Compilation error")
       let errJson = Client.encodeCompilationResult (Client.Error clientErr)
       DevWS.broadcastCompilationError state errJson
-      case clientErr of
-        Client.ReactorError exit -> pure (Left (show exit))
-        Client.GenerationError err -> pure (Left err)
+      pure (Left errJson)
     Right result ->
       case result of
         CompileHelpers.CompiledJs jsBuilder -> do

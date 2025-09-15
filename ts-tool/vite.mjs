@@ -1,6 +1,7 @@
 // Vite plugin for Elm Dev - ESM build
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { toColoredTerminalOutput } from './elm-errors-render.js';
 
 function setEmptyCacheFor(id, compilationCache) {
     const moduleState = {
@@ -12,17 +13,10 @@ function setEmptyCacheFor(id, compilationCache) {
     return moduleState;
 }
 
-function emptyAllCache(compilationCache) {
-    for (const [id] of compilationCache) {
-        setEmptyCacheFor(id, compilationCache);
-    }
-}
-
 const loggingEnabled = false;
 function log(...args) {
     if (loggingEnabled) console.log(...args);
 }
-
 
 async function discoverDevServer() {
     return new Promise((resolve) => {
@@ -64,7 +58,25 @@ async function fetchCompiledJs(serverInfo, dir, file, debug, optimize) {
     });
     const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/dev/js?${params.toString()}`;
     const res = await fetch(url, { method: 'GET' });
-    if (!res.ok) throw new Error(`Dev server HTTP ${res.status}`);
+    if (!res.ok) {
+        let payload = null;
+        try {
+            payload = await res.text();
+        } catch (_e) {
+            // ignore
+        }
+        if (payload && payload.length > 0) {
+            try {
+                const parsed = JSON.parse(payload);
+                const colored = toColoredTerminalOutput(parsed);
+                console.error("\n\n" + colored + "\n\n");
+            } catch (_e) {
+                console.error('Dev server error payload:', payload);
+            }
+        }
+        return null;
+
+    }
     return await res.text();
 }
 
@@ -97,10 +109,9 @@ async function compileWithDevServer(id, debug, optimize, serverInfo) {
     };
 
     const compiledJs = await fetchCompiledJs(serverInfo, options.dir, options.file, options.debug, options.optimize);
-    if (!compiledJs || compiledJs.length === 0) throw new Error('Compilation failed');
-    log("Fetched compiled code, wrapped")
-    const wrappedCode = wrapCompiledElmCode(id, compiledJs);
-    return wrappedCode;
+    if (!compiledJs || compiledJs.length === 0) return null;
+
+    return wrapCompiledElmCode(id, compiledJs);
 }
 
 async function compileWithCli(id, debug, optimize) {
@@ -175,6 +186,11 @@ export default function elmDevPlugin(options = {}) {
                     if (useDevServer && devServer) {
                         if (loggingEnabled) log('compiling with dev server', id);
                         const wrappedCode = await compileWithDevServer(id, debug, optimize, devServer);
+                        if (!wrappedCode) {
+                            setEmptyCacheFor(id, compilationCache);
+                            reject(new Error('Compilation failed'));
+                            return;
+                        }
                         moduleState.code = wrappedCode;
                         moduleState.isCompiling = false;
                         moduleState.compilationPromise = null;
@@ -209,7 +225,7 @@ export default function elmDevPlugin(options = {}) {
                     if (debug) log('compiling with dev server', file);
                     await compileWithDevServer(file, debug, optimize, devServer);
                 } catch (_e) {
-                    log('dev server compile failed, doing a full reload', _e);
+
                 }
                 return [];
             }
