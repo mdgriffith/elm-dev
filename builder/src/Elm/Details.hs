@@ -753,8 +753,9 @@ downloadPackage cache manager pkg vsn = do
   hot <- Modify.PackageOverride.hotEnabled
   case (hot, Modify.PackageOverride.overrideUrl pkg) of
     (True, Just zipUrl) ->
-      Http.getArchive manager zipUrl Exit.PP_BadArchiveRequest (Exit.PP_BadArchiveContent zipUrl) $ \(_sha, archive) ->
-        Right <$> File.writePackage (Stuff.package cache pkg vsn) archive
+      Http.getArchive manager zipUrl Exit.PP_BadArchiveRequest (Exit.PP_BadArchiveContent zipUrl) $ \(_sha, archive) -> do
+        let normalized = Modify.PackageOverride.normalizeArchive archive
+        Right <$> File.writePackage (Stuff.package cache pkg vsn) normalized
     _ ->
       let url = Website.metadata pkg vsn "endpoint.json" in
       do  eitherByteString <- Http.get manager url [] id (return . Right)

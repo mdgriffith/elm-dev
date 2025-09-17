@@ -50,6 +50,7 @@ data Flag
     | ElmCompilerError
     | Misc
     | LSP
+    | Deps
     deriving (Eq)
 
 
@@ -69,6 +70,8 @@ all =
     , MemoryCache
     , Misc
     , LSP
+
+    , Deps
     ]
 
 
@@ -117,6 +120,9 @@ toString flag =
         LSP ->
             "ElmDevLSP"
 
+        Deps ->
+            "ElmDevDeps"
+
 toLabel :: Flag -> String
 toLabel flag =
     case flag of 
@@ -161,6 +167,9 @@ toLabel flag =
 
         LSP ->
             "🔌"
+
+        Deps ->
+            "🔍"
 
 {-# NOINLINE envLock #-}
 envLock :: MVar ()

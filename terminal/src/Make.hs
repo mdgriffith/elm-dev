@@ -9,6 +9,7 @@ module Make
   , docsFile
   -- elm-dev
   , parseOutput
+  , OutputType(..)
   )
   where
 

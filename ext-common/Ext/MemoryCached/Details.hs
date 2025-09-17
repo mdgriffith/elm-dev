@@ -65,9 +65,7 @@ import qualified Stuff
 import qualified Ext.Log
 import qualified Elm.Details
 import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..), Local(..))
-import qualified Ext.PackageOverride as PkgOverride
-
-
+import qualified Modify.PackageOverride
 import System.IO.Unsafe (unsafePerformIO)
 
 {-
@@ -775,11 +773,11 @@ toDocs result =
 
 downloadPackage :: Stuff.PackageCache -> Http.Manager -> Pkg.Name -> V.Version -> IO (Either Exit.PackageProblem ())
 downloadPackage cache manager pkg vsn = do
-  hot <- PkgOverride.hotEnabled
-  case (hot, PkgOverride.overrideUrl pkg) of
-    (True, Just zipUrl) ->
-      Http.getArchive manager zipUrl Exit.PP_BadArchiveRequest (Exit.PP_BadArchiveContent zipUrl) $ \(_sha, archive) ->
-        Right <$> Ext.FileCache.writePackage (Stuff.package cache pkg vsn) archive
+  case Modify.PackageOverride.overrideUrl pkg of
+    Just zipUrl -> do
+      Http.getArchive manager zipUrl Exit.PP_BadArchiveRequest (Exit.PP_BadArchiveContent zipUrl) $ \(_sha, archive) -> do
+        let normalized = Modify.PackageOverride.normalizeArchive archive
+        Right <$> Ext.FileCache.writePackage (Stuff.package cache pkg vsn) normalized
     _ ->
       -- elm-dev: The original elm compiler implementation!
       let url = Website.metadata pkg vsn "endpoint.json" in
