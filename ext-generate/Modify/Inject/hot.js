@@ -3,27 +3,28 @@
 (function () {
     var wsUrl = "{{ ELM_DEV_SERVER_WS_URL }}";
     var socket;
+
     function applyCode(code) {
         console.info('[elm-dev][hot] applying compiled js (length:', code && code.length, ')');
         var f = new Function(code);
         var newScope = {};
         f.call(newScope);
         if (window.Elm && window.Elm.hot && typeof window.Elm.hot.reload === 'function') {
-            console.info('[elm-dev][hot] calling Elm.hot.reload');
             window.Elm.hot.reload(newScope);
         } else {
-            console.info('[elm-dev][hot] Elm.hot.reload missing, full reload');
+            console.info('[elm-dev][hot] Elm.hot.reload missing, full reload :/');
             location.reload();
         }
     }
 
     function connect() {
         socket = new WebSocket(wsUrl);
-        socket.onopen = function () { console.info('[elm-dev][hot] connected'); };
+        socket.onopen = function () {
+            console.info('[elm-dev][hot] connected');
+        };
         socket.onmessage = function (ev) {
             try {
                 var raw = ev && ev.data;
-                console.info('[elm-dev][hot] raw message:', raw);
                 var msg = JSON.parse(raw);
                 console.info('[elm-dev][hot] parsed message:', msg);
 
@@ -61,4 +62,5 @@
         };
     }
     connect();
+
 })();

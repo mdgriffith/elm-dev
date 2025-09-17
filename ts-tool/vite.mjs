@@ -53,14 +53,13 @@ async function discoverDevServer() {
 function wrapCompiledElmCode(id, code) {
     const elmModuleName = guessElmModuleName(id);
     const wrappedCode = `
-const scope = {};
+
 
 function start() {
     ${code}
 }
-
-start.call(scope);
-export default scope.Elm.${elmModuleName};
+start.call(window);
+export default window.Elm.${elmModuleName};
 
 if (import.meta.hot) {
     import.meta.hot.accept(() => {});
@@ -88,9 +87,6 @@ async function compileWithDevServer(id, debug, optimize, serverInfo) {
     const res = await fetch(url, { method: 'GET' });
     if (!res.ok) {
         const payload = await res.text();
-        // if (payload && payload.length > 0) {
-        //     console.error("\n\n" + payload + "\n\n");
-        // }
         return { error: payload || 'Compilation failed' };
     }
 

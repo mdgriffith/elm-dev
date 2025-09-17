@@ -26,3 +26,7 @@ hotJs wsUrl =
         T.replace (T.pack "{{ ELM_DEV_SERVER_WS_URL }}") (T.pack wsUrl)
           (T.decodeUtf8 hotJsTemplate)
   in B.byteString (T.encodeUtf8 replaced)
+
+
+version :: String
+version = "0.1.5"
