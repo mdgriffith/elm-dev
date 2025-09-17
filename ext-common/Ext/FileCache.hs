@@ -67,6 +67,9 @@ virtualDir =
 allowWrites :: Bool
 allowWrites = False
 
+allowPackageWrites :: Bool
+allowPackageWrites = True
+
 {-# NOINLINE fileCache #-}
 fileCache :: HashTable FilePath (Time, BS.ByteString)
 fileCache = unsafePerformIO H.new
@@ -316,7 +319,7 @@ zeroTime =
 -- Not needed in cache?
 writePackage :: FilePath -> Zip.Archive -> IO ()
 writePackage path archive =
-  Monad.when allowWrites $
+  Monad.when allowPackageWrites $
     File.writePackage path archive
 
 writeBuilder :: FilePath -> B.Builder -> IO ()
