@@ -23,6 +23,7 @@ module Reporting.Exit
   , Generate(..)
   --
   , toString
+  , toAnsiString
   , toStderr
   , toJson
   , toDocsProblemReport
@@ -73,6 +74,11 @@ import qualified Reporting.Render.Code as Code
 toString :: Help.Report -> String
 toString report =
   Help.toString (Help.reportToDoc report)
+
+
+toAnsiString :: Help.Report -> String
+toAnsiString report =
+  D.toAnsiString (Help.reportToDoc report)
 
 
 toStderr :: Help.Report -> IO ()

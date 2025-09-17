@@ -1,7 +1,7 @@
 // Vite plugin for Elm Dev - ESM build
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { toColoredTerminalOutput } from './elm-errors-render.js';
+// import { toColoredTerminalOutput } from './elm-errors-render.js';
 
 function setEmptyCacheFor(id, compilationCache) {
     const moduleState = {
@@ -48,37 +48,7 @@ async function discoverDevServer() {
     });
 }
 
-// Fetch compiled JS from the dev server's HTTP endpoint
-async function fetchCompiledJs(serverInfo, dir, file, debug, optimize) {
-    const params = new URLSearchParams({
-        dir,
-        file,
-        debug: debug ? 'true' : 'false',
-        optimize: optimize ? 'true' : 'false',
-    });
-    const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/dev/js?${params.toString()}`;
-    const res = await fetch(url, { method: 'GET' });
-    if (!res.ok) {
-        let payload = null;
-        try {
-            payload = await res.text();
-        } catch (_e) {
-            // ignore
-        }
-        if (payload && payload.length > 0) {
-            try {
-                const parsed = JSON.parse(payload);
-                const colored = toColoredTerminalOutput(parsed);
-                console.error("\n\n" + colored + "\n\n");
-            } catch (_e) {
-                console.error('Dev server error payload:', payload);
-            }
-        }
-        return null;
-
-    }
-    return await res.text();
-}
+// Fetch compiled JS is inlined into compileWithDevServer to allow returning rich errors
 
 function wrapCompiledElmCode(id, code) {
     const elmModuleName = guessElmModuleName(id);
@@ -108,10 +78,29 @@ async function compileWithDevServer(id, debug, optimize, serverInfo) {
         optimize,
     };
 
-    const compiledJs = await fetchCompiledJs(serverInfo, options.dir, options.file, options.debug, options.optimize);
-    if (!compiledJs || compiledJs.length === 0) return null;
+    const params = new URLSearchParams({
+        dir: options.dir,
+        file: options.file,
+        debug: options.debug ? 'true' : 'false',
+        optimize: options.optimize ? 'true' : 'false',
+    });
+    const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/dev/js?${params.toString()}`;
+    const res = await fetch(url, { method: 'GET' });
+    if (!res.ok) {
+        const payload = await res.text();
+        // if (payload && payload.length > 0) {
+        //     console.error("\n\n" + payload + "\n\n");
+        // }
+        return { error: payload || 'Compilation failed' };
+    }
 
-    return wrapCompiledElmCode(id, compiledJs);
+    const compiledJs = await res.text();
+    if (!compiledJs || compiledJs.length === 0) {
+        return { error: 'Empty response from dev server' };
+    }
+
+    const wrappedCode = wrapCompiledElmCode(id, compiledJs);
+    return { code: wrappedCode };
 }
 
 async function compileWithCli(id, debug, optimize) {
@@ -185,7 +174,13 @@ export default function elmDevPlugin(options = {}) {
                     }
                     if (useDevServer && devServer) {
                         if (loggingEnabled) log('compiling with dev server', id);
-                        const wrappedCode = await compileWithDevServer(id, debug, optimize, devServer);
+                        const result = await compileWithDevServer(id, debug, optimize, devServer);
+                        if (result && result.error) {
+                            setEmptyCacheFor(id, compilationCache);
+                            reject(new Error(result.error));
+                            return;
+                        }
+                        const wrappedCode = result && result.code ? result.code : null;
                         if (!wrappedCode) {
                             setEmptyCacheFor(id, compilationCache);
                             reject(new Error('Compilation failed'));
@@ -223,9 +218,11 @@ export default function elmDevPlugin(options = {}) {
             if (useDevServer && devServer) {
                 try {
                     if (debug) log('compiling with dev server', file);
-                    await compileWithDevServer(file, debug, optimize, devServer);
+                    const result = await compileWithDevServer(file, debug, optimize, devServer);
+                    if (result && result.error && loggingEnabled) {
+                        log('dev server compile error during HMR', result.error);
+                    }
                 } catch (_e) {
-
                 }
                 return [];
             }

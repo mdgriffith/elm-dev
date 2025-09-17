@@ -29,6 +29,7 @@ import qualified Modify.Inject.Loader
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Data.NonEmptyList as NE
 import qualified Data.List as List
+import qualified Reporting.Exit
 
 import qualified Ext.Log
 import Snap.Core
@@ -108,6 +109,7 @@ jsHandler state = do
   mFile <- getParam "file"
   mDebug <- getParam "debug"
   mOptimize <- getParam "optimize"
+  mReport <- getParam "report"
   case (mDir, mFile) of
     (Nothing, _) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: dir")
     (_, Nothing) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: file")
@@ -116,12 +118,18 @@ jsHandler state = do
       let file = Text.unpack (Data.Text.Encoding.decodeUtf8 fileBs)
       let debug = parseBoolParamWithDefault False mDebug
       let optimize = parseBoolParamWithDefault False mOptimize
-      e <- liftIO (compile state dir file debug optimize)
+      let report = parseReportParam mReport
+      e <- liftIO (compile state dir file debug optimize report)
       case e of
-        Left errJson -> do
+        Left errOut -> do
           modifyResponse $ setResponseCode 422
-          modifyResponse $ setContentType "application/json"
-          writeLBS (JSON.encode errJson)
+          case errOut of
+            ErrorJson errJson -> do
+              modifyResponse $ setContentType "application/json"
+              writeLBS (JSON.encode errJson)
+            ErrorTerminal msg -> do
+              modifyResponse $ setContentType "text/plain; charset=utf-8"
+              writeBS (Data.Text.Encoding.encodeUtf8 msg)
         Right jsBuilder -> do
           modifyResponse $ setContentType "application/javascript; charset=utf-8"
           writeBuilder jsBuilder
@@ -150,8 +158,12 @@ logHandler = do
       writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
 
 -- Return raw JS as a Builder for efficient streaming to Snap
-compile :: Live.State -> FilePath -> FilePath -> Bool -> Bool -> IO (Either JSON.Value Builder.Builder)
-compile state root file debug optimize = do
+data Report = ReportJson | ReportTerminal
+
+data ErrorOutput = ErrorJson JSON.Value | ErrorTerminal Text.Text
+
+compile :: Live.State -> FilePath -> FilePath -> Bool -> Bool -> Report -> IO (Either ErrorOutput Builder.Builder)
+compile state root file debug optimize report = do
   let wsUrl = Client.urlsDevWebsocket (Client.urls state)
       desired = CompileHelpers.getMode debug optimize
       flags = CompileHelpers.Flags
@@ -169,19 +181,28 @@ compile state root file debug optimize = do
       Ext.Log.log Ext.Log.Live ("Compilation error")
       let errJson = Client.encodeCompilationResult (Client.Error clientErr)
       DevWS.broadcastCompilationError state errJson
-      pure (Left errJson)
+      case report of
+        ReportJson -> pure (Left (ErrorJson errJson))
+        ReportTerminal -> do
+          let msg = case clientErr of
+                      Client.ReactorError exit -> Text.pack (Reporting.Exit.toAnsiString (Reporting.Exit.reactorToReport exit))
+                      Client.GenerationError err -> Text.pack err
+          pure (Left (ErrorTerminal msg))
     Right result ->
       case result of
         CompileHelpers.CompiledJs jsBuilder -> do
           Ext.Log.log Ext.Log.Live ("Attempting to broadcast compiled JS")
           DevWS.broadcastCompiled state (Client.builderToString jsBuilder)
           pure (Right (hotJs <> jsBuilder))
+
         CompileHelpers.CompiledHtml _ -> do
           Ext.Log.log Ext.Log.Live ("HTML output not supported on /dev/js")
-          pure (Left "HTML output not supported on /dev/js")
+          pure (Left (ErrorTerminal (Text.pack "HTML output not supported on /dev/js")))
+            
         CompileHelpers.CompiledSkippedOutput -> do
           Ext.Log.log Ext.Log.Live ("Compilation skipped")
-          pure (Left "Compilation skipped")
+          pure (Left (ErrorTerminal (Text.pack "Compilation skipped")))
+          
 
 -- Perform the same logic as Questions.Interactive branch
 interactiveDocs :: Live.State -> FilePath -> FilePath -> IO JSON.Value
@@ -219,6 +240,12 @@ parseBoolParamWithDefault def m =
     Just "false" -> False
     Just "no" -> False
     _ -> def
+
+parseReportParam :: Maybe BS.ByteString -> Report
+parseReportParam m =
+  case fmap (Text.toLower . Data.Text.Encoding.decodeUtf8) m of
+    Just "json" -> ReportJson
+    _ -> ReportTerminal
 
 problemSnap :: Int -> BS.ByteString -> Text.Text -> Snap ()
 problemSnap code problemCode detail = do

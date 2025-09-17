@@ -16,6 +16,7 @@ module Reporting.Doc
   --
   , toAnsi
   , toString
+  , toAnsiString
   , toLine
   --
   , encode
@@ -102,6 +103,11 @@ toAnsi handle doc =
 toString :: P.Doc -> String
 toString doc =
   P.displayS (P.renderPretty 1 80 (P.plain doc)) ""
+
+
+toAnsiString :: P.Doc -> String
+toAnsiString doc =
+  P.displayS (P.renderPretty 1 80 doc) ""
 
 
 toLine :: P.Doc -> String
