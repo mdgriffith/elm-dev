@@ -22,6 +22,7 @@ import qualified Reporting.Exit as Exit
 import qualified System.Directory as Dir (withCurrentDirectory)
 import qualified Watchtower.Live.Client as Client
 import qualified Reporting.Warning as Warning
+import qualified Watchtower.Server.DevWS as DevWS
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
 
@@ -59,9 +60,23 @@ compile state@(Client.State _ _ mFileInfo _) projCache@(Client.ProjectCache proj
               let filtered = Map.filterWithKey (\path _ -> not (Ext.Dev.Project.contains path proj)) current
               STM.writeTVar mFileInfo filtered
 
-        pure $ case compilationResult of
-          Right (result, _) -> Right result
-          Left exit -> Left (Client.ReactorError exit)
+        case compilationResult of
+          Right (result, _) -> do
+            -- Broadcast success to Dev websocket clients
+            case result of
+              CompileHelpers.CompiledJs jsBuilder ->
+                DevWS.broadcastCompiled state (Client.builderToString jsBuilder)
+              CompileHelpers.CompiledHtml _ ->
+                pure ()
+              CompileHelpers.CompiledSkippedOutput ->
+                pure ()
+            pure (Right result)
+          Left exit -> do
+            -- Broadcast error to Dev websocket clients
+            let clientErr = Client.ReactorError exit
+            let errJson = Client.encodeCompilationResult (Client.Error clientErr)
+            DevWS.broadcastCompilationError state errJson
+            pure (Left clientErr)
       Left err -> do
         -- Update compile result TVar with the error
         STM.atomically $ STM.writeTVar mCompileResult (Client.Error (Client.GenerationError err))
@@ -70,7 +85,11 @@ compile state@(Client.State _ _ mFileInfo _) projCache@(Client.ProjectCache proj
           current <- STM.readTVar mFileInfo
           let filtered = Map.filterWithKey (\path _ -> not (Ext.Dev.Project.contains path proj)) current
           STM.writeTVar mFileInfo filtered
-        pure $ Left (Client.GenerationError err)
+        -- Broadcast generation error to Dev websocket clients
+        let clientErr = Client.GenerationError err
+        let errJson = Client.encodeCompilationResult (Client.Error clientErr)
+        DevWS.broadcastCompilationError state errJson
+        pure $ Left clientErr
 
 
 -- | Compile any projects that are relevant to the given file paths.

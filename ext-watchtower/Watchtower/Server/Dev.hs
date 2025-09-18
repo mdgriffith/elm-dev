@@ -21,7 +21,6 @@ import qualified Gen.Javascript
 import qualified Json.Encode
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Live.Client as Client
-import qualified Watchtower.Server.DevWS as DevWS
 import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.State.Project
 import qualified Watchtower.State.Compile
@@ -167,6 +166,7 @@ fileChangedHandler state = do
   case mPath of
     Nothing -> problemSnap 400 "bad_request" (Text.pack "Missing query param: path")
     Just pathBs -> do
+      liftIO (Ext.Log.log Ext.Log.Live ("---- File changed: " <> show pathBs))
       let path = Text.unpack (Data.Text.Encoding.decodeUtf8 pathBs)
       ok <- liftIO (File.exists path)
       if not ok
@@ -179,34 +179,9 @@ fileChangedHandler state = do
           -- 2) Compile relevant projects
           _ <- liftIO (Watchtower.State.Compile.compileRelevantProjects state [path])
 
-          -- 3) Broadcast new state via DevWS
-          liftIO $ do
-            existing <- Client.getExistingProject path state
-            case existing of
-              Left _ -> pure ()
-              Right (firstProj@(Client.ProjectCache _ _ _ mCompileResult _), rest) -> do
-                let allProjs = firstProj : rest
-                mapM_ (broadcastForProject mCompileResultAccessor) allProjs
+          -- 3) Broadcasts are handled inside compile; nothing to do here
           modifyResponse $ setContentType "application/json"
           writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
-  where
-    mCompileResultAccessor (Client.ProjectCache _ _ _ m _ ) = m
-    broadcastForProject getM (proj@(Client.ProjectCache _ _ _ _ _)) = do
-      let m = getM proj
-      result <- STM.readTVarIO m
-      case result of
-        Client.Success compileRes ->
-          case compileRes of
-            CompileHelpers.CompiledJs jsBuilder ->
-              DevWS.broadcastCompiled state (Client.builderToString jsBuilder)
-            CompileHelpers.CompiledHtml _ ->
-              pure ()
-            CompileHelpers.CompiledSkippedOutput ->
-              pure ()
-        Client.Error err -> do
-          let errJson = Client.encodeCompilationResult (Client.Error err)
-          DevWS.broadcastCompilationError state errJson
-        Client.NotCompiled -> pure ()
 
 -- Return raw JS as a Builder for efficient streaming to Snap
 data Report = ReportJson | ReportTerminal
@@ -222,6 +197,7 @@ compile state root file debug optimize report = do
                 (CompileHelpers.OutputTo CompileHelpers.Js)
       hotJs = Modify.Inject.Loader.hotJs wsUrl
 
+
   -- Find an existing project whose elm.json root equals the given root; otherwise create it
   existingProjects <- STM.readTVarIO (Client.projects state)
   projCache <- Watchtower.State.Project.upsert state flags root (NE.List file [])
@@ -230,10 +206,10 @@ compile state root file debug optimize report = do
   case compiledR of
     Left clientErr -> do
       Ext.Log.log Ext.Log.Live ("Compilation error")
-      let errJson = Client.encodeCompilationResult (Client.Error clientErr)
-      DevWS.broadcastCompilationError state errJson
       case report of
-        ReportJson -> pure (Left (ErrorJson errJson))
+        ReportJson -> do
+          let errJson = Client.encodeCompilationResult (Client.Error clientErr)
+          pure (Left (ErrorJson errJson))
         ReportTerminal -> do
           let msg = case clientErr of
                       Client.ReactorError exit -> Text.pack (Reporting.Exit.toAnsiString (Reporting.Exit.reactorToReport exit))
@@ -242,8 +218,7 @@ compile state root file debug optimize report = do
     Right result ->
       case result of
         CompileHelpers.CompiledJs jsBuilder -> do
-          Ext.Log.log Ext.Log.Live ("Attempting to broadcast compiled JS")
-          DevWS.broadcastCompiled state (Client.builderToString jsBuilder)
+          Ext.Log.log Ext.Log.Live ("Compiled JS")
           pure (Right (hotJs <> jsBuilder))
 
         CompileHelpers.CompiledHtml _ -> do

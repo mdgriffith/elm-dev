@@ -112,10 +112,23 @@ insertVirtualElmJson root = do
     Right (Elm.Outline.Pkg _) -> do
       pure (Left "TODO: Implement packages for interactive stuff")
 
+-- Normalize entrypoint paths to absolute paths relative to the given root.
+-- If an entrypoint is already absolute, it is normalized; otherwise it is joined to the absolute root and normalized.
+normalizeEntrypoints :: FilePath -> NE.List FilePath -> IO (NE.List FilePath)
+normalizeEntrypoints root entrypoints = do
+  absRoot <- Dir.makeAbsolute root
+  let toAbs p =
+        if FilePath.isAbsolute p
+          then FilePath.normalise p
+          else FilePath.normalise (absRoot </> p)
+  case entrypoints of
+    NE.List ep eps -> pure (NE.List (toAbs ep) (map toAbs eps))
+
 upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO Client.ProjectCache
 upsert state@(Client.State mClients mProjects _ _) flags root entrypoints = do
   docsInfo <- readDocsInfo root
-  let newProject = Ext.Dev.Project.Project root root entrypoints 
+  normalizedEntrypoints <- normalizeEntrypoints root entrypoints
+  let newProject = Ext.Dev.Project.Project root root normalizedEntrypoints 
   mCompileResult <- STM.newTVarIO Client.NotCompiled
   mTestResults <- STM.newTVarIO Nothing
   let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults
@@ -124,7 +137,7 @@ upsert state@(Client.State mClients mProjects _ _) flags root entrypoints = do
     existingProjects <- STM.readTVar mProjects
     case List.find (Client.matchingProject newProjectCache) existingProjects of
       Just existingProject -> do
-        case updateProjectIfNecessary existingProject flags entrypoints of
+        case updateProjectIfNecessary existingProject flags normalizedEntrypoints of
           Nothing -> do
             pure (False, existingProject)
           Just updatedProjectCache -> do
