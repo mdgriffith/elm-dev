@@ -34,6 +34,8 @@ import qualified Reporting.Exit
 import qualified Ext.Log
 import Snap.Core
 import Control.Monad.Trans (liftIO)
+import qualified Ext.FileCache
+import qualified File
 
 -- | JSON decoders/encoders live in Watchtower.Server.JSONRPC; we mirror MCP style here
 
@@ -84,6 +86,7 @@ routes state =
   [ ("/dev/js", jsHandler state)
   , ("/dev/interactive", interactiveHandler state)
   , ("/dev/log", logHandler)
+  , ("/dev/fileChanged", fileChangedHandler state)
   ]
 
 -- Helpers
@@ -156,6 +159,54 @@ logHandler = do
     Right _ -> do
       modifyResponse $ setContentType "application/json"
       writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
+
+-- Notify server that an absolute file path changed
+fileChangedHandler :: Live.State -> Snap ()
+fileChangedHandler state = do
+  mPath <- getParam "path"
+  case mPath of
+    Nothing -> problemSnap 400 "bad_request" (Text.pack "Missing query param: path")
+    Just pathBs -> do
+      let path = Text.unpack (Data.Text.Encoding.decodeUtf8 pathBs)
+      ok <- liftIO (File.exists path)
+      if not ok
+        then problemSnap 404 "not_found" (Text.pack "File not found")
+        else do
+          -- 1) Read from FS and write to cache
+          contents <- liftIO (File.readUtf8 path)
+          _ <- liftIO (Ext.FileCache.writeUtf8 path contents)
+
+          -- 2) Compile relevant projects
+          _ <- liftIO (Watchtower.State.Compile.compileRelevantProjects state [path])
+
+          -- 3) Broadcast new state via DevWS
+          liftIO $ do
+            existing <- Client.getExistingProject path state
+            case existing of
+              Left _ -> pure ()
+              Right (firstProj@(Client.ProjectCache _ _ _ mCompileResult _), rest) -> do
+                let allProjs = firstProj : rest
+                mapM_ (broadcastForProject mCompileResultAccessor) allProjs
+          modifyResponse $ setContentType "application/json"
+          writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
+  where
+    mCompileResultAccessor (Client.ProjectCache _ _ _ m _ ) = m
+    broadcastForProject getM (proj@(Client.ProjectCache _ _ _ _ _)) = do
+      let m = getM proj
+      result <- STM.readTVarIO m
+      case result of
+        Client.Success compileRes ->
+          case compileRes of
+            CompileHelpers.CompiledJs jsBuilder ->
+              DevWS.broadcastCompiled state (Client.builderToString jsBuilder)
+            CompileHelpers.CompiledHtml _ ->
+              pure ()
+            CompileHelpers.CompiledSkippedOutput ->
+              pure ()
+        Client.Error err -> do
+          let errJson = Client.encodeCompilationResult (Client.Error err)
+          DevWS.broadcastCompilationError state errJson
+        Client.NotCompiled -> pure ()
 
 -- Return raw JS as a Builder for efficient streaming to Snap
 data Report = ReportJson | ReportTerminal

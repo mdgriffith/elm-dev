@@ -99,6 +99,22 @@ async function compileWithDevServer(id, debug, optimize, serverInfo) {
     return { code: wrappedCode };
 }
 
+async function notifyFileChanged(file, serverInfo) {
+    const params = new URLSearchParams({
+        path: file,
+    });
+    const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/dev/fileChanged?${params.toString()}`;
+    try {
+        const res = await fetch(url, { method: 'GET' });
+        if (!res.ok && loggingEnabled) {
+            const payload = await res.text();
+            log('fileChanged returned non-OK', res.status, payload);
+        }
+    } catch (e) {
+        if (loggingEnabled) log('fileChanged request failed', e);
+    }
+}
+
 async function compileWithCli(id, debug, optimize) {
     const args = ['make', path.join('.', id), '--output=stdout'];
     if (debug) args.push('--debug');
@@ -212,14 +228,8 @@ export default function elmDevPlugin(options = {}) {
 
             // HMR strategy: 
             if (useDevServer && devServer) {
-                try {
-                    if (debug) log('compiling with dev server', file);
-                    const result = await compileWithDevServer(file, debug, optimize, devServer);
-                    if (result && result.error && loggingEnabled) {
-                        log('dev server compile error during HMR', result.error);
-                    }
-                } catch (_e) {
-                }
+                if (loggingEnabled) log('notifying dev server of change', file);
+                await notifyFileChanged(file, devServer);
                 return [];
             }
 
