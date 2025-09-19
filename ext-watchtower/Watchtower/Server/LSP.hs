@@ -1317,26 +1317,27 @@ handleInlayHint _state inlayHintParams = do
   let range = inlayHintParamsRange inlayHintParams
       startPos = rangeStart range
       sampleHints =
-        [ InlayHint
-            { inlayHintPosition = Position (positionLine startPos + 2) (positionCharacter startPos + 10),
-              inlayHintLabel = JSON.String ": String",
-              inlayHintKind = Just 1, -- Type
-              inlayHintTextEdits = Nothing,
-              inlayHintTooltip = Just (JSON.String "Inferred type"),
-              inlayHintPaddingLeft = Just False,
-              inlayHintPaddingRight = Just False,
-              inlayHintData = Nothing
-            },
-          InlayHint
-            { inlayHintPosition = Position (positionLine startPos + 5) (positionCharacter startPos + 15),
-              inlayHintLabel = JSON.String "name:",
-              inlayHintKind = Just 2, -- Parameter
-              inlayHintTextEdits = Nothing,
-              inlayHintTooltip = Just (JSON.String "Parameter name"),
-              inlayHintPaddingLeft = Just False,
-              inlayHintPaddingRight = Just True,
-              inlayHintData = Nothing
-            }
+        [
+          --  InlayHint
+          --   { inlayHintPosition = Position (positionLine startPos + 2) (positionCharacter startPos + 10),
+          --     inlayHintLabel = JSON.String ": String",
+          --     inlayHintKind = Just 1, -- Type
+          --     inlayHintTextEdits = Nothing,
+          --     inlayHintTooltip = Just (JSON.String "Inferred type"),
+          --     inlayHintPaddingLeft = Just False,
+          --     inlayHintPaddingRight = Just False,
+          --     inlayHintData = Nothing
+          --   },
+          -- InlayHint
+          --   { inlayHintPosition = Position (positionLine startPos + 5) (positionCharacter startPos + 15),
+          --     inlayHintLabel = JSON.String "name:",
+          --     inlayHintKind = Just 2, -- Parameter
+          --     inlayHintTextEdits = Nothing,
+          --     inlayHintTooltip = Just (JSON.String "Parameter name"),
+          --     inlayHintPaddingLeft = Just False,
+          --     inlayHintPaddingRight = Just True,
+          --     inlayHintData = Nothing
+          --   }
         ]
   return $ Right sampleHints
 
@@ -1765,13 +1766,8 @@ handleNotification state send (JSONRPC.Notification _ method params) = do
           case JSON.fromJSON p of
             JSON.Success changeParams -> do
               _ <- handleDidChange state changeParams
-              -- Emit code lens refresh + diagnostics publish
+              -- Emit code lens refresh; diagnostics are provided via pull (DocumentDiagnostic)
               send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
-              let docId = didChangeTextDocumentParamsTextDocument changeParams
-                  uri = versionedTextDocumentIdentifierUri docId
-                  version = versionedTextDocumentIdentifierVersion docId
-              diags <- getDiagnosticsForUri state uri
-              send (publishDiagnostics uri version diags)
               send (logMessage LogMessageTypeLog "Document changed")
               return ()
             JSON.Error err -> do
@@ -1798,12 +1794,8 @@ handleNotification state send (JSONRPC.Notification _ method params) = do
           case JSON.fromJSON p of
             JSON.Success saveParams -> do
               _ <- handleDidSave state saveParams
-              -- Emit code lens refresh + diagnostics publish
+              -- Emit code lens refresh; diagnostics are provided via pull (DocumentDiagnostic)
               send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
-              let docId = didSaveTextDocumentParamsTextDocument saveParams
-                  uri = textDocumentIdentifierUri docId
-              diags <- getDiagnosticsForUri state uri
-              send (publishDiagnostics uri Nothing diags)
               send (logMessage LogMessageTypeInfo "Saved document")
               return ()
             JSON.Error err -> do
