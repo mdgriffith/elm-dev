@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE CPP #-}
 
 module MainDev (main) where
 
@@ -57,6 +58,9 @@ import qualified System.Exit as Exit
 import qualified System.FilePath as Path
 import qualified System.IO as IO
 import qualified System.Process as Process
+#if !defined(mingw32_HOST_OS)
+import qualified System.Posix.Process as Posix
+#endif
 import qualified Terminal.Colors
 import qualified Terminal.Dev.Args
 import qualified Terminal.Dev.Error
@@ -145,9 +149,20 @@ lspCommand = CommandParser.command ["lsp"] "Start the Elm Dev LSP server" devGro
   where
     parseServerFlags = CommandParser.noFlag
     runServer _ _ = do
-      Ext.CompileMode.setModeMemory
       _state <- Daemon.ensureRunning
-      proxyStdioToTcp Ext.Log.TempLSP "127.0.0.1" (Daemon.lspPort _state)
+      let host = "127.0.0.1"
+      let port = Daemon.lspPort _state
+#if !defined(mingw32_HOST_OS)
+      let args = [host, show port]
+      let handler :: Exception.SomeException -> IO ()
+          handler _ = proxyStdioToTcp Ext.Log.TempLSP host port
+      Exception.catch
+        (Posix.executeFile "/usr/bin/nc" False args Nothing)
+        handler
+#else
+      proxyStdioToTcp Ext.Log.TempLSP host port
+#endif
+      
 
 -- | Transparent stdio <-> TCP proxy; no protocol logic, binary-safe
 proxyStdioToTcp :: Ext.Log.TempChannel -> String -> Int -> IO ()
@@ -210,8 +225,8 @@ daemonStartCommand = CommandParser.command ["daemon","start"] "Start daemon if n
     parseArgs = CommandParser.noArg
     parseFlags = CommandParser.noFlag
     runCmd _ _ = do
-      _ <- Daemon.start
-      pure ()
+      status <- Daemon.ensureRunning
+      LBSChar.putStrLn (encodeStatus status)
 
 daemonStopCommand :: CommandParser.Command
 daemonStopCommand = CommandParser.command ["daemon","stop"] "Stop daemon" devGroup parseArgs parseFlags runCmd
@@ -220,6 +235,23 @@ daemonStopCommand = CommandParser.command ["daemon","stop"] "Stop daemon" devGro
     parseFlags = CommandParser.noFlag
     runCmd _ _ = do
       Daemon.stop
+
+
+encodeStatus :: Daemon.StateInfo -> LBS.ByteString
+encodeStatus s = 
+  let domainStr = Json.Encode.string (Json.String.fromChars (Daemon.domain s)) in
+  Data.ByteString.Builder.toLazyByteString (
+      let lspObj = Json.Encode.object [ ("domain" ==> domainStr), ("port" ==> Json.Encode.int (Daemon.lspPort s)) ]
+          mcpObj = Json.Encode.object [ ("domain" ==> domainStr), ("port" ==> Json.Encode.int (Daemon.mcpPort s)) ]
+          httpObj = Json.Encode.object [ ("domain" ==> domainStr), ("port" ==> Json.Encode.int (Daemon.httpPort s)) ]
+      in Json.Encode.encodeUgly (Json.Encode.object [
+              ("pid" ==> Json.Encode.int (Daemon.pid s)),
+              ("lsp" ==> lspObj),
+              ("mcp" ==> mcpObj),
+              ("http" ==> httpObj),
+              ("version" ==> Json.Encode.string (Json.String.fromChars (Daemon.version s)))
+          ])
+      )
 
 daemonStatusCommand :: CommandParser.Command
 daemonStatusCommand = CommandParser.command ["daemon","status"] "Show daemon status" devGroup parseArgs parseFlags runCmd
@@ -230,19 +262,8 @@ daemonStatusCommand = CommandParser.command ["daemon","status"] "Show daemon sta
       st <- Daemon.status
       case st of
         Nothing -> IO.hPutStrLn IO.stderr "daemon: not running"
-        Just s ->
-          let domainStr = Json.Encode.string (Json.String.fromChars (Daemon.domain s)) in
-          LBSChar.putStrLn (Data.ByteString.Builder.toLazyByteString (
-            let lspObj = Json.Encode.object [ ("domain" ==> domainStr), ("port" ==> Json.Encode.int (Daemon.lspPort s)) ]
-                mcpObj = Json.Encode.object [ ("domain" ==> domainStr), ("port" ==> Json.Encode.int (Daemon.mcpPort s)) ]
-                httpObj = Json.Encode.object [ ("domain" ==> domainStr), ("port" ==> Json.Encode.int (Daemon.httpPort s)) ]
-            in Json.Encode.encodeUgly (Json.Encode.object [
-                    ("pid" ==> Json.Encode.int (Daemon.pid s)),
-                    ("lsp" ==> lspObj),
-                    ("mcp" ==> mcpObj),
-                    ("http" ==> httpObj),
-                    ("version" ==> Json.Encode.string (Json.String.fromChars (Daemon.version s)))])
-            ))
+        Just status ->
+          LBSChar.putStrLn (encodeStatus status)
 
 docsCommand :: CommandParser.Command
 docsCommand = CommandParser.command ["inspect", "docs"] "Report the docs.json" inspectGroup parseDocsArgs parseDocsFlags runDocs
