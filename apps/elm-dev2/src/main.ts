@@ -6,6 +6,8 @@ import Webcomponents from "./js/webcomponents";
 import * as JSON from "./js/util/json";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { fetch } from "@tauri-apps/plugin-http";
+type TauriHttpResponse = { ok: boolean; json: () => Promise<unknown> };
 
 // Mount Elm App
 // Import all generated CSS files
@@ -34,12 +36,14 @@ type DaemonStatus = {
 };
 
 let currentSocket: WebSocket | null = null;
+let currentBase: string | null = null;
 
 function connectWithStatus(status: DaemonStatus) {
   console.log("Connecting with status", status);
   if (currentSocket != null) return;
   const domain = status.http.domain;
   const port = String(status.http.port);
+  currentBase = `http://${domain}:${port}`;
   const websocket = new WebSocket(`ws://${domain}:${port}/ws`);
   currentSocket = websocket;
 
@@ -53,6 +57,21 @@ function connectWithStatus(status: DaemonStatus) {
         host: domain,
       },
     });
+
+    // Prefetch projects via Tauri HTTP (bypasses CORS)
+    try {
+      void fetch(`http://${domain}:${port}/projectList`, { method: "GET" })
+        .then((res: TauriHttpResponse) => (res.ok ? res.json() : null))
+        .then((body: unknown) => {
+          if (body != null && typeof body === "object") {
+            const details = (body as any).details ?? body;
+            app.ports.devServer.send({ msg: "Status", details });
+          }
+        })
+        .catch(() => { });
+    } catch (_) {
+      // plugin not available (non-Tauri env)
+    }
   };
 
   websocket.onmessage = (event) => {
@@ -91,3 +110,31 @@ async function setupDaemonIntegration() {
 }
 
 setupDaemonIntegration();
+
+// Listen for Elm asks and fulfill via Tauri HTTP
+type AskMessage = { route: string };
+app.ports?.ask?.subscribe?.((msg: AskMessage) => {
+  console.log("Ask", msg, currentBase);
+  if (!currentBase) return;
+  switch (msg?.route) {
+    case "ProjectList": {
+      void fetch(`${currentBase}/projectList`, { method: "GET" })
+        .then((res: TauriHttpResponse) => (res.ok ? res.json() : null))
+        .then((body: unknown) => {
+          console.log("ProjectList response", body);
+          if (body != null && typeof body === "object") {
+            const details = (body as any).details ?? body;
+            console.log("ProjectList TS side", details);
+            app.ports.devServer.send({ msg: "Status", details });
+          }
+        })
+        .catch((err) => {
+
+          console.log("ProjectList error", err);
+        });
+      break;
+    }
+    default:
+      break;
+  }
+});

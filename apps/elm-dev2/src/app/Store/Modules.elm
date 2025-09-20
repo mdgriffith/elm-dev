@@ -20,7 +20,6 @@ import Effect
 import Elm.Docs
 import Elm.Module
 import Elm.Package
-import Elm.Type
 import Json.Decode
 import Json.Encode
 import Listen

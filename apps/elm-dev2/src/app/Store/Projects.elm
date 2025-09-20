@@ -1,6 +1,7 @@
 module Store.Projects exposing
     ( store
     , Model, Msg
+    , view
     )
 
 {-|
@@ -17,8 +18,10 @@ import Data.ProjectStatus
 import Data.Question
 import Dict
 import Effect
+import Effect.Ask
 import Elm.Module
 import Elm.Project
+import Html
 import Http
 import Json.Decode
 import Json.Encode
@@ -33,6 +36,7 @@ type alias Path =
 type alias Model =
     { current : Maybe Path
     , projects : Dict.Dict Path Data.ProjectStatus.Project
+    , base : Maybe String
     }
 
 
@@ -68,16 +72,17 @@ store =
                             |> Maybe.withDefault
                                 { current = Nothing
                                 , projects = Dict.empty
+                                , base = Nothing
                                 }
                 in
                 ( model
-                , Data.Question.projectList ProjectListReceived
+                , Effect.none
                 )
         , update =
             \msg model ->
                 case msg of
                     ProjectListReceived result ->
-                        case result of
+                        case Debug.log "ProjectListReceived" result of
                             Ok status ->
                                 ( { model
                                     | projects =
@@ -108,7 +113,9 @@ store =
                                 )
 
                             Err _ ->
-                                ( model, Effect.none )
+                                ( model
+                                , Effect.none
+                                )
 
                     ProjectReceived project ->
                         ( { model
@@ -131,13 +138,23 @@ store =
 
                     DevServerReceived event ->
                         case event of
+                            Listen.DevServer.ServerStatusUpdated { status } ->
+                                case status of
+                                    Listen.DevServer.Connected info ->
+                                        ( model
+                                        , Effect.Ask.projectList
+                                        )
+
+                                    _ ->
+                                        ( model, Effect.none )
+
                             Listen.DevServer.ProjectsStatusUpdated projects ->
                                 ( { model
                                     | projects =
                                         Dict.fromList
                                             (List.map
                                                 (\project -> ( project.root, project ))
-                                                projects
+                                                (Debug.log "ProjectsStatusUpdated" projects)
                                             )
                                   }
                                 , Effect.none
@@ -149,3 +166,16 @@ store =
             \_ ->
                 Listen.DevServer.listen DevServerReceived
         }
+
+
+view : Model -> Html.Html msg
+view model =
+    Html.div []
+        [ Html.h2 [] [ Html.text "Projects" ]
+        , Html.ul []
+            (model.projects
+                |> Dict.values
+                |> List.map (\project -> Html.li [] [ Html.text project.root ])
+            )
+        ]
+

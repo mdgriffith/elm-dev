@@ -86,6 +86,7 @@ routes state =
   , ("/dev/interactive", interactiveHandler state)
   , ("/dev/log", logHandler)
   , ("/dev/fileChanged", fileChangedHandler state)
+  , ("/projectList", projectListHandler state)
   ]
 
 -- Helpers
@@ -182,6 +183,14 @@ fileChangedHandler state = do
           -- 3) Broadcasts are handled inside compile; nothing to do here
           modifyResponse $ setContentType "application/json"
           writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
+
+-- Return the list of projects in the same JSON shape as websocket "Status" message
+projectListHandler :: Live.State -> Snap ()
+projectListHandler state = do
+  statuses <- liftIO (Client.getAllStatuses state)
+  modifyResponse $ setContentType "application/json"
+  liftIO (Ext.Log.log Ext.Log.Live ("Project list: " <> show (length statuses) <> " projects"))
+  writeBuilder (Client.encodeOutgoing (Client.ElmStatus statuses))
 
 -- Return raw JS as a Builder for efficient streaming to Snap
 data Report = ReportJson | ReportTerminal

@@ -16,9 +16,9 @@ import Json.Decode as Decode
 import Url.Builder
 
 
-watchtower : List String -> List Url.Builder.QueryParameter -> String
-watchtower =
-    Url.Builder.crossOrigin "http://localhost:51213"
+watchtower : String -> List String -> List Url.Builder.QueryParameter -> String
+watchtower base =
+    Url.Builder.crossOrigin base
 
 
 
@@ -48,16 +48,11 @@ type alias ProjectList =
     { projects : List Data.ProjectStatus.Project }
 
 
-projectList : (Result Http.Error ProjectList -> msg) -> Effect msg
-projectList toMsg =
-    Effect.map toMsg <|
-        Effect.Http.get (watchtower [ "project-list" ] [])
-            (Effect.Http.expectJson
-                (Decode.map (Ok << ProjectList)
-                    (Decode.field "details" (Decode.list Data.ProjectStatus.decodeProject))
-                )
-                Err
-            )
+projectList : String -> (Result Http.Error ProjectList -> msg) -> Effect msg
+projectList base toMsg =
+    -- Requests are now done via Tauri HTTP plugin in TS and pushed via devServer port.
+    -- Keep a no-op effect so call sites remain unchanged.
+    Effect.none
 
 
 

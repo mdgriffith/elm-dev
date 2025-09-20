@@ -10,12 +10,13 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/plugin-http": "^2.5.2",
+    "@tauri-apps/plugin-opener": "^2.2.6"
   },
   "devDependencies": {
-    "@ts-tool/vite": "file:../../ts-tool",
     "@tauri-apps/cli": "^2",
+    "@ts-tool/vite": "file:../../ts-tool",
     "@types/node": "^22.15.21",
     "launch-editor": "^2.10.0",
     "typescript": "~5.6.2",

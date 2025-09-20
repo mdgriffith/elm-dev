@@ -41,6 +41,13 @@ type alias DocsOverview =
     , interactive : List String
     }
 
+emptyDocsOverview : DocsOverview
+emptyDocsOverview =
+    { modules = []
+    , guides = []
+    , interactive = []
+    }
+
 
 type Status
     = NoData
@@ -151,7 +158,7 @@ decodeProject =
         (Decode.field "projectRoot" Decode.string)
         (Decode.field "entrypoints" (Decode.list Decode.string))
         (Decode.field "status" decodeStatus)
-        (Decode.field "docs" decodeDocsOverview)
+        (Decode.map  (Maybe.withDefault emptyDocsOverview) (Decode.maybe (Decode.field "docs" decodeDocsOverview)))
 
 
 decodeDocsOverview : Decode.Decoder DocsOverview
