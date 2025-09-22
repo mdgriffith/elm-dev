@@ -465,13 +465,13 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
       
       case Build.makeDocs docsNeed canonical of
         Left err -> do
-          modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul) }))
+          modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Just canonical }))
           return $ Build.RProblem $
             Error.Module (Src.getName modul) path time source (Error.BadDocs err)
 
         Right docs ->
           do  
-              modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = docs, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul) }))
+              modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = docs, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Just canonical }))
               let name = Src.getName modul
               let iface = I.fromModule pkg canonical annotations
               let elmi = Stuff.elmi root name
@@ -492,7 +492,7 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
                       return (Build.RNew local iface objects docs)
 
     Left err -> do
-      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul) }))
+      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Nothing }))
       return $ Build.RProblem $
         Error.Module (Src.getName modul) path time source err
 

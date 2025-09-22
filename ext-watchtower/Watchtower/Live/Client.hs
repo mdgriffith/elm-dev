@@ -62,6 +62,8 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Elm.Docs as Docs
+import qualified AST.Source as Src
+import qualified AST.Canonical as Can
 import qualified Ext.Common
 import qualified Ext.Dev.Project
 import qualified Ext.Log
@@ -172,6 +174,8 @@ data FileInfo = FileInfo
   { warnings :: [Warning.Warning]
   , docs :: Maybe Docs.Module
   , localizer :: Maybe Reporting.Render.Type.Localizer.Localizer
+  , sourceAst :: Maybe Src.Module
+  , canonicalAst :: Maybe Can.Module
   }
 
 getFileInfo :: FilePath -> State -> IO (Maybe FileInfo)

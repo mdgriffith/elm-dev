@@ -277,6 +277,7 @@ Executable elm-dev
         Watchtower.Test
         Watchtower.Version
         Watchtower.Websocket
+        Watchtower.AST.Lookup
         
         Watchtower.State.Compile
         Watchtower.State.Discover

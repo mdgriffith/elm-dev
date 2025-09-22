@@ -59,6 +59,9 @@ import qualified Ext.CompileHelpers.Generic
 import qualified Control.Concurrent.STM
 import qualified Ext.Log
 import qualified Ext.Reporting.Error
+import qualified AST.Source as Src
+import qualified AST.Canonical as Can
+import qualified Watchtower.AST.Lookup
 
 
 -- * Core LSP Types
@@ -941,25 +944,67 @@ handleDidSave state saveParams = do
       return $ Right JSON.Null
 
 handleHover :: Live.State -> HoverParams -> IO (Either String (Maybe Hover))
-handleHover _state hoverParams = do
-  -- For now, return a simple hover message
-  -- In a real implementation, this would analyze the Elm code at the given position
-  let pos = hoverParamsPosition hoverParams
+handleHover state hoverParams = do
+  let lspPos = hoverParamsPosition hoverParams
       uri = textDocumentIdentifierUri (hoverParamsTextDocument hoverParams)
-      
-  -- Mock hover content
-  let content = MarkupContent
-        { markupContentKind = "markdown",
-          markupContentValue = "**Elm Language Server**\n\nHover information at line " 
-            <> Text.pack (show (positionLine pos)) 
-            <> ", character " 
-            <> Text.pack (show (positionCharacter pos))
-        }
-      
-  return $ Right $ Just $ Hover
-    { hoverContents = content,
-      hoverRange = Nothing
-    }
+  case uriToFilePath uri of
+    Nothing -> pure (Right Nothing)
+    Just filePath -> do
+      mInfo <- Watchtower.Live.Client.getFileInfo filePath state
+      case mInfo of
+        Nothing -> pure (Right Nothing)
+        Just (Watchtower.Live.Client.FileInfo
+              { Watchtower.Live.Client.sourceAst = _maybeSrc
+              , Watchtower.Live.Client.canonicalAst = maybeCan
+              , Watchtower.Live.Client.localizer = maybeLoc
+              }) ->
+          case maybeCan of
+            Just canMod -> do
+              let pos = lspPositionToElmPosition lspPos
+              case Watchtower.AST.Lookup.findAtPosition canMod pos of
+                Nothing -> pure (Right Nothing)
+                Just (found, region) -> do
+                  case found of
+                    Watchtower.AST.Lookup.FoundType tipe -> do
+                      let loc = Maybe.fromMaybe 
+                                 Reporting.Render.Type.Localizer.empty 
+                                 maybeLoc
+                          label = Reporting.Doc.toString 
+                                   (Reporting.Render.Type.canToDoc 
+                                     loc 
+                                     Reporting.Render.Type.None 
+                                     tipe)
+                          content = MarkupContent 
+                                    { markupContentKind = "markdown"
+                                    , markupContentValue = Text.pack (" : " ++ label)
+                                    }
+                      pure (Right (Just Hover 
+                                   { hoverContents = content
+                                   , hoverRange = Just (regionToRange region)
+                                   }))
+                    Watchtower.AST.Lookup.FoundAnnotation (Can.Forall _ tipe) -> do
+                      let loc = Maybe.fromMaybe 
+                                 Reporting.Render.Type.Localizer.empty 
+                                 maybeLoc
+                          label = Reporting.Doc.toString 
+                                   (Reporting.Render.Type.canToDoc 
+                                     loc 
+                                     Reporting.Render.Type.None 
+                                     tipe)
+                          content = MarkupContent 
+                                    { markupContentKind = "markdown"
+                                    , markupContentValue = Text.pack (" : " ++ label)
+                                    }
+                      pure (Right (Just Hover 
+                                   { hoverContents = content
+                                   , hoverRange = Just (regionToRange region)
+                                   }))
+            _ -> pure (Right Nothing)
+
+-- Convert LSP Position to Elm Ann.Position (1-based)
+lspPositionToElmPosition :: Position -> Ann.Position
+lspPositionToElmPosition (Position l c) = Ann.Position (fromIntegral (l + 1)) (fromIntegral (c + 1))
+
 
 handleCompletion :: Live.State -> CompletionParams -> IO (Either String CompletionList)
 handleCompletion _state _completionParams = do
@@ -1164,19 +1209,14 @@ handleDiagnostic state diagnosticParams = do
         Right (projectCache, _) -> do
           -- Read the existing compile result from the project cache instead of re-running compile
           currentResult <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult projectCache)
-          Ext.Log.log Ext.Log.LSP $ "READ COMPILE RESULT for " ++ Watchtower.Live.Client.getProjectRoot projectCache
           case currentResult of
             Watchtower.Live.Client.Success _ -> do
-              Ext.Log.log Ext.Log.LSP "COMPILE RESULT SUCCESS"
               return $ Right []
             Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
-              Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Reactor), EXTRACTING DIAGNOSTICS"
               return $ Right $ extractDiagnosticsFromReactor uri exitReactor
             Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
-              Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Generation)"
               return $ Right []
             Watchtower.Live.Client.NotCompiled -> do
-              Ext.Log.log Ext.Log.LSP "COMPILE RESULT NOT COMPILED YET"
               return $ Right []
 
   case result of
