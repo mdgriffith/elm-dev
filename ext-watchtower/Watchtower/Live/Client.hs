@@ -176,6 +176,7 @@ data FileInfo = FileInfo
   , localizer :: Maybe Reporting.Render.Type.Localizer.Localizer
   , sourceAst :: Maybe Src.Module
   , canonicalAst :: Maybe Can.Module
+  , typeAt :: Maybe (Map.Map Ann.Region Can.Annotation) -- ELM DEV: types at regions
   }
 
 getFileInfo :: FilePath -> State -> IO (Maybe FileInfo)

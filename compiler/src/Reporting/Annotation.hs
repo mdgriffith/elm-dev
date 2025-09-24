@@ -60,6 +60,13 @@ data Position =
   deriving (Eq)
 
 
+instance Ord Position where
+  compare (Position r1 c1) (Position r2 c2) =
+    case compare r1 r2 of
+      EQ -> compare c1 c2
+      other -> other
+
+
 at :: Position -> Position -> a -> Located a
 at start end a =
   At (Region start end) a
@@ -71,6 +78,13 @@ at start end a =
 
 data Region = Region Position Position
   deriving (Eq)
+
+
+instance Ord Region where
+  compare (Region s1 e1) (Region s2 e2) =
+    case compare s1 s2 of
+      EQ -> compare e1 e2
+      other -> other
 
 
 toRegion :: Located a -> Region

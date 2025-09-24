@@ -999,6 +999,39 @@ handleHover state hoverParams = do
                                    { hoverContents = content
                                    , hoverRange = Just (regionToRange region)
                                    }))
+
+                    Watchtower.AST.Lookup.FoundVarLocal _name -> do
+                      case Watchtower.Live.Client.typeAt <$> mInfo of
+                        _ -> do
+                          let typeAtMap = case mInfo of
+                                Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.typeAt = Just m }) -> Just m
+                                _ -> Nothing
+                          case typeAtMap of
+                            Nothing -> pure (Right Nothing)
+                            Just m ->
+                              case Map.lookup region m of
+                                Nothing -> pure (Right Nothing)
+                                Just (Can.Forall _ tipe) -> do
+                                  let loc = Maybe.fromMaybe Reporting.Render.Type.Localizer.empty maybeLoc
+                                      label = Reporting.Doc.toString (Reporting.Render.Type.canToDoc loc Reporting.Render.Type.None tipe)
+                                      content = MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack (" : " ++ label) }
+                                  pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
+
+                    Watchtower.AST.Lookup.FoundVarTopLevel _name -> do
+                      let typeAtMap = case mInfo of
+                            Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.typeAt = Just m }) -> Just m
+                            _ -> Nothing
+                      case typeAtMap of
+                        Nothing -> pure (Right Nothing)
+                        Just m ->
+                          case Map.lookup region m of
+                            Nothing -> pure (Right Nothing)
+                            Just (Can.Forall _ tipe) -> do
+                              let loc = Maybe.fromMaybe Reporting.Render.Type.Localizer.empty maybeLoc
+                                  label = Reporting.Doc.toString (Reporting.Render.Type.canToDoc loc Reporting.Render.Type.None tipe)
+                                  content = MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack (" : " ++ label) }
+                              pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
+                      pure (Right Nothing)
             _ -> pure (Right Nothing)
 
 -- Convert LSP Position to Elm Ann.Position (1-based)

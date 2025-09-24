@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Type.Solve
   ( run
+  , runTypeAt -- ELM DEV
   )
   where
 
@@ -34,7 +35,7 @@ run :: Constraint -> IO (Either (NE.List Error.Error) (Map.Map Name.Name Can.Ann
 run constraint =
   do  pools <- MVector.replicate 8 []
 
-      (State env _ errors) <-
+      (State env _ errors _) <-
         solve Map.empty outermostRank pools emptyState constraint
 
       case errors of
@@ -49,7 +50,7 @@ run constraint =
 {-# NOINLINE emptyState #-}
 emptyState :: State
 emptyState =
-  State Map.empty (nextMark noMark) []
+  State Map.empty (nextMark noMark) [] Map.empty
 
 
 
@@ -69,6 +70,7 @@ data State =
     { _env :: Env
     , _mark :: Mark
     , _errors :: [Error.Error]
+    , _typeAt :: Map.Map A.Region Variable -- ELM DEV: collect types at regions
     }
 
 
@@ -84,11 +86,13 @@ solve env rank pools state constraint =
     CEqual region category tipe expectation ->
       do  actual <- typeToVariable rank pools tipe
           expected <- expectedToVariable rank pools expectation
+          -- ELM DEV: record the expected type at this region
+          let state' = state { _typeAt = Map.insert region expected (_typeAt state) }
           answer <- Unify.unify actual expected
           case answer of
             Unify.Ok vars ->
               do  introduce rank pools vars
-                  return state
+                  return state'
 
             Unify.Err vars actualType expectedType ->
               do  introduce rank pools vars
@@ -99,11 +103,13 @@ solve env rank pools state constraint =
     CLocal region name expectation ->
       do  actual <- makeCopy rank pools (env ! name)
           expected <- expectedToVariable rank pools expectation
+          -- ELM DEV: record the expected type at this region
+          let state' = state { _typeAt = Map.insert region expected (_typeAt state) }
           answer <- Unify.unify actual expected
           case answer of
             Unify.Ok vars ->
               do  introduce rank pools vars
-                  return state
+                  return state'
 
             Unify.Err vars actualType expectedType ->
               do  introduce rank pools vars
@@ -174,7 +180,7 @@ solve env rank pools state constraint =
 
           -- run solver in next pool
           locals <- traverse (A.traverse (typeToVariable nextRank nextPools)) header
-          (State savedEnv mark errors) <-
+          (State savedEnv mark errors typeAt) <-
             solve env nextRank nextPools state headerCon
 
           let youngMark = mark
@@ -189,7 +195,7 @@ solve env rank pools state constraint =
           mapM_ isGeneric rigids
 
           let newEnv = Map.union env (Map.map A.toValue locals)
-          let tempState = State savedEnv finalMark errors
+          let tempState = State savedEnv finalMark errors typeAt
           newState <- solve newEnv rank nextPools tempState subCon
 
           foldM occurs newState (Map.toList locals)
@@ -245,8 +251,20 @@ patternExpectationToVariable rank pools expectation =
 
 
 addError :: State -> Error.Error -> State
-addError (State savedEnv rank errors) err =
-  State savedEnv rank (err:errors)
+addError (State savedEnv rank errors typeAt) err =
+  State savedEnv rank (err:errors) typeAt
+
+-- ELM DEV: Run solver and collect a mapping of regions to principal types
+runTypeAt :: Constraint -> IO (Either (NE.List Error.Error) (Map.Map A.Region Can.Annotation))
+runTypeAt constraint =
+  do  pools <- MVector.replicate 8 []
+
+      (State _ _ errors typeAtVars) <-
+        solve Map.empty outermostRank pools emptyState constraint
+
+      case errors of
+        [] -> Right <$> traverse Type.toAnnotation typeAtVars
+        e:es -> return $ Left (NE.List e es)
 
 
 

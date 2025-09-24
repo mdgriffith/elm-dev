@@ -463,15 +463,19 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
 
       let combinedWarnings = enrichedWarnings <> unusedWarnings
       
+      let typeAtMap = case CompileHelpers.typeAtOf modul canonical of
+                        Right t -> Just t
+                        Left _ -> Nothing
+
       case Build.makeDocs docsNeed canonical of
         Left err -> do
-          modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Just canonical }))
+          modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Just canonical, Client.typeAt = typeAtMap }))
           return $ Build.RProblem $
             Error.Module (Src.getName modul) path time source (Error.BadDocs err)
 
         Right docs ->
           do  
-              modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = docs, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Just canonical }))
+              modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = docs, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Just canonical, Client.typeAt = typeAtMap }))
               let name = Src.getName modul
               let iface = I.fromModule pkg canonical annotations
               let elmi = Stuff.elmi root name
@@ -492,7 +496,7 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
                       return (Build.RNew local iface objects docs)
 
     Left err -> do
-      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Nothing }))
+      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Nothing, Client.typeAt = Nothing }))
       return $ Build.RProblem $
         Error.Module (Src.getName modul) path time source err
 

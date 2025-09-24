@@ -7,6 +7,7 @@ module Watchtower.AST.Lookup
 
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
+import qualified Data.Name as Name
 import qualified Reporting.Annotation as Ann
 import qualified AST.Canonical as Can
 import qualified Data.Map as Map
@@ -16,6 +17,8 @@ import qualified Data.Map as Map
 data Found
   = FoundAnnotation Can.Annotation
   | FoundType Can.Type
+  | FoundVarLocal Name.Name
+  | FoundVarTopLevel Name.Name
 
 
 -- Public API: find the innermost canonical node at a position that carries
@@ -99,6 +102,8 @@ findInExpr pos (Ann.At region expr_) =
 foundHere :: Can.Expr_ -> Ann.Region -> [(Found, Ann.Region)]
 foundHere expr_ region =
   case expr_ of
+    Can.VarLocal name -> [(FoundVarLocal name, region)]
+    Can.VarTopLevel _ name -> [(FoundVarTopLevel name, region)]
     Can.VarForeign _ _ ann -> [(FoundAnnotation ann, region)]
     Can.VarCtor _ _ _ _ ann -> [(FoundAnnotation ann, region)]
     Can.VarDebug _ _ ann -> [(FoundAnnotation ann, region)]

@@ -22,6 +22,7 @@ import qualified Elm.Package as Pkg
 import qualified Nitpick.PatternMatches
 
 import qualified System.IO.Unsafe
+import qualified Reporting.Annotation
 import qualified Reporting.Render.Type.Localizer
 import qualified Type.Constrain.Module
 import qualified Type.Solve
@@ -131,6 +132,13 @@ typeCheck modul canonical =
 
     Left errors ->
       Left (Reporting.Error.BadTypes (Reporting.Render.Type.Localizer.fromModule modul) errors)
+
+-- ELM DEV: compute region->type map for a canonical module
+typeAtOf :: Src.Module -> Can.Module -> Either Reporting.Error.Error (Map.Map Reporting.Annotation.Region Can.Annotation)
+typeAtOf modul canonical =
+  case System.IO.Unsafe.unsafePerformIO (Type.Solve.runTypeAt =<< Type.Constrain.Module.constrain canonical) of
+    Right typeAt -> Right typeAt
+    Left errors -> Left (Reporting.Error.BadTypes (Reporting.Render.Type.Localizer.fromModule modul) errors)
 
 
 nitpick :: Can.Module -> Either Reporting.Error.Error ()
