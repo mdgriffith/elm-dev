@@ -59,6 +59,7 @@ import qualified Ext.CompileHelpers.Generic
 import qualified Control.Concurrent.STM
 import qualified Ext.Log
 import qualified Ext.Reporting.Error
+import qualified Elm.ModuleName
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Watchtower.AST.Lookup
@@ -965,74 +966,75 @@ handleHover state hoverParams = do
                 Nothing -> pure (Right Nothing)
                 Just (found, region) -> do
                   case found of
-                    Watchtower.AST.Lookup.FoundType tipe -> do
-                      let loc = Maybe.fromMaybe 
-                                 Reporting.Render.Type.Localizer.empty 
-                                 maybeLoc
-                          label = Reporting.Doc.toString 
-                                   (Reporting.Render.Type.canToDoc 
-                                     loc 
-                                     Reporting.Render.Type.None 
-                                     tipe)
-                          content = MarkupContent 
-                                    { markupContentKind = "markdown"
-                                    , markupContentValue = Text.pack (" : " ++ label)
-                                    }
-                      pure (Right (Just Hover 
-                                   { hoverContents = content
-                                   , hoverRange = Just (regionToRange region)
-                                   }))
-                    Watchtower.AST.Lookup.FoundAnnotation (Can.Forall _ tipe) -> do
-                      let loc = Maybe.fromMaybe 
-                                 Reporting.Render.Type.Localizer.empty 
-                                 maybeLoc
-                          label = Reporting.Doc.toString 
-                                   (Reporting.Render.Type.canToDoc 
-                                     loc 
-                                     Reporting.Render.Type.None 
-                                     tipe)
-                          content = MarkupContent 
-                                    { markupContentKind = "markdown"
-                                    , markupContentValue = Text.pack (" : " ++ label)
-                                    }
-                      pure (Right (Just Hover 
-                                   { hoverContents = content
-                                   , hoverRange = Just (regionToRange region)
-                                   }))
-
-                    Watchtower.AST.Lookup.FoundVarLocal _name -> do
-                      case Watchtower.Live.Client.typeAt <$> mInfo of
-                        _ -> do
-                          let typeAtMap = case mInfo of
-                                Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.typeAt = Just m }) -> Just m
-                                _ -> Nothing
-                          case typeAtMap of
-                            Nothing -> pure (Right Nothing)
-                            Just m ->
-                              case Map.lookup region m of
-                                Nothing -> pure (Right Nothing)
-                                Just (Can.Forall _ tipe) -> do
-                                  let loc = Maybe.fromMaybe Reporting.Render.Type.Localizer.empty maybeLoc
-                                      label = Reporting.Doc.toString (Reporting.Render.Type.canToDoc loc Reporting.Render.Type.None tipe)
-                                      content = MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack (" : " ++ label) }
-                                  pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
-
-                    Watchtower.AST.Lookup.FoundVarTopLevel _name -> do
-                      let typeAtMap = case mInfo of
-                            Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.typeAt = Just m }) -> Just m
-                            _ -> Nothing
-                      case typeAtMap of
+                    Watchtower.AST.Lookup.FoundType name tipe -> do
+                      let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars name))) tipe
+                      pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
+                    Watchtower.AST.Lookup.FoundPattern patt tipe -> do
+                      let maybeNm = patternName patt
+                          content = renderHoverSignature maybeLoc (fmap (Text.pack . Name.toChars) maybeNm) tipe
+                      pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
+                    Watchtower.AST.Lookup.FoundVarLocal name -> do
+                      case getTypeForFoundVar mInfo region of
                         Nothing -> pure (Right Nothing)
-                        Just m ->
-                          case Map.lookup region m of
-                            Nothing -> pure (Right Nothing)
-                            Just (Can.Forall _ tipe) -> do
-                              let loc = Maybe.fromMaybe Reporting.Render.Type.Localizer.empty maybeLoc
-                                  label = Reporting.Doc.toString (Reporting.Render.Type.canToDoc loc Reporting.Render.Type.None tipe)
-                                  content = MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack (" : " ++ label) }
-                              pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
-                      pure (Right Nothing)
+                        Just tipe -> do
+                          let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars name))) tipe
+                          pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
+                    Watchtower.AST.Lookup.FoundVarTopLevel name -> do
+                      case getTypeForFoundVar mInfo region of
+                        Nothing -> pure (Right Nothing)
+                        Just tipe -> do
+                          let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars name))) tipe
+                          pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
+                    Watchtower.AST.Lookup.FoundVarForeign home name (Can.Forall _ tipe) -> do
+                      let content = renderHoverSignatureQualified maybeLoc home name tipe
+                      pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
+                    Watchtower.AST.Lookup.FoundVarCtor _home name (Can.Forall _ tipe) -> do
+                      let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars name))) tipe
+                      pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
+                    Watchtower.AST.Lookup.FoundVarDebug _home name (Can.Forall _ tipe) -> do
+                      let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars name))) tipe
+                      pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
+                    Watchtower.AST.Lookup.FoundVarOperator sym _home _real (Can.Forall _ tipe) -> do
+                      let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars sym))) tipe
+                      pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
+                    Watchtower.AST.Lookup.FoundBinop sym _home _real (Can.Forall _ tipe) -> do
+                      let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars sym))) tipe
+                      pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
             _ -> pure (Right Nothing)
+
+-- Look up the inferred type for a FoundVar (local or top-level) by its region
+getTypeForFoundVar :: Maybe Watchtower.Live.Client.FileInfo -> Ann.Region -> Maybe Can.Type
+getTypeForFoundVar mInfo region =
+  case mInfo of
+    Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.typeAt = Just typeAtMap }) ->
+      case Map.lookup region typeAtMap of
+        Just (Can.Forall _ tipe) -> Just tipe
+        _ -> Nothing
+    _ -> Nothing
+
+-- Render a markdown hover with Elm syntax highlighting. Include name when provided.
+renderHoverSignature :: Maybe Reporting.Render.Type.Localizer.Localizer -> Maybe Text -> Can.Type -> MarkupContent
+renderHoverSignature maybeLoc maybeName tipe =
+  let loc = Maybe.fromMaybe Reporting.Render.Type.Localizer.empty maybeLoc
+      label = Reporting.Doc.toString (Reporting.Render.Type.canToDoc loc Reporting.Render.Type.None tipe)
+      namePrefix = case maybeName of
+        Just n -> Text.unpack n ++ " : "
+        Nothing -> " : "
+      fenced = "```elm\n" ++ namePrefix ++ label ++ "\n```"
+  in MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack fenced }
+
+-- Render a markdown hover with a fully qualified value name when possible.
+-- For foreign values, use the localizer to determine the best qualification.
+renderHoverSignatureQualified :: Maybe Reporting.Render.Type.Localizer.Localizer -> Elm.ModuleName.Canonical -> Name.Name -> Can.Type -> MarkupContent
+renderHoverSignatureQualified maybeLoc home name tipe =
+  let loc = Maybe.fromMaybe Reporting.Render.Type.Localizer.empty maybeLoc
+      label = Reporting.Doc.toString (Reporting.Render.Type.canToDoc loc Reporting.Render.Type.None tipe)
+      nameQualified = case maybeLoc of
+        Just l -> Reporting.Render.Type.Localizer.toChars l home name
+        Nothing -> case home of
+          Elm.ModuleName.Canonical _ moduleName -> Name.toChars moduleName ++ "." ++ Name.toChars name
+      fenced = "```elm\n" ++ nameQualified ++ " : " ++ label ++ "\n```"
+  in MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack fenced }
 
 -- Convert LSP Position to Elm Ann.Position (1-based)
 lspPositionToElmPosition :: Position -> Ann.Position
@@ -1097,6 +1099,14 @@ handleDefinition _state _definitionParams = do
   -- For now, return empty list
   -- In a real implementation, this would find the definition of the symbol at the given position
   return $ Right []
+
+-- Attempt to derive a human-friendly name for a pattern, when possible
+patternName :: Can.Pattern_ -> Maybe Name.Name
+patternName patt =
+  case patt of
+    Can.PVar n -> Just n
+    Can.PAlias _ n -> Just n
+    _ -> Nothing
 
 handleDeclaration :: Live.State -> DefinitionParams -> IO (Either String [Location])
 handleDeclaration _state definitionParams = do

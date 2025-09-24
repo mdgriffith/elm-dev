@@ -11,14 +11,20 @@ import qualified Data.Name as Name
 import qualified Reporting.Annotation as Ann
 import qualified AST.Canonical as Can
 import qualified Data.Map as Map
+import qualified Elm.ModuleName as ModuleName
 
 
 -- The result of a hover lookup in the canonical AST
 data Found
-  = FoundAnnotation Can.Annotation
-  | FoundType Can.Type
+  = FoundType Name.Name Can.Type
+  | FoundPattern Can.Pattern_ Can.Type
   | FoundVarLocal Name.Name
   | FoundVarTopLevel Name.Name
+  | FoundVarForeign ModuleName.Canonical Name.Name Can.Annotation
+  | FoundVarCtor ModuleName.Canonical Name.Name Can.Annotation
+  | FoundVarDebug ModuleName.Canonical Name.Name Can.Annotation
+  | FoundVarOperator Name.Name ModuleName.Canonical Name.Name Can.Annotation
+  | FoundBinop Name.Name ModuleName.Canonical Name.Name Can.Annotation
 
 
 -- Public API: find the innermost canonical node at a position that carries
@@ -66,9 +72,10 @@ findInDef pos def =
       in nameHits ++ patternHits ++ findInExpr pos expr
     Can.TypedDef locatedName _ annotatedParams expr tipe ->
       let nameRegion = Ann.toRegion locatedName
-          fromName = if regionContains nameRegion pos then [(FoundType tipe, nameRegion)] else []
+          nameVal = Ann.toValue locatedName
+          fromName = if regionContains nameRegion pos then [(FoundType nameVal tipe, nameRegion)] else []
           -- surface the parameter type if hovering within that parameter pattern region
-          paramHits = concatMap (\(p, t) -> let pr = Ann.toRegion p in if regionContains pr pos then [(FoundType t, pr)] else []) annotatedParams
+          paramHits = concatMap (\(p, t) -> let pr = Ann.toRegion p in if regionContains pr pos then [(FoundType nameVal t, pr)] else []) annotatedParams
       in fromName ++ paramHits ++ findInExpr pos expr
 
 
@@ -104,11 +111,11 @@ foundHere expr_ region =
   case expr_ of
     Can.VarLocal name -> [(FoundVarLocal name, region)]
     Can.VarTopLevel _ name -> [(FoundVarTopLevel name, region)]
-    Can.VarForeign _ _ ann -> [(FoundAnnotation ann, region)]
-    Can.VarCtor _ _ _ _ ann -> [(FoundAnnotation ann, region)]
-    Can.VarDebug _ _ ann -> [(FoundAnnotation ann, region)]
-    Can.VarOperator _ _ _ ann -> [(FoundAnnotation ann, region)]
-    Can.Binop _ _ _ ann _ _ -> [(FoundAnnotation ann, region)]
+    Can.VarForeign home name ann -> [(FoundVarForeign home name ann, region)]
+    Can.VarCtor _ home name _ ann -> [(FoundVarCtor home name ann, region)]
+    Can.VarDebug home name ann -> [(FoundVarDebug home name ann, region)]
+    Can.VarOperator sym home real ann -> [(FoundVarOperator sym home real ann, region)]
+    Can.Binop sym home real ann _ _ -> [(FoundBinop sym home real ann, region)]
     _ -> []
 
 
@@ -128,5 +135,5 @@ findInPattern pos (Ann.At preg patt) =
     argHits p (Can.PatternCtorArg _ tipe argPattern) =
       let argRegion = Ann.toRegion argPattern in
       if regionContains argRegion p
-        then (FoundType tipe, argRegion) : findInPattern p argPattern
+        then (FoundPattern (Ann.toValue argPattern) tipe, argRegion) : findInPattern p argPattern
         else []
