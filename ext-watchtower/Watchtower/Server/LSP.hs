@@ -60,6 +60,8 @@ import qualified Control.Concurrent.STM
 import qualified Ext.Log
 import qualified Ext.Reporting.Error
 import qualified Elm.ModuleName
+import qualified Elm.Docs
+import qualified Json.String
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Watchtower.AST.Lookup
@@ -986,7 +988,15 @@ handleHover state hoverParams = do
                           let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars name))) tipe
                           pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
                     Watchtower.AST.Lookup.FoundVarForeign home name (Can.Forall _ tipe) -> do
-                      let content = renderHoverSignatureQualified maybeLoc home name tipe
+                      docsAbove <- getForeignValueDocs state filePath home name
+                      let signatureContent = renderHoverSignatureQualified maybeLoc home name tipe
+                          content = case docsAbove of
+                            Just docText ->
+                              MarkupContent
+                                { markupContentKind = "markdown"
+                                , markupContentValue = Text.pack (docText ++ "\n\n" ++ Text.unpack (markupContentValue signatureContent))
+                                }
+                            Nothing -> signatureContent
                       pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
                     Watchtower.AST.Lookup.FoundVarCtor _home name (Can.Forall _ tipe) -> do
                       let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars name))) tipe
@@ -1035,6 +1045,24 @@ renderHoverSignatureQualified maybeLoc home name tipe =
           Elm.ModuleName.Canonical _ moduleName -> Name.toChars moduleName ++ "." ++ Name.toChars name
       fenced = "```elm\n" ++ nameQualified ++ " : " ++ label ++ "\n```"
   in MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack fenced }
+
+-- Try to fetch docs for a foreign value from the module's FileInfo stored in state
+getForeignValueDocs :: Live.State -> FilePath -> Elm.ModuleName.Canonical -> Name.Name -> IO (Maybe String)
+getForeignValueDocs state currentFilePath home valueName = do
+  projectResult <- Watchtower.Live.Client.getExistingProject currentFilePath state
+  case projectResult of
+    Right (projectCache, _) -> do
+      Watchtower.Live.Client.logFileInfoKeys state
+      mInfo <- Watchtower.Live.Client.getFileInfoFromModuleName projectCache home state
+      case mInfo of
+        Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.docs = Just docModule }) -> do
+          case docModule of
+            Elm.Docs.Module _ _ _ _ values _ ->
+              case Map.lookup valueName values of
+                Just (Elm.Docs.Value comment _) -> pure (Just (Json.String.toChars comment))
+                _ -> pure (Just "no value found")
+        _ -> pure (Just "no info for docs")
+    _ -> pure (Just "no docs")
 
 -- Convert LSP Position to Elm Ann.Position (1-based)
 lspPositionToElmPosition :: Position -> Ann.Position
