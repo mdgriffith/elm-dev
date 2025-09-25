@@ -182,6 +182,18 @@ data FileInfo = FileInfo
   , typeAt :: Maybe (Map.Map Ann.Region Can.Annotation) -- ELM DEV: types at regions
   }
 
+-- Render a compact availability summary for a given FileInfo
+-- Example output: "[wdlsct]" where each letter is present or replaced by a space
+formatFileInfoSummary :: FileInfo -> String
+formatFileInfoSummary fi =
+  let w = if List.null (warnings fi) then ' ' else 'w'
+      d = if Maybe.isJust (docs fi) then 'd' else ' '
+      l = if Maybe.isJust (localizer fi) then 'l' else ' '
+      s = if Maybe.isJust (sourceAst fi) then 's' else ' '
+      c = if Maybe.isJust (canonicalAst fi) then 'c' else ' '
+      t = if Maybe.isJust (typeAt fi) then 't' else ' '
+   in "[" ++ [w, d, l, s, c, t] ++ "]"
+
 getFileInfo :: FilePath -> State -> IO (Maybe FileInfo)
 getFileInfo path (State _ _ mFileInfo _) = do
   fileInfo <- STM.readTVarIO mFileInfo
@@ -204,7 +216,11 @@ logFileInfoKeys :: State -> IO ()
 logFileInfoKeys (State _ _ mFileInfo _) = do
   infoMap <- STM.readTVarIO mFileInfo
   let keys = Map.keys infoMap
-  Ext.Log.log Ext.Log.Live ("FileInfo keys: " ++ Ext.Common.formatList keys)
+  mapM_
+    (\(path, fi) ->
+      Ext.Log.log Ext.Log.Live (path ++ ": " ++ formatFileInfoSummary fi)
+    )
+    (Map.toList infoMap)
 
 emptyWatch :: Watching
 emptyWatch =
