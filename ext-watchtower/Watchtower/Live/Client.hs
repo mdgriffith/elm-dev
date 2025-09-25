@@ -14,6 +14,7 @@ module Watchtower.Live.Client
     Error (..),
     CompilationResult (..),
     encodeCompilationResult,
+    logFileInfoKeys,
     getAllStatuses,
     getRoot,
     getProjectRoot,
@@ -26,6 +27,7 @@ module Watchtower.Live.Client
     Incoming (..),
     decodeIncoming,
     encodeWarning,
+    getFileInfoFromModuleName,
     broadcast,
     broadcastTo,
     broadcastToMany,
@@ -62,6 +64,7 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Elm.Docs as Docs
+import qualified Elm.ModuleName as ModuleName
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Ext.Common
@@ -183,6 +186,25 @@ getFileInfo :: FilePath -> State -> IO (Maybe FileInfo)
 getFileInfo path (State _ _ mFileInfo _) = do
   fileInfo <- STM.readTVarIO mFileInfo
   pure (Map.lookup path fileInfo)
+
+-- Given a project and a canonical module name, try to find the first matching FileInfo
+-- by generating potential file paths using the project's srcDirs and the module's Raw name.
+getFileInfoFromModuleName :: ProjectCache -> ModuleName.Canonical -> State -> IO (Maybe FileInfo)
+getFileInfoFromModuleName (ProjectCache proj _ _ _ _) (ModuleName.Canonical _pkg rawName) state@(State _ _ mFileInfo _) = do
+  fileInfoMap <- STM.readTVarIO mFileInfo
+  let moduleRelPath = ModuleName.toFilePath rawName ++ ".elm"
+  let srcDirs = Ext.Dev.Project._srcDirs proj
+  let candidates = fmap (\dir -> FilePath.normalise (dir FilePath.</> moduleRelPath)) srcDirs
+  pure (List.foldl (\acc p -> case acc of
+                                Nothing -> Map.lookup p fileInfoMap
+                                justVal -> justVal
+                      ) Nothing candidates)
+
+logFileInfoKeys :: State -> IO ()
+logFileInfoKeys (State _ _ mFileInfo _) = do
+  infoMap <- STM.readTVarIO mFileInfo
+  let keys = Map.keys infoMap
+  Ext.Log.log Ext.Log.Live ("FileInfo keys: " ++ Ext.Common.formatList keys)
 
 emptyWatch :: Watching
 emptyWatch =
@@ -541,7 +563,7 @@ decodeWatched =
 
 {- Encoding -}
 
-encodeStatus (Ext.Dev.Project.Project root projectRoot entrypoints, js) =
+encodeStatus (Ext.Dev.Project.Project root projectRoot entrypoints _srcDirs, js) =
   Json.Encode.object
     [ "root" ==> Json.Encode.string (Json.String.fromChars root),
       "projectRoot" ==> Json.Encode.string (Json.String.fromChars projectRoot),

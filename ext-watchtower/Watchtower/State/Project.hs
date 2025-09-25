@@ -33,7 +33,7 @@ updateProjectIfNecessary :: Client.ProjectCache -> CompileHelpers.Flags -> NE.Li
 updateProjectIfNecessary existingProjectCache newFlags providedEntrypoints =
   case existingProjectCache of
     Client.ProjectCache proj docsInfo0 oldFlags mCompileResult mTestResults ->
-      let Ext.Dev.Project.Project root0 projectRoot0 existingEntrypoints = proj
+      let Ext.Dev.Project.Project root0 projectRoot0 existingEntrypoints srcDirs0 = proj
       in if oldFlags == newFlags && entrypointsIncluded providedEntrypoints existingEntrypoints
            then Nothing
            else
@@ -41,7 +41,7 @@ updateProjectIfNecessary existingProjectCache newFlags providedEntrypoints =
                  providedList = NE.toList providedEntrypoints
                  extras = List.filter (\p -> not (List.elem p existingList)) providedList
                  combinedEntrypoints = NE.append extras existingEntrypoints
-                 updatedProj = Ext.Dev.Project.Project root0 projectRoot0 combinedEntrypoints
+                 updatedProj = Ext.Dev.Project.Project root0 projectRoot0 combinedEntrypoints srcDirs0
              in Just (Client.ProjectCache updatedProj docsInfo0 newFlags mCompileResult mTestResults)
 
 {-
@@ -65,7 +65,14 @@ upsertVirtual state@(Client.State mClients mProjects _ _) flags root entrypoint 
       pure Nothing
     Right virtualRoot -> do
       let docsInfo = Gen.Config.defaultDocs
-      let newProject = Ext.Dev.Project.Project virtualRoot virtualRoot (NE.List entrypoint [])
+      -- Read source dirs from the newly written virtual elm.json
+      outlineResult <- Elm.Outline.read virtualRoot
+      srcDirs <- case outlineResult of
+        Right (Elm.Outline.App appOutline) -> do
+          let srcDirsList = NE.toList (Elm.Outline._app_source_dirs appOutline)
+          pure (map (Elm.Outline.toAbsolute virtualRoot) srcDirsList)
+        _ -> pure []
+      let newProject = Ext.Dev.Project.Project virtualRoot virtualRoot (NE.List entrypoint []) srcDirs
       mCompileResult <- STM.newTVarIO Client.NotCompiled
       mTestResults <- STM.newTVarIO Nothing
       let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults
@@ -128,7 +135,15 @@ upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -
 upsert state@(Client.State mClients mProjects _ _) flags root entrypoints = do
   docsInfo <- readDocsInfo root
   normalizedEntrypoints <- normalizeEntrypoints root entrypoints
-  let newProject = Ext.Dev.Project.Project root root normalizedEntrypoints 
+  -- Read srcDirs from elm.json
+  outlineResult <- Elm.Outline.read root
+  srcDirs <- case outlineResult of
+    Right (Elm.Outline.App appOutline) -> do
+      let srcDirsList = NE.toList (Elm.Outline._app_source_dirs appOutline)
+      pure (map (Elm.Outline.toAbsolute root) srcDirsList)
+    Right (Elm.Outline.Pkg _) -> pure [root </> "src"]
+    Left _ -> pure []
+  let newProject = Ext.Dev.Project.Project root root normalizedEntrypoints srcDirs 
   mCompileResult <- STM.newTVarIO Client.NotCompiled
   mTestResults <- STM.newTVarIO Nothing
   let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults
