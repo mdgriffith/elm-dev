@@ -55,6 +55,7 @@ import qualified Reporting.Warning as Warning
 import qualified Stuff
 import qualified Ext.Log
 import qualified Watchtower.Live.Client as Client
+import qualified Ext.Dev.Docs
 
 -- File caching helpers
 import qualified Ext.MemoryCached.Details as Details
@@ -179,7 +180,7 @@ crawlDeps env mvar deps blockedValue =
       mapM_ readMVar statuses
       return blockedValue
   where
-    crawlNew name () = Build.fork (crawlModule env mvar (Build.DocsNeed False) name)
+    crawlNew name () = Build.fork (crawlModule env mvar (Build.DocsNeed True) name)
 
 
 crawlModule :: Build.Env -> MVar Build.StatusDict -> Build.DocsNeed -> ModuleName.Raw -> IO Build.Status
@@ -269,7 +270,7 @@ checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVa
               do  source <- File.readUtf8 path
                   -- debug $ "checkModule:SCached:DepsChange " ++ show name
                   case Parse.fromByteString projectType source of
-                    Right modul -> compile flags env (Build.DocsNeed False) local source ifaces modul fileInfoVar
+                    Right modul -> compile flags env (Build.DocsNeed True) local source ifaces modul fileInfoVar
                     Left err ->
                       return $ Build.RProblem $
                         Error.Module name path time source (Error.BadSyntax err)
@@ -467,33 +468,32 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
                         Right t -> Just t
                         Left _ -> Nothing
 
-      case Build.makeDocs docsNeed canonical of
-        Left err -> do
-          modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Just canonical, Client.typeAt = typeAtMap }))
-          return $ Build.RProblem $
-            Error.Module (Src.getName modul) path time source (Error.BadDocs err)
+      let docsMaybe =
+            if Build.needsDocs docsNeed
+              then case Ext.Dev.Docs.fromArtifacts (Compile.Artifacts canonical annotations objects) of
+                     Right d -> Just d
+                     Left _ -> Nothing
+              else Nothing
 
-        Right docs ->
-          do  
-              modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = docs, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Just canonical, Client.typeAt = typeAtMap }))
-              let name = Src.getName modul
-              let iface = I.fromModule pkg canonical annotations
-              let elmi = Stuff.elmi root name
-              File.writeBinary (Stuff.elmo root name) objects
-              maybeOldi <- File.readBinary elmi
-              case maybeOldi of
-                Just oldi | oldi == iface ->
-                  do  -- iface should be fully forced by equality check
-                      Reporting.report key Reporting.BDone
-                      let local = Details.Local path time deps main lastChange buildID
-                      return (Build.RSame local iface objects docs)
+      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = docsMaybe, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Just canonical, Client.typeAt = typeAtMap }))
+      let name = Src.getName modul
+      let iface = I.fromModule pkg canonical annotations
+      let elmi = Stuff.elmi root name
+      File.writeBinary (Stuff.elmo root name) objects
+      maybeOldi <- File.readBinary elmi
+      case maybeOldi of
+        Just oldi | oldi == iface ->
+          do  -- iface should be fully forced by equality check
+              Reporting.report key Reporting.BDone
+              let local = Details.Local path time deps main lastChange buildID
+              return (Build.RSame local iface objects docsMaybe)
 
-                _ ->
-                  do  -- iface may be lazy still
-                      File.writeBinary elmi iface
-                      Reporting.report key Reporting.BDone
-                      let local = Details.Local path time deps main buildID buildID
-                      return (Build.RNew local iface objects docs)
+        _ ->
+          do  -- iface may be lazy still
+              File.writeBinary elmi iface
+              Reporting.report key Reporting.BDone
+              let local = Details.Local path time deps main buildID buildID
+              return (Build.RNew local iface objects docsMaybe)
 
     Left err -> do
       modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Nothing, Client.typeAt = Nothing }))
@@ -637,7 +637,7 @@ crawlRoot env@(Build.Env _ _ projectType _ buildID _ _) mvar root =
       do  statusMVar <- newEmptyMVar
           statusDict <- takeMVar mvar
           putMVar mvar (Map.insert name statusMVar statusDict)
-          putMVar statusMVar =<< crawlModule env mvar (Build.DocsNeed False) name
+          putMVar statusMVar =<< crawlModule env mvar (Build.DocsNeed True) name
           return (Build.SInside name)
 
     Build.LOutside path ->
