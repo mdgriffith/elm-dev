@@ -60,6 +60,7 @@ import qualified Control.Concurrent.STM
 import qualified Ext.Log
 import qualified Ext.Reporting.Error
 import qualified Elm.ModuleName
+import qualified Elm.Package
 import qualified Elm.Docs
 import qualified Json.String
 import qualified AST.Source as Src
@@ -1052,6 +1053,7 @@ getForeignValueDocs state currentFilePath home valueName = do
   projectResult <- Watchtower.Live.Client.getExistingProject currentFilePath state
   case projectResult of
     Right (projectCache, _) -> do
+      Ext.Log.log Ext.Log.Live $ "hovering over " ++ currentFilePath ++ " for " ++ (case home of Elm.ModuleName.Canonical pkg moduleName -> Elm.Package.toChars pkg ++ ":" ++ Name.toChars moduleName) ++ "." ++ Name.toChars valueName
       Watchtower.Live.Client.logFileInfoKeys state
       mInfo <- Watchtower.Live.Client.getFileInfoFromModuleName projectCache home state
       case mInfo of
@@ -1059,7 +1061,10 @@ getForeignValueDocs state currentFilePath home valueName = do
           case docModule of
             Elm.Docs.Module _ _ _ _ values _ ->
               case Map.lookup valueName values of
-                Just (Elm.Docs.Value comment _) -> pure (Just (Json.String.toChars comment))
+                Just (Elm.Docs.Value comment _) -> do
+                  let raw = Json.String.toChars comment
+                      rendered = Text.unpack (Text.replace "\\n" "\n" (Text.pack raw))
+                  pure (Just rendered)
                 _ -> pure (Just "no value found")
         _ -> pure (Just "no info for docs")
     _ -> pure (Just "no docs")
