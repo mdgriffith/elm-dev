@@ -30,6 +30,7 @@ import qualified Ext.ElmFormat
 import qualified Ext.Common
 import qualified Ext.Dev
 import qualified Ext.FileCache
+import qualified Ext.Render.Type
 import Data.Maybe (maybeToList)
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
@@ -1027,11 +1028,13 @@ getTypeForFoundVar mInfo region =
 renderHoverSignature :: Maybe Reporting.Render.Type.Localizer.Localizer -> Maybe Text -> Can.Type -> MarkupContent
 renderHoverSignature maybeLoc maybeName tipe =
   let loc = Maybe.fromMaybe Reporting.Render.Type.Localizer.empty maybeLoc
+      aliasBlock = Ext.Render.Type.renderAlias loc tipe
       label = Reporting.Doc.toString (Reporting.Render.Type.canToDoc loc Reporting.Render.Type.None tipe)
       namePrefix = case maybeName of
         Just n -> Text.unpack n ++ " : "
         Nothing -> " : "
-      fenced = "```elm\n" ++ namePrefix ++ label ++ "\n```"
+      header = if null aliasBlock then "" else aliasBlock ++ "\n\n"
+      fenced = "```elm\n" ++ header ++ namePrefix ++ label ++ "\n```"
   in MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack fenced }
 
 -- Render a markdown hover with a fully qualified value name when possible.
@@ -1039,12 +1042,14 @@ renderHoverSignature maybeLoc maybeName tipe =
 renderHoverSignatureQualified :: Maybe Reporting.Render.Type.Localizer.Localizer -> Elm.ModuleName.Canonical -> Name.Name -> Can.Type -> MarkupContent
 renderHoverSignatureQualified maybeLoc home name tipe =
   let loc = Maybe.fromMaybe Reporting.Render.Type.Localizer.empty maybeLoc
+      aliasBlock = Ext.Render.Type.renderAlias loc tipe
       label = Reporting.Doc.toString (Reporting.Render.Type.canToDoc loc Reporting.Render.Type.None tipe)
       nameQualified = case maybeLoc of
         Just l -> Reporting.Render.Type.Localizer.toChars l home name
         Nothing -> case home of
           Elm.ModuleName.Canonical _ moduleName -> Name.toChars moduleName ++ "." ++ Name.toChars name
-      fenced = "```elm\n" ++ nameQualified ++ " : " ++ label ++ "\n```"
+      header = if null aliasBlock then "" else aliasBlock ++ "\n\n"
+      fenced = "```elm\n" ++ header ++ nameQualified ++ " : " ++ label ++ "\n```"
   in MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack fenced }
 
 -- Try to fetch docs for a foreign value from the module's FileInfo stored in state
