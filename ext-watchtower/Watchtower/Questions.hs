@@ -560,7 +560,7 @@ flattenJsonStatus (Left json) = json
 flattenJsonStatus (Right json) = json
 
 allProjectStatuses :: Watchtower.Live.Client.State -> IO Data.ByteString.Builder.Builder
-allProjectStatuses (Watchtower.Live.Client.State clients mProjects _ _) =
+allProjectStatuses (Watchtower.Live.Client.State clients mProjects _ _ _) =
   do
     projects <- STM.readTVarIO mProjects
     projectStatuses <-

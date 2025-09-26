@@ -31,6 +31,7 @@ init urls =
     <$> Watchtower.Websocket.clientsInit
     <*> STM.newTVarIO []
     <*> STM.newTVarIO mempty
+    <*> STM.newTVarIO mempty
     <*> pure urls
 
 websocket :: Client.State -> Snap ()
@@ -40,7 +41,7 @@ websocket state =
     ]
 
 websocket_ :: Client.State -> Snap ()
-websocket_ state@(Client.State mClients _ _ _) = do
+websocket_ state@(Client.State mClients _ _ _ _) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
@@ -83,7 +84,7 @@ handleIncoming _ = pure ()
 -- Outgoing helpers
 
 broadcastCompiled :: Client.State -> T.Text -> IO ()
-broadcastCompiled (Client.State mClients _ _ _) codeText = do
+broadcastCompiled (Client.State mClients _ _ _ _) codeText = do
   let payload = JSON.object
         [ "msg" JSON..= JSON.String (T.pack "Compiled")
         , "details" JSON..= JSON.String codeText
@@ -91,7 +92,7 @@ broadcastCompiled (Client.State mClients _ _ _) codeText = do
   Watchtower.Websocket.broadcastWith mClients (\_ -> True) (aesonToText payload)
 
 broadcastCompilationError :: Client.State -> JSON.Value -> IO ()
-broadcastCompilationError (Client.State mClients _ _ _) errVal = do
+broadcastCompilationError (Client.State mClients _ _ _ _) errVal = do
   let payload = JSON.object
         [ "msg" JSON..= JSON.String (T.pack "CompilationError")
         , "details" JSON..= errVal

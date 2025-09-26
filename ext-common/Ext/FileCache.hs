@@ -246,6 +246,12 @@ readUtf8 path = do
       insert path t
       pure t
 
+-- | Read a UTF-8 file and return a String using the cache
+readFileString :: FilePath -> IO String
+readFileString path = do
+  bytes <- readUtf8 path
+  pure (Text.unpack (Text.decodeUtf8 bytes))
+
 isVirtualPath :: FilePath -> Bool
 isVirtualPath path =
   virtualDir `List.isInfixOf` path
@@ -256,6 +262,13 @@ writeUtf8 path content = do
   insert path content
   Monad.when (allowWrites && not (isVirtualPath path)) $
     File.writeUtf8 path content
+
+
+writeUtf8AllTheWayToDisk :: FilePath -> BS.ByteString -> IO ()
+writeUtf8AllTheWayToDisk path content = do
+  log $ \() -> "✍️ all the way to disk" ++ System.FilePath.takeFileName (show path)
+  insert path content
+  File.writeUtf8 path content
 
 -- @TODO potentially skip binary serialisation entirely
 writeBinary :: (Binary.Binary a) => FilePath -> a -> IO ()

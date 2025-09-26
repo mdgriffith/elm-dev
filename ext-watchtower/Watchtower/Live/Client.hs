@@ -5,6 +5,8 @@ module Watchtower.Live.Client
     ClientId,
     ProjectRoot,
     State (..),
+    PackageInfo (..),
+    PackageModule (..),
     Urls (..),
     FileInfo (..),
     ProjectCache (..),
@@ -65,6 +67,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Elm.Docs as Docs
 import qualified Elm.ModuleName as ModuleName
+import qualified Elm.Package as Pkg
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Ext.Common
@@ -103,6 +106,7 @@ data State = State
       STM.TVar
         [ProjectCache],
     fileInfo :: STM.TVar (Map.Map FilePath FileInfo),
+    packages :: STM.TVar (Map.Map Pkg.Name PackageInfo),
     urls :: Urls
   }
 
@@ -182,6 +186,17 @@ data FileInfo = FileInfo
   , typeAt :: Maybe (Map.Map Ann.Region Can.Annotation) -- ELM DEV: types at regions
   }
 
+-- Packages tracked in memory for docs and metadata
+data PackageInfo = PackageInfo
+  { name :: Pkg.Name
+  , readme :: Maybe String
+  , packageModules :: Map.Map ModuleName.Raw PackageModule
+  }
+
+data PackageModule = PackageModule
+  { packageModuleDocs :: Docs.Module
+  }
+
 -- Render a compact availability summary for a given FileInfo
 -- Example output: "[wdlsct]" where each letter is present or replaced by a space
 formatFileInfoSummary :: FileInfo -> String
@@ -195,14 +210,14 @@ formatFileInfoSummary fi =
    in "[" ++ [w, d, l, s, c, t] ++ "]"
 
 getFileInfo :: FilePath -> State -> IO (Maybe FileInfo)
-getFileInfo path (State _ _ mFileInfo _) = do
+getFileInfo path (State _ _ mFileInfo _ _) = do
   fileInfo <- STM.readTVarIO mFileInfo
   pure (Map.lookup path fileInfo)
 
 -- Given a project and a canonical module name, try to find the first matching FileInfo
 -- by generating potential file paths using the project's srcDirs and the module's Raw name.
 getFileInfoFromModuleName :: ProjectCache -> ModuleName.Canonical -> State -> IO (Maybe FileInfo)
-getFileInfoFromModuleName (ProjectCache proj _ _ _ _) (ModuleName.Canonical _pkg rawName) state@(State _ _ mFileInfo _) = do
+getFileInfoFromModuleName (ProjectCache proj _ _ _ _) (ModuleName.Canonical _pkg rawName) state@(State _ _ mFileInfo _ _) = do
   fileInfoMap <- STM.readTVarIO mFileInfo
   let moduleRelPath = ModuleName.toFilePath rawName ++ ".elm"
   let srcDirs = Ext.Dev.Project._srcDirs proj
@@ -213,7 +228,7 @@ getFileInfoFromModuleName (ProjectCache proj _ _ _ _) (ModuleName.Canonical _pkg
                       ) Nothing candidates)
 
 logFileInfoKeys :: State -> IO ()
-logFileInfoKeys (State _ _ mFileInfo _) = do
+logFileInfoKeys (State _ _ mFileInfo mPackages _) = do
   infoMap <- STM.readTVarIO mFileInfo
   let keys = Map.keys infoMap
   mapM_
@@ -221,6 +236,15 @@ logFileInfoKeys (State _ _ mFileInfo _) = do
       Ext.Log.log Ext.Log.Live (path ++ ": " ++ formatFileInfoSummary fi)
     )
     (Map.toList infoMap)
+  -- Also log package info summary: package name and number of modules
+  packagesMap <- STM.readTVarIO mPackages
+  mapM_
+    (\(pkgName, pkgInfo) ->
+      Ext.Log.log Ext.Log.Live (
+        "pkg " ++ Pkg.toChars pkgName ++ ": " ++ show (Map.size (packageModules pkgInfo)) ++ " modules"
+      )
+    )
+    (Map.toList packagesMap)
 
 emptyWatch :: Watching
 emptyWatch =
@@ -270,7 +294,7 @@ watchedFiles (Watching _ files) =
   files
 
 getClientData :: ClientId -> State -> IO (Maybe Watching)
-getClientData clientId (State mClients _ _ _) = do
+getClientData clientId (State mClients _ _ _ _) = do
   clients <- STM.atomically $ STM.readTVar mClients
 
   pure
@@ -315,7 +339,7 @@ isWatchingFileForDocs file (Watching watchingProjects watchingFiles) =
       watchForDocs
 
 getRoot :: FilePath -> State -> IO (Maybe FilePath)
-getRoot path (State _ mProjects _ _) =
+getRoot path (State _ mProjects _ _ _) =
   do
     projects <- STM.readTVarIO mProjects
     pure (getRootHelp path projects Nothing)
@@ -352,7 +376,7 @@ sortProjects projects =
   List.sortBy (\(ProjectCache p1 _ _ _ _) (ProjectCache p2 _ _ _ _) -> compare (List.length (Ext.Dev.Project._root p2)) (List.length (Ext.Dev.Project._root p1))) projects
 
 getExistingProject :: FilePath -> State -> IO (Either GetExistingProjectError (ProjectCache, [ProjectCache]))
-getExistingProject path (State _ mProjects _ _) = do
+getExistingProject path (State _ mProjects _ _ _) = do
   projects <- STM.readTVarIO mProjects
   case projects of
     [] -> pure $ Left NoProjectsRegistered
@@ -368,7 +392,7 @@ matchingProject (ProjectCache one _ _ _ _) (ProjectCache two _ _ _ _) =
   Ext.Dev.Project.equal one two
 
 getAllStatuses :: State -> IO [ProjectStatus]
-getAllStatuses state@(State _ mProjects _ _) =
+getAllStatuses state@(State _ mProjects _ _ _) =
   do
     projects <- STM.readTVarIO mProjects
 

@@ -69,6 +69,13 @@ writeUtf8 path content =
     Disk -> File.writeUtf8 path content
     Race -> File.writeUtf8 path content
 
+writeUtf8AllTheWayToDisk :: FilePath -> BS.ByteString -> IO ()
+writeUtf8AllTheWayToDisk path content =
+  case getMode of
+    Memory -> FileCache.writeUtf8AllTheWayToDisk path content
+    Disk -> File.writeUtf8 path content
+    Race -> File.writeUtf8 path content
+
 readUtf8 :: FilePath -> IO BS.ByteString
 readUtf8 path =
   case getMode of

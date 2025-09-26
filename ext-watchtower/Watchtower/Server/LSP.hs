@@ -1055,18 +1055,42 @@ getForeignValueDocs state currentFilePath home valueName = do
     Right (projectCache, _) -> do
       Ext.Log.log Ext.Log.Live $ "hovering over " ++ currentFilePath ++ " for " ++ (case home of Elm.ModuleName.Canonical pkg moduleName -> Elm.Package.toChars pkg ++ ":" ++ Name.toChars moduleName) ++ "." ++ Name.toChars valueName
       Watchtower.Live.Client.logFileInfoKeys state
-      mInfo <- Watchtower.Live.Client.getFileInfoFromModuleName projectCache home state
-      case mInfo of
-        Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.docs = Just docModule }) -> do
-          case docModule of
-            Elm.Docs.Module _ _ _ _ values _ ->
-              case Map.lookup valueName values of
-                Just (Elm.Docs.Value comment _) -> do
-                  let raw = Json.String.toChars comment
-                      rendered = Text.unpack (Text.replace "\\n" "\n" (Text.pack raw))
-                  pure (Just rendered)
-                _ -> pure (Just "no value found")
-        _ -> pure (Just "no info for docs")
+      case home of
+        -- Local module from this project: use FileInfo as before
+        Elm.ModuleName.Canonical pkg _moduleName | pkg == Elm.Package.dummyName -> do
+          mInfo <- Watchtower.Live.Client.getFileInfoFromModuleName projectCache home state
+          case mInfo of
+            Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.docs = Just docModule }) -> do
+              case docModule of
+                Elm.Docs.Module _ _ _ _ values _ ->
+                  case Map.lookup valueName values of
+                    Just (Elm.Docs.Value comment _) -> do
+                      let raw = Json.String.toChars comment
+                          rendered = Text.unpack (Text.replace "\\n" "\n" (Text.pack raw))
+                      pure (Just rendered)
+                    _ -> pure (Just "no value found")
+            _ -> pure (Just "no info for docs")
+
+        -- Module from a dependency package: read from packages cache
+        Elm.ModuleName.Canonical pkg moduleName -> do
+          let mPackages = case state of
+                Watchtower.Live.Client.State _ _ _ mpkgs _ -> mpkgs
+          packagesMap <- Control.Concurrent.STM.readTVarIO mPackages
+          case Map.lookup pkg packagesMap of
+            Just (Watchtower.Live.Client.PackageInfo { Watchtower.Live.Client.packageModules = mods }) -> do
+              case Map.lookup moduleName mods of
+                Just (Watchtower.Live.Client.PackageModule { Watchtower.Live.Client.packageModuleDocs = docModule }) -> do
+                  case docModule of
+                    Elm.Docs.Module _ _ _ _ values _ ->
+                      case Map.lookup valueName values of
+                        Just (Elm.Docs.Value comment _) -> do
+                          let raw = Json.String.toChars comment
+                              rendered = Text.unpack (Text.replace "\\n" "\n" (Text.pack raw))
+                              header = "_from " ++ Elm.Package.toChars pkg ++ "_\n\n"
+                          pure (Just (header ++ rendered))
+                        _ -> pure (Just "no package value found")
+                _ -> pure (Just "no package module found")
+            _ -> pure (Just "no package info for docs")
     _ -> pure (Just "no docs")
 
 -- Convert LSP Position to Elm Ann.Position (1-based)

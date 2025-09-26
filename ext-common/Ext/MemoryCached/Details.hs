@@ -67,6 +67,43 @@ import qualified Elm.Details
 import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..), Local(..))
 import qualified Modify.PackageOverride
 import System.IO.Unsafe (unsafePerformIO)
+import qualified Control.Concurrent.STM as STM
+import qualified Watchtower.Live.Client as Client
+import qualified System.FilePath as Path
+import qualified Data.ByteString as BS
+import qualified Json.Decode as D
+
+-- helper to record docs/readme for a package once
+recordPackageIfMissing :: Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> Stuff.PackageCache -> Pkg.Name -> V.Version -> IO ()
+recordPackageIfMissing maybeVar cache pkg vsn = case maybeVar of
+  Nothing -> pure ()
+  Just tvar -> do
+    current <- STM.readTVarIO tvar
+    case Map.lookup pkg current of
+      Just _ -> pure ()
+      Nothing -> do
+        let pkgDir = Stuff.package cache pkg vsn
+        -- read README.md
+        readme <- do
+          let p = pkgDir Path.</> "README.md"
+          exists <- Ext.FileCache.exists p
+          if exists then Just <$> Ext.FileCache.readFileString p else pure Nothing
+        -- read docs.json
+        pkgModules <- do
+          let docsPath = pkgDir Path.</> "docs.json"
+          exists <- Ext.FileCache.exists docsPath
+          if not exists then pure Map.empty else do
+            bytes <- Ext.FileCache.readUtf8 docsPath
+            case D.fromByteString Docs.decoder bytes of
+              Left _ -> pure Map.empty
+              Right docsMap ->
+                pure (Map.map (\m -> Client.PackageModule { Client.packageModuleDocs = m }) docsMap)
+        let info = Client.PackageInfo { Client.name = pkg, Client.readme = readme, Client.packageModules = pkgModules }
+        STM.atomically $ do
+          cur <- STM.readTVar tvar
+          case Map.lookup pkg cur of
+            Just _ -> pure ()
+            Nothing -> STM.writeTVar tvar (Map.insert pkg info cur)
 
 {-
 Because you keep forgetting,
@@ -146,7 +183,7 @@ verifyInstall :: BW.Scope -> FilePath -> Solver.Env -> Outline.Outline -> IO (Ei
 verifyInstall scope root (Solver.Env cache manager connection registry) outline =
   do  time <- Ext.FileCache.getTime (root </> "elm.json")
       let key = Reporting.ignorer
-      let env = Env key scope root cache manager connection registry
+      let env = Env key scope root cache manager connection registry Nothing
       case outline of
         Outline.Pkg pkg -> Task.run (verifyPkg env time pkg >> return ())
         Outline.App app -> Task.run (verifyApp env time app >> return ())
@@ -163,8 +200,8 @@ detailsCache = unsafePerformIO $ newMVar Nothing
 bustDetailsCache = modifyMVar_ detailsCache (\_ -> pure Nothing)
 
 
-load :: Reporting.Style -> BW.Scope -> FilePath -> IO (Either Exit.Details Details)
-load style scope root = do
+load :: Reporting.Style -> BW.Scope -> FilePath -> Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> IO (Either Exit.Details Details)
+load style scope root packagesVar = do
   detailsCacheM <- readMVar detailsCache
   case detailsCacheM of
     Just details -> do
@@ -173,7 +210,7 @@ load style scope root = do
     Nothing -> do
       Ext.Log.log Ext.Log.MemoryCache "❌ details cache miss"
       modifyMVar detailsCache (\_ -> do
-          detailsR <- load_ style scope root
+          detailsR <- load_ style scope root packagesVar
           case detailsR of
             Right details -> do
               pure (Just details, detailsR)
@@ -182,28 +219,28 @@ load style scope root = do
         )
 
 
-load_ :: Reporting.Style -> BW.Scope -> FilePath -> IO (Either Exit.Details Details)
-load_ style scope root =
+load_ :: Reporting.Style -> BW.Scope -> FilePath -> Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> IO (Either Exit.Details Details)
+load_ style scope root packagesVar =
   do  newTime <- Ext.FileCache.getTime (root </> "elm.json")
       maybeDetails <- Ext.FileCache.readBinary (Stuff.details root)
       case maybeDetails of
         Nothing ->
-          generate style scope root newTime
+          generate style scope root packagesVar newTime
 
         Just details@(Details oldTime _ buildID _ _ _) ->
           if oldTime == newTime
           then return (Right details { _buildID = buildID + 1 })
-          else generate style scope root newTime
+          else generate style scope root packagesVar newTime
 
 
 
 -- GENERATE
 
 
-generate :: Reporting.Style -> BW.Scope -> FilePath -> Ext.FileCache.Time -> IO (Either Exit.Details Details)
-generate style scope root time =
+generate :: Reporting.Style -> BW.Scope -> FilePath -> Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> Ext.FileCache.Time -> IO (Either Exit.Details Details)
+generate style scope root packagesVar time =
   Reporting.trackDetails style $ \key ->
-    do  result <- initEnv key scope root
+    do  result <- initEnv key scope root packagesVar
         case result of
           Left exit ->
             return (Left exit)
@@ -227,11 +264,12 @@ data Env =
     , _manager :: Http.Manager
     , _connection :: Solver.Connection
     , _registry :: Registry.Registry
+    , _packages :: Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo))
     }
 
 
-initEnv :: Reporting.DKey -> BW.Scope -> FilePath -> IO (Either Exit.Details (Env, Outline.Outline))
-initEnv key scope root =
+initEnv :: Reporting.DKey -> BW.Scope -> FilePath -> Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> IO (Either Exit.Details (Env, Outline.Outline))
+initEnv key scope root packagesVar =
   do  mvar <- fork Solver.initEnv
       eitherOutline <- Outline.read root
       case eitherOutline of
@@ -245,7 +283,7 @@ initEnv key scope root =
                   return $ Left $ Exit.DetailsCannotGetRegistry problem
 
                 Right (Solver.Env cache manager connection registry) ->
-                  return $ Right (Env key scope root cache manager connection registry, outline)
+                  return $ Right (Env key scope root cache manager connection registry packagesVar, outline)
 
 
 
@@ -292,7 +330,7 @@ checkAppDeps (Outline.AppOutline _ _ direct indirect testDirect testIndirect) =
 
 
 verifyConstraints :: Env -> Map.Map Pkg.Name Con.Constraint -> Task (Map.Map Pkg.Name Solver.Details)
-verifyConstraints (Env _ _ _ cache _ connection registry) constraints =
+verifyConstraints (Env _ _ _ cache _ connection registry _) constraints =
   do  result <- Task.io $ Solver.verify cache connection registry constraints
       case result of
         Solver.Ok details        -> return details
@@ -338,7 +376,7 @@ fork work =
 
 
 verifyDependencies :: Env -> Ext.FileCache.Time -> ValidOutline -> Map.Map Pkg.Name Solver.Details -> Map.Map Pkg.Name a -> Task Details
-verifyDependencies env@(Env key scope root cache _ _ _) time outline solution directDeps =
+verifyDependencies env@(Env key scope root cache _ _ _ _) time outline solution directDeps =
   Task.eio id $
   do  Reporting.report key (Reporting.DStart (Map.size solution))
       mvar <- newEmptyMVar
@@ -405,7 +443,7 @@ type Dep =
 
 
 verifyDep :: Env -> MVar (Map.Map Pkg.Name (MVar Dep)) -> Map.Map Pkg.Name Solver.Details -> Pkg.Name -> Solver.Details -> IO Dep
-verifyDep (Env key _ _ cache manager _ _) depsMVar solution pkg details@(Solver.Details vsn directDeps) =
+verifyDep (Env key _ _ cache manager _ _ packagesVar) depsMVar solution pkg details@(Solver.Details vsn directDeps) =
   do  let fingerprint = Map.intersectionWith (\(Solver.Details v _) _ -> v) solution directDeps
       exists <- Dir.doesDirectoryExist (Stuff.package cache pkg vsn </> "src")
       if exists
@@ -414,12 +452,15 @@ verifyDep (Env key _ _ cache manager _ _) depsMVar solution pkg details@(Solver.
               maybeCache <- Ext.FileCache.readBinary (Stuff.package cache pkg vsn </> "artifacts.dat")
               case maybeCache of
                 Nothing ->
-                  build key cache depsMVar pkg details fingerprint Set.empty
+                  build key cache depsMVar packagesVar pkg details fingerprint Set.empty
 
                 Just (ArtifactCache fingerprints artifacts) ->
                   if Set.member fingerprint fingerprints
-                    then Reporting.report key Reporting.DBuilt >> return (Right artifacts)
-                    else build key cache depsMVar pkg details fingerprint fingerprints
+                    then do
+                      Reporting.report key Reporting.DBuilt
+                      recordPackageIfMissing packagesVar cache pkg vsn
+                      return (Right artifacts)
+                    else build key cache depsMVar packagesVar pkg details fingerprint fingerprints
         else
           do  Reporting.report key Reporting.DRequested
               result <- downloadPackage cache manager pkg vsn
@@ -430,7 +471,7 @@ verifyDep (Env key _ _ cache manager _ _) depsMVar solution pkg details@(Solver.
 
                 Right () ->
                   do  Reporting.report key (Reporting.DReceived pkg vsn)
-                      build key cache depsMVar pkg details fingerprint Set.empty
+                      build key cache depsMVar packagesVar pkg details fingerprint Set.empty
 
 
 
@@ -452,8 +493,8 @@ type Fingerprint =
 -- BUILD
 
 
-build :: Reporting.DKey -> Stuff.PackageCache -> MVar (Map.Map Pkg.Name (MVar Dep)) -> Pkg.Name -> Solver.Details -> Fingerprint -> Set.Set Fingerprint -> IO Dep
-build key cache depsMVar pkg (Solver.Details vsn _) f fs =
+build :: Reporting.DKey -> Stuff.PackageCache -> MVar (Map.Map Pkg.Name (MVar Dep)) -> Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> Pkg.Name -> Solver.Details -> Fingerprint -> Set.Set Fingerprint -> IO Dep
+build key cache depsMVar packagesVar pkg (Solver.Details vsn _) f fs =
   do  eitherOutline <- Outline.read (Stuff.package cache pkg vsn)
       case eitherOutline of
         Left _ ->
@@ -508,6 +549,8 @@ build key cache depsMVar pkg (Solver.Details vsn _) f fs =
                                   do  writeDocs cache pkg vsn docsStatus results
                                       Ext.FileCache.writeBinary path (ArtifactCache fingerprints artifacts)
                                       Reporting.report key Reporting.DBuilt
+                                      -- after successful build, record package docs/readme if needed
+                                      recordPackageIfMissing packagesVar cache pkg vsn
                                       return (Right artifacts)
 
 

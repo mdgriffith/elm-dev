@@ -27,15 +27,15 @@ import qualified Watchtower.Server.DevWS as DevWS
 
 
 compile :: Client.State -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compile state@(Client.State _ _ mFileInfo _) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs) docsInfo flags mCompileResult _) files = do
+compile state@(Client.State _ _ mFileInfo mPackages _) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs) docsInfo flags mCompileResult _) files = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run
     case codegenResult of
       Right () -> do
         let filesToCompile = NE.append files entrypoints
-        -- Then run compilation
-        compilationResult <- CompileProxy.compile elmJsonRoot entrypoints flags
+        -- Then run compilation, passing the optional packages TVar for caching package docs/readme
+        compilationResult <- CompileProxy.compile elmJsonRoot entrypoints flags (Just mPackages)
 
         -- Update the compilation result TVar
         let newResult = case compilationResult of
@@ -53,6 +53,7 @@ compile state@(Client.State _ _ mFileInfo _) projCache@(Client.ProjectCache proj
                              current
                              fileInfoByPath
               STM.writeTVar mFileInfo merged
+            -- packages TVar is now populated during compile pipeline (MemoryCached flow)
           Left _ -> do
             -- On compile failure, remove all FileInfo entries that belong to this project
             STM.atomically $ do
@@ -97,7 +98,7 @@ compile state@(Client.State _ _ mFileInfo _) projCache@(Client.ProjectCache proj
 --   Compilation is performed synchronously here so the caller can rely on
 --   fresh results when this function returns.
 compileRelevantProjects :: Client.State -> [FilePath] -> IO ()
-compileRelevantProjects state@(Client.State _ mProjects _ _) elmFiles = do
+compileRelevantProjects state@(Client.State _ mProjects _ _ _) elmFiles = do
   if elmFiles == []
     then pure ()
     else do

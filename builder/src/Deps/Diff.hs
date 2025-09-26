@@ -376,7 +376,7 @@ getDocs cache manager name version =
                 case D.fromByteString Docs.decoder body of
                   Right docs ->
                     do  Dir.createDirectoryIfMissing True home
-                        File.writeUtf8 path body
+                        File.writeUtf8AllTheWayToDisk path body
                         return $ Right docs
 
                   Left _ ->

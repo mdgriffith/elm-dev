@@ -28,6 +28,8 @@ import qualified Reporting.Warning as Warning
 import qualified Elm.Docs
 import qualified Reporting.Render.Type.Localizer
 import qualified Watchtower.Live.Client
+import qualified Control.Concurrent.STM as STM
+import qualified Elm.Package
 
 
 debug :: String -> IO ()
@@ -52,24 +54,19 @@ debug =
 
 
 -- Returns compilation result plus maps of absolute file paths to warnings and docs
-compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo))
-compile root paths flags@(CompileHelpers.Flags mode output) = do
+compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo))
+compile root paths flags@(CompileHelpers.Flags mode output) packagesVar = do
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope ->
-        -- @TODO root lock shouldn't be needed unless we're falling through to disk compile
-        -- Stuff.withRootLock root $ do
         Task.run $ do
-          -- Task.io $ debug $ "🌳🌳🌳🌳🌳🌳🌳🌳🌳🌳" <> show paths_
-
           Task.io $ Ext.MemoryCached.Details.bustDetailsCache
           Task.io $ Ext.MemoryCached.Build.bustArtifactsCache
           let compilationFlags = CompileHelpers.compilationModsFromFlags mode
-          details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root
-          (artifacts, fileInfoByPath) <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached compilationFlags Reporting.silent root details paths
-
+          details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root packagesVar
+          (artifacts, fileInfoByPath) <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached packagesVar compilationFlags Reporting.silent root details paths
           compiled <- CompileHelpers.generate root details mode artifacts output
           pure (compiled, fileInfoByPath)
-          
+
 
 {-# NOINLINE artifactsCache #-}
 artifactsCache :: MVar CompileHelpers.Artifacts
@@ -100,9 +97,8 @@ allPackageArtifacts root = do
 allPackageArtifacts_ :: FilePath -> IO CompileHelpers.Artifacts
 allPackageArtifacts_ root =
   BW.withScope $ \scope ->
-  do  --debug "Loading allDeps"
-      let style = Reporting.silent
-      result <- Ext.MemoryCached.Details.load style scope root
+  do  let style = Reporting.silent
+      result <- Ext.MemoryCached.Details.load style scope root Nothing
       case result of
         Left _ ->
           error $ "Ran into some problem loading elm.json\nTry running `elm make` in: " ++ root

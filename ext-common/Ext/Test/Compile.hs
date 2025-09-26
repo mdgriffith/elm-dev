@@ -43,7 +43,7 @@ compileForDiscovery root entrypoints = do
                 Dir.withCurrentDirectory testRoot $ do
                   let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput
                   let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
-                  compiledR <- CompileProxy.compile testRoot rewrittenEntrypoints flags
+                  compiledR <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
                   case compiledR of
                     Left err -> pure (Left err)
                     Right (_compiled, _info) -> do
@@ -56,7 +56,7 @@ compileForDiscovery root entrypoints = do
             Dir.withCurrentDirectory testRoot $ do
               let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput
               let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
-              compiledR <- CompileProxy.compile testRoot rewrittenEntrypoints flags
+              compiledR <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
               case compiledR of
                 Left err -> pure (Left err)
                 Right (_compiled, _info) -> do
@@ -85,7 +85,7 @@ compileRunner root entrypoints = do
                 Dir.withCurrentDirectory testRoot $ do
                   let flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.OutputTo CompileHelpers.Js)
                   let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
-                  compiledR <- CompileProxy.compile testRoot rewrittenEntrypoints flags
+                  compiledR <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
                   case compiledR of
                     Left err -> pure (Left err)
                     Right (result, _info) -> pure (Right result)
@@ -94,7 +94,7 @@ compileRunner root entrypoints = do
             Dir.withCurrentDirectory testRoot $ do
               let flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.OutputTo CompileHelpers.Js)
               let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
-              compiledR <- CompileProxy.compile testRoot rewrittenEntrypoints flags
+              compiledR <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
               case compiledR of
                 Left err -> pure (Left err)
                 Right (result, _info) -> pure (Right result)

@@ -84,6 +84,8 @@ import Ext.Common
 import qualified Ext.CompileHelpers.Disk
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Ext.CompileHelpers.Memory
+import qualified Control.Concurrent.STM as STM
+import qualified Control.Concurrent.STM as STM
 import Ext.CompileMode (CompileMode (..), getMode)
 import qualified Ext.FileProxy as File
 import qualified Ext.Log
@@ -184,8 +186,9 @@ compile ::
   FilePath ->
   NE.List FilePath ->
   CompileHelpers.Flags ->
+  Maybe (STM.TVar (Map.Map Pkg.Name Watchtower.Live.Client.PackageInfo)) ->
   IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo))
-compile root paths flags =
+compile root paths flags packagesVar =
   modeRunner
     "compile"
     ( do
@@ -194,7 +197,7 @@ compile root paths flags =
           Left e -> pure (Left e)
           Right result -> pure (Right (result, Map.empty))
     )
-    (Ext.CompileHelpers.Memory.compile root paths flags)
+    (Ext.CompileHelpers.Memory.compile root paths flags packagesVar)
 
 allPackageArtifacts :: FilePath -> IO CompileHelpers.Artifacts
 allPackageArtifacts root =

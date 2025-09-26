@@ -55,6 +55,7 @@ import qualified Reporting.Warning as Warning
 import qualified Stuff
 import qualified Ext.Log
 import qualified Watchtower.Live.Client as Client
+import qualified Control.Concurrent.STM as STM
 import qualified Ext.Dev.Docs
 
 -- File caching helpers
@@ -81,8 +82,8 @@ artifactCache = unsafePerformIO $ newMVar Nothing
 bustArtifactsCache = modifyMVar_ artifactCache (\_ -> pure Nothing)
 
 
-fromPathsMemoryCached :: CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem (Artifacts, Map.Map FilePath Client.FileInfo))
-fromPathsMemoryCached flags style root details paths = do
+fromPathsMemoryCached :: Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem (Artifacts, Map.Map FilePath Client.FileInfo))
+fromPathsMemoryCached _packages flags style root details paths = do
   artifaceCacheM <- readMVar artifactCache
   case artifaceCacheM of
     Just artifacts -> do
