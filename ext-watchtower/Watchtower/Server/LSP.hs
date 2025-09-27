@@ -1030,11 +1030,12 @@ renderHoverSignature maybeLoc maybeName tipe =
   let loc = Maybe.fromMaybe Reporting.Render.Type.Localizer.empty maybeLoc
       aliasBlock = Ext.Render.Type.renderAlias loc tipe
       label = Reporting.Doc.toString (Reporting.Render.Type.canToDoc loc Reporting.Render.Type.None tipe)
-      namePrefix = case maybeName of
-        Just n -> Text.unpack n ++ " : "
-        Nothing -> " : "
+      nameStr = case maybeName of
+        Just n -> Text.unpack n
+        Nothing -> ""
       header = if null aliasBlock then "" else aliasBlock ++ "\n\n"
-      fenced = "```elm\n" ++ header ++ namePrefix ++ label ++ "\n```"
+      signature = formatNameAndLabel nameStr label
+      fenced = "```elm\n" ++ header ++ signature ++ "\n```"
   in MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack fenced }
 
 -- Render a markdown hover with a fully qualified value name when possible.
@@ -1049,8 +1050,18 @@ renderHoverSignatureQualified maybeLoc home name tipe =
         Nothing -> case home of
           Elm.ModuleName.Canonical _ moduleName -> Name.toChars moduleName ++ "." ++ Name.toChars name
       header = if null aliasBlock then "" else aliasBlock ++ "\n\n"
-      fenced = "```elm\n" ++ header ++ nameQualified ++ " : " ++ label ++ "\n```"
+      signature = formatNameAndLabel nameQualified label
+      fenced = "```elm\n" ++ header ++ signature ++ "\n```"
   in MarkupContent { markupContentKind = "markdown", markupContentValue = Text.pack fenced }
+
+-- Helper: format name and label for hover signatures.
+-- When the label spans multiple lines, place the colon after the name and
+-- indent each label line by 4 spaces. Otherwise, keep it on a single line.
+formatNameAndLabel :: String -> String -> String
+formatNameAndLabel name label =
+  if '\n' `elem` label
+    then name ++ " :\n" ++ unlines (map ("    " ++) (lines label))
+    else name ++ " : " ++ label
 
 -- Try to fetch docs for a foreign value from the module's FileInfo stored in state
 getForeignValueDocs :: Live.State -> FilePath -> Elm.ModuleName.Canonical -> Name.Name -> IO (Maybe String)
