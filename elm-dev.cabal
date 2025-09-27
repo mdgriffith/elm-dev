@@ -319,6 +319,7 @@ Executable elm-dev
         Ext.Reporting.Error.Import
         Ext.Reporting.Error.Docs
         Ext.Reporting.Error.Canonicalize
+        Ext.Render.Type
         
 
         Gen.Commands

@@ -158,7 +158,11 @@ solve env rank pools state constraint =
       do  state1 <- solve env rank pools state headerCon
           locals <- traverse (A.traverse (typeToVariable rank pools)) header
           let newEnv = Map.union env (Map.map A.toValue locals)
-          state2 <- solve newEnv rank pools state1 subCon
+          -- ELM DEV: record header binder types at their regions
+          let headerTypeAt = Map.fromList [ (region, var) | A.At region var <- Map.elems locals ]
+          let state1' = state1 { _typeAt = Map.union (_typeAt state1) headerTypeAt }
+          -- End ELM DEV
+          state2 <- solve newEnv rank pools state1' subCon
           foldM occurs state2 $ Map.toList locals
 
     CLet rigids flexs header headerCon subCon ->
@@ -195,7 +199,9 @@ solve env rank pools state constraint =
           mapM_ isGeneric rigids
 
           let newEnv = Map.union env (Map.map A.toValue locals)
-          let tempState = State savedEnv finalMark errors typeAt
+          -- ELM DEV: record header binder types at their regions
+          let headerTypeAt = Map.fromList [ (region, var) | A.At region var <- Map.elems locals ]
+          let tempState = State savedEnv finalMark errors (Map.union typeAt headerTypeAt)
           newState <- solve newEnv rank nextPools tempState subCon
 
           foldM occurs newState (Map.toList locals)

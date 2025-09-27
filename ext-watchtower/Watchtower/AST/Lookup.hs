@@ -124,6 +124,10 @@ findInPattern :: Ann.Position -> Can.Pattern -> [(Found, Ann.Region)]
 findInPattern pos (Ann.At preg patt) =
   if not (regionContains preg pos) then [] else
   case patt of
+    Can.PVar n ->
+      [(FoundVarLocal n, preg)]
+    Can.PAlias sub n ->
+      (FoundVarLocal n, preg) : findInPattern pos sub
     Can.PAlias sub _ -> findInPattern pos sub
     Can.PTuple a b mc -> findInPattern pos a ++ findInPattern pos b ++ maybe [] (findInPattern pos) mc
     Can.PList xs -> concatMap (findInPattern pos) xs
