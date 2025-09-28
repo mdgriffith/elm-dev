@@ -1,0 +1,16 @@
+[package]
+name = "elm-dev-proxy"
+version = "0.1.0"
+edition = "2021"
+authors = ["Elm Dev"]
+description = "Minimal cross-platform stdio<->TCP proxy for Elm Dev"
+license = "BSD-3-Clause"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[dependencies]
