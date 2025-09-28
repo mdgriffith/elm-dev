@@ -67,6 +67,9 @@ import qualified Json.String
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Watchtower.AST.Lookup
+import qualified Watchtower.AST.Definition
+import qualified Watchtower.AST.References
+import qualified Ext.Dev.Project
 
 
 -- * Core LSP Types
@@ -1168,10 +1171,57 @@ handleCompletion _state _completionParams = do
     }
 
 handleDefinition :: Live.State -> DefinitionParams -> IO (Either String [Location])
-handleDefinition _state _definitionParams = do
-  -- For now, return empty list
-  -- In a real implementation, this would find the definition of the symbol at the given position
-  return $ Right []
+handleDefinition state definitionParams = do
+  let uri = textDocumentIdentifierUri (definitionParamsTextDocument definitionParams)
+      lspPos = definitionParamsPosition definitionParams
+  case uriToFilePath uri of
+    Nothing -> pure (Right [])
+    Just filePath -> do
+      mInfo <- Watchtower.Live.Client.getFileInfo filePath state
+      case mInfo of
+        Nothing -> pure (Right [])
+        Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.canonicalAst = maybeCan }) ->
+          case maybeCan of
+            Nothing -> pure (Right [])
+            Just canMod -> do
+              let pos = lspPositionToElmPosition lspPos
+              case Watchtower.AST.Lookup.findAtPosition canMod pos of
+                Nothing -> pure (Right [])
+                Just (found, _region) -> do
+                  defLocs <- case found of
+                    Watchtower.AST.Lookup.FoundVarLocal name -> do
+                      let mDefReg = Watchtower.AST.Definition.findLocalDefinitionRegion canMod pos name
+                      pure $ maybe [] (\r -> [Location { locationUri = uri, locationRange = regionToRange r }]) mDefReg
+                    Watchtower.AST.Lookup.FoundVarTopLevel name -> do
+                      let mReg = Watchtower.AST.Definition.findTopLevelDefRegion canMod name
+                      pure $ maybe [] (\r -> [Location { locationUri = uri, locationRange = regionToRange r }]) mReg
+                    Watchtower.AST.Lookup.FoundVarForeign home name _ -> do
+                      resolveForeignDefinition state home name
+                    Watchtower.AST.Lookup.FoundVarOperator _sym home real _ -> do
+                      resolveForeignDefinition state home real
+                    Watchtower.AST.Lookup.FoundBinop _sym home real _ -> do
+                      resolveForeignDefinition state home real
+                    Watchtower.AST.Lookup.FoundVarDebug home name _ -> do
+                      resolveForeignDefinition state home name
+                    Watchtower.AST.Lookup.FoundVarCtor _home _name _ ->
+                      pure []
+                    Watchtower.AST.Lookup.FoundType _ _ -> pure []
+                    Watchtower.AST.Lookup.FoundPattern _ _ -> pure []
+                  pure (Right defLocs)
+
+  where
+    resolveForeignDefinition :: Live.State -> Elm.ModuleName.Canonical -> Name.Name -> IO [Location]
+    resolveForeignDefinition st home name = do
+      mPath <- findModuleFilePathInState st home
+      case mPath of
+        Nothing -> pure []
+        Just modPath -> do
+          mInfo <- Watchtower.Live.Client.getFileInfo modPath st
+          case mInfo of
+            Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.canonicalAst = Just canMod }) -> do
+              let mReg = Watchtower.AST.Definition.findTopLevelDefRegion canMod name
+              pure $ maybe [] (\r -> [Location { locationUri = filePathToUri modPath, locationRange = regionToRange r }]) mReg
+            _ -> pure []
 
 -- Attempt to derive a human-friendly name for a pattern, when possible
 patternName :: Can.Pattern_ -> Maybe Name.Name
@@ -1211,29 +1261,105 @@ handleTypeDefinition _state definitionParams = do
         }
   return $ Right [sampleLocation]
 
-handleReferences :: Live.State -> ReferenceParams -> IO (Either String [Location])
-handleReferences _state referenceParams = do
-  -- Placeholder: Return sample reference locations
-  -- In a real implementation, this would find all usages of a symbol
+handleReferences state referenceParams = do
   let uri = textDocumentIdentifierUri (referenceParamsTextDocument referenceParams)
-      pos = referenceParamsPosition referenceParams
-      sampleLocations =
-        [ Location
-            { locationUri = uri,
-              locationRange = Range
-                { rangeStart = Position (positionLine pos + 5) 4,
-                  rangeEnd = Position (positionLine pos + 5) 14
-                }
-            },
-          Location
-            { locationUri = uri,
-              locationRange = Range
-                { rangeStart = Position (positionLine pos + 10) 8,
-                  rangeEnd = Position (positionLine pos + 10) 18
-                }
-            }
-        ]
-  return $ Right sampleLocations
+      lspPos = referenceParamsPosition referenceParams
+      includeDecl = parseIncludeDeclaration (referenceParamsContext referenceParams)
+  case uriToFilePath uri of
+    Nothing -> pure (Right [])
+    Just filePath -> do
+      mInfo <- Watchtower.Live.Client.getFileInfo filePath state
+      case mInfo of
+        Nothing -> pure (Right [])
+        Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.canonicalAst = maybeCan }) ->
+          case maybeCan of
+            Nothing -> pure (Right [])
+            Just canMod -> do
+              let pos = lspPositionToElmPosition lspPos
+              case Watchtower.AST.Lookup.findAtPosition canMod pos of
+                Nothing -> pure (Right [])
+                Just (found, _r) -> do
+                  locations <- case found of
+                    Watchtower.AST.Lookup.FoundVarLocal name -> do
+                      let refs = Watchtower.AST.Definition.collectLocalReferences canMod pos name
+                          defReg = Watchtower.AST.Definition.findLocalDefinitionRegion canMod pos name
+                          allRegs = if includeDecl then maybe refs (:refs) defReg else refs
+                      pure (map (\r -> Location { locationUri = uri, locationRange = regionToRange r }) allRegs)
+
+                    Watchtower.AST.Lookup.FoundVarTopLevel name -> do
+                      let home = case canMod of Can.Module homeName _ _ _ _ _ _ _ -> homeName
+                      collectGlobalRefs state home name includeDecl
+
+                    Watchtower.AST.Lookup.FoundVarForeign home name _ ->
+                      collectGlobalRefs state home name includeDecl
+
+                    Watchtower.AST.Lookup.FoundVarOperator _sym home real _ ->
+                      collectGlobalRefs state home real includeDecl
+
+                    Watchtower.AST.Lookup.FoundBinop _sym home real _ ->
+                      collectGlobalRefs state home real includeDecl
+
+                    Watchtower.AST.Lookup.FoundVarDebug home name _ ->
+                      collectGlobalRefs state home name includeDecl
+
+                    Watchtower.AST.Lookup.FoundVarCtor home name _ ->
+                      collectGlobalRefs state home name includeDecl
+
+                    _ -> pure []
+                  pure (Right locations)
+
+  where
+    collectGlobalRefs :: Live.State -> Elm.ModuleName.Canonical -> Name.Name -> Bool -> IO [Location]
+    collectGlobalRefs st home name includeDecl' = do
+      allInfos <- Watchtower.Live.Client.getAllFileInfos st
+      let refs =
+            Map.foldrWithKey
+              (\path fi acc ->
+                case fi of
+                  Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.canonicalAst = Just m } ->
+                    let rs = map (\r -> Location { locationUri = filePathToUri path, locationRange = regionToRange r })
+                                 (Watchtower.AST.References.collectVarRefsInModule m home name)
+                    in rs ++ acc
+                  _ -> acc
+              )
+              []
+              allInfos
+      declLocs <- if includeDecl'
+                    then do
+                      mPath <- findModuleFilePathInState st home
+                      case mPath of
+                        Nothing -> pure []
+                        Just modPath -> do
+                          mInfo <- Watchtower.Live.Client.getFileInfo modPath st
+                          case mInfo of
+                            Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.canonicalAst = Just canMod }) -> do
+                              let mReg = Watchtower.AST.Definition.findTopLevelDefRegion canMod name
+                              pure $ maybe [] (\r -> [Location { locationUri = filePathToUri modPath, locationRange = regionToRange r }]) mReg
+                            _ -> pure []
+                    else pure []
+      pure (declLocs ++ refs)
+
+    parseIncludeDeclaration :: JSON.Value -> Bool
+    parseIncludeDeclaration v =
+      case v of
+        JSON.Object o ->
+          case KeyMap.lookup "includeDeclaration" o of
+            Just (JSON.Bool b) -> b
+            _ -> True
+        _ -> True
+
+-- Find a file path in state for a given canonical module
+findModuleFilePathInState :: Live.State -> Elm.ModuleName.Canonical -> IO (Maybe FilePath)
+findModuleFilePathInState state home = do
+  infos <- Watchtower.Live.Client.getAllFileInfos state
+  let matchesHome fi =
+        case fi of
+          Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.canonicalAst = Just (Can.Module homeName _ _ _ _ _ _ _) } -> homeName == home
+          _ -> False
+  pure (fst <$> Data.List.find (matchesHome . snd) (Map.toList infos))
+
+filePathToUri :: FilePath -> Text
+filePathToUri fp = Text.pack ("file://" ++ fp)
 
 handleImplementation :: Live.State -> DefinitionParams -> IO (Either String [Location])
 handleImplementation _state _definitionParams = do

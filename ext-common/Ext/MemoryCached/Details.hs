@@ -20,15 +20,14 @@ module Ext.MemoryCached.Details
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
-import Control.Monad (liftM, liftM2, liftM3)
-import Data.Binary (Binary, get, put, getWord8, putWord8)
+import Control.Monad (liftM2)
+import Data.Binary (Binary, get, put)
 import qualified Data.Either as Either
 import qualified Data.Map as Map
 import qualified Data.Map.Utils as Map
 import qualified Data.Map.Merge.Strict as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
-import qualified Data.NonEmptyList as NE
 import qualified Data.OneOrMore as OneOrMore
 import qualified Data.Set as Set
 import qualified Data.Utf8 as Utf8
@@ -63,15 +62,12 @@ import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Stuff
 import qualified Ext.Log
-import qualified Elm.Details
 import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..), Local(..))
 import qualified Modify.PackageOverride
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Control.Concurrent.STM as STM
 import qualified Watchtower.Live.Client as Client
 import qualified System.FilePath as Path
-import qualified Data.ByteString as BS
-import qualified Json.Decode as D
 
 -- helper to record docs/readme for a package once
 recordPackageIfMissing :: Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> Stuff.PackageCache -> Pkg.Name -> V.Version -> IO ()
@@ -197,6 +193,7 @@ verifyInstall scope root (Solver.Env cache manager connection registry) outline 
 detailsCache :: MVar (Maybe Details)
 detailsCache = unsafePerformIO $ newMVar Nothing
 
+bustDetailsCache :: IO ()
 bustDetailsCache = modifyMVar_ detailsCache (\_ -> pure Nothing)
 
 

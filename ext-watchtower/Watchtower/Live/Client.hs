@@ -22,6 +22,7 @@ module Watchtower.Live.Client
     getProjectRoot,
     getClientData,
     getFileInfo,
+    getAllFileInfos,
     getExistingProject,
     Outgoing (..),
     encodeOutgoing,
@@ -213,6 +214,10 @@ getFileInfo :: FilePath -> State -> IO (Maybe FileInfo)
 getFileInfo path (State _ _ mFileInfo _ _) = do
   fileInfo <- STM.readTVarIO mFileInfo
   pure (Map.lookup path fileInfo)
+
+-- Read the entire FileInfo map
+getAllFileInfos :: State -> IO (Map.Map FilePath FileInfo)
+getAllFileInfos (State _ _ mFileInfo _ _) = STM.readTVarIO mFileInfo
 
 -- Given a project and a canonical module name, try to find the first matching FileInfo
 -- by generating potential file paths using the project's srcDirs and the module's Raw name.
