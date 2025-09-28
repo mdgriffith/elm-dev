@@ -1,10 +1,10 @@
 import { defineConfig } from "vite";
-import elmDevPlugin from "./elm-dev-vite";
+import elmDevPlugin from "elm-dev-local/vite";
 
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vitejs.dev/config/
-export default defineConfig(async ({ mode }) => {
+export default defineConfig(({ mode }) => {
   const isDev = mode == "development";
   return {
 

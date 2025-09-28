@@ -6,7 +6,7 @@
     "description": "Local Vite plugin for elm-dev (workspace package)",
     "types": "./vite.d.ts",
     "exports": {
-        ".": {
+        "./vite": {
             "import": "./vite.mjs",
             "types": "./vite.d.ts"
         }
