@@ -18,6 +18,6 @@
     "test-all": "bash scripts/test-project.sh",
     "test-generation": "bash scripts/test-generation.sh",
     "stack:run": "stack run --",
-    "check:ts-tools": "cd ts-tool && tsc"
+    "check:ts-tools": "cd apps/ts-tool && tsc"
   }
 }
