@@ -9,5 +9,9 @@
   ],
   "cpu": [
     "arm64"
+  ],
+  "files": [
+    "elm-dev",
+    "elm-dev-proxy"
   ]
 }

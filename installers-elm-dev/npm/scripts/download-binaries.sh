@@ -10,6 +10,13 @@ URL_MACOS_ARM64="https://static.lamdera.com/bin/elm-dev/elm-dev-next-macos-arm64
 URL_MACOS_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-next-macos-x86_64"
 URL_WINDOWS_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-next-windows-x86_64.zip"
 
+# Proxy URLs
+URL_PROXY_LINUX_ARM64="https://static.lamdera.com/bin/elm-dev/elm-dev-proxy-linux-arm64"
+URL_PROXY_LINUX_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-proxy-linux-x86_64"
+URL_PROXY_MACOS_ARM64="https://static.lamdera.com/bin/elm-dev/elm-dev-proxy-macos-arm64"
+URL_PROXY_MACOS_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-proxy-macos-x86_64"
+URL_PROXY_WINDOWS_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-proxy-windows-x86_64.exe"
+
 # Create target directories
 mkdir -p packages/linux_arm64
 mkdir -p packages/linux_x64
@@ -25,6 +32,13 @@ curl -L $URL_MACOS_ARM64 -o packages/darwin_arm64/elm-dev
 curl -L $URL_MACOS_X86_64 -o packages/darwin_x64/elm-dev
 curl -L $URL_WINDOWS_X86_64 -o packages/win32_x64/elm-dev.zip
 
+# Download proxy binaries
+curl -L $URL_PROXY_LINUX_ARM64 -o packages/linux_arm64/elm-dev-proxy
+curl -L $URL_PROXY_LINUX_X86_64 -o packages/linux_x64/elm-dev-proxy
+curl -L $URL_PROXY_MACOS_ARM64 -o packages/darwin_arm64/elm-dev-proxy
+curl -L $URL_PROXY_MACOS_X86_64 -o packages/darwin_x64/elm-dev-proxy
+curl -L $URL_PROXY_WINDOWS_X86_64 -o packages/win32_x64/elm-dev-proxy.exe
+
 # # Unzip the Windows file and rename to elm-dev.exe
 unzip packages/win32_x64/elm-dev.zip -d packages/win32_x64
 mv packages/win32_x64/elm-dev/elm-dev.exe packages/win32_x64/elm-dev.exe
@@ -37,6 +51,12 @@ chmod +x packages/linux_x64/elm-dev
 chmod +x packages/darwin_arm64/elm-dev
 chmod +x packages/darwin_x64/elm-dev
 chmod +x packages/win32_x64/elm-dev.exe
+
+# Mark proxy executables
+chmod +x packages/linux_arm64/elm-dev-proxy || true
+chmod +x packages/linux_x64/elm-dev-proxy || true
+chmod +x packages/darwin_arm64/elm-dev-proxy || true
+chmod +x packages/darwin_x64/elm-dev-proxy || true
 
 # Update version in package.json for each directory
 for dir in packages/linux_arm64 packages/linux_x64 packages/darwin_arm64 packages/darwin_x64 packages/win32_x64; do
@@ -61,3 +81,19 @@ gzip --force "$RELEASE_DIR/elm-dev-darwin-x64"
 
 cp packages/win32_x64/elm-dev.exe "$RELEASE_DIR/elm-dev-win32-x64.exe"
 gzip --force "$RELEASE_DIR/elm-dev-win32-x64.exe"
+
+# Proxy artifacts
+cp packages/linux_arm64/elm-dev-proxy "$RELEASE_DIR/elm-dev-proxy-linux-arm64"
+gzip --force "$RELEASE_DIR/elm-dev-proxy-linux-arm64"
+
+cp packages/linux_x64/elm-dev-proxy "$RELEASE_DIR/elm-dev-proxy-linux-x64"
+gzip --force "$RELEASE_DIR/elm-dev-proxy-linux-x64"
+
+cp packages/darwin_arm64/elm-dev-proxy "$RELEASE_DIR/elm-dev-proxy-darwin-arm64"
+gzip --force "$RELEASE_DIR/elm-dev-proxy-darwin-arm64"
+
+cp packages/darwin_x64/elm-dev-proxy "$RELEASE_DIR/elm-dev-proxy-darwin-x64"
+gzip --force "$RELEASE_DIR/elm-dev-proxy-darwin-x64"
+
+cp packages/win32_x64/elm-dev-proxy.exe "$RELEASE_DIR/elm-dev-proxy-win32-x64.exe"
+gzip --force "$RELEASE_DIR/elm-dev-proxy-win32-x64.exe"

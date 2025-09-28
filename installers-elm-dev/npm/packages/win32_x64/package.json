@@ -9,5 +9,9 @@
   ],
   "cpu": [
     "x64"
+  ],
+  "files": [
+    "elm-dev.exe",
+    "elm-dev-proxy.exe"
   ]
 }
