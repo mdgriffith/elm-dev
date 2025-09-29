@@ -58,9 +58,7 @@ import qualified System.Exit as Exit
 import qualified System.FilePath as Path
 import qualified System.IO as IO
 import qualified System.Process as Process
-#if !defined(mingw32_HOST_OS)
-import qualified System.Posix.Process as Posix
-#endif
+import qualified System.Environment
 import qualified Terminal.Colors
 import qualified Terminal.Dev.Args
 import qualified Terminal.Dev.Error
@@ -74,6 +72,7 @@ import qualified Watchtower.Server.LSP
 import qualified Watchtower.Server.MCP
 import qualified Watchtower.Server.Run
 import qualified Watchtower.Server.Daemon as Daemon
+import qualified Watchtower.Server.Proxy
 import qualified Ext.Test.Runner
 import qualified Ext.Test.Install
 import qualified Ext.Test.Result.Report
@@ -142,7 +141,9 @@ mcpCommand = CommandParser.command ["mcp"] "Start the Elm Dev MCP server" devGro
     runServer _ _ = do
       -- Ext.CompileMode.setModeMemory
       _state <- Daemon.ensureRunning
-      proxyStdioToTcp Ext.Log.TempMCP "127.0.0.1" (Daemon.mcpPort _state)
+      let host = "127.0.0.1"
+      let port = Daemon.mcpPort _state
+      Watchtower.Server.Proxy.run host port
 
 lspCommand :: CommandParser.Command
 lspCommand = CommandParser.command ["lsp"] "Start the Elm Dev LSP server" devGroup CommandParser.noArg parseServerFlags runServer
@@ -152,62 +153,10 @@ lspCommand = CommandParser.command ["lsp"] "Start the Elm Dev LSP server" devGro
       _state <- Daemon.ensureRunning
       let host = "127.0.0.1"
       let port = Daemon.lspPort _state
-#if !defined(mingw32_HOST_OS)
-      let args = [host, show port]
-      let handler :: Exception.SomeException -> IO ()
-          handler _ = proxyStdioToTcp Ext.Log.TempLSP host port
-      Exception.catch
-        (Posix.executeFile "/usr/bin/nc" False args Nothing)
-        handler
-#else
-      proxyStdioToTcp Ext.Log.TempLSP host port
-#endif
-      
+      Watchtower.Server.Proxy.run host port
 
--- | Transparent stdio <-> TCP proxy; no protocol logic, binary-safe
-proxyStdioToTcp :: Ext.Log.TempChannel -> String -> Int -> IO ()
-proxyStdioToTcp chan host port = do
-  let attempts = 50
-  let backoffUs = 100000 -- 100ms
-  let connectWithRetry n = do
-        addrs <- Net.getAddrInfo Nothing (Just host) (Just (show port))
-        let serverAddr = head addrs
-        sock <- Net.socket (Net.addrFamily serverAddr) Net.Stream Net.defaultProtocol
-        result <- Exception.try (Net.connect sock (Net.addrAddress serverAddr)) :: IO (Either IOError ())
-        case result of
-          Right _ -> pure sock
-          Left _ -> do
-            Net.close sock
-            if n <= 0 then ioError (userError "daemon LSP not accepting connections") else do
-              threadDelay backoffUs
-              connectWithRetry (n - 1)
-  sock <- connectWithRetry attempts
-  h <- Net.socketToHandle sock IO.ReadWriteMode
-  IO.hSetBinaryMode h True
-  IO.hSetBuffering h IO.NoBuffering
-  IO.hSetBinaryMode IO.stdin True
-  IO.hSetBinaryMode IO.stdout True
-  done <- newEmptyMVar
-  _ <- forkIO $ do
-    let loop = do
-          chunk <- BS.hGetSome IO.stdin 4096
-          if BS.null chunk then putMVar done () else do
-            Ext.Log.logTempBytes chan chunk
-            BS.hPut h chunk
-            IO.hFlush h
-            loop
-    loop
-  _ <- forkIO $ do
-    let loop = do
-          chunk <- BS.hGetSome h 4096
-          if BS.null chunk then putMVar done () else do
-            Ext.Log.logTempBytes chan chunk
-            BS.hPut IO.stdout chunk
-            IO.hFlush IO.stdout
-            loop
-    loop
-  _ <- takeMVar done
-  IO.hClose h
+
+-- moved proxy logic to Watchtower.Server.Proxy
 
 -- Daemon commands
 daemonServeCommand :: CommandParser.Command
