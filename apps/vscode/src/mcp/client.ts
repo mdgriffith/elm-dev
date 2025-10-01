@@ -29,7 +29,7 @@ export async function startMCPServer(_context: vscode.ExtensionContext): Promise
         const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
         elmLog(`🏗️ Spawning MCP server (cwd: ${cwd ?? 'undefined'})...`);
 
-        const proc = spawn('/usr/local/bin/elm-dev', ['mcp'], {
+        const proc = spawn('elm-dev', ['mcp'], {
             cwd,
             stdio: 'pipe',
             env: process.env,

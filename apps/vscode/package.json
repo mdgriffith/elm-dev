@@ -7,36 +7,21 @@
   "license": "BSD-3-Clause",
   "repository": "https://github.com/mdgriffith/elm-dev.git",
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.99.0"
   },
   "categories": [
     "Other"
-  ],
-  "activationEvents": [
-    "onLanguage:elm"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "elm.projectPanel",
-        "title": "Elm Dev"
-      },
-      {
         "command": "elm.restartLSP",
-        "title": "Restart Elm LSP Server"
+        "title": "Restart Elm Dev LSP Server"
       },
       {
         "command": "elm.restartMCP",
-        "title": "Restart Elm MCP Server"
-      },
-      {
-        "command": "elm.startMCP",
-        "title": "Start Elm MCP Server"
-      },
-      {
-        "command": "elm.stopMCP",
-        "title": "Stop Elm MCP Server"
+        "title": "Restart Elm Dev MCP Server"
       }
     ],
     "languages": [
@@ -79,8 +64,8 @@
   "scripts": {
     "vscode:prepublish": "bun run build",
     "package": "bun run build ; vsce package --out ./dist/elm-dev-vscode.vsix",
-    "build": "bun run esbuild & bash scripts/copy_deps.sh & bun run build:elm",
-    "build:elm": "cd ../app ; elm make src/Main.elm --output=../vscode/media/panel.js ",
+    "build": "bun run esbuild",
+    "typecheck": "tsc --noEmit",
     "watch": "tsc -watch -p ./",
     "test": "bun run build && node ./node_modules/vscode/bin/test",
     "esbuild": "bun run esbuild-base --sourcemap",
@@ -90,7 +75,7 @@
   },
   "devDependencies": {
     "@types/node": "^11.12.21",
-    "@types/vscode": "^1.74.0",
+    "@types/vscode": "^1.99.0",
     "esbuild": "^0.15.7",
     "eslint": "^7.21.0",
     "typescript": "^4.4.3",
