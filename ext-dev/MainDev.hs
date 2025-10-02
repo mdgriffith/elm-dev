@@ -139,10 +139,9 @@ mcpCommand = CommandParser.command ["mcp"] "Start the Elm Dev MCP server" devGro
   where
     parseServerFlags = CommandParser.noFlag
     runServer _ _ = do
-      -- Ext.CompileMode.setModeMemory
-      _state <- Daemon.ensureRunning
-      let host = "127.0.0.1"
-      let port = Daemon.mcpPort _state
+      info <- Daemon.ensureRunning
+      let host = Daemon.domain info
+      let port = Daemon.mcpPort info
       Watchtower.Server.Proxy.run host port
 
 lspCommand :: CommandParser.Command
@@ -150,17 +149,17 @@ lspCommand = CommandParser.command ["lsp"] "Start the Elm Dev LSP server" devGro
   where
     parseServerFlags = CommandParser.noFlag
     runServer _ _ = do
-      _state <- Daemon.ensureRunning
-      let host = "127.0.0.1"
-      let port = Daemon.lspPort _state
+      info <- Daemon.ensureRunning
+      let host = Daemon.domain info
+      let port = Daemon.lspPort info
       Watchtower.Server.Proxy.run host port
 
 
 -- moved proxy logic to Watchtower.Server.Proxy
 
 -- Daemon commands
-daemonServeCommand :: CommandParser.Command
-daemonServeCommand = CommandParser.command ["daemon","serve"] "Run the Elm Dev daemon (internal)" devGroup parseArgs parseFlags runCmd
+devServeCommand :: CommandParser.Command
+devServeCommand = CommandParser.command ["dev","serve"] "Run the Elm Dev dev (internal)" devGroup parseArgs parseFlags runCmd
   where
     parseArgs = CommandParser.noArg
     parseFlags = CommandParser.noFlag
@@ -168,8 +167,8 @@ daemonServeCommand = CommandParser.command ["daemon","serve"] "Run the Elm Dev d
       params <- Daemon.allocateServeParams
       Daemon.serve params
 
-daemonStartCommand :: CommandParser.Command
-daemonStartCommand = CommandParser.command ["daemon","start"] "Start daemon if not running" devGroup parseArgs parseFlags runCmd
+devStartCommand :: CommandParser.Command
+devStartCommand = CommandParser.command ["dev","start"] "Start dev if not running" devGroup parseArgs parseFlags runCmd
   where
     parseArgs = CommandParser.noArg
     parseFlags = CommandParser.noFlag
@@ -177,8 +176,8 @@ daemonStartCommand = CommandParser.command ["daemon","start"] "Start daemon if n
       status <- Daemon.ensureRunning
       LBSChar.putStrLn (encodeStatus status)
 
-daemonStopCommand :: CommandParser.Command
-daemonStopCommand = CommandParser.command ["daemon","stop"] "Stop daemon" devGroup parseArgs parseFlags runCmd
+devStopCommand :: CommandParser.Command
+devStopCommand = CommandParser.command ["dev","stop"] "Stop dev" devGroup parseArgs parseFlags runCmd
   where
     parseArgs = CommandParser.noArg
     parseFlags = CommandParser.noFlag
@@ -202,15 +201,15 @@ encodeStatus s =
           ])
       )
 
-daemonStatusCommand :: CommandParser.Command
-daemonStatusCommand = CommandParser.command ["daemon","status"] "Show daemon status" devGroup parseArgs parseFlags runCmd
+devStatusCommand :: CommandParser.Command
+devStatusCommand = CommandParser.command ["dev","status"] "Show dev server status" devGroup parseArgs parseFlags runCmd
   where
     parseArgs = CommandParser.noArg
     parseFlags = CommandParser.noFlag
     runCmd _ _ = do
       st <- Daemon.status
       case st of
-        Nothing -> IO.hPutStrLn IO.stderr "daemon: not running"
+        Nothing -> IO.hPutStrLn IO.stderr "dev server: not running"
         Just status ->
           LBSChar.putStrLn (encodeStatus status)
 
@@ -467,30 +466,34 @@ main = do
       Gen.Commands.addStore,
       Gen.Commands.addEffect,
       Gen.Commands.addListener,
-      Gen.Commands.addDocs,
+      -- Gen.Commands.addDocs,
       Gen.Commands.addTheme,
       Gen.Commands.customize,
-      serverCommand,
-      mcpCommand,
-      daemonServeCommand,
-      daemonStartCommand,
-      daemonStopCommand,
-      daemonStatusCommand,
-      lspCommand,
-      entrypointsCommand,
-      docsCommand,
-      warningsCommand,
-      importsCommand,
-      usageCommand,
-      explainCommand,
+      testCommand,
       testInitCommand,
       testInstallCommand,
-      testCommand
+      serverCommand,
+      devServeCommand,
+      devStartCommand,
+      devStopCommand,
+      devStatusCommand,
+      mcpCommand,
+      lspCommand
+      -- entrypointsCommand,
+      -- docsCommand,
+      -- warningsCommand,
+      -- importsCommand,
+      -- usageCommand,
+      -- explainCommand,
+      
     ]
+
+testGroup :: Maybe String
+testGroup = Just "Testing"
 
 -- Test command
 testCommand :: CommandParser.Command
-testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tests" devGroup CommandParser.noArg parseFlags runCmd
+testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tests" testGroup CommandParser.noArg parseFlags runCmd
   where
     parseFlags = CommandParser.noFlag
     runCmd _ _ =  Ext.Log.withAllBut [Ext.Log.Performance] $ do
@@ -507,7 +510,7 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
 
 -- elm-dev test init
 testInitCommand :: CommandParser.Command
-testInitCommand = CommandParser.command ["test","init"] "Initialize tests: install elm-explorations/test and add Example.elm" devGroup CommandParser.noArg parseFlags runCmd
+testInitCommand = CommandParser.command ["test","init"] "Setup testing" testGroup CommandParser.noArg parseFlags runCmd
   where
     parseFlags = CommandParser.noFlag
     runCmd _ _ = do
@@ -534,7 +537,7 @@ testInitCommand = CommandParser.command ["test","init"] "Initialize tests: insta
 
 -- elm-dev test install <author/project>
 testInstallCommand :: CommandParser.Command
-testInstallCommand = CommandParser.command ["test","install"] "Install a package into test-dependencies" devGroup parseArgs parseFlags runCmd
+testInstallCommand = CommandParser.command ["test","install"] "Install a package into test-dependencies" testGroup parseArgs parseFlags runCmd
   where
     parseArgs = CommandParser.parseArg (CommandParser.arg "author/project")
     parseFlags = CommandParser.noFlag
