@@ -57,7 +57,7 @@ availableTools =
         MCP.call = \args _state -> do
           -- For now, return a simple success message
           -- In practice, this would extract the file path from the state or arguments
-          return $ MCP.ToolCallText "file-read functionality available"
+          return $ MCP.ToolCallResponse [MCP.ToolResponseText Nothing "file-read functionality available"]
       }
   ]
 
@@ -69,14 +69,9 @@ availableResources =
       { MCP.resourceUri = "file://elm.json",
         MCP.resourceName = "Project Configuration",
         MCP.resourceDescription = Just "Elm project configuration file",
-        MCP.resourceMimeType = Just "application/json"
+        MCP.resourceMimeType = Just "application/json",
+        MCP.resourceAnnotations = Nothing
       }
-    -- MCP.Resource
-    --   { resourceUri = "file://src/",
-    --     resourceName = "Source Directory",
-    --     resourceDescription = Just "Elm source code directory",
-    --     resourceMimeType = Just "text/directory"
-    --   }
   ]
 
 -- * Available Prompts

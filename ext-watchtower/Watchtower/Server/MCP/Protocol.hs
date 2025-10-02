@@ -13,6 +13,10 @@ module Watchtower.Server.MCP.Protocol
   , Tool(..)
   , ToolCallRequest(..)
   , ToolContent(..)
+  , Annotations(..)
+  , Audience(..)
+  , Priority(..)
+  , ToolResponseChunk(..)
   , ResourceLinkInfo(..)
   , ResourceEmbeddedInfo(..)
   , ToolCallResponse(..)
@@ -112,6 +116,23 @@ data ToolContent = ToolContent
   }
   deriving stock (Show, Eq, Generic)
 
+-- * Annotations
+
+data Annotations = Annotations
+  { annotationsAudience :: [Audience]
+  , annotationsPriority :: Priority
+  , annotationsLastModified :: Maybe Text
+  }
+  deriving stock (Show, Eq, Generic)
+
+data Audience
+  = AudienceUser
+  | AudienceAssistant
+  deriving stock (Show, Eq, Generic)
+
+data Priority = High | Medium | Low
+  deriving stock (Show, Eq, Generic)
+
 data ResourceLinkInfo = ResourceLinkInfo
   { resourceLinkUri :: Text,
     resourceLinkName :: Text,
@@ -128,14 +149,17 @@ data ResourceEmbeddedInfo = ResourceEmbeddedInfo
   }
   deriving stock (Show, Eq, Generic)
 
-data ToolCallResponse
-  = ToolCallError Text
-  | ToolCallText Text
-  | ToolCallImage Text
-  | ToolCallAudio Text
-  | ToolCallResourceLink ResourceLinkInfo
-  | ToolCallResourceEmbedded ResourceEmbeddedInfo
-  | ToolCallStructured JSON.Value
+data ToolResponseChunk
+  = ToolResponseError (Maybe Annotations) Text
+  | ToolResponseText (Maybe Annotations) Text
+  | ToolResponseImage (Maybe Annotations) Text
+  | ToolResponseAudio (Maybe Annotations) Text
+  | ToolResponseResourceLink (Maybe Annotations) ResourceLinkInfo
+  | ToolResponseResourceEmbedded (Maybe Annotations) ResourceEmbeddedInfo
+  | ToolResponseStructured (Maybe Annotations) JSON.Value
+  deriving stock (Show, Eq, Generic)
+
+data ToolCallResponse = ToolCallResponse [ToolResponseChunk]
   deriving stock (Show, Eq, Generic)
 
 -- * Resource Types
@@ -144,7 +168,8 @@ data Resource = Resource
   { resourceUri :: Text,
     resourceName :: Text,
     resourceDescription :: Maybe Text,
-    resourceMimeType :: Maybe Text
+    resourceMimeType :: Maybe Text,
+    resourceAnnotations :: Maybe Annotations
   }
   deriving stock (Show, Eq, Generic)
 
@@ -156,7 +181,8 @@ data ReadResourceRequest = ReadResourceRequest
 data ResourceContent = ResourceContent
   { resourceContentUri :: Text,
     resourceContentMimeType :: Text,
-    resourceContentText :: Text
+    resourceContentText :: Text,
+    resourceContentAnnotations :: Maybe Annotations
   }
   deriving stock (Show, Eq, Generic)
 
@@ -188,6 +214,32 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "impl"} ''Implementation)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "init"} ''InitializeRequest)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "response"} ''InitializeResponse)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "annotations", omitNothingFields = True} ''Annotations)
+
+instance JSON.ToJSON Audience where
+  toJSON a = case a of
+    AudienceUser -> JSON.String "user"
+    AudienceAssistant -> JSON.String "assistant"
+
+instance JSON.FromJSON Audience where
+  parseJSON = JSON.withText "Audience" $ \t -> case Text.toLower t of
+    "user" -> pure AudienceUser
+    "assistant" -> pure AudienceAssistant
+    _ -> fail "Audience must be 'user' or 'assistant'"
+
+instance JSON.ToJSON Priority where
+  toJSON p = case p of
+    High -> JSON.toJSON (0.9 :: Double)
+    Medium -> JSON.toJSON (0.7 :: Double)
+    Low -> JSON.toJSON (0.5 :: Double)
+
+instance JSON.FromJSON Priority where
+  parseJSON = JSON.withScientific "Priority" $ \s -> case s of
+    0.9 -> pure High
+    0.7 -> pure Medium
+    0.5 -> pure Low
+    _ -> pure Low
+
 
 instance JSON.ToJSON Tool where
   toJSON tool =
@@ -204,88 +256,81 @@ instance JSON.ToJSON Tool where
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "callTool", omitNothingFields = True} ''ToolCallRequest)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "toolContent"} ''ToolContent)
 
-toToolError :: [JSON.Value] -> JSON.Value
-toToolError content =
-  JSON.object
-    [ "isError" .= True,
-      "content" .= content
-    ]
+encodeChunk :: ToolResponseChunk -> JSON.Value
+encodeChunk chunk = case chunk of
+  ToolResponseError ann msg ->
+    JSON.object
+      ( [ "type" .= ("text" :: Text)
+        , "text" .= msg
+        ] ++ maybe [] (\a -> ["annotations" .= a]) ann
+      )
+  ToolResponseText ann txt ->
+    JSON.object (["type" .= ("text" :: Text), "text" .= txt] ++ maybe [] (\a -> ["annotations" .= a]) ann)
+  ToolResponseImage ann img ->
+    JSON.object
+      ( [ "type" .= ("image" :: Text)
+        , "mimeType" .= ("image/png" :: Text)
+        , "data" .= img
+        ] ++ maybe [] (\a -> ["annotations" .= a]) ann
+      )
+  ToolResponseAudio ann audio ->
+    JSON.object
+      ( [ "type" .= ("audio" :: Text)
+        , "mimeType" .= ("audio/wav" :: Text)
+        , "data" .= audio
+        ] ++ maybe [] (\a -> ["annotations" .= a]) ann
+      )
+  ToolResponseResourceLink ann linkInfo ->
+    let baseFields =
+          [ "type" .= ("resource_link" :: Text)
+          , "uri" .= resourceLinkUri linkInfo
+          , "name" .= resourceLinkName linkInfo
+          ]
+        descField = case resourceLinkDescription linkInfo of
+          Just desc -> ["description" .= desc]
+          Nothing -> []
+        mimeField = case resourceLinkMimeType linkInfo of
+          Just mime -> ["mimeType" .= mime]
+          Nothing -> []
+        annField = case ann of
+          Just a -> ["annotations" .= a]
+          Nothing -> []
+    in JSON.object (baseFields ++ descField ++ mimeField ++ annField)
+  ToolResponseResourceEmbedded ann embeddedInfo ->
+    JSON.object
+      ( [ "type" .= ("resource_embedded" :: Text)
+        , "uri" .= resourceEmbeddedUri embeddedInfo
+        , "title" .= resourceEmbeddedTitle embeddedInfo
+        , "mimeType" .= resourceEmbeddedMimeType embeddedInfo
+        , "text" .= resourceEmbeddedText embeddedInfo
+        ] ++ maybe [] (\a -> ["annotations" .= a]) ann
+      )
+  ToolResponseStructured ann val ->
+    JSON.object
+      ( [ "type" .= ("structured" :: Text)
+        , "content" .= Data.Text.Encoding.decodeUtf8 (LBS.toStrict (JSON.encode val))
+        ] ++ maybe [] (\a -> ["annotations" .= a]) ann
+      )
 
-toToolContent :: [JSON.Value] -> JSON.Value
-toToolContent content =
-  JSON.object
-    [ "isError" .= False,
-      "content" .= content
-    ]
-
-toToolStructured :: JSON.Value -> [JSON.Value] -> JSON.Value
-toToolStructured structured content =
-  JSON.object
-    [ "content" .= content,
-      "structuredContent" .= structured
-    ]
+isErrorChunk :: ToolResponseChunk -> Bool
+isErrorChunk chunk = case chunk of
+  ToolResponseError _ _ -> True
+  _ -> False
 
 instance JSON.ToJSON ToolCallResponse where
-  toJSON response = case response of
-    ToolCallError msg ->
-      toToolError
-        [ JSON.object
-          [ "type" .= ("text" :: Text),
-            "text" .= msg
-          ]
-        ]
-    ToolCallText txt ->
-      toToolContent [JSON.object ["type" .= ("text" :: Text), "text" .= txt]]
-    ToolCallImage img ->
-      toToolContent
-        [JSON.object
-          [ "type" .= ("image" :: Text),
-            "mimeType" .= ("image/png" :: Text),
-            "data" .= img
-          ]
-        ]
-    ToolCallAudio audio ->
-      toToolContent
-        [ JSON.object
-            [ "type" .= ("audio" :: Text),
-              "mimeType" .= ("audio/wav" :: Text),
-              "data" .= audio
-           ]
-        ]
-    ToolCallResourceLink linkInfo ->
-      let baseFields =
-            [ "type" .= ("resource_link" :: Text),
-              "uri" .= resourceLinkUri linkInfo,
-              "name" .= resourceLinkName linkInfo
-            ]
-          descField = case resourceLinkDescription linkInfo of
-            Just desc -> ["description" .= desc]
-            Nothing -> []
-          mimeField = case resourceLinkMimeType linkInfo of
-            Just mime -> ["mimeType" .= mime]
-            Nothing -> []
-      in toToolContent [JSON.object (baseFields ++ descField ++ mimeField)]
-    ToolCallResourceEmbedded embeddedInfo ->
-      toToolContent
-        [JSON.object
-          [ "type" .= ("resource_embedded" :: Text),
-            "uri" .= resourceEmbeddedUri embeddedInfo,
-            "title" .= resourceEmbeddedTitle embeddedInfo,
-            "mimeType" .= resourceEmbeddedMimeType embeddedInfo,
-            "text" .= resourceEmbeddedText embeddedInfo
-          ]
-        ]
-    ToolCallStructured val ->
-      toToolStructured val 
-        [ JSON.object
-            [ "type" .= ("structured" :: Text),
-              "content" .= Data.Text.Encoding.decodeUtf8 (LBS.toStrict (JSON.encode val))
-            ]
-        ]
+  toJSON (ToolCallResponse chunks) =
+    let contentBlocks = fmap encodeChunk chunks
+        hasError = any isErrorChunk chunks
+        baseFields = ["content" .= contentBlocks]
+        errorField = ["isError" .= hasError]
+        structuredField = case chunks of
+          [ToolResponseStructured _ val] -> ["structuredContent" .= val]
+          _ -> []
+    in JSON.object (baseFields ++ errorField ++ structuredField)
 
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resource", omitNothingFields = True} ''Resource)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "readResource"} ''ReadResourceRequest)
-$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resourceContent"} ''ResourceContent)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resourceContent", omitNothingFields = True} ''ResourceContent)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "readResource"} ''ReadResourceResponse)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "promptArg", omitNothingFields = True} ''PromptArgument)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "prompt", omitNothingFields = True} ''Prompt)
@@ -338,7 +383,7 @@ serve tools resources prompts _state _emit req@(JSONRPC.Request _ reqId method p
                   response <- call tool' args _state
                   return $ success reqId (JSON.toJSON response)
                 [] -> do
-                  let response = ToolCallError ("Unknown tool: " <> toolName')
+                  let response = ToolCallResponse [ToolResponseError Nothing ("Unknown tool: " <> toolName')]
                   return $ success reqId (JSON.toJSON response)
             JSON.Error e -> return $ err reqId ("Invalid tool call request: " ++ e)
         Nothing -> return $ err reqId "Missing parameters for tools/call"
@@ -355,7 +400,8 @@ serve tools resources prompts _state _emit req@(JSONRPC.Request _ reqId method p
                           [ ResourceContent
                               { resourceContentUri = readResourceUri readReq,
                                 resourceContentMimeType = "text/plain",
-                                resourceContentText = "Resource content would be loaded here"
+                                resourceContentText = "Resource content would be loaded here",
+                                resourceContentAnnotations = Nothing
                               }
                           ]
                       }

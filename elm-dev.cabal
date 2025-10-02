@@ -268,6 +268,7 @@ Executable elm-dev
         Watchtower.Server.Run
         Watchtower.Server.JSONRPC
         Watchtower.Server.MCP
+        Watchtower.Server.MCP.Protocol
         Watchtower.Server.Dev
         Watchtower.Server.DevWS
         Watchtower.Server.LSP
@@ -285,6 +286,7 @@ Executable elm-dev
         Watchtower.State.Compile
         Watchtower.State.Discover
         Watchtower.State.Project
+        
 
         -- elm-dev
         ElmDevElmVersion
