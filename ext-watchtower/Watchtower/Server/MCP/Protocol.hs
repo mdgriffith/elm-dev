@@ -24,6 +24,8 @@ module Watchtower.Server.MCP.Protocol
   , ReadResourceRequest(..)
   , ResourceContent(..)
   , ReadResourceResponse(..)
+  , markdown
+  , json
   , Prompt(..)
   , PromptArgument(..)
   , serve
@@ -374,6 +376,26 @@ success reqId result =
 err :: JSONRPC.RequestId -> String -> Either JSONRPC.Error JSONRPC.Response
 err reqId str =
   Left (JSONRPC.err reqId (Text.pack str))
+
+-- | Build a markdown ResourceContent for a given request
+markdown :: ReadResourceRequest -> Text -> ResourceContent
+markdown req txt =
+  ResourceContent
+    { resourceContentUri = readResourceUri req
+    , resourceContentMimeType = "text/markdown"
+    , resourceContentText = txt
+    , resourceContentAnnotations = Nothing
+    }
+
+-- | Build a JSON ResourceContent for a given request
+json :: ReadResourceRequest -> JSON.Value -> ResourceContent
+json req val =
+  ResourceContent
+    { resourceContentUri = readResourceUri req
+    , resourceContentMimeType = "application/json"
+    , resourceContentText = Data.Text.Encoding.decodeUtf8 (LBS.toStrict (JSON.encode val))
+    , resourceContentAnnotations = Nothing
+    }
 
 -- * Server
 

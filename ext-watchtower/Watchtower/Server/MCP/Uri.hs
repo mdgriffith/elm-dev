@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Watchtower.Server.MCP.Uri (Pattern, pattern, var, s, PatternMatch, match, renderPattern) where
+module Watchtower.Server.MCP.Uri (Pattern, pattern, var, s, PatternMatch(..), match, renderPattern) where
 
 import qualified Data.Map as Map
 import qualified Data.Text as Text

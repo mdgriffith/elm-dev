@@ -57,6 +57,7 @@ import qualified Watchtower.Server.MCP.Protocol as MCP
 import qualified Watchtower.Server.MCP.Uri as Uri
 import qualified Watchtower.Server.MCP.ProjectLookup as ProjectLookup
 import qualified Watchtower.State.Compile as StateCompile
+import qualified Watchtower.Server.LSP as LSP
 
 
 availableTools :: [MCP.Tool]
@@ -399,103 +400,177 @@ urlToElmModuleName url =
 
 availableResources :: [MCP.Resource]
 availableResources =
-  [ MCP.Resource { MCP.resourceUri = Uri.pattern "elm" [Uri.s "overview"] []
-                 , MCP.resourceName = "Project Overview"
-                 , MCP.resourceDescription = Just "Overview for a project (?root=...)"
-                 , MCP.resourceMimeType = Just "application/json"
-                 , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
-                 , MCP.read = readOverview }
-  , MCP.Resource { MCP.resourceUri = Uri.pattern "file" [Uri.s "architecture"] []
-                 , MCP.resourceName = "Prefab Architecture"
-                 , MCP.resourceDescription = Just "Describes how elm-prefab works"
-                 , MCP.resourceMimeType = Just "text/markdown"
-                 , MCP.resourceAnnotations = Nothing
-                 , MCP.read = readArchitecture }
-  , MCP.Resource { MCP.resourceUri = Uri.pattern "elm" [Uri.s "diagnostics"] ["root"]
-                 , MCP.resourceName = "Diagnostics"
-                 , MCP.resourceDescription = Just "Project diagnostics (?root=...)"
-                 , MCP.resourceMimeType = Just "application/json"
-                 , MCP.resourceAnnotations = Nothing
-                 , MCP.read = readDiagnostics }
-  , MCP.Resource { MCP.resourceUri = Uri.pattern "elm" [Uri.s "diagnostics/file/", Uri.var "path"] ["root"]
-                 , MCP.resourceName = "File Diagnostics"
-                 , MCP.resourceDescription = Just "Diagnostics for a single file (?root=...)"
-                 , MCP.resourceMimeType = Just "application/json"
-                 , MCP.resourceAnnotations = Nothing
-                 , MCP.read = readFileDiagnostics }
-  , MCP.Resource { MCP.resourceUri = Uri.pattern "elm" [Uri.s "graph/module/", Uri.var "Module"] ["root"]
-                 , MCP.resourceName = "Module Graph"
-                 , MCP.resourceDescription = Just "Imports/exports/dependents (?root=...)"
-                 , MCP.resourceMimeType = Just "application/json"
-                 , MCP.resourceAnnotations = Nothing
-                 , MCP.read = readModuleGraph }
-  , MCP.Resource { MCP.resourceUri = Uri.pattern "elm" [Uri.s "docs/package/", Uri.var "pkg"] []
-                 , MCP.resourceName = "Package Docs"
-                 , MCP.resourceDescription = Just "Docs for a package"
-                 , MCP.resourceMimeType = Just "application/json"
-                 , MCP.resourceAnnotations = Nothing
-                 , MCP.read = readPackageDocs }
-  , MCP.Resource { MCP.resourceUri = Uri.pattern "elm" [Uri.s "docs/module/", Uri.var "Module"] ["root"]
-                 , MCP.resourceName = "Module Docs"
-                 , MCP.resourceDescription = Just "Docs for a module"
-                 , MCP.resourceMimeType = Just "application/json"
-                 , MCP.resourceAnnotations = Nothing
-                 , MCP.read = readModuleDocs }
-  , MCP.Resource { MCP.resourceUri = Uri.pattern "elm" [Uri.s "docs/value/", Uri.var "Module", Uri.s ".", Uri.var "name"] ["root"]
-                 , MCP.resourceName = "Value Docs"
-                 , MCP.resourceDescription = Just "Docs for a value"
-                 , MCP.resourceMimeType = Just "application/json"
-                 , MCP.resourceAnnotations = Nothing
-                 , MCP.read = readValueDocs }
-  , MCP.Resource { MCP.resourceUri = Uri.pattern "elm" [Uri.s "tests/status"] ["root"]
-                 , MCP.resourceName = "Test Status"
-                 , MCP.resourceDescription = Just "Status of tests (?root=...)"
-                 , MCP.resourceMimeType = Just "text/plain"
-                 , MCP.resourceAnnotations = Nothing
-                 , MCP.read = readTestStatus }
+  [ resourceOverview
+  , resourceArchitecture
+  , resourceDiagnostics
+  , resourceModuleGraph
+  , resourcePackageDocs
+  , resourceModuleDocs
+  , resourceValueDocs
+  , resourceTestStatus
   ]
+
+-- Toplevel resource values with inline readers
+
+resourceOverview :: MCP.Resource
+resourceOverview =
+  let pat = Uri.pattern "elm" [Uri.s "overview"] []
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Project Overview"
+      , MCP.resourceDescription = Just "Overview for a project (?root=...)"
+      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
+      , MCP.read = \req _state _emit -> do
+          -- Placeholder overview for now
+          let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
+          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      }
+
+resourceArchitecture :: MCP.Resource
+resourceArchitecture =
+  let pat = Uri.pattern "file" [Uri.s "architecture"] []
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Prefab Architecture"
+      , MCP.resourceDescription = Just "Describes how elm-prefab works"
+      , MCP.resourceMimeType = Just "text/markdown"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
+      , MCP.read = \req _state _emit -> do
+          let md = "# Elm Prefab Architecture\n\n(coming soon)"
+          pure (MCP.ReadResourceResponse [ MCP.markdown req md ])
+      }
+
+
+lookupInt :: Map.Map Text Text -> Text -> Maybe Int
+lookupInt queryParams key =
+    case Map.lookup key queryParams of
+        Just t ->
+          case reads (Text.unpack t) of
+            [(i, "")] -> Just i
+            _ -> Nothing
+        Nothing -> Nothing
+
+resolveProject :: Map.Map Text Text -> Live.State -> IO (Either Text Client.ProjectCache)
+resolveProject queryParams state = do
+  let maybeProjectId = lookupInt queryParams "projectId"
+  ProjectLookup.resolveProject maybeProjectId state
+
+
+resourceDiagnostics :: MCP.Resource
+resourceDiagnostics =
+  let pat = Uri.pattern "elm" [Uri.s "diagnostics"] ["projectId"]
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Diagnostics"
+      , MCP.resourceDescription = Just "Project diagnostics (?projectId=...)"
+      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
+      , MCP.read = \req state _emit -> do
+          case Uri.match pat (MCP.readResourceUri req) of
+            Just (Uri.PatternMatch _pathVals queryParams) -> do
+              -- projectFound <- resolveProject queryParams state
+              -- case projectFound of
+              --   Left msg -> do
+              --     let val = JSON.object [ "error" .= msg ]
+              --     pure (MCP.ReadResourceResponse [ MCP.json req val ])
+              --   Right (Client.ProjectCache proj _ _ _ _) -> do
+              --     allInfos <- Client.getAllFileInfos state
+              --     let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.contains p proj) (Map.toList allInfos)
+              --     diagsLists <- mapM (\p -> LSP.getDiagnosticsForUri state (Text.concat ["file://", Text.pack p])) projectFiles
+              --     let items = concat diagsLists
+              --     let val = JSON.object [ "kind" .= ("project" :: Text)
+              --                           , "items" .= items
+              --                           ]
+              --     pure (MCP.ReadResourceResponse [ MCP.json req val ])
+               -- Placeholder
+              let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
+              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+            Nothing -> do
+              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
+              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      }
+
+
+resourceModuleGraph :: MCP.Resource
+resourceModuleGraph =
+  let pat = Uri.pattern "elm" [Uri.s "graph/module/", Uri.var "Module"] []
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Module Graph"
+      , MCP.resourceDescription = Just "Imports/exports/dependents (?root=...)"
+      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
+      , MCP.read = \req _state _emit -> do
+          -- Placeholder
+          let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
+          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      }
+
+resourcePackageDocs :: MCP.Resource
+resourcePackageDocs =
+  let pat = Uri.pattern "elm" [Uri.s "docs/package/", Uri.var "pkg"] []
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Package Docs"
+      , MCP.resourceDescription = Just "Docs for a package"
+      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
+      , MCP.read = \req _state _emit -> do
+          -- Placeholder
+          let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
+          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      }
+
+resourceModuleDocs :: MCP.Resource
+resourceModuleDocs =
+  let pat = Uri.pattern "elm" [Uri.s "docs/module/", Uri.var "Module"] ["root"]
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Module Docs"
+      , MCP.resourceDescription = Just "Docs for a module"
+      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
+      , MCP.read = \req _state _emit -> do
+          -- Placeholder
+          let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
+          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      }
+
+resourceValueDocs :: MCP.Resource
+resourceValueDocs =
+  let pat = Uri.pattern "elm" [Uri.s "docs/value/", Uri.var "Module.name"] []
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Value Docs"
+      , MCP.resourceDescription = Just "Docs for a value"
+      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
+      , MCP.read = \req _state _emit -> do
+          -- Placeholder
+          let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
+          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      }
+
+resourceTestStatus :: MCP.Resource
+resourceTestStatus =
+  let pat = Uri.pattern "elm" [Uri.s "tests/status"] []
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Test Status"
+      , MCP.resourceDescription = Just "Status of tests (?projectId=...)"
+      , MCP.resourceMimeType = Just "text/plain"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Low Nothing)
+      , MCP.read = \req _state _emit -> do
+          pure (MCP.ReadResourceResponse [ MCP.markdown req "Tests: (coming soon)" ])
+      }
 
 -- * Available Prompts
 
 availablePrompts :: [MCP.Prompt]
 availablePrompts = []
 
--- Resource readers (stub implementations for now)
-readOverview :: MCP.ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO MCP.ReadResourceResponse
-readOverview req _ _ = do
-  pure (MCP.ReadResourceResponse [ MCP.ResourceContent (MCP.readResourceUri req) "application/json" "{}" Nothing ])
-
-readArchitecture :: MCP.ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO MCP.ReadResourceResponse
-readArchitecture req _ _ = do
-  pure (MCP.ReadResourceResponse [ MCP.ResourceContent (MCP.readResourceUri req) "text/markdown" "# Elm Prefab Architecture\n\n(coming soon)" Nothing ])
-
-readDiagnostics :: MCP.ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO MCP.ReadResourceResponse
-readDiagnostics req _ _ = do
-  pure (MCP.ReadResourceResponse [ MCP.ResourceContent (MCP.readResourceUri req) "application/json" "{}" Nothing ])
-
-readFileDiagnostics :: MCP.ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO MCP.ReadResourceResponse
-readFileDiagnostics req _ _ = do
-  pure (MCP.ReadResourceResponse [ MCP.ResourceContent (MCP.readResourceUri req) "application/json" "{}" Nothing ])
-
-readModuleGraph :: MCP.ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO MCP.ReadResourceResponse
-readModuleGraph req _ _ = do
-  pure (MCP.ReadResourceResponse [ MCP.ResourceContent (MCP.readResourceUri req) "application/json" "{}" Nothing ])
-
-readPackageDocs :: MCP.ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO MCP.ReadResourceResponse
-readPackageDocs req _ _ = do
-  pure (MCP.ReadResourceResponse [ MCP.ResourceContent (MCP.readResourceUri req) "application/json" "{}" Nothing ])
-
-readModuleDocs :: MCP.ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO MCP.ReadResourceResponse
-readModuleDocs req _ _ = do
-  pure (MCP.ReadResourceResponse [ MCP.ResourceContent (MCP.readResourceUri req) "application/json" "{}" Nothing ])
-
-readValueDocs :: MCP.ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO MCP.ReadResourceResponse
-readValueDocs req _ _ = do
-  pure (MCP.ReadResourceResponse [ MCP.ResourceContent (MCP.readResourceUri req) "application/json" "{}" Nothing ])
-
-readTestStatus :: MCP.ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO MCP.ReadResourceResponse
-readTestStatus req _ _ = do
-  pure (MCP.ReadResourceResponse [ MCP.ResourceContent (MCP.readResourceUri req) "text/plain" "unknown" Nothing ])
+-- (old stub readers removed; read handlers are inline in each resource)
 
 
 -- | Main MCP server handler
