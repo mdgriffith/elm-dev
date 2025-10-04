@@ -1439,62 +1439,63 @@ handleDiagnostic state diagnosticParams = do
   let uri = textDocumentIdentifierUri (documentDiagnosticParamsTextDocument diagnosticParams)
   
   -- Get project caches from state and run compilation
-  result <- case uriToFilePath uri of
-    Nothing -> return $ Right []  -- Invalid URI, return empty diagnostics
+  case uriToFilePath uri of
+    Nothing -> return $ Left "Invalid URI"  -- Invalid URI, return empty diagnostics
     Just filePath -> do
       projectResult <- Watchtower.Live.Client.getExistingProject filePath state
       case projectResult of
-        Left Watchtower.Live.Client.NoProjectsRegistered -> 
-          return $ Right []  -- No projects loaded, return empty diagnostics
-        Left (Watchtower.Live.Client.ProjectNotFound _) -> 
-          return $ Right []  -- File not in any project, return empty diagnostics
-        Right (projectCache, _) -> do
-          -- Read the existing compile result from the project cache instead of re-running compile
-          currentResult <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult projectCache)
-          case currentResult of
-            Watchtower.Live.Client.Success _ -> do
-              return $ Right []
-            Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
-              return $ Right $ extractDiagnosticsFromReactor uri exitReactor
-            Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
-              return $ Right []
-            Watchtower.Live.Client.NotCompiled -> do
-              return $ Right []
+        Left Watchtower.Live.Client.NoProjectsRegistered -> return (Left "No projects registered")
+        Left (Watchtower.Live.Client.ProjectNotFound _) -> return (Left "Project not found")
+        Right (projectCache, _) ->
+          do { diags <- getDiagnosticsForProject state projectCache (Just filePath)
+             ; (localizer_, warns) <- getWarningsForFile state filePath
 
-  case result of
-    Right diagnostics -> do
-      -- Also include per-file unused warnings (grayed/muted via Unnecessary tag)
-      warnDiags <- case uriToFilePath uri of
-        Just path -> do
-          (localizer, warns) <- getWarningsForFile state path
-          pure (concatMap warningToUnusedDiagnostic warns)
-        Nothing -> pure []
-      let allDiags = diagnostics ++ warnDiags
-      let diagnosticsResponse = JSON.object
-            [ "kind" .= ("full" :: Text),
-              "items" .= allDiags
-            ]
-      Ext.Log.log Ext.Log.LSP $ "Diagnostics: " ++ show (length allDiags) 
-      return $ Right diagnosticsResponse
-    Left err -> do 
-      Ext.Log.log Ext.Log.LSP $ "Diagnostics FAILURE: " ++ show err
-      return $ Left err
+             -- Encode as JSON
+             ; let diagnosticsResponse = JSON.object
+                     [ "kind" .= ("full" :: Text)
+                     , "items" .= (diags ++ concatMap warningToUnusedDiagnostic warns)
+                     ]
+             ; return $ Right diagnosticsResponse
+             }
+        
 
--- | Extract diagnostics from Reactor errors, filtering by the requested file URI
-extractDiagnosticsFromReactor :: Text -> Reporting.Exit.Reactor -> [Diagnostic]
-extractDiagnosticsFromReactor uri reactor =
+
+getDiagnosticsForProject :: Live.State -> Watchtower.Live.Client.ProjectCache -> Maybe FilePath -> IO [Diagnostic]
+getDiagnosticsForProject state projectCache maybeFilePath = do
+  
+  currentResult <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult projectCache)
+  Ext.Log.log Ext.Log.LSP $ "READ COMPILE RESULT for " ++ Watchtower.Live.Client.getProjectRoot projectCache
+
+  case currentResult of
+    Watchtower.Live.Client.Success _ -> return []
+    Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
+      Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Reactor), EXTRACTING DIAGNOSTICS"
+      return $ extractDiagnosticsFromReactor maybeFilePath exitReactor
+    Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
+      Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Generation)"
+      return []
+    Watchtower.Live.Client.NotCompiled -> do
+      Ext.Log.log Ext.Log.LSP "COMPILE RESULT NOT COMPILED YET"
+      return []
+
+
+
+
+
+
+-- | Extract diagnostics from Reactor errors, optionally filtering by the requested file URI
+extractDiagnosticsFromReactor :: Maybe FilePath -> Reporting.Exit.Reactor -> [Diagnostic]
+extractDiagnosticsFromReactor maybeFilePathFilter reactor =
   case reactor of
-    Reporting.Exit.ReactorBadBuild (Reporting.Exit.BuildBadModules _root firstModule otherModules) ->
-      let allModules = firstModule : otherModules
-          targetFilePath = uriToFilePath uri
-      in concatMap (moduleErrorsToDiagnostics targetFilePath) allModules
+    Reporting.Exit.ReactorBadBuild (Reporting.Exit.BuildBadModules _root firstModule otherModules) ->    
+      concatMap (moduleErrorsToDiagnostics maybeFilePathFilter) (firstModule : otherModules)
     _ -> []  -- Other reactor errors are not module-specific
 
 -- | Convert a module's errors to diagnostics if it matches the target file
 moduleErrorsToDiagnostics :: Maybe FilePath -> Reporting.Error.Module -> [Diagnostic]
 moduleErrorsToDiagnostics targetFilePath (Reporting.Error.Module _name absolutePath _time source errors) =
   case targetFilePath of
-    Nothing -> []  -- Could not parse URI
+    Nothing -> errorToDiagnostics (Reporting.Render.Code.toSource source) errors
     Just target -> 
       if System.FilePath.normalise absolutePath == System.FilePath.normalise target
         then errorToDiagnostics (Reporting.Render.Code.toSource source) errors
@@ -2147,36 +2148,5 @@ publishDiagnostics uri version diagnostics =
         Nothing -> object base
   in JSONRPC.OutboundNotification (JSONRPC.Notification "2.0" "textDocument/publishDiagnostics" (Just params))
 
--- Compute diagnostics for a given document URI using current compile results and stored warnings
-getDiagnosticsForUri :: Live.State -> Text -> IO [Diagnostic]
-getDiagnosticsForUri state uri = do
-  result <- case uriToFilePath uri of
-    Nothing -> return $ Right []
-    Just filePath -> do
-      projectResult <- Watchtower.Live.Client.getExistingProject filePath state
-      case projectResult of
-        Left Watchtower.Live.Client.NoProjectsRegistered -> return $ Right []
-        Left (Watchtower.Live.Client.ProjectNotFound _) -> return $ Right []
-        Right (projectCache, _) -> do
-          currentResult <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult projectCache)
-          Ext.Log.log Ext.Log.LSP $ "READ COMPILE RESULT for " ++ Watchtower.Live.Client.getProjectRoot projectCache
-          case currentResult of
-            Watchtower.Live.Client.Success _ -> return $ Right []
-            Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
-              Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Reactor), EXTRACTING DIAGNOSTICS"
-              return $ Right $ extractDiagnosticsFromReactor uri exitReactor
-            Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
-              Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Generation)"
-              return $ Right []
-            Watchtower.Live.Client.NotCompiled -> do
-              Ext.Log.log Ext.Log.LSP "COMPILE RESULT NOT COMPILED YET"
-              return $ Right []
-  case result of
-    Right diagnostics -> do
-      warnDiags <- case uriToFilePath uri of
-        Just path -> do
-          (_localizer, warns) <- getWarningsForFile state path
-          pure (concatMap warningToUnusedDiagnostic warns)
-        Nothing -> pure []
-      pure (diagnostics ++ warnDiags)
-    Left _err -> pure []
+
+
