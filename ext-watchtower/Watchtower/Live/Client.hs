@@ -461,7 +461,8 @@ encodeOutgoing out =
               ==> Json.Encode.list
                 ( \(ProjectStatus project success status docs) ->
                     Json.Encode.object
-                      [ "root"
+                      [ "shortId" ==> Json.Encode.int (Ext.Dev.Project._shortId project),
+                        "root"
                           ==> Json.Encode.string
                             ( Json.String.fromChars
                                 (Ext.Dev.Project._root project)
@@ -608,9 +609,10 @@ decodeWatched =
 
 {- Encoding -}
 
-encodeStatus (Ext.Dev.Project.Project root projectRoot entrypoints _srcDirs, js) =
+encodeStatus (Ext.Dev.Project.Project root projectRoot entrypoints _srcDirs shortId, js) =
   Json.Encode.object
-    [ "root" ==> Json.Encode.string (Json.String.fromChars root),
+    [ "shortId" ==> Json.Encode.int shortId,
+      "root" ==> Json.Encode.string (Json.String.fromChars root),
       "projectRoot" ==> Json.Encode.string (Json.String.fromChars projectRoot),
       "entrypoints" ==> Json.Encode.list (Json.Encode.string . Json.String.fromChars) (NE.toList entrypoints),
       "status" ==> js

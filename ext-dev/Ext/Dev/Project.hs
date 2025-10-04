@@ -118,22 +118,23 @@ data Project = Project
   { _root :: FilePath,
     _projectRoot :: FilePath,
     _entrypoints :: NE.List FilePath,
-    _srcDirs :: [FilePath]
+    _srcDirs :: [FilePath],
+    _shortId :: Int
   }
   deriving (Show)
 
 
 
 equal :: Project -> Project -> Bool
-equal (Project root1 _ _ _) (Project root2 _ _ _) =
+equal (Project root1 _ _ _ _) (Project root2 _ _ _ _) =
   root1 == root2
 
 getRoot :: Project -> FilePath
-getRoot (Project root _ _ _) =
+getRoot (Project root _ _ _ _) =
   root
 
 contains :: FilePath -> Project -> Bool
-contains path (Project root _ _ _) =
+contains path (Project root _ _ _ _) =
   root `List.isPrefixOf` path
 
 {- Recursively find files named elm.json.
@@ -219,7 +220,7 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
         Just main -> do
           let srcDirsList = NE.toList (Elm.Outline._app_source_dirs app)
           let absoluteSrcDirsList = map (Elm.Outline.toAbsolute elmJsonRoot) srcDirsList
-          pure (Just (Project elmJsonRoot projectRoot (NE.List main []) absoluteSrcDirsList))
+          pure (Just (Project elmJsonRoot projectRoot (NE.List main []) absoluteSrcDirsList 0))
     Right (Elm.Outline.Pkg pkg) -> do
       Ext.Log.log Ext.Log.Live ("Found package: " <> Elm.Package.toChars (Elm.Outline._pkg_name pkg) <> " at " <> elmJsonRoot)
       case Elm.Outline._pkg_exposed pkg of
@@ -228,13 +229,13 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
               srcDirs = [elmJsonRoot </> "src"]
           in case paths of
                [] -> pure Nothing
-               (x:xs) -> pure (Just (Project elmJsonRoot projectRoot (NE.List x xs) srcDirs))
+               (x:xs) -> pure (Just (Project elmJsonRoot projectRoot (NE.List x xs) srcDirs 0))
         Elm.Outline.ExposedDict dict ->
           let paths = concatMap (\(_, modList) -> rawModuleNameToPackagePath elmJsonRoot <$> modList) dict
               srcDirs = [elmJsonRoot </> "src"]
           in case paths of
                [] -> pure Nothing
-               (x:xs) -> pure (Just (Project elmJsonRoot projectRoot (NE.List x xs) srcDirs))
+               (x:xs) -> pure (Just (Project elmJsonRoot projectRoot (NE.List x xs) srcDirs 0))
     Left err -> do
       Ext.Log.log
           Ext.Log.Live
@@ -278,6 +279,7 @@ decodeProject =
     <*> Json.Decode.field "projectRoot" decodeFilePath
     <*> Json.Decode.field "entrypoints" (Json.Decode.nonEmptyList decodeFilePath "No entrypoints")
     <*> Json.Decode.field "srcDirs" (Json.Decode.list decodeFilePath)
+    <*> Json.Decode.field "shortId" Json.Decode.int
 
 decodeFilePath :: Json.Decode.Decoder x FilePath
 decodeFilePath =
@@ -293,7 +295,7 @@ decodeFilePath =
     <$> (Json.String.toChars <$> Json.Decode.string)
 
 encodeProjectJson :: Project -> Json.Encode.Value
-encodeProjectJson (Project elmJson projectRoot entrypoints srcDirs) =
+encodeProjectJson (Project elmJson projectRoot entrypoints srcDirs _shortId) =
   Json.Encode.object
     [ "root" ==> Json.Encode.string (Json.String.fromChars elmJson),
       "projectRoot" ==> Json.Encode.string (Json.String.fromChars projectRoot),
@@ -304,5 +306,6 @@ encodeProjectJson (Project elmJson projectRoot entrypoints srcDirs) =
       "srcDirs"
         ==> Json.Encode.list
           (Json.Encode.string . Json.String.fromChars)
-          srcDirs
+          srcDirs,
+      "shortId" ==> Json.Encode.int _shortId
     ]

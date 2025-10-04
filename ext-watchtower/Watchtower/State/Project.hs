@@ -33,7 +33,7 @@ updateProjectIfNecessary :: Client.ProjectCache -> CompileHelpers.Flags -> NE.Li
 updateProjectIfNecessary existingProjectCache newFlags providedEntrypoints =
   case existingProjectCache of
     Client.ProjectCache proj docsInfo0 oldFlags mCompileResult mTestResults ->
-      let Ext.Dev.Project.Project root0 projectRoot0 existingEntrypoints srcDirs0 = proj
+      let Ext.Dev.Project.Project root0 projectRoot0 existingEntrypoints srcDirs0 shortId0 = proj
       in if oldFlags == newFlags && entrypointsIncluded providedEntrypoints existingEntrypoints
            then Nothing
            else
@@ -41,7 +41,7 @@ updateProjectIfNecessary existingProjectCache newFlags providedEntrypoints =
                  providedList = NE.toList providedEntrypoints
                  extras = List.filter (\p -> not (List.elem p existingList)) providedList
                  combinedEntrypoints = NE.append extras existingEntrypoints
-                 updatedProj = Ext.Dev.Project.Project root0 projectRoot0 combinedEntrypoints srcDirs0
+                 updatedProj = Ext.Dev.Project.Project root0 projectRoot0 combinedEntrypoints srcDirs0 shortId0
              in Just (Client.ProjectCache updatedProj docsInfo0 newFlags mCompileResult mTestResults)
 
 {-
@@ -72,7 +72,8 @@ upsertVirtual state@(Client.State mClients mProjects _ _ _) flags root entrypoin
           let srcDirsList = NE.toList (Elm.Outline._app_source_dirs appOutline)
           pure (map (Elm.Outline.toAbsolute virtualRoot) srcDirsList)
         _ -> pure []
-      let newProject = Ext.Dev.Project.Project virtualRoot virtualRoot (NE.List entrypoint []) srcDirs
+      -- Preserve a stable shortId for virtual projects by reusing an existing id if present, otherwise 0 (will be set on upsert)
+      let newProject = Ext.Dev.Project.Project virtualRoot virtualRoot (NE.List entrypoint []) srcDirs 0
       mCompileResult <- STM.newTVarIO Client.NotCompiled
       mTestResults <- STM.newTVarIO Nothing
       let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults
@@ -143,7 +144,13 @@ upsert state@(Client.State mClients mProjects _ _ _) flags root entrypoints = do
       pure (map (Elm.Outline.toAbsolute root) srcDirsList)
     Right (Elm.Outline.Pkg _) -> pure [root </> "src"]
     Left _ -> pure []
-  let newProject = Ext.Dev.Project.Project root root normalizedEntrypoints srcDirs 
+  -- Assign a stable shortId based on existing projects; reuse if matching project exists, else next available
+  existingProjects <- STM.readTVarIO mProjects
+  let existingIds = map (Ext.Dev.Project._shortId . (\(Client.ProjectCache p _ _ _ _) -> p)) existingProjects
+  let nextId = case existingIds of
+                 [] -> 1
+                 _  -> (maximum existingIds) + 1
+  let newProject = Ext.Dev.Project.Project root root normalizedEntrypoints srcDirs nextId 
   mCompileResult <- STM.newTVarIO Client.NotCompiled
   mTestResults <- STM.newTVarIO Nothing
   let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults

@@ -27,7 +27,7 @@ import qualified Watchtower.Server.DevWS as DevWS
 
 
 compile :: Client.State -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compile state@(Client.State _ _ mFileInfo mPackages _) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs) docsInfo flags mCompileResult _) files = do
+compile state@(Client.State _ _ mFileInfo mPackages _) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run

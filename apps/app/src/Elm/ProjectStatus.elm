@@ -27,7 +27,8 @@ successful statuses =
 
 
 type alias Project =
-    { root : String
+    { shortId : Int
+    , root : String
     , projectRoot : String
     , entrypoints : List String
     , status : Status
@@ -121,7 +122,8 @@ inEditor file editor =
 
 decodeProject : Decode.Decoder Project
 decodeProject =
-    Decode.map4 Project
+    Decode.map5 Project
+        (Decode.field "shortId" Decode.int)
         (Decode.field "root" Decode.string)
         (Decode.field "projectRoot" Decode.string)
         (Decode.field "entrypoints" (Decode.list Decode.string))
