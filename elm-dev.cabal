@@ -274,6 +274,7 @@ Executable elm-dev
         Watchtower.Server.Dev
         Watchtower.Server.DevWS
         Watchtower.Server.LSP
+        Watchtower.Server.LSP.Protocol
         Watchtower.Server.Daemon
         Watchtower.Server.Proxy
 
