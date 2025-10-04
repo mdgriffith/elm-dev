@@ -32,6 +32,7 @@ module Watchtower.Server.MCP.Protocol
 import Data.Aeson ((.=))
 import qualified Data.Aeson as JSON
 import Data.Aeson.TH
+import Data.List (find)
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -40,6 +41,7 @@ import qualified Ext.Common
 import GHC.Generics
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
+import qualified Watchtower.Server.MCP.Uri as Uri
 
 -- * MCP Core Types
 
@@ -82,7 +84,7 @@ data Tool = Tool
     toolDescription :: Text,
     toolInputSchema :: JSON.Value,
     toolOutputSchema :: Maybe JSON.Value,
-    call :: JSON.Object -> Live.State -> IO ToolCallResponse
+    call :: JSON.Object -> Live.State -> JSONRPC.EventEmitter -> IO ToolCallResponse
   }
 
 instance Show Tool where
@@ -165,13 +167,31 @@ data ToolCallResponse = ToolCallResponse [ToolResponseChunk]
 -- * Resource Types
 
 data Resource = Resource
-  { resourceUri :: Text,
+  { resourceUri :: Uri.Pattern,
     resourceName :: Text,
     resourceDescription :: Maybe Text,
     resourceMimeType :: Maybe Text,
-    resourceAnnotations :: Maybe Annotations
+    resourceAnnotations :: Maybe Annotations,
+    read :: ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO ReadResourceResponse
   }
-  deriving stock (Show, Eq, Generic)
+  deriving stock (Generic)
+
+instance Show Resource where
+  show r =
+    "Resource { resourceUri = " ++ show (Uri.renderPattern (resourceUri r))
+      ++ ", resourceName = " ++ show (resourceName r)
+      ++ ", resourceDescription = " ++ show (resourceDescription r)
+      ++ ", resourceMimeType = " ++ show (resourceMimeType r)
+      ++ ", resourceAnnotations = " ++ show (resourceAnnotations r)
+      ++ ", read = <function> }"
+
+instance Eq Resource where
+  a == b =
+    Uri.renderPattern (resourceUri a) == Uri.renderPattern (resourceUri b)
+      && resourceName a == resourceName b
+      && resourceDescription a == resourceDescription b
+      && resourceMimeType a == resourceMimeType b
+      && resourceAnnotations a == resourceAnnotations b
 
 data ReadResourceRequest = ReadResourceRequest
   { readResourceUri :: Text
@@ -328,7 +348,15 @@ instance JSON.ToJSON ToolCallResponse where
           _ -> []
     in JSON.object (baseFields ++ errorField ++ structuredField)
 
-$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resource", omitNothingFields = True} ''Resource)
+-- Custom ToJSON instance for Resource to omit function field
+instance JSON.ToJSON Resource where
+  toJSON r = JSON.object $
+    [ "uri" .= Uri.renderPattern (resourceUri r)
+    , "name" .= resourceName r
+    ]
+    ++ maybe [] (\d -> ["description" .= d]) (resourceDescription r)
+    ++ maybe [] (\m -> ["mimeType" .= m]) (resourceMimeType r)
+    ++ maybe [] (\a -> ["annotations" .= a]) (resourceAnnotations r)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "readResource"} ''ReadResourceRequest)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "resourceContent", omitNothingFields = True} ''ResourceContent)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "readResource"} ''ReadResourceResponse)
@@ -350,7 +378,7 @@ err reqId str =
 -- * Server
 
 serve :: [Tool] -> [Resource] -> [Prompt] -> Live.State -> JSONRPC.EventEmitter -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
-serve tools resources prompts _state _emit req@(JSONRPC.Request _ reqId method params) = do
+serve tools resources prompts state emit req@(JSONRPC.Request _ reqId method params) = do
   case Text.unpack method of
     "initialize" -> do
       let initResponse =
@@ -380,7 +408,7 @@ serve tools resources prompts _state _emit req@(JSONRPC.Request _ reqId method p
               case [t | t <- tools, toolName t == toolName' ] of
                 (tool' : _) -> do
                   let args = maybe mempty (\argsVal -> case argsVal of JSON.Object obj -> obj; _ -> mempty) (callToolArguments callReq)
-                  response <- call tool' args _state
+                  response <- call tool' args state emit
                   return $ success reqId (JSON.toJSON response)
                 [] -> do
                   let response = ToolCallResponse [ToolResponseError Nothing ("Unknown tool: " <> toolName')]
@@ -394,18 +422,24 @@ serve tools resources prompts _state _emit req@(JSONRPC.Request _ reqId method p
         Just p -> do
           case JSON.fromJSON p of
             JSON.Success (readReq :: ReadResourceRequest) -> do
-              let response =
-                    ReadResourceResponse
-                      { readResourceContents =
-                          [ ResourceContent
-                              { resourceContentUri = readResourceUri readReq,
-                                resourceContentMimeType = "text/plain",
-                                resourceContentText = "Resource content would be loaded here",
-                                resourceContentAnnotations = Nothing
-                              }
-                          ]
-                      }
-              return $ success reqId (JSON.toJSON response)
+              let matched = [ r | r <- resources, Uri.match (resourceUri r) (readResourceUri readReq) /= Nothing ]
+              case matched of
+                (r:_) -> do
+                  response <- Watchtower.Server.MCP.Protocol.read r readReq state emit
+                  return $ success reqId (JSON.toJSON response)
+                [] -> do
+                  let response =
+                        ReadResourceResponse
+                          { readResourceContents =
+                              [ ResourceContent
+                                  { resourceContentUri = readResourceUri readReq
+                                  , resourceContentMimeType = "text/plain"
+                                  , resourceContentText = "Unknown resource URI"
+                                  , resourceContentAnnotations = Nothing
+                                  }
+                              ]
+                          }
+                  return $ success reqId (JSON.toJSON response)
             JSON.Error e -> return $ err reqId ("Invalid resource read request: " ++ e)
         Nothing -> return $ err reqId "Missing parameters for resources/read"
     "prompts/list" -> do
