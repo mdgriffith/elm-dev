@@ -275,8 +275,10 @@ Executable elm-dev
         Watchtower.Server.DevWS
         Watchtower.Server.LSP
         Watchtower.Server.LSP.Protocol
+        Watchtower.Server.LSP.Helpers
         Watchtower.Server.Daemon
         Watchtower.Server.Proxy
+        
 
         Watchtower.StaticAssets
         Watchtower.Test
