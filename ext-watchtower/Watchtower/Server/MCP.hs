@@ -19,7 +19,9 @@ import Control.Exception (SomeException)
 import qualified Control.Exception as Exception
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
+import qualified Control.Concurrent.STM
 import Data.Aeson ((.=))
+import qualified Data.Name as Name
 import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.Aeson.Key as Key
@@ -32,6 +34,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding
 import qualified Data.Scientific as Scientific
 import qualified Elm.Package as Pkg
+import qualified Elm.Docs as Docs
 import qualified Ext.Common
 import qualified Ext.CompileMode
 import qualified Ext.CompileProxy
@@ -56,8 +59,10 @@ import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.Server.MCP.Protocol as MCP
 import qualified Watchtower.Server.MCP.Uri as Uri
 import qualified Watchtower.Server.MCP.ProjectLookup as ProjectLookup
-import qualified Watchtower.State.Compile as StateCompile
+import qualified Watchtower.State.Compile
 import qualified Watchtower.Server.LSP as LSP
+import qualified Watchtower.Server.LSP.Helpers as Helpers
+import qualified Ext.Encode
 
 
 availableTools :: [MCP.Tool]
@@ -188,7 +193,7 @@ toolCompile = MCP.Tool
       case selection of
         Left msg -> pure (errTxt msg)
         Right projCache -> do
-          compileResult <- StateCompile.compile state projCache []
+          compileResult <- Watchtower.State.Compile.compile state projCache []
           case compileResult of
             Left _ -> pure (errTxt "Compilation failed")
             Right _ -> pure (ok "Compiled successfully")
@@ -452,9 +457,10 @@ lookupInt queryParams key =
         Nothing -> Nothing
 
 resolveProject :: Map.Map Text Text -> Live.State -> IO (Either Text Client.ProjectCache)
-resolveProject queryParams state = do
-  let maybeProjectId = lookupInt queryParams "projectId"
-  ProjectLookup.resolveProject maybeProjectId state
+resolveProject queryParams state =
+  ProjectLookup.resolveProject
+    (lookupInt queryParams "projectId") 
+    state
 
 
 resourceDiagnostics :: MCP.Resource
@@ -469,23 +475,23 @@ resourceDiagnostics =
       , MCP.read = \req state _emit -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch _pathVals queryParams) -> do
-              -- projectFound <- resolveProject queryParams state
-              -- case projectFound of
-              --   Left msg -> do
-              --     let val = JSON.object [ "error" .= msg ]
-              --     pure (MCP.ReadResourceResponse [ MCP.json req val ])
-              --   Right (Client.ProjectCache proj _ _ _ _) -> do
-              --     allInfos <- Client.getAllFileInfos state
-              --     let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.contains p proj) (Map.toList allInfos)
-              --     diagsLists <- mapM (\p -> LSP.getDiagnosticsForUri state (Text.concat ["file://", Text.pack p])) projectFiles
-              --     let items = concat diagsLists
-              --     let val = JSON.object [ "kind" .= ("project" :: Text)
-              --                           , "items" .= items
-              --                           ]
-              --     pure (MCP.ReadResourceResponse [ MCP.json req val ])
-               -- Placeholder
-              let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
-              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+              projectFound <- resolveProject queryParams state
+              case projectFound of
+                Left msg -> do
+                  let val = JSON.object [ "error" .= msg ]
+                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                Right pc@(Client.ProjectCache proj _ _ _ _) -> do
+                  _ <- Watchtower.State.Compile.compile state pc []
+                  allInfos <- Client.getAllFileInfos state
+                  diagErrors <- Helpers.getDiagnosticsForProject state pc Nothing
+                  
+                  let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.contains p proj) (Map.toList allInfos)
+                  warnDiagLists <- mapM (\p -> do { (_loc, warns) <- Helpers.getWarningsForFile state p; pure (concatMap Helpers.warningToUnusedDiagnostic warns) }) projectFiles
+                  let items = diagErrors ++ concat warnDiagLists
+                  let val = JSON.object [ "kind" .= ("project" :: Text)
+                                        , "items" .= items
+                                        ]
+                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
             Nothing -> do
               let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
               pure (MCP.ReadResourceResponse [ MCP.json req val ])
@@ -494,11 +500,11 @@ resourceDiagnostics =
 
 resourceModuleGraph :: MCP.Resource
 resourceModuleGraph =
-  let pat = Uri.pattern "elm" [Uri.s "graph/module/", Uri.var "Module"] []
+  let pat = Uri.pattern "elm" [Uri.s "graph/module/", Uri.var "Module"] ["projectId"]
   in MCP.Resource
       { MCP.resourceUri = pat
       , MCP.resourceName = "Module Graph"
-      , MCP.resourceDescription = Just "Imports/exports/dependents (?root=...)"
+      , MCP.resourceDescription = Just "Imports/exports/dependents (?projectId=...)"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req _state _emit -> do
@@ -516,10 +522,43 @@ resourcePackageDocs =
       , MCP.resourceDescription = Just "Docs for a package"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req _state _emit -> do
-          -- Placeholder
-          let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
-          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      , MCP.read = \req state _emit -> do
+          case Uri.match pat (MCP.readResourceUri req) of
+            Just (Uri.PatternMatch pathVals _q) -> do
+              let mPkgTxt = Map.lookup "pkg" pathVals
+              case mPkgTxt of
+                Nothing -> do
+                  let val = JSON.object [ "error" .= ("missing package" :: Text) ]
+                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                Just pkgTxt -> do
+                  let parts = Text.splitOn "/" pkgTxt
+                  case parts of
+                    [author, project] -> do
+                      let pkgName = Pkg.toName (Utf8.fromChars (Text.unpack author)) (Text.unpack project)
+                      pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+                      case Map.lookup pkgName pkgs of
+                        Nothing -> do
+                          let val = JSON.object
+                                    [ "error" .= ("package not found" :: Text)
+                                    , "package" .= Text.pack (Pkg.toChars pkgName)
+                                    ]
+                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+
+                        Just (Client.PackageInfo { Client.readme = r, Client.packageModules = mods }) -> do
+                          let modulesDocs = [ Client.packageModuleDocs pm | pm <- Map.elems mods ]
+                              val = JSON.object
+                                      [ "kind" .= ("package" :: Text)
+                                      , "package" .= Text.pack (Pkg.toChars pkgName)
+                                      , "readme" .= maybe JSON.Null (JSON.String . Text.pack) r
+                                      , "docs" .= Ext.Encode.docs (Docs.toDict modulesDocs)
+                                      ]
+                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                    _ -> do
+                      let val = JSON.object [ "error" .= ("bad package id" :: Text) ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+            Nothing -> do
+              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
+              pure (MCP.ReadResourceResponse [ MCP.json req val ])
       }
 
 resourceModuleDocs :: MCP.Resource
@@ -531,10 +570,50 @@ resourceModuleDocs =
       , MCP.resourceDescription = Just "Docs for a module"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req _state _emit -> do
-          -- Placeholder
-          let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
-          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      , MCP.read = \req state _emit -> do
+          case Uri.match pat (MCP.readResourceUri req) of
+            Just (Uri.PatternMatch pathVals _q) -> do
+              case Map.lookup "Module" pathVals of
+                Nothing -> do
+                  let val = JSON.object [ "error" .= ("missing module" :: Text) ]
+                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                Just moduleTxt -> do
+                  let wantName = Name.fromChars (Text.unpack moduleTxt)
+                  mLocal <- findLocalModuleDocs state wantName
+                  case mLocal of
+                    Just (fp, m) -> do
+                      let val = JSON.object
+                                [ "kind" .= ("module" :: Text)
+                                , "module" .= moduleTxt
+                                , "path" .= Text.pack fp
+                                , "docs" .= Ext.Encode.docs (Docs.toDict [m])
+                                ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                    Nothing -> do
+                      pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+                      let found = [ (pkg, m)
+                                  | (pkg, Client.PackageInfo { Client.packageModules = mods }) <- Map.toList pkgs
+                                  , Just (Client.PackageModule { Client.packageModuleDocs = m }) <- [Map.lookup wantName mods]
+                                  ]
+                      case found of
+                        (pkgName, m):_ -> do
+                          let pkgUri = Text.concat ["elm://docs/package/", Text.pack (Pkg.toChars pkgName)]
+                          let val = JSON.object
+                                    [ "kind" .= ("module" :: Text)
+                                    , "module" .= moduleTxt
+                                    , "package" .= Text.pack (Pkg.toChars pkgName)
+                                    , "packageResource" .= pkgUri
+                                    , "docs" .= Ext.Encode.docs (Docs.toDict [m])
+                                    ]
+                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                        _ -> do
+                          let val = JSON.object [ "error" .= ("module not found" :: Text)
+                                                , "module" .= moduleTxt
+                                                ]
+                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+            Nothing -> do
+              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
+              pure (MCP.ReadResourceResponse [ MCP.json req val ])
       }
 
 resourceValueDocs :: MCP.Resource
@@ -546,10 +625,59 @@ resourceValueDocs =
       , MCP.resourceDescription = Just "Docs for a value"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req _state _emit -> do
-          -- Placeholder
-          let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
-          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      , MCP.read = \req state _emit -> do
+          case Uri.match pat (MCP.readResourceUri req) of
+            Just (Uri.PatternMatch pathVals _q) -> do
+              case Map.lookup "Module.name" pathVals >>= splitModuleAndValue of
+                Nothing -> do
+                  let val = JSON.object [ "error" .= ("missing module or value" :: Text) ]
+                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                Just (modName, valName) -> do
+                  -- Try local first
+                  mLocal <- findLocalModuleDocs state modName
+                  case mLocal of
+                    Just (fp, m) -> do
+                      let filtered = filterModuleForValue valName m
+                          note = if Map.null (case filtered of Docs.Module _ _ _ _ vs _ -> vs)
+                                 then Just ("value not found in local module" :: Text) else Nothing
+                          base =
+                            [ "module" .= Text.pack (Name.toChars modName)
+                            , "path" .= Text.pack fp
+                            , "docs" .= Ext.Encode.docs (Docs.toDict [filtered])
+                            ]
+                          val = JSON.object (maybe base (\n -> ("note" .= n):base) note)
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                    Nothing -> do
+                      -- packages
+                      pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+                      let found = [ (pkg, m)
+                                  | (pkg, Client.PackageInfo { Client.packageModules = mods }) <- Map.toList pkgs
+                                  , Just (Client.PackageModule { Client.packageModuleDocs = m }) <- [Map.lookup modName mods]
+                                  ]
+                      case found of
+                        (pkgName, m):_ -> do
+                          let filtered = filterModuleForValue valName m
+                              note = if Map.null (case filtered of Docs.Module _ _ _ _ vs _ -> vs)
+                                     then Just ("value not found in package module" :: Text) else Nothing
+                              pkgUri = Text.concat ["elm://docs/package/", Text.pack (Pkg.toChars pkgName)]
+                              base =
+                                [ "module" .= Text.pack (Name.toChars modName)
+                                , "name" .= Text.pack (Name.toChars valName)
+                                , "package" .= Text.pack (Pkg.toChars pkgName)
+                                , "packageResource" .= pkgUri
+                                , "docs" .= Ext.Encode.docs (Docs.toDict [filtered])
+                                ]
+                              val = JSON.object (maybe base (\n -> ("note" .= n):base) note)
+                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                        _ -> do
+                          let val = JSON.object [ "error" .= ("value not found" :: Text)
+                                                , "module" .= Text.pack (Name.toChars modName)
+                                                , "name" .= Text.pack (Name.toChars valName)
+                                                ]
+                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+            Nothing -> do
+              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
+              pure (MCP.ReadResourceResponse [ MCP.json req val ])
       }
 
 resourceTestStatus :: MCP.Resource
@@ -577,3 +705,65 @@ availablePrompts = []
 serve :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
 serve state emitter req = do
   MCP.serve availableTools availableResources availablePrompts state emitter req
+
+
+
+
+
+
+
+-- Docs helpers
+
+
+parsePkgName :: Text -> Maybe Pkg.Name
+parsePkgName t =
+  case Text.splitOn "/" t of
+    [author, project] -> Just (Pkg.toName (Utf8.fromChars (Text.unpack author)) (Text.unpack project))
+    _ -> Nothing
+
+findLocalModuleDocs :: Client.State -> Name.Name -> IO (Maybe (FilePath, Docs.Module))
+findLocalModuleDocs state wantName = do
+  infos <- Client.getAllFileInfos state
+  pure $
+    let matches (_, Client.FileInfo { Client.docs = Just m@(Docs.Module name _ _ _ _ _) }) =
+          name == wantName
+        matches _ = False
+    in case filter matches (Map.toList infos) of
+         ((fp, Client.FileInfo { Client.docs = Just m }):_) -> Just (fp, m)
+         _ -> Nothing
+
+findPackageModuleDocs :: Client.State -> Name.Name -> IO (Maybe (Pkg.Name, Docs.Module))
+findPackageModuleDocs state wantName = do
+  pkgsMap <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+  pure $
+    let findInPkg (pkgName, Client.PackageInfo { Client.packageModules = mods }) =
+          case Map.lookup wantName mods of
+            Just (Client.PackageModule { Client.packageModuleDocs = m }) -> Just (pkgName, m)
+            Nothing -> Nothing
+    in case mapM findInPkg (Map.toList pkgsMap) of
+         Just (x:_) -> Just x
+         _ ->
+           -- manual search
+           let candidates = [ (pkg, m)
+                            | (pkg, Client.PackageInfo { Client.packageModules = mods }) <- Map.toList pkgsMap
+                            , Just (Client.PackageModule m) <- [Nothing] -- placeholder, never matches
+                            ]
+           in Nothing
+
+splitModuleAndValue :: Text -> Maybe (Name.Name, Name.Name)
+splitModuleAndValue t =
+  let parts = Text.splitOn "." t
+  in case parts of
+       [] -> Nothing
+       [_] -> Nothing
+       _ ->
+         let valTxt = last parts
+             modTxt = Text.intercalate "." (init parts)
+         in Just (Name.fromChars (Text.unpack modTxt), Name.fromChars (Text.unpack valTxt))
+
+filterModuleForValue :: Name.Name -> Docs.Module -> Docs.Module
+filterModuleForValue valName (Docs.Module nm comment _unions _aliases values _binops) =
+  let one = case Map.lookup valName values of
+              Just v -> Map.singleton valName v
+              Nothing -> Map.empty
+  in Docs.Module nm comment Map.empty Map.empty one Map.empty

@@ -295,6 +295,7 @@ Executable elm-dev
 
         -- elm-dev
         ElmDevElmVersion
+        Ext.Encode
         Ext.Dev
         Ext.Dev.Help
         Ext.Dev.Docs
