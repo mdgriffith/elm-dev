@@ -15,6 +15,7 @@ module Watchtower.Live.Client
     GetExistingProjectError (..),
     Error (..),
     CompilationResult (..),
+    TestResults (..),
     encodeCompilationResult,
     logFileInfoKeys,
     getAllStatuses,

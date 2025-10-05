@@ -52,6 +52,7 @@ import qualified System.Directory as Dir
 import System.FilePath ((</>))
 import qualified System.Process as Process
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Data.Utf8 as Utf8
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Live.Client as Client
@@ -63,6 +64,7 @@ import qualified Watchtower.State.Compile
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.LSP.Helpers as Helpers
 import qualified Ext.Encode
+import qualified Elm.Details
 
 
 availableTools :: [MCP.Tool]
@@ -507,10 +509,48 @@ resourceModuleGraph =
       , MCP.resourceDescription = Just "Imports/exports/dependents (?projectId=...)"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req _state _emit -> do
-          -- Placeholder
-          let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
-          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      , MCP.read = \req state _emit -> do
+          case Uri.match pat (MCP.readResourceUri req) of
+            Just (Uri.PatternMatch pathVals queryParams) -> do
+              projectFound <- resolveProject queryParams state
+              case projectFound of
+                Left msg -> do
+                  let val = JSON.object [ "error" .= msg ]
+                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                Right (Client.ProjectCache proj _ _ _ _) -> do
+                  case Map.lookup "Module" pathVals of
+                    Nothing -> do
+                      let val = JSON.object [ "error" .= ("missing module" :: Text) ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                    Just moduleTxt -> do
+                      let root = Ext.Dev.Project.getRoot proj
+                      details <- Ext.CompileProxy.loadProject root
+                      let wantName = Name.fromChars (Text.unpack moduleTxt)
+                      let locals = Elm.Details._locals details
+                      let maybeLocal = Map.lookup wantName locals
+                      let importsList = maybe [] Elm.Details._deps maybeLocal
+                      let toObj n =
+                            JSON.object
+                              [ "module" .= Text.pack (Name.toChars n)
+                              , "path" .= maybe JSON.Null (JSON.String . Text.pack) (Ext.Dev.Project.lookupModulePath details n)
+                              ]
+                      let importObjs = map toObj importsList
+                      let dependents = Set.toList (Ext.Dev.Project.importersOf details wantName)
+                      let dependentObjs = map toObj dependents
+                      let modulePath = Ext.Dev.Project.lookupModulePath details wantName
+                      let val = JSON.object
+                                [ "kind" .= ("moduleGraph" :: Text)
+                                , "projectId" .= Ext.Dev.Project._shortId proj
+                                , "root" .= Ext.Dev.Project.getRoot proj
+                                , "module" .= moduleTxt
+                                , "path" .= maybe JSON.Null (JSON.String . Text.pack) modulePath
+                                , "imports" .= importObjs
+                                , "dependents" .= dependentObjs
+                                ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+            Nothing -> do
+              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
+              pure (MCP.ReadResourceResponse [ MCP.json req val ])
       }
 
 resourcePackageDocs :: MCP.Resource
@@ -682,15 +722,44 @@ resourceValueDocs =
 
 resourceTestStatus :: MCP.Resource
 resourceTestStatus =
-  let pat = Uri.pattern "elm" [Uri.s "tests/status"] []
+  let pat = Uri.pattern "elm" [Uri.s "tests/status"] ["projectId"]
   in MCP.Resource
       { MCP.resourceUri = pat
       , MCP.resourceName = "Test Status"
       , MCP.resourceDescription = Just "Status of tests (?projectId=...)"
-      , MCP.resourceMimeType = Just "text/plain"
+      , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Low Nothing)
-      , MCP.read = \req _state _emit -> do
-          pure (MCP.ReadResourceResponse [ MCP.markdown req "Tests: (coming soon)" ])
+      , MCP.read = \req state _emit -> do
+          case Uri.match pat (MCP.readResourceUri req) of
+            Just (Uri.PatternMatch _pathVals queryParams) -> do
+              projectFound <- resolveProject queryParams state
+              case projectFound of
+                Left msg -> do
+                  let val = JSON.object [ "error" .= msg ]
+                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                Right (Client.ProjectCache proj _ _ _ mResults) -> do
+                  m <- Control.Concurrent.STM.readTVarIO mResults
+                  case m of
+                    Nothing -> do
+                      let val = JSON.object
+                                [ "error" .= ("no test results" :: Text)
+                                , "hint" .= ("Run the test_run tool for this projectId" :: Text)
+                                ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                    Just (Client.TestResults total passed failed failures) -> do
+                      let val = JSON.object
+                                [ "kind"   .= ("tests" :: Text)
+                                , "projectId" .= Ext.Dev.Project._shortId proj
+                                , "root"   .= Ext.Dev.Project.getRoot proj
+                                , "total"  .= total
+                                , "passed" .= passed
+                                , "failed" .= failed
+                                , "failures" .= failures
+                                ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+            Nothing -> do
+              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
+              pure (MCP.ReadResourceResponse [ MCP.json req val ])
       }
 
 -- * Available Prompts
