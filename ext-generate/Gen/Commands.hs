@@ -81,17 +81,11 @@ addPage = CommandParser.command ["add", "page"] "Add a new page" addGroup parseP
       -- Update config
       let updatedConfig =
             configResult
-              { Config.configApp = Just $ case Config.configApp configResult of
-                  Nothing ->
-                    Config.AppConfig
-                      { Config.appPages = Map.singleton (Text.pack name) (Config.PageConfig urlText [] False)
-                      }
-                  Just appConfig ->
-                    appConfig
-                      { Config.appPages = Map.insert (Text.pack name) (Config.PageConfig urlText [] False) (Config.appPages appConfig)
-                      }
+              { Config.configPages = Just $ case Config.configPages configResult of
+                  Nothing -> Map.singleton (Text.pack name) (Config.PageConfig urlText [] False)
+                  Just pagesMap -> Map.insert (Text.pack name) (Config.PageConfig urlText [] False) pagesMap
               }
-      BS.writeFile "elm.generate.json" (Aeson.encodePretty updatedConfig)
+      BS.writeFile "elm.dev.json" (Aeson.encodePretty updatedConfig)
 
 -- putStrLn $ "Created new page: " ++ name
 
@@ -149,7 +143,7 @@ addDocs = CommandParser.command ["add", "docs"] "Add docs site" addGroup Command
           fail "Docs section already exists in config"
         Nothing -> do
           let newConfig = configResult {Config.configDocs = Just Config.defaultDocs}
-          BS.writeFile "elm.generate.json" (Aeson.encodePretty newConfig)
+          BS.writeFile "elm.dev.json" (Aeson.encodePretty newConfig)
           putStrLn "Added docs section to config"
 
 -- Add Theme Command
@@ -166,7 +160,7 @@ addTheme = CommandParser.command ["add", "theme"] "Add a theme" addGroup Command
         Nothing -> do
           -- let newConfig = configResult {Config.configTheme = Just Config.defaultTheme}
           let newConfig = configResult {Config.configTheme = Nothing}
-          BS.writeFile "elm.generate.json" (Aeson.encodePretty newConfig)
+          BS.writeFile "elm.dev.json" (Aeson.encodePretty newConfig)
           putStrLn "Added theme section to config"
 
 -- TYPES

@@ -1,20 +1,14 @@
 {
-    "app": {
-        "pages": {
-            "Home": "/",
-            "Guide": "/guide/*",
-            "Module": "/module/*",
-            "Reference": "/ref",
-            "Package": "/package/*"
-        }
+    "pages": {
+        "Home": "/",
+        "Guide": "/guide/*",
+        "Module": "/module/*",
+        "Reference": "/ref",
+        "Package": "/package/*"
     },
-    "assets": [
-        {
-            "onServer": "assets",
-            "src": "./public"
-        }
-    ],
-    "packageManager": "bun",
+    "assets": {
+        "./public": "assets"
+    },
     "theme": {
         "target": "elm-ui",
         "colors": {

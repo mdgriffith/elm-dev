@@ -8,9 +8,7 @@ module Gen.Config
   ( Config (..),
     PackageManager (..),
     ThemeTarget (..),
-    AppConfig (..),
     PageConfig (..),
-    AssetConfig (..),
     GraphQLConfig (..),
     DocsConfig (..),
     defaultDocs,
@@ -48,9 +46,9 @@ effectTsSrc = "src" </> "js" </> "effect"
 
 -- | Main configuration type
 data Config = Config
-  { configPackageManager :: Maybe PackageManager,
-    configApp :: Maybe AppConfig,
-    configAssets :: Maybe [AssetConfig],
+  { configPages :: Maybe (Map.Map Text PageConfig),
+    -- assets: map from source path -> onServer path
+    configAssets :: Maybe (Map.Map Text Text),
     configTheme :: Maybe Value,
     configGraphQL :: Maybe GraphQLConfig,
     configDocs :: Maybe DocsConfig
@@ -58,45 +56,35 @@ data Config = Config
   deriving (Generic)
 
 instance FromJSON Config where
-  parseJSON = withObject "Config" $ \v ->
-    Config
-      <$> v .:? "packageManager"
-      <*> v .:? "app"
-      <*> v .:? "assets"
-      <*> v .:? "theme"
-      <*> v .:? "graphql"
-      <*> v .:? "docs"
+  parseJSON = withObject "Config" $ \v -> do
+    pages <- v .:? "pages"
+    assetsVal <- (v .:? "assets" :: Parser (Maybe Value))
+    assets <- case assetsVal of
+      Nothing -> pure Nothing
+      Just val -> Just <$> parseAssetsValue val
+    theme <- v .:? "theme"
+    graphql <- v .:? "graphql"
+    docs <- v .:? "docs"
+    pure $ Config pages assets theme graphql docs
 
 instance ToJSON Config where
   toJSON Config {..} =
     object $
       catMaybes
-        [ ("packageManager",) . toJSON <$> configPackageManager,
-          ("app",) . toJSON <$> configApp,
+        [ ("pages",) . toJSON <$> configPages,
           ("assets",) . toJSON <$> configAssets,
           ("theme",) . toJSON <$> configTheme,
           ("graphql",) . toJSON <$> configGraphQL,
           ("docs",) . toJSON <$> configDocs
         ]
 
-data AssetConfig = AssetConfig
-  { assetSrc :: Text,
-    assetOnServer :: Text
-  }
-  deriving (Generic)
 
-instance FromJSON AssetConfig where
-  parseJSON = withObject "AssetConfig" $ \v ->
-    AssetConfig
-      <$> v .: "src"
-      <*> v .: "onServer"
-
-instance ToJSON AssetConfig where
-  toJSON AssetConfig {..} =
-    object
-      [ "src" .= assetSrc,
-        "onServer" .= assetOnServer
-      ]
+parseAssetsValue :: Value -> Parser (Map.Map Text Text)
+parseAssetsValue v =
+  case v of
+    -- Expect: object map { "./public": "assets" }
+    Object _ -> parseJSON v
+    _ -> typeMismatch "assets must be an object map" v
 
 -- data Theme = Theme
 --   { themeTarget :: Maybe ThemeTarget,
@@ -445,21 +433,6 @@ instance ToJSON PageConfig where
                   Just ("redirectFrom" .= pageRedirectFrom)
                 ]
 
-data AppConfig = AppConfig
-  { appPages :: Map.Map Text PageConfig
-  }
-  deriving (Generic)
-
-instance FromJSON AppConfig where
-  parseJSON = withObject "AppConfig" $ \v ->
-    AppConfig
-      <$> v .: "pages"
-
-instance ToJSON AppConfig where
-  toJSON AppConfig {..} =
-    object
-      [ "pages" .= appPages
-      ]
 
 -- -- | Main entry point for parsing configuration
 -- -- parse :: BS.ByteString -> Either String Config

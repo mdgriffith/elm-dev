@@ -174,10 +174,10 @@ toRunConfig cwd config = do
 
   let stores = map (\sid -> Store {storeId = sid}) storeIds
 
-  -- Convert pages from Config.AppConfig
-  let pages = case Config.configApp config of
+  -- Convert pages from top-level Config.configPages
+  let pages = case Config.configPages config of
         Nothing -> []
-        Just appConfig ->
+        Just pageMap ->
           Map.foldrWithKey
             ( \k v acc ->
                 let moduleName = "Page" : map Text.unpack (Text.splitOn "." k)
@@ -200,7 +200,7 @@ toRunConfig cwd config = do
                       : acc
             )
             []
-            (Config.appPages appConfig)
+            pageMap
 
   -- Convert docs
   docs <- case Config.configDocs config of
@@ -230,12 +230,13 @@ toRunConfig cwd config = do
   -- Convert assets
   assets <- case Config.configAssets config of
     Nothing -> return Nothing
-    Just assetConfigs -> do
-      assetGroups <- forM assetConfigs $ \conf -> do
-        let srcPath = Text.unpack (Config.assetSrc conf)
-            serverPath = Text.unpack (Config.assetOnServer conf)
+    Just assetMap -> do
+      let assetList = Map.toList assetMap -- [(src,onServer)]
+      assetGroups <- forM assetList $ \(src,onServer) -> do
+        let srcPath = Text.unpack src
+            serverPath = Text.unpack onServer
             crumbPath = FilePath.splitPath srcPath
-            name = formatAssetName (Config.assetSrc conf)
+            name = formatAssetName src
 
         content <- tryReadFile (cwd FilePath.</> srcPath)
         return

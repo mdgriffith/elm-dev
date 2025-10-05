@@ -34,12 +34,12 @@ data ConfigResult
 
 readConfig :: IO ConfigResult
 readConfig = do
-  exists <- Dir.doesFileExist "elm.generate.json"
+  exists <- Dir.doesFileExist "elm.dev.json"
   if not exists
     then return ConfigNotFound
     else do
-      mtime <- Dir.getModificationTime "elm.generate.json"
-      config <- BSL.readFile "elm.generate.json"
+      mtime <- Dir.getModificationTime "elm.dev.json"
+      config <- BSL.readFile "elm.dev.json"
       case eitherDecodeStrict (BSL.toStrict config) of
         Left err -> return $ ConfigParseError err
         Right cfg -> return $ ConfigFound mtime cfg
@@ -49,9 +49,9 @@ readConfigOrFail = do
   configResult <- readConfig
   case configResult of
     ConfigParseError err ->
-      fail $ "Failed to parse elm.generate.json: " ++ err
+      fail $ "Failed to parse elm.dev.json: " ++ err
     ConfigNotFound ->
-      fail "elm.generate.json not found"
+      fail "elm.dev.json not found"
     ConfigFound _ config ->
       return config
 
@@ -154,7 +154,7 @@ syncPages config = do
   existingPages <- findPageFiles
 
   -- Get configured pages from config
-  let configuredPages = maybe Map.empty Config.appPages (Config.configApp config)
+  let configuredPages = maybe Map.empty id (Config.configPages config)
 
   -- Create missing page files using template
 
@@ -183,7 +183,7 @@ syncPages config = do
   let newPages = foldr addToConfig configuredPages existingPages
 
   -- Return updated config
-  return $ config {Config.configApp = Just $ Config.AppConfig newPages}
+  return $ config {Config.configPages = Just newPages}
   where
     findPageFiles :: IO [FilePath]
     findPageFiles = do

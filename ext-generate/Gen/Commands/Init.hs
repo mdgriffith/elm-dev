@@ -60,27 +60,18 @@ run :: () -> Maybe Config.PackageManager -> IO ()
 run () maybePkgManager = do
   let pkgManager = fromMaybe Config.Bun maybePkgManager
 
-  -- Create elm.generate.json
+  -- Create elm.dev.json
   let defaultConfig =
         Config.Config
-          { Config.configPackageManager = Just pkgManager,
-            Config.configApp =
-              Just $
-                Config.AppConfig
-                  { Config.appPages = Map.singleton "Home" (Config.PageConfig "/" [] False)
-                  },
+          { Config.configPages =
+              Just (Map.singleton "Home" (Config.PageConfig "/" [] False)),
             Config.configAssets =
-              Just
-                [ Config.AssetConfig
-                    { Config.assetSrc = "./public",
-                      Config.assetOnServer = "assets"
-                    }
-                ],
+              Just (Map.fromList [("./public", "assets")]),
             Config.configTheme = Nothing,
             Config.configGraphQL = Nothing,
             Config.configDocs = Nothing
           }
-  BS.writeFile "elm.generate.json" (Aeson.encodePretty defaultConfig)
+  BS.writeFile "elm.dev.json" (Aeson.encodePretty defaultConfig)
 
   -- Create README.md
   TIO.writeFile "README.md" (defaultReadme pkgManager)
@@ -105,7 +96,7 @@ run () maybePkgManager = do
       "typescript"
     ]
 
-  putStrLn "Created elm.generate.json with default configuration"
+  putStrLn "Created elm.dev.json with default configuration"
 
 defaultPackages :: Map.Map Pkg.Name Con.Constraint
 defaultPackages =
