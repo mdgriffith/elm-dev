@@ -9,7 +9,7 @@ import qualified Data.Aeson
 import Data.Aeson.Types
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
-import Data.Char (isAlpha, toUpper)
+import Data.Char (isAlpha, toUpper, toLower)
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.List as List
 import qualified Data.Map as Map
@@ -30,7 +30,7 @@ data RunConfig = RunConfig
   }
   deriving (Generic)
 
-instance FromJSON RunConfig
+
 
 instance ToJSON RunConfig where
   toJSON (RunConfig app_ appView_ docs_ assets_ theme_) =
@@ -129,17 +129,52 @@ instance FromJSON Guide
 
 instance ToJSON Guide
 
+-- | Asset types expected by Elm decoders in Options.Assets
 data AssetGroup = AssetGroup
-  { name :: String,
-    crumbs :: [String],
-    pathOnServer :: String,
-    content :: String
+  { groupName :: String,
+    files :: [AssetFile],
+    fileInfo :: FileInfo
   }
   deriving (Generic)
 
-instance FromJSON AssetGroup
+instance ToJSON AssetGroup where
+  toJSON AssetGroup {..} =
+    object
+      [ "name" .= groupName
+      , "files" .= files
+      , "fileInfo" .= fileInfo
+      ]
 
-instance ToJSON AssetGroup
+data FileInfo = FileInfo
+  { markdown :: MarkdownInfo
+  }
+  deriving (Generic)
+
+instance ToJSON FileInfo
+
+data MarkdownInfo = MarkdownInfo
+  { frontmatter :: Map.Map String String
+  }
+  deriving (Generic)
+
+instance ToJSON MarkdownInfo
+
+data AssetFile = AssetFile
+  { fileName :: String,
+    crumbs :: [String],
+    pathOnServer :: String,
+    content :: Maybe String
+  }
+  deriving (Generic)
+
+instance ToJSON AssetFile where
+  toJSON AssetFile {..} =
+    object
+      [ "name" .= fileName
+      , "crumbs" .= crumbs
+      , "pathOnServer" .= pathOnServer
+      , "content" .= content
+      ]
 
 -- | Format asset source path for name field
 -- 1. Eliminate all leading punctuation and numbers
@@ -232,22 +267,16 @@ toRunConfig cwd config = do
     Nothing -> return Nothing
     Just assetMap -> do
       let assetList = Map.toList assetMap -- [(src,onServer)]
-      assetGroups <- forM assetList $ \(src,onServer) -> do
+      groups <- forM assetList $ \(src,onServer) -> do
         let srcPath = Text.unpack src
             serverPath = Text.unpack onServer
-            crumbPath = FilePath.splitPath srcPath
-            name = formatAssetName src
+            groupName = formatAssetName onServer
+            srcRoot = cwd FilePath.</> srcPath
+        files <- collectAssetFiles srcRoot srcRoot serverPath
+        let fm = MarkdownInfo { frontmatter = Map.empty }
+        return AssetGroup { groupName = groupName, files = files, fileInfo = FileInfo { markdown = fm } }
 
-        content <- tryReadFile (cwd FilePath.</> srcPath)
-        return
-          AssetGroup
-            { name = name,
-              crumbs = filter (not . null) $ map FilePath.dropTrailingPathSeparator crumbPath,
-              pathOnServer = serverPath,
-              content = maybe "" id content
-            }
-
-      return (Just assetGroups)
+      return (Just groups)
 
   return
     RunConfig
@@ -287,3 +316,32 @@ toHash config =
   let jsonBytes = Data.Aeson.encode (toJSON config)
       digest = SHA.sha1 jsonBytes
    in Text.pack (SHA.showDigest digest)
+
+-- | Recursively collect files under a source root, producing AssetFile entries
+collectAssetFiles :: FilePath -> FilePath -> String -> IO [AssetFile]
+collectAssetFiles root current serverBase = do
+  isDir <- Dir.doesDirectoryExist current
+  if not isDir
+    then do
+      isFile <- Dir.doesFileExist current
+      if not isFile
+        then return []
+        else do
+          rel <- pure (FilePath.makeRelative root current)
+          let dirPart = FilePath.takeDirectory rel
+              crumbs =
+                if dirPart == "." || dirPart == ""
+                  then []
+                  else filter (not . null) $ map FilePath.dropTrailingPathSeparator (FilePath.splitPath dirPart)
+              fileName = FilePath.takeBaseName rel
+              pathOnServer = serverBase FilePath.</> rel
+              ext = map toLower (FilePath.takeExtension rel)
+          content <- if ext == ".md" || ext == ".markdown"
+                      then tryReadFile current
+                      else return Nothing
+          return [AssetFile { fileName = fileName, crumbs = crumbs, pathOnServer = pathOnServer, content = content }]
+    else do
+      entries <- Dir.listDirectory current
+      fmap concat $ forM entries $ \e -> do
+        let next = current FilePath.</> e
+        collectAssetFiles root next serverBase
