@@ -1,4 +1,4 @@
-module Generate.Assets exposing (frontmatterParser, generate, trimFrontMatter)
+module Generate.Assets exposing (generate)
 
 {-| -}
 
@@ -7,6 +7,7 @@ import Elm
 import Elm.Annotation as Type
 import Elm.Arg
 import Elm.Case
+import Gen.Dict
 import Markdown.Block
 import Markdown.Parser
 import Options.Assets
@@ -61,17 +62,10 @@ assetRootFile =
                 "Markdown"
                 [ Type.record
                     [ ( "title", Type.string )
-                    , ( "frontmatter"
-                      , Type.record
-                            [ ( "source_", Type.string )
-                            ]
-                      )
                     , ( "headers"
                       , Type.list
                             (Type.record
-                                [ ( "level"
-                                  , Type.int
-                                  )
+                                [ ( "level" , Type.int )
                                 , ( "text", Type.string )
                                 ]
                             )
@@ -251,7 +245,7 @@ encodeContent content =
                 , annotation = Just (Type.named [ "Asset" ] "Content")
                 }
 
-        Markdown { title, headers, frontmatter } ->
+        Markdown { title, headers } ->
             Elm.apply
                 (Elm.value
                     { importFrom = [ "Asset" ]
@@ -262,12 +256,6 @@ encodeContent content =
                 [ Elm.record
                     [ ( "title", Elm.string title )
                     , ( "headers", Elm.list (List.map encodeHeader headers) )
-                    , ( "frontmatter"
-                      , Elm.record
-                            (( "source_", Elm.string frontmatter.source_ )
-                                :: frontmatter.attrs
-                            )
-                      )
                     ]
                 ]
 
@@ -294,10 +282,6 @@ type Content
     | Markdown
         { title : String
         , headers : List ( Int, String )
-        , frontmatter :
-            { source_ : String
-            , attrs : List ( String, Elm.Expression )
-            }
         }
 
 
@@ -327,152 +311,11 @@ toFileInfo group file =
                                 |> Maybe.map Tuple.second
                                 |> Maybe.withDefault file.name
                         , headers = headers
-                        , frontmatter =
-                            getFrontMatterSource group.fileInfo.markdown.frontmatter source
                         }
 
                 else
                     Text
     }
-
-
-getFrontMatterSource :
-    Dict String String
-    -> String
-    ->
-        { source_ : String
-        , attrs : List ( String, Elm.Expression )
-        }
-getFrontMatterSource allowedAttrs source =
-    case Parser.run frontmatterParser source of
-        Err _ ->
-            { source_ = ""
-            , attrs = []
-            }
-
-        Ok frontmatter ->
-            let
-                attrDict =
-                    Dict.fromList frontmatter.attrs
-            in
-            { source_ = trimFrontMatter frontmatter.source_
-            , attrs =
-                Dict.map
-                    (\key _ ->
-                        case Dict.get key attrDict of
-                            Just value ->
-                                value
-
-                            Nothing ->
-                                Elm.string ""
-                    )
-                    allowedAttrs
-                    |> Dict.toList
-            }
-
-
-trimFrontMatter : String -> String
-trimFrontMatter source =
-    source
-        |> dropWhileLeft (\c -> c == '-' || c == '\n')
-        |> dropWhileRight (\c -> c == '-' || c == '\n' || c == '#')
-
-
-dropWhileLeft : (Char -> Bool) -> String -> String
-dropWhileLeft predicate string =
-    case String.uncons string of
-        Just ( c, rest ) ->
-            if predicate c then
-                dropWhileLeft predicate rest
-
-            else
-                string
-
-        Nothing ->
-            string
-
-
-dropWhileRight : (Char -> Bool) -> String -> String
-dropWhileRight predicate string =
-    String.reverse (dropWhileLeft predicate (String.reverse string))
-
-
-frontmatterParser :
-    Parser.Parser
-        { source_ : String
-        , attrs : List ( String, Elm.Expression )
-        }
-frontmatterParser =
-    Parser.mapChompedString
-        (\source attrs ->
-            { source_ = source
-            , attrs = attrs
-            }
-        )
-        frontmatterParserAttributes
-
-
-frontmatterParserAttributes : Parser.Parser (List ( String, Elm.Expression ))
-frontmatterParserAttributes =
-    Parser.succeed identity
-        |. Parser.chompWhile (\c -> c == '-' || c == '\n')
-        |= Parser.loop []
-            (\attrs ->
-                Parser.oneOf
-                    [ Parser.succeed (Parser.Done attrs)
-                        |. Parser.chompIf (\c -> c == '-')
-                        |. Parser.chompWhile (\c -> c == '-')
-                        |. Parser.chompWhile (\c -> c == '\n')
-                    , Parser.succeed (Parser.Loop attrs)
-                        |. Parser.chompIf (\c -> c == '\n')
-                    , Parser.succeed (Parser.Done attrs)
-                        |. Parser.end
-                    , Parser.succeed (Parser.Done attrs)
-                        |. Parser.chompIf (\c -> c == '#')
-                    , Parser.succeed
-                        (\attrName content ->
-                            Parser.Loop (( attrName, Elm.string (String.trim content) ) :: attrs)
-                        )
-                        |= (Parser.chompWhile (\c -> c /= ':' && c /= '\n')
-                                |> Parser.getChompedString
-                           )
-                        |. Parser.spaces
-                        |. Parser.chompWhile (\c -> c == ':')
-                        |. Parser.spaces
-                        |= indentedString
-                    ]
-            )
-
-
-indentedString : Parser.Parser String
-indentedString =
-    Parser.loop ( True, "" )
-        (\( isFirst, str ) ->
-            Parser.oneOf
-                [ if isFirst then
-                    Parser.succeed
-                        (\line -> Parser.Loop ( False, str ++ line ++ "\n" ))
-                        |= (Parser.chompWhile (\c -> c /= '\n')
-                                |> Parser.getChompedString
-                           )
-                        |. Parser.chompIf (\c -> c == '\n')
-
-                  else
-                    Parser.succeed
-                        (\spaces line -> Parser.Loop ( False, str ++ spaces ++ line ++ "\n" ))
-                        |. Parser.chompIf (\c -> c == ' ')
-                        |= (Parser.chompWhile (\c -> c == ' ')
-                                |> Parser.getChompedString
-                           )
-                        |= (Parser.chompWhile (\c -> c /= '\n')
-                                |> Parser.getChompedString
-                           )
-                        |. Parser.chompIf (\c -> c == '\n')
-                , Parser.succeed (Parser.Done ( False, str ))
-                ]
-        )
-        |> Parser.map Tuple.second
-
 
 {-| -}
 toDirectoryEntry : Options.Assets.File -> Elm.Declaration
