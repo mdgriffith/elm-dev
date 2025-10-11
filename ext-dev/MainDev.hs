@@ -49,6 +49,7 @@ import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Json.String
 import qualified Make
+import qualified Install
 import qualified Reporting
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type.Localizer
@@ -68,8 +69,6 @@ import qualified Text.PrettyPrint.ANSI.Leijen as P
 import qualified Text.Read
 import qualified Watchtower.Live
 import qualified Watchtower.Server
-import qualified Watchtower.Server.LSP
-import qualified Watchtower.Server.MCP
 import qualified Watchtower.Server.Run
 import qualified Watchtower.Server.Daemon as Daemon
 import qualified Watchtower.Server.Proxy
@@ -123,17 +122,6 @@ inspectGroup = Just "Inspection"
 devGroup :: Maybe String
 devGroup = Just "Development"
 
--- Command handlers
-serverCommand :: CommandParser.Command
-serverCommand = CommandParser.command ["server"] "Start the Elm Dev server" devGroup CommandParser.noArg parseServerFlags runServer
-  where
-    portFlag = CommandParser.flagWithArg "port" "Port to run the server on" Text.Read.readMaybe
-    parseServerFlags = CommandParser.parseFlag portFlag
-    runServer _ maybePort = do
-      -- Ext.CompileMode.setModeMemory
-      -- Ext.CompileMode.setModeDisk
-      Ext.Log.withAllBut [Ext.Log.Performance] $ Watchtower.Server.serve Nothing (Watchtower.Server.Flags maybePort)
-
 mcpCommand :: CommandParser.Command
 mcpCommand = CommandParser.command ["mcp"] "Start the Elm Dev MCP server" devGroup CommandParser.noArg parseServerFlags runServer
   where
@@ -154,8 +142,6 @@ lspCommand = CommandParser.command ["lsp"] "Start the Elm Dev LSP server" devGro
       let port = Daemon.lspPort info
       Watchtower.Server.Proxy.run host port
 
-
--- moved proxy logic to Watchtower.Server.Proxy
 
 -- Daemon commands
 devServeCommand :: CommandParser.Command
@@ -435,44 +421,49 @@ main = do
   CommandParser.run
     ( \commands givenCommand ->
         -- Show Help
-        let joinArgs [] = ""
-            joinArgs argList = " " ++ Data.List.intercalate " " argList
-
-            -- Filter commands that match the givenCommand prefix
-            filteredCommands =
+       
+        let 
+          joinArgs [] = ""
+          joinArgs argList = " " ++ Data.List.intercalate " " argList
+          
+          header =
               if null givenCommand
-                then commands
-                else filter (\cmd -> Data.List.isPrefixOf givenCommand (CommandParser.cmdName cmd)) commands
-         in unlines
-              [ "",
-                "Welcome to Elm Dev",
-                ""
-              ]
-              ++
-              -- Group commands by their group (if any)
-              let groupedCommands = Data.List.groupBy (\a b -> CommandParser.cmdGroup a == CommandParser.cmdGroup b) filteredCommands
-                  formatCommand (CommandParser.CommandMetadata name argList group desc) =
-                    formatCommandWithEllipsis
-                      ("  elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name) ++ Terminal.Colors.grey (joinArgs argList))
-                      desc
-                  formatGroup cmds = case CommandParser.cmdGroup (head cmds) of
-                    Just group -> ["", group ++ ":", ""] ++ map formatCommand cmds
-                    Nothing -> map formatCommand cmds
-               in concatMap (unlines . formatGroup) groupedCommands
+                then [ "",
+                        "Welcome to Elm Dev",
+                        ""
+                      ]
+                else [ "", 
+                        "I don't recognize " ++ Terminal.Colors.yellow ("elm-dev " ++ Data.List.intercalate " " givenCommand) ++ ".",
+                        "Here's what I know:",
+                        ""
+                      ]
+        in unlines header
+              ++ 
+        -- Group commands by their group (if any)
+        let groupedCommands = Data.List.groupBy (\a b -> CommandParser.cmdGroup a == CommandParser.cmdGroup b) commands
+            formatCommand (CommandParser.CommandMetadata name argList group desc) =
+              formatCommandWithEllipsis
+                ("  elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name) ++ Terminal.Colors.grey (joinArgs argList))
+                desc
+            formatGroup cmds = case CommandParser.cmdGroup (head cmds) of
+              Just group -> ["", group ++ ":", ""] ++ map formatCommand cmds
+              Nothing -> map formatCommand cmds
+          in concatMap (unlines . formatGroup) groupedCommands
     )
     [ Gen.Commands.initialize,
       Gen.Commands.Make.command,
+      installCommand,
       Gen.Commands.addPage,
       Gen.Commands.addStore,
       Gen.Commands.addEffect,
       Gen.Commands.addListener,
       -- Gen.Commands.addDocs,
-      Gen.Commands.addTheme,
+      -- Gen.Commands.addTheme,
       Gen.Commands.customize,
+      
       testCommand,
       testInitCommand,
       testInstallCommand,
-      serverCommand,
       devServeCommand,
       devStartCommand,
       devStopCommand,
@@ -490,6 +481,20 @@ main = do
 
 testGroup :: Maybe String
 testGroup = Just "Testing"
+
+-- elm-dev install <author/project>
+installCommand :: CommandParser.Command
+installCommand = CommandParser.command ["install"] "Install a package" Nothing parseArgs parseFlags runCmd
+  where
+    parseArgs = CommandParser.parseOptionalArg (CommandParser.arg "author/project")
+    parseFlags = CommandParser.noFlag
+    runCmd maybePkgStr _ = do
+      case maybePkgStr of
+        Nothing -> Install.run Install.NoArgs ()
+        Just pkgStr ->
+          case parsePkgName pkgStr of
+            Nothing -> IO.hPutStrLn IO.stderr "Invalid package name. Expected author/project"
+            Just pkg -> Install.run (Install.Install pkg) ()
 
 -- Test command
 testCommand :: CommandParser.Command
@@ -537,7 +542,7 @@ testInitCommand = CommandParser.command ["test","init"] "Setup testing" testGrou
 
 -- elm-dev test install <author/project>
 testInstallCommand :: CommandParser.Command
-testInstallCommand = CommandParser.command ["test","install"] "Install a package into test-dependencies" testGroup parseArgs parseFlags runCmd
+testInstallCommand = CommandParser.command ["test","install"] "Install test dep" testGroup parseArgs parseFlags runCmd
   where
     parseArgs = CommandParser.parseArg (CommandParser.arg "author/project")
     parseFlags = CommandParser.noFlag

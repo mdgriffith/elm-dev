@@ -24,6 +24,7 @@ module CommandParser
     arg,
     argWith,
     parseArg,
+    parseOptionalArg,
     parseArg2,
     parseArgList,
     -- Common args
@@ -250,6 +251,20 @@ parseArg arg =
           (value : rest) ->
             case argParse arg value of
               Just v -> Right (v, parsed {parsedCommands = rest})
+              Nothing -> Left $ "Invalid value for arg: " ++ argName arg
+    )
+
+-- | Parse an optional single argument
+parseOptionalArg :: Arg arg -> ArgParser (Maybe arg)
+parseOptionalArg arg =
+  ArgParser
+    ["[" ++ argName arg ++ "]"]
+    ( \parsed ->
+        case parsedCommands parsed of
+          [] -> Right (Nothing, parsed)
+          (value : rest) ->
+            case argParse arg value of
+              Just v -> Right (Just v, parsed {parsedCommands = rest})
               Nothing -> Left $ "Invalid value for arg: " ++ argName arg
     )
 

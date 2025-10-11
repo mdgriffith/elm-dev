@@ -191,7 +191,7 @@ parseExact target found =
 
 -- CUSTOMIZE COMMAND
 customizeGroup :: Maybe String
-customizeGroup = Just "Move an elm-dev-controlled file into your project"
+customizeGroup = Just "Move an elm-dev-generated file into your project"
 
 customize :: CommandParser.Command
 customize = CommandParser.command ["customize"] "Customize project components" customizeGroup (CommandParser.parseArg (CommandParser.arg "module")) CommandParser.noFlag $ \moduleName () -> do
