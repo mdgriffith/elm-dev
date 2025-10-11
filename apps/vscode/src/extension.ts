@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { log as elmLog, logAndShow } from "./utils/logging";
-import * as LSPClient from "./lsp/client";
-import * as MCPClient from "./mcp/client";
+import * as LSPClient from "./lsp";
+import * as MCPClient from "./mcp";
 
 
 async function setupLsp(context: vscode.ExtensionContext) {

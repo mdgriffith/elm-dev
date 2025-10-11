@@ -8,7 +8,7 @@ import {
   ErrorAction,
   CloseAction,
 } from 'vscode-languageclient/node';
-import { log as elmLog, logAndShow } from '../utils/logging';
+import { log as elmLog, logAndShow } from './utils/logging';
 
 let client: LanguageClient | undefined;
 let isStarting = false;
