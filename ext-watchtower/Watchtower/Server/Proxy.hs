@@ -64,7 +64,9 @@ findProxyPath = do
       let candidate = exeDir Path.</> "elm-dev-proxy"
 #endif
       exists2 <- Dir.doesFileExist candidate
-      if exists2 then pure (Just candidate) else pure Nothing
+      if exists2 then pure (Just candidate) else do
+        -- 3) Fallback: search PATH
+        Dir.findExecutable "elm-dev-proxy"
 
 
 
