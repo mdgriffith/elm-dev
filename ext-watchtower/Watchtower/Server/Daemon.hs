@@ -42,6 +42,9 @@ import qualified Control.Exception as Exception
 
 #if !defined(mingw32_HOST_OS)
 import qualified System.Posix.Process as Posix
+import qualified System.Posix.IO as PosixIO
+import qualified System.Posix.Types as PosixTypes
+import qualified System.Posix.Signals as PosixSig
 #endif
 
 #if defined(mingw32_HOST_OS)
@@ -168,14 +171,28 @@ ensureRunning = do
   case mState of
     Just s -> do
       healthy <- isHealthy s
-      if healthy then pure s else start
-    Nothing -> start
+      if healthy then pure s else withDaemonLock $ do
+        -- Re-check under lock to avoid duplicate spawns
+        m2 <- readState
+        case m2 of
+          Just s2 -> do
+            ok2 <- isHealthy s2
+            if ok2 then pure s2 else start
+          Nothing -> start
+    Nothing -> withDaemonLock $ do
+      -- Double-check under lock in case another process just started it
+      m2 <- readState
+      case m2 of
+        Just s2 -> do
+          ok2 <- isHealthy s2
+          if ok2 then pure s2 else start
+        Nothing -> start
 
 -- | Launch the daemon in the background if not running, wait until state is ready, and return it
 start :: IO StateInfo
 start = do
   exe <- Env.getExecutablePath
-  let cp = (Process.proc exe ["daemon","serve"])
+  let cp = (Process.proc exe ["dev","serve"])
               { Process.std_in = Process.NoStream
               , Process.std_out = Process.NoStream
               , Process.std_err = Process.Inherit
@@ -189,7 +206,7 @@ start = do
         ms <- readState
         case ms of
           Just s -> pure s
-          Nothing -> if n <= 0 then ioError (userError "daemon did not start") else do
+          Nothing -> if n <= 0 then ioError (userError "dev did not start") else do
             Concurrent.threadDelay 200000 -- 200ms
             waitLoop (n - 1)
   waitLoop (50 :: Int)
@@ -199,47 +216,75 @@ serve :: ServeParams -> IO ()
 serve params = do
   IO.hSetBuffering IO.stdout IO.LineBuffering
   IO.hSetBuffering IO.stderr IO.LineBuffering
-  Ext.Log.withAllBut [Ext.Log.Performance, Ext.Log.FileProxy] $ do
-    Ext.CompileMode.setModeMemory
-    let httpUrl = "http://" ++ spDomain params ++ ":" ++ show (spHttpPort params)
-    let wsUrl = "ws://" ++ spDomain params ++ ":" ++ show (spHttpPort params) ++ "/ws"
-    let lspUrl = "tcp://" ++ spDomain params ++ ":" ++ show (spLspPort params)
-    let mcpUrl = "tcp://" ++ spDomain params ++ ":" ++ show (spMcpPort params)
-    live <- DevWS.init (Watchtower.Live.Client.Urls (Just lspUrl) (Just mcpUrl) httpUrl wsUrl)
-    let debug = False
-    _ <- Concurrent.forkIO $ Server.httpServe 
-          (Watchtower.Server.Run.config (spHttpPort params) debug)
-          (DevWS.websocket live 
-            <|> Snap.Core.route (Watchtower.Server.Dev.routes live)
-          )
-    -- Start LSP TCP
-    _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live LSP.serve LSP.handleNotification (spDomain params) (spLspPort params)
-    -- Start MCP TCP
-    _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live MCP.serve (\_ _ _ -> pure ()) (spDomain params) (spMcpPort params)
-    -- Wait until listeners accept connections before writing state
-    let waitReady attempts = do
-          l1 <- canConnect (spDomain params) (spLspPort params)
-          l2 <- canConnect (spDomain params) (spMcpPort params)
-          l3 <- canConnect (spDomain params) (spHttpPort params)
-          if l1 && l2 && l3 then pure () else if attempts <= (0 :: Int)
-            then ioError (userError "daemon failed to start listeners")
-            else do
-              Concurrent.threadDelay 100000 -- 100ms
-              waitReady (attempts - 1)
-    waitReady (100 :: Int)
-    printBanner params
-    now <- fmap show getCurrentTime
-    p <- getPid
-    let st = StateInfo { pid = p, domain = spDomain params, lspPort = spLspPort params, mcpPort = spMcpPort params, httpPort = spHttpPort params, startedAt = now, version = versionString }
-    writeState st
-    -- Block forever
-    let loop = do Concurrent.threadDelay 10000000 >> loop
-    loop
+  path <- stateFilePath
+  Exception.bracket_ (pure ()) (safeRemove path) $ do
+    Ext.Log.withAllBut [Ext.Log.Performance, Ext.Log.FileProxy] $ do
+      Ext.CompileMode.setModeMemory
+      let httpUrl = "http://" ++ spDomain params ++ ":" ++ show (spHttpPort params)
+      let wsUrl = "ws://" ++ spDomain params ++ ":" ++ show (spHttpPort params) ++ "/ws"
+      let lspUrl = "tcp://" ++ spDomain params ++ ":" ++ show (spLspPort params)
+      let mcpUrl = "tcp://" ++ spDomain params ++ ":" ++ show (spMcpPort params)
+      live <- DevWS.init (Watchtower.Live.Client.Urls (Just lspUrl) (Just mcpUrl) httpUrl wsUrl)
+      let debug = False
+      _ <- Concurrent.forkIO $ Server.httpServe 
+            (Watchtower.Server.Run.config (spHttpPort params) debug)
+            (DevWS.websocket live 
+              <|> Snap.Core.route (Watchtower.Server.Dev.routes live)
+            )
+      -- Start LSP TCP
+      _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live LSP.serve LSP.handleNotification (spDomain params) (spLspPort params)
+      -- Start MCP TCP
+      _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live MCP.serve (\_ _ _ -> pure ()) (spDomain params) (spMcpPort params)
+      -- Wait until listeners accept connections before writing state
+      let waitReady attempts = do
+            l1 <- canConnect (spDomain params) (spLspPort params)
+            l2 <- canConnect (spDomain params) (spMcpPort params)
+            l3 <- canConnect (spDomain params) (spHttpPort params)
+            if l1 && l2 && l3 then pure () else if attempts <= (0 :: Int)
+              then ioError (userError "daemon failed to start listeners")
+              else do
+                Concurrent.threadDelay 100000 -- 100ms
+                waitReady (attempts - 1)
+      waitReady (100 :: Int)
+      printBanner params
+      now <- fmap show getCurrentTime
+      p <- getPid
+      let st = StateInfo { pid = p, domain = spDomain params, lspPort = spLspPort params, mcpPort = spMcpPort params, httpPort = spHttpPort params, startedAt = now, version = versionString }
+      writeState st
+      -- Block forever
+      let loop = do Concurrent.threadDelay 10000000 >> loop
+      loop
 
 stop :: IO ()
 stop = do
-  -- Minimal stub; proper stop via PID signaling can be added per-OS
-  pure ()
+  ms <- readState
+  case ms of
+    Nothing -> pure ()
+    Just st -> do
+      alive <- pidAlive (pid st)
+      healthy <- isHealthy st
+      let cleanup = do
+            path <- stateFilePath
+            safeRemove path
+      if not alive && not healthy
+        then cleanup
+        else do
+#if !defined(mingw32_HOST_OS)
+          let pid' = PosixTypes.CPid (fromIntegral (pid st))
+          _ <- (Exception.try (PosixSig.signalProcess PosixSig.sigTERM pid') :: IO (Either IOError ()))
+          _ <- waitForDeath 50 (pid st)
+          stillAlive <- pidAlive (pid st)
+          Monad.when stillAlive $ do
+            _ <- (Exception.try (PosixSig.signalProcess PosixSig.sigKILL pid') :: IO (Either IOError ()))
+            _ <- waitForDeath 25 (pid st)
+            pure ()
+#else
+          let cp = (Process.proc "taskkill" ["/PID", show (pid st), "/T"]) -- gentle; Windows lacks SIGTERM
+          _ <- Process.withCreateProcess cp { Process.std_in = Process.Inherit, Process.std_out = Process.Inherit, Process.std_err = Process.Inherit } $ \_ _ _ ph -> Process.waitForProcess ph >> pure ()
+          -- Wait for ports to close as our best indication of shutdown on Windows
+          _ <- waitPortsClosed st 50
+#endif
+          cleanup
 
 status :: IO (Maybe StateInfo)
 status = readState
@@ -259,9 +304,13 @@ canConnect host port = do
 -- | Basic health check for daemon ports
 isHealthy :: StateInfo -> IO Bool
 isHealthy st = do
-  l <- canConnect "127.0.0.1" (lspPort st)
-  m <- canConnect "127.0.0.1" (mcpPort st)
-  pure (l && m)
+  alive <- pidAlive (pid st)
+  if not alive then pure False else do
+    let host = domain st
+    l <- canConnect host (lspPort st)
+    m <- canConnect host (mcpPort st)
+    h <- canConnect host (httpPort st)
+    pure (l && m && h)
 
 -- Pretty startup banner with colors and service ports
 printBanner :: ServeParams -> IO ()
@@ -282,4 +331,85 @@ printBanner sp = do
   IO.hPutStrLn IO.stderr (yellow (" MCP  ") ++ "  tcp://" ++ host ++ ":" ++ show (spMcpPort sp))
   IO.hPutStrLn IO.stderr ""
 
+
+
+-- | Acquire a simple inter-process lock to serialize daemon startup.
+-- On POSIX, use O_EXCL file creation for atomicity; on other platforms, best-effort fallback.
+withDaemonLock :: IO a -> IO a
+withDaemonLock action = do
+  path <- lockFilePath
+#if !defined(mingw32_HOST_OS)
+  let flags = PosixIO.defaultFileFlags { PosixIO.exclusive = True, PosixIO.trunc = False, PosixIO.noctty = True }
+  let acquire = Exception.try (PosixIO.openFd path PosixIO.WriteOnly (Just 0o600) flags) :: IO (Either IOError PosixTypes.Fd)
+  res <- acquire
+  case res of
+    Right fd -> Exception.bracket (pure fd)
+                                  (\fd' -> PosixIO.closeFd fd' >> safeRemove path)
+                                  (\_ -> action)
+    Left _ -> do
+      -- Another process holds the lock; wait briefly for a healthy daemon
+      _ <- waitForHealthy 50
+      action
+#else
+  -- Fallback without atomic lock; proceed directly
+  action
+#endif
+
+-- | Wait up to N attempts for an existing daemon to become healthy.
+waitForHealthy :: Int -> IO Bool
+waitForHealthy n = do
+  ms <- readState
+  case ms of
+    Just s -> do
+      ok <- isHealthy s
+      if ok then pure True else delayAndRetry
+    Nothing -> delayAndRetry
+  where
+    delayAndRetry = if n <= 0
+      then pure False
+      else do
+        Concurrent.threadDelay 200000 -- 200ms
+        waitForHealthy (n - 1)
+
+safeRemove :: FilePath -> IO ()
+safeRemove p = do
+  e <- Dir.doesFileExist p
+  if e then (Exception.catch (Dir.removeFile p) ignoreIO) else pure ()
+  where
+    ignoreIO :: Exception.IOException -> IO ()
+    ignoreIO _ = pure ()
+
+-- | Best-effort check whether a process with the given PID is alive.
+pidAlive :: Int -> IO Bool
+#if !defined(mingw32_HOST_OS)
+pidAlive p = do
+  let pid' = PosixTypes.CPid (fromIntegral p)
+  res <- Exception.try (PosixSig.signalProcess PosixSig.nullSignal pid') :: IO (Either IOError ())
+  case res of
+    Right _ -> pure True
+    Left _ -> pure False
+#else
+pidAlive _ = pure True
+#endif
+
+-- | Wait up to N attempts (200ms each) for a PID to exit.
+waitForDeath :: Int -> Int -> IO Bool
+waitForDeath n p = do
+  alive <- pidAlive p
+  if not alive then pure True else if n <= 0 then pure False else do
+    Concurrent.threadDelay 200000
+    waitForDeath (n - 1) p
+
+-- | Wait until all daemon ports are closed.
+waitPortsClosed :: StateInfo -> Int -> IO Bool
+waitPortsClosed st n = do
+  let host = domain st
+  l <- canConnect host (lspPort st)
+  m <- canConnect host (mcpPort st)
+  h <- canConnect host (httpPort st)
+  if (not l) && (not m) && (not h)
+    then pure True
+    else if n <= 0 then pure False else do
+      Concurrent.threadDelay 200000
+      waitPortsClosed st (n - 1)
 
