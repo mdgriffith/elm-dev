@@ -8,10 +8,15 @@ import {
   ErrorAction,
   CloseAction,
 } from 'vscode-languageclient/node';
-import { log as elmLog, logAndShow } from './utils/logging';
+import { log as elmLog } from './utils/logging';
+
+// Emit status updates so the extension can show a status indicator when disconnected
+const statusEmitter = new vscode.EventEmitter<{ connected: boolean; error?: string }>();
+export const onStatus = statusEmitter.event;
 
 let client: LanguageClient | undefined;
 let isStarting = false;
+let stopRequested = false;
 
 export async function startLanguageServer(context: vscode.ExtensionContext): Promise<void> {
   elmLog('🔧 startLanguageServer called');
@@ -77,10 +82,15 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
     // Add detailed event listeners
     client.onDidChangeState((event) => {
       elmLog(`🔄 Client state changed: ${State[event.oldState]} → ${State[event.newState]}`);
+      if (event.newState === State.Stopped) {
+        // If not an intentional stop, signal disconnection
+        if (!stopRequested) {
+          statusEmitter.fire({ connected: false, error: 'LSP client stopped unexpectedly' });
+        }
+      }
     });
 
     // Start the client. This will also launch the server
-    logAndShow('🚀 Starting LSP client (calling client.start())...');
     try {
       // Add timeout to avoid hanging indefinitely
       const timeout = new Promise((_, reject) =>
@@ -89,6 +99,7 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
 
       await Promise.race([client.start(), timeout]);
       elmLog('🎉 LSP client started successfully!');
+      statusEmitter.fire({ connected: true });
       vscode.window.showInformationMessage('Elm Dev Language Server started successfully');
     } catch (error) {
       elmLog(`💥 LSP client start failed: ${error}`);
@@ -101,6 +112,7 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
       }
 
       client = undefined; // Clear the client on failure
+      statusEmitter.fire({ connected: false, error: String(error) });
       vscode.window.showErrorMessage(`Failed to start Elm Dev Language Server: ${error}`);
       throw error;
     }
@@ -116,6 +128,7 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
 export async function stopLanguageServer(): Promise<void> {
   if (client) {
     try {
+      stopRequested = true;
       const state = client.state;
       elmLog(`🛑 Stopping LSP client in state: ${State[state]}`);
 
@@ -139,6 +152,7 @@ export async function stopLanguageServer(): Promise<void> {
     } finally {
       client = undefined;
       elmLog('🧹 Client cleared');
+      stopRequested = false;
     }
   }
 }

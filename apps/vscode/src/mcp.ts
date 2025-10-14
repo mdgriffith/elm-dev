@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import { spawn, ChildProcess } from 'child_process';
-import { log as elmLog, logAndShow } from './utils/logging';
+import { log as elmLog } from './utils/logging';
+
+// Emit status updates for MCP so the extension can react
+const statusEmitter = new vscode.EventEmitter<{ connected: boolean; error?: string }>();
+export const onStatus = statusEmitter.event;
 
 let mcpProcess: ChildProcess | undefined;
 let isStarting = false;
@@ -50,17 +54,20 @@ export async function startMCPServer(_context: vscode.ExtensionContext): Promise
     proc.on('error', (error: Error) => {
       elmLog(`💥 MCP process error: ${error.message}`);
       vscode.window.showErrorMessage(`Elm Dev MCP server error: ${error.message}`);
+      statusEmitter.fire({ connected: false, error: error.message });
     });
 
     proc.on('exit', (code: number | null, signal: NodeJS.Signals | null) => {
       elmLog(`🛑 MCP process exited (code: ${code}, signal: ${signal})`);
       mcpProcess = undefined;
+      statusEmitter.fire({ connected: false, error: `MCP exited (code: ${code}, signal: ${signal})` });
     });
 
-    logAndShow('🚀 Elm Dev MCP server starting...');
+    statusEmitter.fire({ connected: true });
   } catch (error) {
     elmLog(`💥 Error starting MCP server: ${error}`);
     vscode.window.showErrorMessage(`Failed to start Elm Dev MCP server: ${error}`);
+    statusEmitter.fire({ connected: false, error: String(error) });
     throw error;
   } finally {
     isStarting = false;

@@ -16,12 +16,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "elm.restartLSP",
-        "title": "Restart Elm Dev LSP Server"
-      },
-      {
-        "command": "elm.restartMCP",
-        "title": "Restart Elm Dev MCP Server"
+        "command": "elm.restart",
+        "title": "Restart Elm Dev (LSP, MCP, Daemon)"
       }
     ],
     "languages": [
