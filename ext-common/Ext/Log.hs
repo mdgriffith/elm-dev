@@ -6,6 +6,8 @@ module Ext.Log
     , isActive
     , ifActive
     , Ext.Log.log
+    , PrintMode(..)
+    , setMode
     , TempChannel(..)
     , logTemp
     , logTempBytes
@@ -179,6 +181,15 @@ envLock = Unsafe.unsafePerformIO $ newMVar ()
 printLock :: MVar ()
 printLock = Unsafe.unsafePerformIO $ newMVar ()
 
+{-# NOINLINE modeVar #-}
+modeVar :: MVar PrintMode
+modeVar = Unsafe.unsafePerformIO $ newMVar Silent
+
+setMode :: PrintMode -> IO ()
+setMode newMode = do
+  _ <- swapMVar modeVar newMode
+  pure ()
+
 with :: [ Flag ] -> IO a ->  IO a
 with flags io = do
   -- Use tryTakeMVar to avoid blocking if we can't get the lock immediately
@@ -200,31 +211,40 @@ withAllBut but io = do
   let flags = List.filter (\flag -> not $ List.elem flag but) Ext.Log.all
   with flags io
 
-
-data PrintMode = StdOut | TempFile
-
-mode :: PrintMode
-mode = StdOut
+data PrintMode = Silent | StdOut | StdErr | TempFile FilePath
 
 log :: Flag -> String -> IO ()
 log flag message = do
   debugM <- Env.lookupEnv (toString flag)
   case debugM of
-    Just _ -> do 
-        withLabels <- isActive WithLabels
-        -- Use tryTakeMVar for printLock as well
-        maybePrintLock <- tryTakeMVar printLock
-        case maybePrintLock of
-          Nothing -> pure () -- Skip printing if we can't get the lock
-          Just _ -> do
-            case mode of
-              StdOut -> do
-                IO.hPutStr IO.stdout ((if withLabels then toLabel flag ++ ": " else "") ++ message ++ "\n")
-                IO.hFlush IO.stdout
-              TempFile -> do
-                appendFile "/tmp/lsp-debug.log" ((if withLabels then toLabel flag ++ ": " else "") ++ message ++ "\n")
-            putMVar printLock () -- Release the lock
+    Just _ -> do
+      mode <- readMVar modeVar
+      case mode of
+        Silent -> pure ()
+        StdOut -> writeWithLock IO.stdout
+        StdErr -> writeWithLock IO.stderr
+        TempFile path -> writeTemp path
     Nothing -> pure ()
+  where
+    writeWithLock handle = do
+      withLabels <- isActive WithLabels
+      maybePrintLock <- tryTakeMVar printLock
+      case maybePrintLock of
+        Nothing -> pure ()
+        Just _ -> do
+          IO.hPutStr handle ((if withLabels then toLabel flag ++ ": " else "") ++ message ++ "\n")
+          IO.hFlush handle
+          putMVar printLock ()
+
+    writeTemp path =
+      withMVar printLock (\_ -> do
+        handle <- IO.openFile path IO.AppendMode
+        IO.hSetBuffering handle IO.NoBuffering
+        IO.hPutStr handle message
+        IO.hPutStr handle "\n"
+        IO.hFlush handle
+        IO.hClose handle
+      )
 
 
 -- Always-on temp-file logging for binary-safe streams (e.g. LSP/MCP proxy)

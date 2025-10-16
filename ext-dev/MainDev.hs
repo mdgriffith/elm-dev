@@ -81,6 +81,7 @@ import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay)
 import qualified Control.Exception as Exception
 import qualified Text.Read as Read
 
+
 parseModuleList :: String -> Maybe (NE.List Elm.ModuleName.Raw)
 parseModuleList str = case Data.Maybe.catMaybes $ fmap parseElmModule (splitOn ',' str) of
   [] -> Nothing
@@ -137,10 +138,8 @@ lspCommand = CommandParser.command ["lsp"] "Start the Elm Dev LSP server" devGro
   where
     parseServerFlags = CommandParser.noFlag
     runServer _ _ = do
-      info <- Daemon.ensureRunning
-      let host = Daemon.domain info
-      let port = Daemon.lspPort info
-      Watchtower.Server.Proxy.run host port
+      info <- Daemon.ensureRunning 
+      Watchtower.Server.Proxy.run (Daemon.domain info) (Daemon.lspPort info)
 
 
 -- Daemon commands
@@ -148,10 +147,17 @@ devServeCommand :: CommandParser.Command
 devServeCommand = CommandParser.command ["dev","serve"] "Run the Elm Dev dev (internal)" devGroup parseArgs parseFlags runCmd
   where
     parseArgs = CommandParser.noArg
-    parseFlags = CommandParser.noFlag
-    runCmd _ _ = do
+    silentFlag = CommandParser.flag "silent" "Do not print startup banner"
+    parseFlags = CommandParser.parseFlag silentFlag
+    runCmd _ maybeSilent = do
+      case maybeSilent of
+        Just True -> Ext.Log.setMode Ext.Log.Silent
+        _ -> Ext.Log.setMode Ext.Log.StdOut
       params <- Daemon.allocateServeParams
       Daemon.serve params
+      case maybeSilent of
+        Just True -> pure ()
+        _ -> Daemon.printBanner params
 
 devStartCommand :: CommandParser.Command
 devStartCommand = CommandParser.command ["dev","start"] "Start dev if not running" devGroup parseArgs parseFlags runCmd

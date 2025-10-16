@@ -9,6 +9,7 @@ module Watchtower.Server.Daemon
   , stop
   , status
   , ensureRunning
+  , printBanner
   , serve
   ) where
 
@@ -192,7 +193,7 @@ ensureRunning = do
 start :: IO StateInfo
 start = do
   exe <- Env.getExecutablePath
-  let cp = (Process.proc exe ["dev","serve"])
+  let cp = (Process.proc exe ["dev","serve","--silent"])
               { Process.std_in = Process.NoStream
               , Process.std_out = Process.NoStream
               , Process.std_err = Process.Inherit
@@ -201,11 +202,15 @@ start = do
 #endif
               }
   _ <- Process.createProcess cp
-  -- Wait for state.json to appear and parse
+  -- Wait for state.json to appear and for services to become healthy
   let waitLoop n = do
         ms <- readState
         case ms of
-          Just s -> pure s
+          Just s -> do
+            ok <- isHealthy s
+            if ok then pure s else if n <= 0 then ioError (userError "dev did not become healthy") else do
+              Concurrent.threadDelay 200000 -- 200ms
+              waitLoop (n - 1)
           Nothing -> if n <= 0 then ioError (userError "dev did not start") else do
             Concurrent.threadDelay 200000 -- 200ms
             waitLoop (n - 1)
@@ -246,7 +251,6 @@ serve params = do
                 Concurrent.threadDelay 100000 -- 100ms
                 waitReady (attempts - 1)
       waitReady (100 :: Int)
-      printBanner params
       now <- fmap show getCurrentTime
       p <- getPid
       let st = StateInfo { pid = p, domain = spDomain params, lspPort = spLspPort params, mcpPort = spMcpPort params, httpPort = spHttpPort params, startedAt = now, version = versionString }
@@ -323,13 +327,13 @@ printBanner sp = do
         , cyan "                Elm Dev Server"
         , ""
         ]
-  mapM_ (IO.hPutStrLn IO.stderr) logo
+  mapM_ (IO.hPutStrLn IO.stdout) logo
   let host = spDomain sp
-  IO.hPutStrLn IO.stderr (yellow (" HTTP ") ++ " http://" ++ host ++ ":" ++ show (spHttpPort sp) ++ grey "  (dev server)")
-  IO.hPutStrLn IO.stderr (yellow (" WS   ") ++ "   ws://" ++ host ++ ":" ++ show (spHttpPort sp) ++ "/ws")
-  IO.hPutStrLn IO.stderr (yellow (" LSP  ") ++ "  tcp://" ++ host ++ ":" ++ show (spLspPort sp))
-  IO.hPutStrLn IO.stderr (yellow (" MCP  ") ++ "  tcp://" ++ host ++ ":" ++ show (spMcpPort sp))
-  IO.hPutStrLn IO.stderr ""
+  IO.hPutStrLn IO.stdout (yellow (" HTTP ") ++ " http://" ++ host ++ ":" ++ show (spHttpPort sp) ++ grey "  (dev server)")
+  IO.hPutStrLn IO.stdout (yellow (" WS   ") ++ "   ws://" ++ host ++ ":" ++ show (spHttpPort sp) ++ "/ws")
+  IO.hPutStrLn IO.stdout (yellow (" LSP  ") ++ "  tcp://" ++ host ++ ":" ++ show (spLspPort sp))
+  IO.hPutStrLn IO.stdout (yellow (" MCP  ") ++ "  tcp://" ++ host ++ ":" ++ show (spMcpPort sp))
+  IO.hPutStrLn IO.stdout ""
 
 
 
