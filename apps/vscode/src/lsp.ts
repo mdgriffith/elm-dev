@@ -3,7 +3,6 @@ import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
-  TransportKind,
   State,
   ErrorAction,
   CloseAction,
@@ -18,10 +17,8 @@ let client: LanguageClient | undefined;
 let isStarting = false;
 let stopRequested = false;
 
+
 export async function startLanguageServer(context: vscode.ExtensionContext): Promise<void> {
-  elmLog('🔧 startLanguageServer called');
-  elmLog(`  isStarting: ${isStarting}`);
-  elmLog(`  client state: ${client?.state ? State[client.state] : 'undefined'}`);
 
   // Prevent multiple simultaneous start attempts
   if (isStarting) {
@@ -46,13 +43,12 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
 
     elmLog('🏗️ Creating LSP client...');
 
-    // The server is implemented as a separate process
+    // Let the language client spawn the server as an executable using stdio transport
     const serverOptions: ServerOptions = {
-      run: { command: 'elm-dev', args: ['lsp'], transport: TransportKind.stdio },
-      debug: { command: 'elm-dev', args: ['lsp'], transport: TransportKind.stdio }
+      run: { command: 'elm-dev', args: ['lsp'], options: { env: process.env } },
+      debug: { command: 'elm-dev', args: ['lsp'], options: { env: process.env } },
     };
 
-    // Options to control the language client
     const clientOptions: LanguageClientOptions = {
       // Register the server for Elm files
       documentSelector: [{ scheme: 'file', language: 'elm' }],
@@ -70,18 +66,16 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
     };
 
     // Create the language client
-    elmLog('📦 Creating LanguageClient instance...');
     client = new LanguageClient(
       'elmDevLanguageServer',
       'Elm Dev Language Server',
       serverOptions,
       clientOptions
     );
-    elmLog('✅ LanguageClient instance created');
 
     // Add detailed event listeners
     client.onDidChangeState((event) => {
-      elmLog(`🔄 Client state changed: ${State[event.oldState]} → ${State[event.newState]}`);
+      elmLog(`🔄 LSP changed: ${State[event.oldState]} → ${State[event.newState]}`);
       if (event.newState === State.Stopped) {
         // If not an intentional stop, signal disconnection
         if (!stopRequested) {
@@ -92,28 +86,23 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
 
     // Start the client. This will also launch the server
     try {
-      // Add timeout to avoid hanging indefinitely
-      const timeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('LSP client start timed out after 10 seconds')), 10000)
+      // Start the client (spawns process via serverOptions) and wait until it is ready
+      const timeoutMs = 60000;
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`LSP client start timed out after ${timeoutMs / 1000} seconds`)), timeoutMs)
       );
+      await Promise.race([client!.start(), timeout]);
 
-      await Promise.race([client.start(), timeout]);
       elmLog('🎉 LSP client started successfully!');
       statusEmitter.fire({ connected: true });
-      vscode.window.showInformationMessage('Elm Dev Language Server started successfully');
+
     } catch (error) {
       elmLog(`💥 LSP client start failed: ${error}`);
       elmLog(`Error details: ${JSON.stringify(error, null, 2)}`);
 
-      // Also check if the server process is actually running
-      elmLog('🔍 Checking server process...');
-      if (client) {
-        elmLog(`Client state after failure: ${State[client.state]}`);
-      }
 
       client = undefined; // Clear the client on failure
       statusEmitter.fire({ connected: false, error: String(error) });
-      vscode.window.showErrorMessage(`Failed to start Elm Dev Language Server: ${error}`);
       throw error;
     }
   } catch (error) {
@@ -121,7 +110,6 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
     throw error;
   } finally {
     isStarting = false;
-    elmLog('🏁 startLanguageServer finished, isStarting set to false');
   }
 }
 
@@ -157,6 +145,3 @@ export async function stopLanguageServer(): Promise<void> {
   }
 }
 
-export function getClient(): LanguageClient | undefined {
-  return client;
-} 
