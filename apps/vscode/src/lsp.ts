@@ -7,7 +7,7 @@ import {
   ErrorAction,
   CloseAction,
 } from 'vscode-languageclient/node';
-import { log as elmLog } from './utils/logging';
+import { log as elmLog, outputChannel } from './utils/logging';
 
 // Emit status updates so the extension can show a status indicator when disconnected
 const statusEmitter = new vscode.EventEmitter<{ connected: boolean; error?: string }>();
@@ -58,6 +58,9 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
       },
       // Set working directory to the first workspace folder if available
       workspaceFolder: vscode.workspace.workspaceFolders?.[0],
+      // Reuse a single shared output channel to avoid duplicate channels after restarts
+      outputChannel,
+      traceOutputChannel: outputChannel,
       // Add error handler to prevent client from restarting automatically
       errorHandler: {
         error: () => ({ action: ErrorAction.Shutdown }),
@@ -122,21 +125,17 @@ export async function stopLanguageServer(): Promise<void> {
 
       // Only try to stop if the client is in a running state
       if (state === State.Running) {
-        elmLog('🔴 Client is running, stopping...');
+        elmLog('🔴 Client is running, stopping and disposing...');
         await client.stop();
+        await client.dispose();
       } else {
         elmLog('🔸 Client not in running state, disposing directly...');
         // For non-running states, just dispose
-        client.dispose();
+        await client.dispose();
       }
     } catch (error) {
       elmLog(`💥 Error stopping language client: ${error}`);
-      // If stopping fails, forcefully dispose
-      try {
-        client.dispose();
-      } catch (disposeError) {
-        elmLog(`💥 Error disposing language client: ${disposeError}`);
-      }
+      await client.dispose();
     } finally {
       client = undefined;
       elmLog('🧹 Client cleared');
