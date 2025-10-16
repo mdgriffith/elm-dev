@@ -16,6 +16,9 @@ export async function activate(context: vscode.ExtensionContext) {
   statusItem.command = 'elm.restart';
   context.subscriptions.push(statusItem);
 
+  // Prevent status updates from overriding the explicit Restarting message
+  let isRestarting = false;
+
   function showDisconnected(message: string) {
     statusItem.text = 'Elm Dev Disconnected (click to restart)';
     statusItem.tooltip = message;
@@ -26,7 +29,7 @@ export async function activate(context: vscode.ExtensionContext) {
   function showRestarting() {
     statusItem.text = 'Elm Dev Restarting....';
     statusItem.tooltip = 'Elm Dev Restarting....';
-    statusItem.backgroundColor = undefined;
+    statusItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
     statusItem.show();
   }
 
@@ -40,6 +43,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Listen for LSP/MCP status changes
   context.subscriptions.push(
     LSPClient.onStatus((evt) => {
+      if (isRestarting) return;
       if (evt.connected) {
         hideStatus();
       } else {
@@ -50,6 +54,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     MCPClient.onStatus((evt) => {
+      if (isRestarting) return;
       if (evt.connected) {
         hideStatus();
       } else {
@@ -62,6 +67,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("elm.restart", async () => {
       // Show restarting state in status bar with normal background
+      isRestarting = true;
       showRestarting();
 
       elmLog('🔄 Elm Dev Restarting....');
@@ -84,12 +90,15 @@ export async function activate(context: vscode.ExtensionContext) {
         await MCPClient.startMCPServer(context);
 
         elmLog('✅ Elm Dev components restarted successfully');
-        vscode.window.showInformationMessage('✅ Elm Dev restarted successfully');
+        vscode.window.showInformationMessage('Elm Dev restarted successfully');
         hideStatus();
       } catch (error) {
+        isRestarting = false;
         elmLog(`❌ Elm Dev restart failed: ${error}`);
-        console.error('❌ Elm Dev restart failed:', error);
-
+        console.error('Elm Dev restart failed:', error);
+        showDisconnected('Elm Dev restart failed');
+      } finally {
+        isRestarting = false;
       }
     })
   );
