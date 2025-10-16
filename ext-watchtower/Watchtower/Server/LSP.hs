@@ -175,26 +175,15 @@ handleDidOpen state openParams = do
       version = textDocumentItemVersion doc
       text = textDocumentItemText doc
   
-  -- On open: compile only if any relevant project is currently uncompiled
+  -- On open: always update VFS with the provided text and recompile if we can resolve a file path
   case uriToFilePath uri of
     Nothing -> return $ Right JSON.Null
     Just filePath -> do
-      projectResult <- Watchtower.Live.Client.getExistingProject filePath state
-      case projectResult of
-        Left _ -> return $ Right JSON.Null
-        Right (first, rest) -> do
-          firstStatus <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult first)
-          restStatuses <- mapM (\p -> Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult p)) rest
-          let anyUncompiled = any isUncompiled (firstStatus : restStatuses)
-          if anyUncompiled
-            then do
-              Watchtower.State.Compile.compileRelevantProjects state [filePath]
-              return $ Right JSON.Null
-            else return $ Right JSON.Null
-  where
-    isUncompiled res = case res of
-      Watchtower.Live.Client.NotCompiled -> True
-      _ -> False
+      -- Update in-memory cache with the full document text
+      Ext.FileCache.insert filePath (Data.Text.Encoding.encodeUtf8 text)
+      -- Recompile relevant projects for this file
+      Watchtower.State.Compile.compileRelevantProjects state [filePath]
+      return $ Right JSON.Null
 
 handleDidChange :: Live.State -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
 handleDidChange state changeParams = do
