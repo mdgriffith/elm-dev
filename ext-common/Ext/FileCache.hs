@@ -189,14 +189,20 @@ applyRangeEdit content range newText = do
     else do
       -- Get the lines before, at, and after the edit range
       let beforeLines = take startLine lines'
-          afterLines = drop (endLine + 1) lines'
+          afterLines = if endLine < length lines' then drop (endLine + 1) lines' else []
       
       if startLine == endLine
         then do
           -- Single line edit
-          case lines' !! startLine of
-            line -> do
-              let lineLength = Text.length line
+          if startLine == length lines'
+            then do
+              -- Insertion at end-of-file (e.g. line == numLines, char positions must be 0)
+              if startChar == 0 && endChar == 0
+                then Right (content <> newText)
+                else Left $ "Invalid character positions at end of file: start=" ++ show startChar ++ " end=" ++ show endChar
+            else do
+              let line = lines' !! startLine
+                  lineLength = Text.length line
               if startChar < 0 || endChar < 0 || startChar > lineLength || endChar > lineLength || startChar > endChar
                 then Left $ "Invalid character positions: start=" ++ show startChar ++ " end=" ++ show endChar ++ " line length=" ++ show lineLength
                 else do
@@ -207,15 +213,19 @@ applyRangeEdit content range newText = do
                   Right $ Text.unlines newLines
         else do
           -- Multi-line edit
-          case (lines' !! startLine, lines' !! endLine) of
-            (startLineText, endLineText) -> do
-              let startLineLength = Text.length startLineText
-                  endLineLength = Text.length endLineText
-              if startChar < 0 || endChar < 0 || startChar > startLineLength || endChar > endLineLength
+          if startLine >= length lines'
+            then Left $ "Invalid start line for multi-line edit: " ++ show startLine
+            else do
+              let startLineText = lines' !! startLine
+                  endWithinBounds = endLine < length lines'
+                  endLineText = if endWithinBounds then lines' !! endLine else Text.empty
+                  startLineLength = Text.length startLineText
+                  endLineLength = if endWithinBounds then Text.length endLineText else 0
+              if startChar < 0 || startChar > startLineLength || endChar < 0 || (endWithinBounds && endChar > endLineLength) || (not endWithinBounds && endChar /= 0)
                 then Left $ "Invalid character positions in multi-line edit"
                 else do
                   let beforeChar = Text.take startChar startLineText
-                      afterChar = Text.drop endChar endLineText
+                      afterChar = if endWithinBounds then Text.drop endChar endLineText else Text.empty
                       newContent' = beforeChar <> newText <> afterChar
                       newLines = beforeLines ++ [newContent'] ++ afterLines
                   Right $ Text.unlines newLines
