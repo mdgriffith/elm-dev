@@ -60,6 +60,7 @@ import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.Server.MCP.Protocol as MCP
 import qualified Watchtower.Server.MCP.Uri as Uri
 import qualified Watchtower.Server.MCP.ProjectLookup as ProjectLookup
+import qualified Watchtower.Server.MCP.Guides as Guides
 import qualified Watchtower.State.Compile
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.LSP.Helpers as Helpers
@@ -245,10 +246,10 @@ toolAddPage = MCP.Tool
                 let name = urlToElmModuleName url
                 Templates.write "Page" Config.elmSrc name
                 let urlText = Text.pack url
-                let updated = case Config.configApp cfg of
-                      Nothing -> cfg { Config.configApp = Just (Config.AppConfig (Map.singleton (Text.pack name) (Config.PageConfig urlText [] False))) }
-                      Just appCfg -> cfg { Config.configApp = Just (appCfg { Config.appPages = Map.insert (Text.pack name) (Config.PageConfig urlText [] False) (Config.appPages appCfg) }) }
-                LBS.writeFile "elm.generate.json" (Aeson.encodePretty updated)
+                let updated = case Config.configPages cfg of
+                      Nothing -> cfg { Config.configPages = Just (Map.singleton (Text.pack name) (Config.PageConfig urlText [] False)) }
+                      Just pagesMap -> cfg { Config.configPages = Just (Map.insert (Text.pack name) (Config.PageConfig urlText [] False) pagesMap) }
+                LBS.writeFile "elm.dev.json" (Aeson.encodePretty updated)
                 pure (ok (Text.pack ("Created page " ++ name)))
   }
 
@@ -326,7 +327,7 @@ toolAddListener = MCP.Tool
 toolAddTheme :: MCP.Tool
 toolAddTheme = MCP.Tool
   { MCP.toolName = "add_theme"
-  , MCP.toolDescription = "Add a theme section to elm.generate.json if not present."
+  , MCP.toolDescription = "Add a theme section to elm.dev.json if not present."
   , MCP.toolInputSchema = schemaProject
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args state _emit -> do
@@ -342,7 +343,7 @@ toolAddTheme = MCP.Tool
               Just _ -> pure (errTxt "Theme already exists")
               Nothing -> do
                 let updated = cfg { Config.configTheme = Nothing }
-                LBS.writeFile "elm.generate.json" (Aeson.encodePretty updated)
+                LBS.writeFile "elm.dev.json" (Aeson.encodePretty updated)
                 pure (ok "Added theme")
   }
 
@@ -443,9 +444,8 @@ resourceArchitecture =
       , MCP.resourceDescription = Just "Describes how elm-prefab works"
       , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req _state _emit -> do
-          let md = "# Elm Prefab Architecture\n\n(coming soon)"
-          pure (MCP.ReadResourceResponse [ MCP.markdown req md ])
+      , MCP.read = \req _state _emit ->
+          pure (MCP.ReadResourceResponse [ MCP.markdown req Guides.architectureMd ])
       }
 
 
