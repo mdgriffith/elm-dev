@@ -33,8 +33,129 @@ import qualified Reporting.Exit
 import qualified Ext.Log
 import Snap.Core
 import Control.Monad.Trans (liftIO)
+import qualified Data.Map as Map
 import qualified Ext.FileCache
 import qualified File
+import qualified GHC.Stats as RT
+import qualified System.Mem as Mem
+import Control.Monad (when)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import System.IO.Unsafe (unsafePerformIO)
+import Data.Word (Word64)
+import qualified Data.List as List
+import qualified Data.Ord as Ord
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Data.Text as Text
+import Data.Maybe (fromMaybe)
+-- Convert bytes to megabytes (MiB)
+bytesToMb :: (Integral a) => a -> Double
+bytesToMb b = (fromIntegral b) / (1024.0 * 1024.0)
+
+nearestPow2 :: Double -> Int
+nearestPow2 x =
+  let candidates = [1,2,4,8,16,32,64,128,256,512]
+   in if x <= 0 then 1 else List.minimumBy (Ord.comparing (\p -> abs (fromIntegral p - x))) candidates
+
+clamp :: Ord a => a -> a -> a -> a
+clamp lo hi v = max lo (min hi v)
+
+-- Track memory spikes around compile
+{-# NOINLINE compileStartRef #-}
+compileStartRef :: IORef (Maybe (Word64, Word64))
+compileStartRef = unsafePerformIO (newIORef Nothing)
+
+{-# NOINLINE compileSpikeRef #-}
+compileSpikeRef :: IORef (Maybe (Word64, Word64))
+compileSpikeRef = unsafePerformIO (newIORef Nothing)
+
+markCompileStart :: IO ()
+markCompileStart = do
+  enabled <- RT.getRTSStatsEnabled
+  if not enabled
+    then pure ()
+    else do
+      s <- RT.getRTSStats
+      writeIORef compileStartRef (Just (RT.max_mem_in_use_bytes s, RT.max_live_bytes s))
+
+markCompileEnd :: IO ()
+markCompileEnd = do
+  enabled <- RT.getRTSStatsEnabled
+  if not enabled
+    then pure ()
+    else do
+      s <- RT.getRTSStats
+      mPre <- readIORef compileStartRef
+      case mPre of
+        Nothing -> writeIORef compileSpikeRef Nothing
+        Just (preMem, preLive) -> do
+          let dm = RT.max_mem_in_use_bytes s - preMem
+              dl = RT.max_live_bytes s - preLive
+          writeIORef compileSpikeRef (Just (dm, dl))
+
+-- Rolling samples of per-thread allocation (MB) observed at last GC
+{-# NOINLINE allocPerThreadMbRef #-}
+allocPerThreadMbRef :: IORef [Double]
+allocPerThreadMbRef = unsafePerformIO (newIORef [])
+
+{-# NOINLINE liveAfterGcMbRef #-}
+liveAfterGcMbRef :: IORef [Double]
+liveAfterGcMbRef = unsafePerformIO (newIORef [])
+
+recordGcSampleFrom :: RT.RTSStats -> IO ()
+recordGcSampleFrom s = do
+  let gc = RT.gc s
+      threads = max 1 (fromIntegral (RT.gcdetails_threads gc) :: Double)
+      perThreadMb = bytesToMb (RT.gcdetails_allocated_bytes gc) / threads
+  xs <- readIORef allocPerThreadMbRef
+  let xs' = take 200 (perThreadMb : xs)
+  writeIORef allocPerThreadMbRef xs'
+  ys <- readIORef liveAfterGcMbRef
+  let liveMb = bytesToMb (RT.gcdetails_live_bytes gc)
+      ys' = take 200 (liveMb : ys)
+  writeIORef liveAfterGcMbRef ys'
+
+recordPostCompileSample :: IO ()
+recordPostCompileSample = do
+  enabled <- RT.getRTSStatsEnabled
+  when enabled $ do
+    s <- RT.getRTSStats
+    recordGcSampleFrom s
+
+-- Track last RTS totals to compute rates
+{-# NOINLINE lastTotalsRef #-}
+lastTotalsRef :: IORef (Maybe (Integer, Integer, Integer))
+lastTotalsRef = unsafePerformIO (newIORef Nothing)
+
+minorGcRatePerSecond :: RT.RTSStats -> IO (Maybe Double)
+minorGcRatePerSecond s = do
+  let totalGcs = RT.gcs s
+      major = RT.major_gcs s
+      minor = totalGcs - major
+      elapsed = RT.elapsed_ns s -- since start
+  prev <- readIORef lastTotalsRef
+  writeIORef lastTotalsRef (Just (toInteger totalGcs, toInteger major, toInteger elapsed))
+  case prev of
+    Nothing -> pure Nothing
+    Just (pTotal, pMajor, pElapsed) -> do
+      let pMinor :: Integer
+          pMinor = pTotal - pMajor
+          dMinor :: Integer
+          dMinor = toInteger minor - pMinor
+          dElapsedNs :: Integer
+          dElapsedNs = toInteger elapsed - pElapsed
+      if dElapsedNs <= 0 || dMinor < 0
+        then pure Nothing
+        else pure (Just (fromIntegral dMinor / (fromIntegral dElapsedNs / 1.0e9)))
+
+quantile :: Double -> [Double] -> Maybe Double
+quantile q xs =
+  case List.sort xs of
+    [] -> Nothing
+    ys ->
+      let n = length ys
+          i = max 0 (min (n - 1) (floor (q * fromIntegral (n - 1))))
+       in Just (ys !! i)
 
 -- | JSON decoders/encoders live in Watchtower.Server.JSONRPC; we mirror MCP style here
 
@@ -86,6 +207,7 @@ routes state =
   , ("/dev/interactive", interactiveHandler state)
   , ("/dev/log", logHandler)
   , ("/dev/fileChanged", fileChangedHandler state)
+  , ("/dev/memory", memoryHandler state)
   , ("/projectList", projectListHandler state)
   ]
 
@@ -160,6 +282,115 @@ logHandler = do
       modifyResponse $ setContentType "application/json"
       writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
 
+-- Memory summary
+memoryHandler :: Live.State -> Snap ()
+memoryHandler state = do
+  mGc <- getParam "gc"
+  let doGc = parseBoolParamWithDefault False mGc
+  when doGc (liftIO Mem.performMajorGC)
+  vfs <- liftIO Ext.FileCache.fileCacheStats
+  let (vfsCount, vfsBytes, vfsOverhead) = vfs
+  -- Server state sizes (counts only; not bytes):
+  (projCount, fileInfoCount, packageCount) <- liftIO $ do
+    projects <- STM.readTVarIO (Client.projects state)
+    fileInfo <- STM.readTVarIO (Client.fileInfo state)
+    packages <- STM.readTVarIO (Client.packages state)
+    pure (length projects, Map.size fileInfo, Map.size packages)
+
+  -- RTS stats (enabled only with +RTS -T). If disabled, report enabled: false
+  rtsJson <- liftIO $ do
+    enabled <- RT.getRTSStatsEnabled
+    if not enabled
+      then pure (JSON.object ["enabled" JSON..= False])
+      else do
+        s <- RT.getRTSStats
+        let gc = RT.gc s
+        spike <- readIORef compileSpikeRef
+        recordGcSampleFrom s
+        let spikeJson = case spike of
+              Nothing -> JSON.Null
+              Just (dm, dl) -> JSON.object
+                [ "delta_max_mem_in_use_mb" JSON..= bytesToMb dm
+                , "delta_max_live_mb" JSON..= bytesToMb dl
+                ]
+        -- Heuristic: choose an -A (MB) near the live bytes seen after last major GC,
+        -- but not exceeding max_live; clamp to [1,128] and snap to nearest power of two.
+        let liveMb = bytesToMb (RT.gcdetails_live_bytes gc)
+            maxLiveMb = bytesToMb (RT.max_live_bytes s)
+            target = max 1 (min liveMb maxLiveMb)
+            suggestedA = clamp 1 512 (nearestPow2 target)
+            suggestedStr = if target > 512 then "Over 512mb!" else show suggestedA ++ "mb"
+        xs <- readIORef allocPerThreadMbRef
+        ys <- readIORef liveAfterGcMbRef
+        minorRate <- minorGcRatePerSecond s
+        let p95 = quantile 0.95 xs -- Maybe Double
+            pmax = if null xs then Nothing else Just (maximum xs)
+            safety = 1.25 :: Double
+            suggestedFromP95 = fmap (\v -> nearestPow2 (clamp 1 512 (safety * v))) p95 -- Maybe Int
+            p95Str = fmap (\v -> show (nearestPow2 v) ++ "mb") p95
+            pmaxStr = fmap (\v -> show (nearestPow2 v) ++ "mb") pmax
+            arenaBaseMb :: Double
+            arenaBaseMb = fromIntegral suggestedA
+            p95OverMb = fmap (\v -> max 0 (v - arenaBaseMb)) p95
+            pmaxOverMb = fmap (\v -> max 0 (v - arenaBaseMb)) pmax
+        pure (JSON.object
+          [ "enabled" JSON..= True
+          , "gcs" JSON..= RT.gcs s
+          , "major_gcs" JSON..= RT.major_gcs s
+          , "allocated_mb" JSON..= bytesToMb (RT.allocated_bytes s)
+          , "cumulative_live_mb" JSON..= bytesToMb (RT.cumulative_live_bytes s)
+          , "max_live_mb" JSON..= bytesToMb (RT.max_live_bytes s)
+          , "max_mem_in_use_mb" JSON..= bytesToMb (RT.max_mem_in_use_bytes s)
+          , "compile_spike" JSON..= spikeJson
+          , "suggested_arena" JSON..= suggestedStr
+          , "alloc_per_thread_samples" JSON..= length xs
+          , "hints" JSON..= JSON.object
+              [ "arena_too_small" JSON..= JSON.object
+                  [ "minor_gc_rate_per_sec" JSON..= maybe JSON.Null JSON.toJSON (minorRate)
+                  , "arena_overage_mb" JSON..= JSON.object
+                      [ "p95" JSON..= maybe JSON.Null JSON.toJSON p95OverMb
+                      , "max" JSON..= maybe JSON.Null JSON.toJSON pmaxOverMb
+                      ]
+                  ]
+              ]
+          , "per_thread" JSON..= JSON.object
+              [ "allocated_mb_p95" JSON..= maybe JSON.Null (JSON.toJSON . id) (quantile 0.95 xs)
+              , "allocated_mb_max" JSON..= maybe JSON.Null (JSON.toJSON . id) pmax
+              , "allocated_mb_last" JSON..= (if null xs then JSON.Null else JSON.toJSON (head xs))
+              , "suggested_arena_p95" JSON..= maybe JSON.Null (\s -> JSON.String (Text.pack s)) p95Str
+              , "suggested_arena_max" JSON..= maybe JSON.Null (\s -> JSON.String (Text.pack s)) pmaxStr
+              ]
+          , "global" JSON..= JSON.object
+              [ "currently_used_mb" JSON..= bytesToMb (RT.gcdetails_live_bytes gc)
+              , "p95_used_mb" JSON..= maybe JSON.Null (JSON.toJSON . id) (quantile 0.95 ys)
+              , "max_used_mb" JSON..= (if null ys then JSON.Null else JSON.toJSON (maximum ys))
+              ]
+          , "gc" JSON..= JSON.object
+              [ "allocated_mb" JSON..= bytesToMb (RT.gcdetails_allocated_bytes gc)
+              , "live_mb" JSON..= bytesToMb (RT.gcdetails_live_bytes gc)
+              , "large_objects_mb" JSON..= bytesToMb (RT.gcdetails_large_objects_bytes gc)
+              , "compact_mb" JSON..= bytesToMb (RT.gcdetails_compact_bytes gc)
+              , "slop_mb" JSON..= bytesToMb (RT.gcdetails_slop_bytes gc)
+              , "mem_in_use_mb" JSON..= bytesToMb (RT.gcdetails_mem_in_use_bytes gc)
+              ]
+          ])
+
+  modifyResponse $ setContentType "application/json"
+  writeLBS (JSON.encode (JSON.object
+    [ "gc_performed" JSON..= doGc
+    , "vfs" JSON..= JSON.object
+        [ "entries" JSON..= vfsCount
+        , "mb" JSON..= bytesToMb vfsBytes
+        , "overhead" JSON..= vfsOverhead
+        ]
+    , "server" JSON..= JSON.object
+        [ "projects" JSON..= projCount
+        , "fileInfo" JSON..= fileInfoCount
+        , "packages" JSON..= packageCount
+        ]
+    , "rts" JSON..= rtsJson
+    ]))
+
 -- Notify server that an absolute file path changed
 fileChangedHandler :: Live.State -> Snap ()
 fileChangedHandler state = do
@@ -210,7 +441,11 @@ compile state root file debug optimize report = do
   -- Find an existing project whose elm.json root equals the given root; otherwise create it
   existingProjects <- STM.readTVarIO (Client.projects state)
   projCache <- Watchtower.State.Project.upsert state flags root (NE.List file [])
+  liftIO markCompileStart
   compiledR <- Watchtower.State.Compile.compile state projCache [file]
+  liftIO markCompileEnd
+  -- Record a GC sample after each compile completes
+  recordPostCompileSample
   Ext.Log.log Ext.Log.Live ("Recompiled")
   case compiledR of
     Left clientErr -> do

@@ -404,6 +404,20 @@ debugSummary =
     -- log $ "🧠 gc:" ++ show (gcstatsHuman s)
     log $ \() -> "🧠 gc:\n" ++ stats
 
+-- | Compute a lightweight summary of the virtual file cache.
+-- Returns (number of entries, estimated bytes stored, hashtable overhead ratio).
+-- The byte estimate mirrors the approach used in debugSummary: sum of
+-- ByteString lengths plus an approximate cost for String keys.
+fileCacheStats :: IO (Int, Binary.Word64, Double)
+fileCacheStats = do
+  fileCacheList <- H.toList fileCache
+  overhead <- H.computeOverhead fileCache
+  let entries = Prelude.length fileCacheList
+      size :: Binary.Word64
+      size =
+        sum (fmap (\(k, (_t, v)) -> fromIntegral (length k * 6) + fromIntegral (BS.length v)) fileCacheList)
+  pure (entries, size, overhead)
+
 gcstatsHuman s =
   s
     { RT.gcs = RT.gcs s,
