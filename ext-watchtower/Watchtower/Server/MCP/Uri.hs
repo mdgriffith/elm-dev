@@ -67,9 +67,10 @@ match :: Pattern -> Text -> Maybe PatternMatch
 match pat concrete =
   let (uriNoQuery, queryPairs) = splitUri concrete
       proto = patternProtocol pat
-  in if not (Text.isPrefixOf proto uriNoQuery)
+      prefix = Text.concat [proto, "://"]
+  in if not (Text.isPrefixOf prefix uriNoQuery)
      then Nothing
-     else let pathPortion = Text.drop (Text.length proto) uriNoQuery
+     else let pathPortion = Text.drop (Text.length prefix) uriNoQuery
           in case matchPath (patternTokens pat) pathPortion Map.empty of
        Nothing -> Nothing
        Just pathValues ->
