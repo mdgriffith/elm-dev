@@ -29,6 +29,10 @@ instance ToJSON RequestId where
 instance FromJSON RequestId where
   parseJSON v = (StringId <$> parseJSON v) <|> (NumberId <$> parseJSON v)
 
+-- | Connection ID for a JSON-RPC client
+type ConnectionId = Text
+
+
 -- | JSON-RPC error information
 data ErrorInfo = ErrorInfo
   { code :: Int,

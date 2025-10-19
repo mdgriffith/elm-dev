@@ -14,6 +14,9 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBS.Char8
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Data.Digest.Pure.SHA as SHA
+import qualified Data.Unique as Unique
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Ext.Common
 import qualified Ext.Log
 import Snap.Core hiding (method)
@@ -28,6 +31,8 @@ import qualified System.IO as IO
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
+import qualified Watchtower.Live.Client as Client
+import qualified Data.Text as T
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 {-# NOINLINE stdoutWriteLock #-}
 stdoutWriteLock :: MVar ()
@@ -65,6 +70,16 @@ emit notif = do
 outboudnName :: JSONRPC.Outbound -> String
 outboudnName (JSONRPC.OutboundNotification (JSONRPC.Notification _ method _)) = "notification: " ++ T.unpack method
 outboudnName (JSONRPC.OutboundRequest method _) = "req: " ++ T.unpack method
+-- | Generate a short unique id suitable for identifying a connection/session
+-- Uses current time and a per-process unique to make collisions across processes extremely unlikely
+generateShortId :: IO T.Text
+generateShortId = do
+  now <- getPOSIXTime
+  u <- Unique.newUnique
+  let seedStr = show (round (now * 1000000) :: Integer) ++ ":" ++ show (Unique.hashUnique u)
+  let digest = take 8 (SHA.showDigest (SHA.sha1 (LBS.Char8.pack seedStr)))
+  pure (T.pack digest)
+
 
 run :: Live.State -> Mode -> Handler -> NotificationHandler -> IO ()
 run state mode handler notificationHandler =
@@ -130,6 +145,9 @@ runTcp state handler notificationHandler host port = do
     forever $ do
       (conn, _peer) <- Net.accept sock
       void $ forkIO $ do
+        -- Register per-connection session context with a generated id
+        connId <- generateShortId
+        Client.registerSession state connId
         h <- Net.socketToHandle conn IO.ReadWriteMode
         IO.hSetBuffering h IO.NoBuffering
         writeLock <- newMVar ()
@@ -161,15 +179,19 @@ runTcp state handler notificationHandler host port = do
                     Right jsonMsg -> do
                       case jsonMsg of
                         JSONRPC.RequestMessage req -> do
-                          response <- handleRequest state emitEvent handler req
+                          -- attach connectionId for handlers
+                          response <- handleRequest state connId emitEvent handler req
                           _ <- tryIO (sendWithContentLengthHandleLocked writeLock h (JSON.encode response))
                           loop
                         JSONRPC.NotificationMessage notif -> do
-                          notificationHandler state emitEvent notif
+                          notificationHandler state emitEvent connId notif
                           loop
                         JSONRPC.ResponseMessage _ -> loop
                         JSONRPC.ErrorMessage _ -> loop
-        loop `finally` IO.hClose h
+        loop `finally` (do
+          IO.hClose h
+          -- Cleanup per-connection session
+          Client.unregisterSession state connId)
 
 -- Small helper: manage socket lifetime
 bracketedSocket :: Net.AddrInfo -> (Net.Socket -> IO a) -> IO a
@@ -194,14 +216,14 @@ logger bs =
   Ext.Log.log Ext.Log.VerboseServer $ T.unpack $ T.decodeUtf8 bs
 
 -- | Type for handling JSON-RPC requests
-type Handler = Live.State -> EventEmitter -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
+type Handler = Live.State -> EventEmitter -> JSONRPC.ConnectionId -> JSONRPC.Request ->  IO (Either JSONRPC.Error JSONRPC.Response)
 
 -- | Type for handling JSON-RPC notifications
-type NotificationHandler = Live.State -> EventEmitter -> JSONRPC.Notification -> IO ()
+type NotificationHandler = Live.State -> EventEmitter -> JSONRPC.ConnectionId -> JSONRPC.Notification -> IO ()
 
-handleRequest :: Live.State -> EventEmitter -> Handler -> JSONRPC.Request -> IO JSONRPC.Message
-handleRequest st emitEvent hdlr req = do
-  result <- hdlr st emitEvent req
+handleRequest :: Live.State -> JSONRPC.ConnectionId -> EventEmitter -> Handler -> JSONRPC.Request -> IO JSONRPC.Message
+handleRequest st connId emitEvent hdlr req = do
+  result <- hdlr st emitEvent connId req
   case result of
     Left err ->
       return $ JSONRPC.ErrorMessage err
@@ -270,6 +292,9 @@ runStdIO state handler notificationHandler = do
   IO.hSetBuffering stdin IO.LineBuffering
   IO.hSetBuffering stdout IO.LineBuffering
   IO.hSetBuffering IO.stderr IO.LineBuffering
+  -- Register a session for this stdio server instance using a short unique id
+  connId <- generateShortId
+  Client.registerSession state connId
   
   -- Create an event channel and a background thread to forward events to stdout
   eventsChan <- STM.newTChanIO :: IO (STM.TChan JSONRPC.Outbound)
@@ -305,11 +330,11 @@ runStdIO state handler notificationHandler = do
             sendWithContentLength errorResponse
           Right jsonMsg -> do
             case jsonMsg of
-              JSONRPC.RequestMessage req@(JSONRPC.Request _ _ reqMethod _) -> do
-                response <- handleRequest state emitEvent handler req
+              JSONRPC.RequestMessage req -> do
+                response <- handleRequest state connId emitEvent handler req
                 sendWithContentLength (JSON.encode response)
               JSONRPC.NotificationMessage notif@(JSONRPC.Notification _ notifMethod _) -> do
-                notificationHandler state emitEvent notif
+                notificationHandler state emitEvent connId notif
               JSONRPC.ResponseMessage _ ->
                 return ()
               JSONRPC.ErrorMessage _ -> do
@@ -333,6 +358,20 @@ runHttp state handler notificationHandler = do
       method <- rqMethod <$> getRequest
       case method of
         POST -> do
+          req <- getRequest
+          let mConnIdHeader = getHeader "X-Conn-Id" req
+          case mConnIdHeader of
+            Nothing -> do
+              modifyResponse $ setResponseCode 400
+              writeBS "Missing X-Conn-Id header"
+            Just cidBs -> do
+              let connId = T.decodeUtf8 cidBs
+              -- Ensure session exists; if not, register a new one
+              liftIO $ do
+                mFocused <- Client.getFocusedProjectId state connId
+                case mFocused of
+                  Just _ -> pure ()
+                  Nothing -> Client.registerSession state connId
           body <- readRequestBody 65536 -- 64KB limit
           case JSON.eitherDecode body of
             Left err -> do
@@ -340,10 +379,12 @@ runHttp state handler notificationHandler = do
             Right jsonMsg -> do
               case jsonMsg of
                 JSONRPC.RequestMessage req -> do
-                  response <- liftIO $ handleRequest state emitEvent handler req
+                  let connId = T.decodeUtf8 (maybe BS.empty id mConnIdHeader)
+                  response <- liftIO $ handleRequest state connId emitEvent handler req
                   writeJSON response
                 JSONRPC.NotificationMessage notif -> do
-                  liftIO $ notificationHandler state emitEvent notif
+                  let connId = T.decodeUtf8 (maybe BS.empty id mConnIdHeader)
+                  liftIO $ notificationHandler state emitEvent connId notif
                   writeBS "OK"
                 JSONRPC.ResponseMessage _ -> do
                   -- We shouldn't receive responses when acting as a server

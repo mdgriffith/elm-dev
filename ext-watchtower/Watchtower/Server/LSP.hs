@@ -736,8 +736,8 @@ handleDidChangeVisibleRanges _state visibleRangesParams = do
 -- * Main LSP Server Handler
 
 -- | Main LSP server handler
-serve :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
-serve state _emit req@(JSONRPC.Request _ reqId method params) = do
+serve :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
+serve state _emit connId req@(JSONRPC.Request _ reqId method params) = do
   
   -- case params of
   --   Just p -> Ext.Log.log Ext.Log.LSP $ "REQ: " ++Text.unpack method ++ " (id: " ++ show reqId ++ "): " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
@@ -888,8 +888,8 @@ serve state _emit req@(JSONRPC.Request _ reqId method params) = do
       return $ Left (JSONRPC.errorMethodNotFound reqId method)
 
 -- | Handle LSP notifications (no response expected)
-handleNotification :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.Notification -> IO ()
-handleNotification state send (JSONRPC.Notification _ method params) = do
+handleNotification :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> JSONRPC.Notification -> IO ()
+handleNotification state send connId (JSONRPC.Notification _ method params) = do
 
   -- case params of
   --   Just p -> Ext.Log.log Ext.Log.LSP $ "NOTIF: " ++Text.unpack method ++ " " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)

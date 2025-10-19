@@ -229,7 +229,7 @@ serve params = do
       let wsUrl = "ws://" ++ spDomain params ++ ":" ++ show (spHttpPort params) ++ "/ws"
       let lspUrl = "tcp://" ++ spDomain params ++ ":" ++ show (spLspPort params)
       let mcpUrl = "tcp://" ++ spDomain params ++ ":" ++ show (spMcpPort params)
-      live <- DevWS.init (Watchtower.Live.Client.Urls (Just lspUrl) (Just mcpUrl) httpUrl wsUrl)
+      live <- Watchtower.Live.Client.initState (Watchtower.Live.Client.Urls (Just lspUrl) (Just mcpUrl) httpUrl wsUrl)
       let debug = False
       _ <- Concurrent.forkIO $ Server.httpServe 
             (Watchtower.Server.Run.config (spHttpPort params) debug)
@@ -239,7 +239,7 @@ serve params = do
       -- Start LSP TCP
       _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live LSP.serve LSP.handleNotification (spDomain params) (spLspPort params)
       -- Start MCP TCP
-      _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live MCP.serve (\_ _ _ -> pure ()) (spDomain params) (spMcpPort params)
+      _ <- Concurrent.forkIO $ Watchtower.Server.Run.runTcp live MCP.serve (\_ _ _ _ -> pure ()) (spDomain params) (spMcpPort params)
       -- Wait until listeners accept connections before writing state
       let waitReady attempts = do
             l1 <- canConnect (spDomain params) (spLspPort params)

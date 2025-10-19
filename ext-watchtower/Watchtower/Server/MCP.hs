@@ -60,6 +60,7 @@ import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.Server.MCP.Protocol as MCP
 import qualified Watchtower.Server.MCP.Uri as Uri
 import qualified Watchtower.Server.MCP.ProjectLookup as ProjectLookup
+import qualified Data.Text as T
 import qualified Watchtower.Server.MCP.Guides as Guides
 import qualified Watchtower.State.Compile
 import qualified Watchtower.Server.LSP as LSP
@@ -80,6 +81,8 @@ availableTools =
   , toolAddTheme
   , toolTestInit
   , toolTestRun
+  , toolProjectList
+  , toolProjectSet
   ]
 
 -- helpers
@@ -172,7 +175,7 @@ toolInit = MCP.Tool
         , "required" .= (["dir"] :: [Text])
         ]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args _state _emit -> do
+  , MCP.call = \args _state _emit connId -> do
       case requireStringArg "dir" args of
         Left e -> pure (errTxt (Text.pack e))
         Right dir -> do
@@ -190,9 +193,9 @@ toolCompile = MCP.Tool
   , MCP.toolDescription = "Compile the Elm project (typecheck/build)."
   , MCP.toolInputSchema = schemaProject
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit -> do
+  , MCP.call = \args state _emit connId -> do
       let mPid = getIntArg args "projectId"
-      selection <- ProjectLookup.resolveProject mPid state
+      selection <- ProjectLookup.resolveProjectFromSession mPid connId state
       case selection of
         Left msg -> pure (errTxt msg)
         Right projCache -> do
@@ -209,12 +212,13 @@ toolInstall = MCP.Tool
   , MCP.toolDescription = "Install an Elm package (author/project)."
   , MCP.toolInputSchema = schemaProjectPlus [("package", "Elm package name, e.g. elm/json")]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit -> do
+  , MCP.call = \args state _emit connId -> do
       case requireStringArg "package" args of
         Left e -> pure (errTxt (Text.pack e))
         Right pkg -> do
           let mPid = getIntArg args "projectId"
-          selection <- ProjectLookup.resolveProject mPid state
+          
+          selection <- ProjectLookup.resolveProjectFromSession mPid connId state
           case selection of
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -231,12 +235,13 @@ toolAddPage = MCP.Tool
   , MCP.toolDescription = "Add a new page to the project."
   , MCP.toolInputSchema = schemaProjectPlus [("url", "Page url path, e.g. /about")]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit -> do
+  , MCP.call = \args state _emit connId -> do
       case requireStringArg "url" args of
         Left e -> pure (errTxt (Text.pack e))
         Right url -> do
           let mPid = getIntArg args "projectId"
-          selection <- ProjectLookup.resolveProject mPid state
+          
+          selection <- ProjectLookup.resolveProjectFromSession mPid connId state
           case selection of
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -260,12 +265,12 @@ toolAddStore = MCP.Tool
   , MCP.toolDescription = "Add a new store module."
   , MCP.toolInputSchema = schemaProjectPlus [("module", "Module name, e.g. App.Store.Session")]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit -> do
+  , MCP.call = \args state _emit connId -> do
       case requireStringArg "module" args of
         Left e -> pure (errTxt (Text.pack e))
         Right modul -> do
           let mPid = getIntArg args "projectId"
-          selection <- ProjectLookup.resolveProject mPid state
+          selection <- ProjectLookup.resolveProjectFromSession mPid connId state
           case selection of
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -283,12 +288,13 @@ toolAddEffect = MCP.Tool
   , MCP.toolDescription = "Add a new effect module and TS interop."
   , MCP.toolInputSchema = schemaProjectPlus [("module", "Module name, e.g. Effect.Http")]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit -> do
+  , MCP.call = \args state _emit connId -> do
       case requireStringArg "module" args of
         Left e -> pure (errTxt (Text.pack e))
         Right modul -> do
           let mPid = getIntArg args "projectId"
-          selection <- ProjectLookup.resolveProject mPid state
+          
+          selection <- ProjectLookup.resolveProjectFromSession mPid connId state
           case selection of
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -307,12 +313,12 @@ toolAddListener = MCP.Tool
   , MCP.toolDescription = "Add a new listener module."
   , MCP.toolInputSchema = schemaProjectPlus [("module", "Module name, e.g. Listen.Resize")]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit -> do
+  , MCP.call = \args state _emit connId -> do
       case requireStringArg "module" args of
         Left e -> pure (errTxt (Text.pack e))
         Right modul -> do
           let mPid = getIntArg args "projectId"
-          selection <- ProjectLookup.resolveProject mPid state
+          selection <- ProjectLookup.resolveProjectFromSession mPid connId state
           case selection of
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -330,9 +336,9 @@ toolAddTheme = MCP.Tool
   , MCP.toolDescription = "Add a theme section to elm.dev.json if not present."
   , MCP.toolInputSchema = schemaProject
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit -> do
+  , MCP.call = \args state _emit connId -> do
       let mPid = getIntArg args "projectId"
-      selection <- ProjectLookup.resolveProject mPid state
+      selection <- ProjectLookup.resolveProjectFromSession mPid connId state
       case selection of
         Left msg -> pure (errTxt msg)
         Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -354,9 +360,9 @@ toolTestInit = MCP.Tool
   , MCP.toolDescription = "Install elm-explorations/test and scaffold tests directory."
   , MCP.toolInputSchema = schemaProject
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit -> do
+  , MCP.call = \args state _emit connId -> do
       let mPid = getIntArg args "projectId"
-      selection <- ProjectLookup.resolveProject mPid state
+      selection <- ProjectLookup.resolveProjectFromSession mPid connId state
       case selection of
         Left msg -> pure (errTxt msg)
         Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -375,9 +381,9 @@ toolTestRun = MCP.Tool
   , MCP.toolDescription = "Discover, compile, and run Elm tests."
   , MCP.toolInputSchema = schemaProject
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit -> do
+  , MCP.call = \args state _emit connId -> do
       let mPid = getIntArg args "projectId"
-      selection <- ProjectLookup.resolveProject mPid state
+      selection <- ProjectLookup.resolveProjectFromSession mPid connId state
       case selection of
         Left msg -> pure (errTxt msg)
         Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -389,6 +395,47 @@ toolTestRun = MCP.Tool
               Right reports -> do
                 let rendered = TestReport.renderReports reports
                 pure (ok (Text.pack rendered))
+  }
+
+-- list projects
+toolProjectList :: MCP.Tool
+toolProjectList = MCP.Tool
+  { MCP.toolName = "projectList"
+  , MCP.toolDescription = "List known projects with ids and roots."
+  , MCP.toolInputSchema = JSON.object [ "type" .= ("object" :: Text) ]
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \_args state _emit connId -> do
+      let (Client.State _ mProjects _ _ _ _) = state
+      projects <- Control.Concurrent.STM.readTVarIO mProjects
+      let items = fmap (\(Client.ProjectCache proj _ _ _ _) -> JSON.object
+                        [ "id" .= Ext.Dev.Project._shortId proj
+                        , "root" .= Ext.Dev.Project.getRoot proj
+                        ]) projects
+      pure (ok (Text.pack (show (length items))) ) >> pure (MCP.ToolCallResponse [MCP.ToolResponseStructured Nothing (JSON.object ["projects" .= items])])
+  }
+
+-- set current project
+toolProjectSet :: MCP.Tool
+toolProjectSet = MCP.Tool
+  { MCP.toolName = "projectSet"
+  , MCP.toolDescription = "Set the current project for this connection."
+  , MCP.toolInputSchema = JSON.object [ "type" .= ("object" :: Text), "properties" .= JSON.object [ "projectId" .= JSON.object [ "type" .= ("integer" :: Text) ] ], "required" .= (["projectId"] :: [Text]) ]
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state _emit connId -> do
+      case getIntArg args "projectId" of
+        Nothing -> pure (errTxt "Missing projectId")
+        Just pid -> do
+          let (Client.State _ mProjects _ _ _ _) = state
+          projects <- Control.Concurrent.STM.readTVarIO mProjects
+          case filter (\(Client.ProjectCache proj _ _ _ _) -> Ext.Dev.Project._shortId proj == pid) projects of
+            (Client.ProjectCache _proj _ _ _ _ : _) -> do
+              okSet <- Client.setFocusedProjectId state connId pid
+              if okSet
+                then pure (ok (Text.pack ("Focused project set to " ++ show pid)))
+                else pure (errTxt "Project id not found")
+            _ -> do
+              let known = ProjectLookup.listKnownProjectsText projects
+              pure (errTxt (Text.concat ["Project id not found: ", Text.pack (show pid), "\nKnown projects:\n", known]))
   }
 
 -- url -> Elm module name
@@ -429,7 +476,7 @@ resourceOverview =
       , MCP.resourceDescription = Just "Overview for a project (?root=...)"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
-      , MCP.read = \req _state _emit -> do
+      , MCP.read = \req _state _emit connId -> do
           -- Placeholder overview for now
           let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
           pure (MCP.ReadResourceResponse [ MCP.json req val ])
@@ -444,7 +491,7 @@ resourceArchitecture =
       , MCP.resourceDescription = Just "Describes how elm-prefab works"
       , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req _state _emit ->
+      , MCP.read = \req _state _emit connId ->
           pure (MCP.ReadResourceResponse [ MCP.markdown req Guides.architectureMd ])
       }
 
@@ -474,10 +521,28 @@ resourceDiagnostics =
       , MCP.resourceDescription = Just "Project diagnostics (?projectId=...)"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
-      , MCP.read = \req state _emit -> do
+      , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch _pathVals queryParams) -> do
-              projectFound <- resolveProject queryParams state
+              let mPid = lookupInt queryParams "projectId"
+              
+              projectFound <- ProjectLookup.resolveProjectFromSession mPid connId state
+              case projectFound of
+                Left msg -> do
+                  let val = JSON.object [ "error" .= msg ]
+                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                Right pc@(Client.ProjectCache proj _ _ _ _) -> do
+                  _ <- Watchtower.State.Compile.compile state pc []
+                  allInfos <- Client.getAllFileInfos state
+                  diagErrors <- Helpers.getDiagnosticsForProject state pc Nothing
+                  let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.contains p proj) (Map.toList allInfos)
+                  warnDiagLists <- mapM (\p -> do { (_loc, warns) <- Helpers.getWarningsForFile state p; pure (concatMap Helpers.warningToUnusedDiagnostic warns) }) projectFiles
+                  let items = diagErrors ++ concat warnDiagLists
+                  let val = JSON.object [ "kind" .= ("project" :: Text)
+                                        , "items" .= items
+                                        ]
+                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                
               case projectFound of
                 Left msg -> do
                   let val = JSON.object [ "error" .= msg ]
@@ -509,10 +574,12 @@ resourceModuleGraph =
       , MCP.resourceDescription = Just "Imports/exports/dependents (?projectId=...)"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req state _emit -> do
+      , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch pathVals queryParams) -> do
-              projectFound <- resolveProject queryParams state
+              let mPid = lookupInt queryParams "projectId"
+              projectFound <- ProjectLookup.resolveProjectFromSession mPid connId state
+                               
               case projectFound of
                 Left msg -> do
                   let val = JSON.object [ "error" .= msg ]
@@ -562,7 +629,7 @@ resourcePackageDocs =
       , MCP.resourceDescription = Just "Docs for a package"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req state _emit -> do
+      , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch pathVals _q) -> do
               let mPkgTxt = Map.lookup "pkg" pathVals
@@ -610,7 +677,7 @@ resourceModuleDocs =
       , MCP.resourceDescription = Just "Docs for a module"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req state _emit -> do
+      , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch pathVals _q) -> do
               case Map.lookup "Module" pathVals of
@@ -665,7 +732,7 @@ resourceValueDocs =
       , MCP.resourceDescription = Just "Docs for a value"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req state _emit -> do
+      , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch pathVals _q) -> do
               case Map.lookup "Module.name" pathVals >>= splitModuleAndValue of
@@ -729,10 +796,11 @@ resourceTestStatus =
       , MCP.resourceDescription = Just "Status of tests (?projectId=...)"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Low Nothing)
-      , MCP.read = \req state _emit -> do
+      , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch _pathVals queryParams) -> do
-              projectFound <- resolveProject queryParams state
+              let mPid = lookupInt queryParams "projectId"
+              projectFound <- ProjectLookup.resolveProjectFromSession mPid connId state
               case projectFound of
                 Left msg -> do
                   let val = JSON.object [ "error" .= msg ]
@@ -771,9 +839,9 @@ availablePrompts = []
 
 
 -- | Main MCP server handler
-serve :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
-serve state emitter req = do
-  MCP.serve availableTools availableResources availablePrompts state emitter req
+serve :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
+serve state emitter connId req = do
+  MCP.serve availableTools availableResources availablePrompts state emitter connId req
 
 
 

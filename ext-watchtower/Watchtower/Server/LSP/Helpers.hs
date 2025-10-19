@@ -493,7 +493,7 @@ getForeignValueDocs state currentFilePath home valueName = do
         -- Module from a dependency package: read from packages cache
         Elm.ModuleName.Canonical pkg moduleName -> do
           let mPackages = case state of
-                Watchtower.Live.Client.State _ _ _ mpkgs _ -> mpkgs
+                Watchtower.Live.Client.State _ _ _ mpkgs _ _ -> mpkgs
           packagesMap <- Control.Concurrent.STM.readTVarIO mPackages
           case Map.lookup pkg packagesMap of
             Just (Watchtower.Live.Client.PackageInfo { Watchtower.Live.Client.packageModules = mods }) -> do

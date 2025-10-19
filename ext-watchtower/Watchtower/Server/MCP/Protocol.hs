@@ -40,9 +40,11 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding
 import qualified Ext.Common
+import qualified Ext.Log
 import GHC.Generics
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
+import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.MCP.Uri as Uri
 
 -- * MCP Core Types
@@ -86,7 +88,7 @@ data Tool = Tool
     toolDescription :: Text,
     toolInputSchema :: JSON.Value,
     toolOutputSchema :: Maybe JSON.Value,
-    call :: JSON.Object -> Live.State -> JSONRPC.EventEmitter -> IO ToolCallResponse
+    call :: JSON.Object -> Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> IO ToolCallResponse
   }
 
 instance Show Tool where
@@ -174,7 +176,7 @@ data Resource = Resource
     resourceDescription :: Maybe Text,
     resourceMimeType :: Maybe Text,
     resourceAnnotations :: Maybe Annotations,
-    read :: ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> IO ReadResourceResponse
+    read :: ReadResourceRequest -> Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> IO ReadResourceResponse
   }
   deriving stock (Generic)
 
@@ -399,8 +401,10 @@ json req val =
 
 -- * Server
 
-serve :: [Tool] -> [Resource] -> [Prompt] -> Live.State -> JSONRPC.EventEmitter -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
-serve tools resources prompts state emit req@(JSONRPC.Request _ reqId method params) = do
+serve :: [Tool] -> [Resource] -> [Prompt] -> Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
+serve tools resources prompts state emit connId req@(JSONRPC.Request _ reqId method params) = do
+  -- Basic logging for MCP method invocations
+  Ext.Log.log Ext.Log.Misc ("MCP method: " ++ Text.unpack method)
   case Text.unpack method of
     "initialize" -> do
       let initResponse =
@@ -430,7 +434,7 @@ serve tools resources prompts state emit req@(JSONRPC.Request _ reqId method par
               case [t | t <- tools, toolName t == toolName' ] of
                 (tool' : _) -> do
                   let args = maybe mempty (\argsVal -> case argsVal of JSON.Object obj -> obj; _ -> mempty) (callToolArguments callReq)
-                  response <- call tool' args state emit
+                  response <- call tool' args state emit connId
                   return $ success reqId (JSON.toJSON response)
                 [] -> do
                   let response = ToolCallResponse [ToolResponseError Nothing ("Unknown tool: " <> toolName')]
@@ -447,7 +451,7 @@ serve tools resources prompts state emit req@(JSONRPC.Request _ reqId method par
               let matched = [ r | r <- resources, Uri.match (resourceUri r) (readResourceUri readReq) /= Nothing ]
               case matched of
                 (r:_) -> do
-                  response <- Watchtower.Server.MCP.Protocol.read r readReq state emit
+                  response <- Watchtower.Server.MCP.Protocol.read r readReq state emit connId
                   return $ success reqId (JSON.toJSON response)
                 [] -> do
                   let response =

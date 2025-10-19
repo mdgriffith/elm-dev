@@ -3,6 +3,7 @@
 module Watchtower.Server.MCP.ProjectLookup
   ( resolveProject
   , listKnownProjectsText
+  , resolveProjectFromSession
   ) where
 
 import qualified Control.Concurrent.STM as STM
@@ -11,6 +12,9 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Ext.Dev.Project
 import qualified Watchtower.Live.Client as Client
+import qualified Watchtower.Live.Client as Client
+import qualified Data.Text as T
+import qualified Watchtower.Server.JSONRPC as JSONRPC
 
 
 -- | Produce a human-readable list of all known projects with their ids.
@@ -32,7 +36,7 @@ listKnownProjectsText projects =
 -- - If 'Nothing' and exactly one project is known, select it.
 -- - Otherwise, return an ambiguous error including known projects.
 resolveProject :: Maybe Int -> Client.State -> IO (Either Text Client.ProjectCache)
-resolveProject mProjectId (Client.State _ mProjects _ _ _) = do
+resolveProject mProjectId (Client.State _ mProjects _ _ _ _) = do
   projects <- STM.readTVarIO mProjects
   case mProjectId of
     Just pid -> do
@@ -49,6 +53,25 @@ resolveProject mProjectId (Client.State _ mProjects _ _ _) = do
           let known = listKnownProjectsText projects
           let countTxt = Text.pack (show (length projects))
           pure (Left ("Ambiguous project: " <> countTxt <> " projects known. Provide projectId.\nKnown projects:\n" <> known))
+
+
+-- | Resolve using per-connection session focus when projectId is omitted.
+-- If session focus is unset, set and return the first project if available.
+resolveProjectFromSession :: Maybe Int -> JSONRPC.ConnectionId -> Client.State -> IO (Either Text Client.ProjectCache)
+resolveProjectFromSession mProjectId connId st@(Client.State _ mProjects _ _ _ _) = do
+  case mProjectId of
+    Just _ -> resolveProject mProjectId st
+    Nothing -> do
+      projects <- STM.readTVarIO mProjects
+      case projects of
+        [] -> pure (Left "No projects registered")
+        (projCache@(Client.ProjectCache proj _ _ _ _):_) -> do
+          mFocused <- Client.getFocusedProjectId st connId
+          case mFocused of
+            Just _ -> resolveProject mFocused st
+            Nothing -> do
+              _ <- Client.setFocusedProjectId st connId (Ext.Dev.Project._shortId proj)
+              pure (Right projCache)
 
 
 

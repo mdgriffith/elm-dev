@@ -19,6 +19,7 @@ import qualified Snap.Http.Server
 import Snap.Util.FileServe
 import qualified System.Directory as Dir
 import qualified Watchtower.Live
+import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Live.Compile
 import qualified Watchtower.Questions
 import qualified Watchtower.StaticAssets
@@ -33,7 +34,7 @@ serve maybeRoot (Flags maybePort) =
     let port = Ext.Common.withDefault 51213 maybePort
     Ext.Common.atomicPutStrLn $ "elm-dev is now running at http://localhost:" ++ show port
 
-    liveState <- Watchtower.Live.init
+    liveState <- Client.initState ( (Client.Urls { Client.urlsLsp = Nothing, Client.urlsMcp = Nothing, Client.urlsDevHttp = "http://localhost:51213", Client.urlsDevWebsocket = "ws://localhost:51213/ws" }))
 
     debug <- Ext.Log.isActive Ext.Log.VerboseServer
     Ext.Log.log Ext.Log.VerboseServer ("Running in " <> show Ext.CompileMode.getMode <> " Mode")

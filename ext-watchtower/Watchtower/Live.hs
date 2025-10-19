@@ -58,50 +58,6 @@ encodeWarning =
   Client.encodeWarning
 
 
--- Deprecated
-init :: IO Client.State
-init = do
-  initWithUrls (Client.Urls { Client.urlsLsp = Nothing, Client.urlsMcp = Nothing, Client.urlsDevHttp = "http://localhost:51213", Client.urlsDevWebsocket = "ws://localhost:51213/ws" })
-
-initWithUrls :: Client.Urls -> IO Client.State
-initWithUrls urls = do
-  Client.State
-    <$> Watchtower.Websocket.clientsInit
-    <*> STM.newTVarIO []
-    <*> STM.newTVarIO mempty
-    <*> STM.newTVarIO mempty
-    <*> pure urls
-
--- initWith :: FilePath -> IO Client.State
--- initWith root =
---   do
---     projectList <- discoverProjects root
---     Client.State
---       <$> Watchtower.Websocket.clientsInit
---       <*> STM.newTVarIO projectList
-
--- discoverProjects :: FilePath -> IO [Client.ProjectCache]
--- discoverProjects root = do
---   projects <- Ext.Dev.Project.discover root
-
---   let projectTails = fmap (getProjectShorthand root) projects
---   Ext.Log.log Ext.Log.Live (("👁️  found projects\n" ++ root) <> Ext.Log.formatList projectTails)
---   Monad.foldM initializeProject [] projects
-
--- getProjectShorthand :: FilePath -> Ext.Dev.Project.Project -> FilePath
--- getProjectShorthand root proj =
---   case List.stripPrefix root (Ext.Dev.Project.getRoot proj) of
---     Nothing -> "."
---     Just "" -> "."
---     Just str ->
---       str
-
--- initializeProject :: [Client.ProjectCache] -> Ext.Dev.Project.Project -> IO [Client.ProjectCache]
--- initializeProject accum project =
---   do
---     cache <- Ext.Sentry.init
---     pure (Client.ProjectCache project cache : accum)
-
 websocket :: Client.State -> Snap ()
 websocket state =
   route
@@ -117,7 +73,7 @@ flattenJsonStatus (Left json) = json
 flattenJsonStatus (Right json) = json
 
 websocket_ :: Client.State -> Snap ()
-websocket_ state@(Client.State mClients mProjects _ _ _) = do
+websocket_ state@(Client.State mClients mProjects _ _ _ _) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
@@ -166,7 +122,7 @@ receive state clientId text = do
       receiveAction state clientId action
 
 receiveAction :: Client.State -> Client.ClientId -> Client.Incoming -> IO ()
-receiveAction state@(Client.State mClients mProjects _ _ _) senderClientId incoming =
+receiveAction state@(Client.State mClients mProjects _ _ _ _) senderClientId incoming =
   case incoming of
     Client.Changed fileChanged ->
       do
@@ -218,7 +174,7 @@ receiveAction state@(Client.State mClients mProjects _ _ _) senderClientId incom
 
 -- helper broadcast (typo retained to preserve call sites)
 broadCastToEveryoneNotMe :: Client.State -> Client.ClientId -> Client.Outgoing -> IO ()
-broadCastToEveryoneNotMe (Client.State mClients _ _ _ _) myClientId =
+broadCastToEveryoneNotMe (Client.State mClients _ _ _ _ _) myClientId =
   Client.broadcastToMany
     mClients
     ( not . Watchtower.Websocket.matchId myClientId
