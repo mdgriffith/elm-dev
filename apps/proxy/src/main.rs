@@ -302,7 +302,7 @@ fn main() {
     let logger_in = logger.clone();
     let reframe_mode = Arc::new(Mutex::new(None::<bool>)); // None until first stdin message decides
     let reframe_mode_in = Arc::clone(&reframe_mode);
-    let stdin_to_sock = thread::spawn(move || {
+    thread::spawn(move || {
         let mut stdin = io::stdin();
         let mut buf = [0u8; 8192];
         loop {
@@ -376,5 +376,6 @@ fn main() {
         }
     }
 
-    let _ = stdin_to_sock.join();
+    // Exit immediately so no dangling proxies remain after server closes.
+    std::process::exit(0);
 }
