@@ -42,6 +42,7 @@ import qualified Ext.Dev.Project
 import qualified Ext.Test.Install as TestInstall
 import qualified Ext.Test.Result.Report as TestReport
 import qualified Ext.Test.Runner as TestRunner
+import qualified Ext.Reporting.Error
 import qualified Gen.Commands.Init as GenInit
 import qualified Gen.Config as Config
 import qualified Gen.Generate
@@ -67,6 +68,11 @@ import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.LSP.Helpers as Helpers
 import qualified Ext.Encode
 import qualified Elm.Details
+import qualified Elm.ModuleName as ModuleName
+import qualified Reporting.Exit as Exit
+import qualified Reporting.Render.Code as RenderCode
+import qualified Reporting.Error as Err
+import qualified Data.NonEmptyList as NE
 
 
 availableTools :: [MCP.Tool]
@@ -400,7 +406,7 @@ toolTestRun = MCP.Tool
 -- list projects
 toolProjectList :: MCP.Tool
 toolProjectList = MCP.Tool
-  { MCP.toolName = "projectList"
+  { MCP.toolName = "project_list"
   , MCP.toolDescription = "List known projects with ids and roots."
   , MCP.toolInputSchema = JSON.object [ "type" .= ("object" :: Text) ]
   , MCP.toolOutputSchema = Nothing
@@ -417,7 +423,7 @@ toolProjectList = MCP.Tool
 -- set current project
 toolProjectSet :: MCP.Tool
 toolProjectSet = MCP.Tool
-  { MCP.toolName = "projectSet"
+  { MCP.toolName = "project_set"
   , MCP.toolDescription = "Set the current project for this connection."
   , MCP.toolInputSchema = JSON.object [ "type" .= ("object" :: Text), "properties" .= JSON.object [ "projectId" .= JSON.object [ "type" .= ("integer" :: Text) ] ], "required" .= (["projectId"] :: [Text]) ]
   , MCP.toolOutputSchema = Nothing
@@ -476,10 +482,73 @@ resourceOverview =
       , MCP.resourceDescription = Just "Overview for a project (?root=...)"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
-      , MCP.read = \req _state _emit connId -> do
-          -- Placeholder overview for now
-          let val = JSON.object [ "message" .= ("coming soon" :: Text) ]
-          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      , MCP.read = \req state _emit connId -> do
+          projectFound <- ProjectLookup.resolveProjectFromSession Nothing connId state
+          case projectFound of
+            Left msg -> do
+              let val = JSON.object [ "error" .= msg ]
+              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+            Right pc@(Client.ProjectCache proj _ _ mCompileResult mTestResults) -> do
+              -- ensure we have an up-to-date compile result
+              _ <- Watchtower.State.Compile.compile state pc []
+              currentResult <- Control.Concurrent.STM.readTVarIO mCompileResult
+
+              -- Build compilation summary
+              let compilationVal = case currentResult of
+                    Client.Success _ ->
+                      JSON.object [ "status" .= ("ok" :: Text) ]
+                    Client.NotCompiled ->
+                      JSON.object [ "status" .= ("compiling" :: Text) ]
+                    Client.Error (Client.GenerationError errMsg) ->
+                      JSON.object [ "status" .= ("generationError" :: Text)
+                                  , "message" .= errMsg
+                                  ]
+                    Client.Error (Client.ReactorError reactor) ->
+                      case reactor of
+                        Exit.ReactorBadBuild (Exit.BuildBadModules _root firstMod otherMods) ->
+                          let mods = firstMod : otherMods
+                              moduleSummaries =
+                                fmap
+                                  (\(Err.Module name path _time source err) ->
+                                     let reports = NE.toList (Ext.Reporting.Error.toReports (RenderCode.toSource source) err)
+                                         cnt :: Int
+                                         cnt = length reports
+                                         obj = JSON.object [ "module" .= Text.pack (ModuleName.toChars name)
+                                                           , "path" .= path
+                                                           , "count" .= cnt
+                                                           ]
+                                     in (cnt, obj)
+                                  )
+                                  mods
+                              perModule = fmap snd moduleSummaries
+                              totalErrors :: Int
+                              totalErrors = sum (fmap fst moduleSummaries)
+                          in JSON.object [ "status" .= ("errors" :: Text)
+                                         , "totalErrors" .= totalErrors
+                                         , "byModule" .= perModule
+                                         ]
+                        _ -> JSON.object [ "status" .= ("error" :: Text) ]
+
+              -- Test summary (if any)
+              mTests <- Control.Concurrent.STM.readTVarIO mTestResults
+              let testField = case mTests of
+                    Nothing -> []
+                    Just (Client.TestResults total passed failed _failures) ->
+                      [ "tests" .= JSON.object [ "total" .= total
+                                               , "passed" .= passed
+                                               , "failed" .= failed
+                                               ]
+                      ]
+
+              let val = JSON.object (
+                          [ "kind" .= ("overview" :: Text)
+                          , "projectId" .= Ext.Dev.Project._shortId proj
+                          , "root" .= Ext.Dev.Project.getRoot proj
+                          , "entrypoints" .= NE.toList (Ext.Dev.Project._entrypoints proj)
+                          , "compilation" .= compilationVal
+                          ] ++ testField
+                        )
+              pure (MCP.ReadResourceResponse [ MCP.json req val ])
       }
 
 resourceArchitecture :: MCP.Resource
@@ -835,19 +904,11 @@ resourceTestStatus =
 availablePrompts :: [MCP.Prompt]
 availablePrompts = []
 
--- (old stub readers removed; read handlers are inline in each resource)
-
 
 -- | Main MCP server handler
 serve :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
 serve state emitter connId req = do
   MCP.serve availableTools availableResources availablePrompts state emitter connId req
-
-
-
-
-
-
 
 -- Docs helpers
 
