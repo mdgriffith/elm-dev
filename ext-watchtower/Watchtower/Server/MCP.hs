@@ -1,3 +1,4 @@
+
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -38,6 +39,7 @@ import qualified Elm.Docs as Docs
 import qualified Ext.Common
 import qualified Ext.CompileMode
 import qualified Ext.CompileProxy
+import qualified Ext.FileProxy
 import qualified Ext.Dev.Project
 import qualified Ext.Test.Install as TestInstall
 import qualified Ext.Test.Result.Report as TestReport
@@ -464,6 +466,7 @@ availableResources =
   [ resourceOverview
   , resourceArchitecture
   , resourceDiagnostics
+  , resourceFileDocs
   , resourceModuleGraph
   , resourcePackageDocs
   , resourceModuleDocs
@@ -478,10 +481,10 @@ resourceOverview =
   let pat = Uri.pattern "elm" [Uri.s "overview"] []
   in MCP.Resource
       { MCP.resourceUri = pat
-      , MCP.resourceName = "Project Overview"
-      , MCP.resourceDescription = Just "Overview for a project (?root=...)"
+      , MCP.resourceName = "Elm Dev Project Overview"
+      , MCP.resourceDescription = Just "Overview for an Elm project. Examples: elm://overview, file://architecture"
       , MCP.resourceMimeType = Just "application/json"
-      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceAssistant] MCP.High Nothing)
       , MCP.read = \req state _emit connId -> do
           projectFound <- ProjectLookup.resolveProjectFromSession Nothing connId state
           case projectFound of
@@ -540,13 +543,26 @@ resourceOverview =
                                                ]
                       ]
 
+              -- Architecture note if this is an elm-dev project
+              isElmDev <- Ext.FileProxy.exists (Ext.Dev.Project.getRoot proj </> "elm.dev.json")
+              let archNoteField = if isElmDev then
+                                    [ "note" .= ("This project is using the Elm Dev App Architecture.  Read the `architecture` resource for further details." :: Text) ]
+                                  else []
+
+              let capabilitiesVal = JSON.object
+                    [ "fileScoped" .= ([ "diagnostics", "docs.file", "hover", "references" ] :: [Text])
+                    , "projectScoped" .= ([ "compile", "diagnostics", "graph.module", "tests" ] :: [Text])
+                    ]
+
               let val = JSON.object (
                           [ "kind" .= ("overview" :: Text)
+                          , "language" .= ("elm" :: Text)
+                          , "capabilities" .= capabilitiesVal
                           , "projectId" .= Ext.Dev.Project._shortId proj
                           , "root" .= Ext.Dev.Project.getRoot proj
                           , "entrypoints" .= NE.toList (Ext.Dev.Project._entrypoints proj)
                           , "compilation" .= compilationVal
-                          ] ++ testField
+                          ] ++ testField ++ archNoteField
                         )
               pure (MCP.ReadResourceResponse [ MCP.json req val ])
       }
@@ -556,12 +572,24 @@ resourceArchitecture =
   let pat = Uri.pattern "file" [Uri.s "architecture"] []
   in MCP.Resource
       { MCP.resourceUri = pat
-      , MCP.resourceName = "Prefab Architecture"
-      , MCP.resourceDescription = Just "Describes how elm-prefab works"
+      , MCP.resourceName = "Elm Dev Project Architecture"
+      , MCP.resourceDescription = Just "Describes how this specific Elm project is structured (important information for understanding the project)"
       , MCP.resourceMimeType = Just "text/markdown"
-      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
-      , MCP.read = \req _state _emit connId ->
-          pure (MCP.ReadResourceResponse [ MCP.markdown req Guides.architectureMd ])
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceAssistant] MCP.High Nothing)
+      , MCP.read = \req state _emit connId -> do
+          projectFound <- ProjectLookup.resolveProjectFromSession Nothing connId state
+          case projectFound of
+            Left _ -> do
+              let msg = ("This is a standard Elm app using the Elm Architecture." :: Text)
+              pure (MCP.ReadResourceResponse [ MCP.markdown req msg ])
+            Right (Client.ProjectCache proj _ _ _ _) -> do
+              let cfgPath = Ext.Dev.Project.getRoot proj </> "elm.dev.json"
+              hasCfg <- Ext.FileProxy.exists cfgPath
+              if hasCfg then
+                pure (MCP.ReadResourceResponse [ MCP.markdown req Guides.architectureMd ])
+              else do
+                let msg = ("This is a standard Elm app using the Elm Architecture." :: Text)
+                pure (MCP.ReadResourceResponse [ MCP.markdown req msg ])
       }
 
 
@@ -583,51 +611,47 @@ resolveProject queryParams state =
 
 resourceDiagnostics :: MCP.Resource
 resourceDiagnostics =
-  let pat = Uri.pattern "elm" [Uri.s "diagnostics"] ["projectId"]
+  let pat = Uri.pattern "elm" [Uri.s "diagnostics"] ["file"]
   in MCP.Resource
       { MCP.resourceUri = pat
-      , MCP.resourceName = "Diagnostics"
-      , MCP.resourceDescription = Just "Project diagnostics (?projectId=...)"
+      , MCP.resourceName = "Elm Diagnostics"
+      , MCP.resourceDescription = Just "Project or file diagnostics. Examples: elm://diagnostics, elm://diagnostics?file=/abs/path/File.elm"
       , MCP.resourceMimeType = Just "application/json"
-      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch _pathVals queryParams) -> do
-              let mPid = lookupInt queryParams "projectId"
-              
-              projectFound <- ProjectLookup.resolveProjectFromSession mPid connId state
+              let mFile = Map.lookup "file" queryParams
+
+              projectFound <- ProjectLookup.resolveProjectFromSession Nothing connId state
               case projectFound of
                 Left msg -> do
                   let val = JSON.object [ "error" .= msg ]
                   pure (MCP.ReadResourceResponse [ MCP.json req val ])
                 Right pc@(Client.ProjectCache proj _ _ _ _) -> do
                   _ <- Watchtower.State.Compile.compile state pc []
-                  allInfos <- Client.getAllFileInfos state
-                  diagErrors <- Helpers.getDiagnosticsForProject state pc Nothing
-                  let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.contains p proj) (Map.toList allInfos)
-                  warnDiagLists <- mapM (\p -> do { (_loc, warns) <- Helpers.getWarningsForFile state p; pure (concatMap Helpers.warningToUnusedDiagnostic warns) }) projectFiles
-                  let items = diagErrors ++ concat warnDiagLists
-                  let val = JSON.object [ "kind" .= ("project" :: Text)
-                                        , "items" .= items
-                                        ]
-                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
-                
-              case projectFound of
-                Left msg -> do
-                  let val = JSON.object [ "error" .= msg ]
-                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
-                Right pc@(Client.ProjectCache proj _ _ _ _) -> do
-                  _ <- Watchtower.State.Compile.compile state pc []
-                  allInfos <- Client.getAllFileInfos state
-                  diagErrors <- Helpers.getDiagnosticsForProject state pc Nothing
-                  
-                  let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.contains p proj) (Map.toList allInfos)
-                  warnDiagLists <- mapM (\p -> do { (_loc, warns) <- Helpers.getWarningsForFile state p; pure (concatMap Helpers.warningToUnusedDiagnostic warns) }) projectFiles
-                  let items = diagErrors ++ concat warnDiagLists
-                  let val = JSON.object [ "kind" .= ("project" :: Text)
-                                        , "items" .= items
-                                        ]
-                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                  case mFile of
+                    Just fileTxt -> do
+                      let filePath = Text.unpack fileTxt
+                      diagErrors <- Helpers.getDiagnosticsForProject state pc (Just filePath)
+                      (_loc, warns) <- Helpers.getWarningsForFile state filePath
+                      let warnDiags = concatMap Helpers.warningToUnusedDiagnostic warns
+                      let items = diagErrors ++ warnDiags
+                      let val = JSON.object [ "kind" .= ("file" :: Text)
+                                            , "file" .= fileTxt
+                                            , "items" .= items
+                                            ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                    Nothing -> do
+                      allInfos <- Client.getAllFileInfos state
+                      diagErrors <- Helpers.getDiagnosticsForProject state pc Nothing
+                      let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.contains p proj) (Map.toList allInfos)
+                      warnDiagLists <- mapM (\p -> do { (_loc, warns) <- Helpers.getWarningsForFile state p; pure (concatMap Helpers.warningToUnusedDiagnostic warns) }) projectFiles
+                      let items = diagErrors ++ concat warnDiagLists
+                      let val = JSON.object [ "kind" .= ("project" :: Text)
+                                            , "items" .= items
+                                            ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
             Nothing -> do
               let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
               pure (MCP.ReadResourceResponse [ MCP.json req val ])
@@ -636,18 +660,17 @@ resourceDiagnostics =
 
 resourceModuleGraph :: MCP.Resource
 resourceModuleGraph =
-  let pat = Uri.pattern "elm" [Uri.s "graph/module/", Uri.var "Module"] ["projectId"]
+  let pat = Uri.pattern "elm" [Uri.s "graph/module/", Uri.var "Module"] []
   in MCP.Resource
       { MCP.resourceUri = pat
-      , MCP.resourceName = "Module Graph"
-      , MCP.resourceDescription = Just "Imports/exports/dependents (?projectId=...)"
+      , MCP.resourceName = "Elm Module Graph"
+      , MCP.resourceDescription = Just "Imports/exports/dependents (elm://graph/module/{Module}), e.g. elm://graph/module/App.Main"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
-            Just (Uri.PatternMatch pathVals queryParams) -> do
-              let mPid = lookupInt queryParams "projectId"
-              projectFound <- ProjectLookup.resolveProjectFromSession mPid connId state
+            Just (Uri.PatternMatch pathVals _queryParams) -> do
+              projectFound <- ProjectLookup.resolveProjectFromSession Nothing connId state
                                
               case projectFound of
                 Left msg -> do
@@ -676,8 +699,6 @@ resourceModuleGraph =
                       let modulePath = Ext.Dev.Project.lookupModulePath details wantName
                       let val = JSON.object
                                 [ "kind" .= ("moduleGraph" :: Text)
-                                , "projectId" .= Ext.Dev.Project._shortId proj
-                                , "root" .= Ext.Dev.Project.getRoot proj
                                 , "module" .= moduleTxt
                                 , "path" .= maybe JSON.Null (JSON.String . Text.pack) modulePath
                                 , "imports" .= importObjs
@@ -694,8 +715,8 @@ resourcePackageDocs =
   let pat = Uri.pattern "elm" [Uri.s "docs/package/", Uri.var "pkg"] []
   in MCP.Resource
       { MCP.resourceUri = pat
-      , MCP.resourceName = "Package Docs"
-      , MCP.resourceDescription = Just "Docs for a package"
+      , MCP.resourceName = "Elm Package Docs"
+      , MCP.resourceDescription = Just "Docs for a package (elm://docs/package/{author/project}), e.g. elm://docs/package/elm/json"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit connId -> do
@@ -739,11 +760,11 @@ resourcePackageDocs =
 
 resourceModuleDocs :: MCP.Resource
 resourceModuleDocs =
-  let pat = Uri.pattern "elm" [Uri.s "docs/module/", Uri.var "Module"] ["root"]
+  let pat = Uri.pattern "elm" [Uri.s "docs/module/", Uri.var "Module"] []
   in MCP.Resource
       { MCP.resourceUri = pat
-      , MCP.resourceName = "Module Docs"
-      , MCP.resourceDescription = Just "Docs for a module"
+      , MCP.resourceName = "Elm Module Docs"
+      , MCP.resourceDescription = Just "Documentation for a module (elm://docs/module/{Module}), e.g. elm://docs/module/App.Main"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit connId -> do
@@ -755,42 +776,69 @@ resourceModuleDocs =
                   pure (MCP.ReadResourceResponse [ MCP.json req val ])
                 Just moduleTxt -> do
                   let wantName = Name.fromChars (Text.unpack moduleTxt)
-                  mLocal <- findLocalModuleDocs state wantName
-                  case mLocal of
-                    Just (fp, m) -> do
-                      let val = JSON.object
-                                [ "kind" .= ("module" :: Text)
-                                , "module" .= moduleTxt
-                                , "path" .= Text.pack fp
-                                , "docs" .= Ext.Encode.docs (Docs.toDict [m])
-                                ]
+                  r <- resolveModuleSpec state (ModuleByName wantName)
+                  case r of
+                    Right (ModuleResolved _ maybePath maybePkg docsMod) -> do
+                      let base =
+                            [ "kind" .= ("module" :: Text)
+                            , "module" .= moduleTxt
+                            , "docs" .= Ext.Encode.docs (Docs.toDict [docsMod])
+                            ]
+                          withPath = maybe base (\fp -> ("path" .= Text.pack fp) : base) maybePath
+                          withPkg = case maybePkg of
+                                      Just pkgName -> ("package" .= Text.pack (Pkg.toChars pkgName))
+                                                     : ("packageResource" .= Text.concat ["elm://docs/package/", Text.pack (Pkg.toChars pkgName)])
+                                                     : withPath
+                                      Nothing -> withPath
+                          val = JSON.object withPkg
                       pure (MCP.ReadResourceResponse [ MCP.json req val ])
-                    Nothing -> do
-                      pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
-                      let found = [ (pkg, m)
-                                  | (pkg, Client.PackageInfo { Client.packageModules = mods }) <- Map.toList pkgs
-                                  , Just (Client.PackageModule { Client.packageModuleDocs = m }) <- [Map.lookup wantName mods]
-                                  ]
-                      case found of
-                        (pkgName, m):_ -> do
-                          let pkgUri = Text.concat ["elm://docs/package/", Text.pack (Pkg.toChars pkgName)]
-                          let val = JSON.object
-                                    [ "kind" .= ("module" :: Text)
-                                    , "module" .= moduleTxt
-                                    , "package" .= Text.pack (Pkg.toChars pkgName)
-                                    , "packageResource" .= pkgUri
-                                    , "docs" .= Ext.Encode.docs (Docs.toDict [m])
-                                    ]
-                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
-                        _ -> do
-                          let val = JSON.object [ "error" .= ("module not found" :: Text)
-                                                , "module" .= moduleTxt
-                                                ]
-                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                    Left _ -> do
+                      let val = JSON.object [ "error" .= ("module not found" :: Text)
+                                            , "module" .= moduleTxt
+                                            ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
             Nothing -> do
               let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
               pure (MCP.ReadResourceResponse [ MCP.json req val ])
       }
+
+-- New: File-based docs resource
+resourceFileDocs :: MCP.Resource
+resourceFileDocs =
+  let pat = Uri.pattern "elm" [Uri.s "docs/file"] ["file"]
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Elm File Docs"
+      , MCP.resourceDescription = Just "Docs for a specific file (elm://docs/file?file=/abs/path/to/File.elm)"
+      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
+      , MCP.read = \req state _emit _connId -> do
+          case Uri.match pat (MCP.readResourceUri req) of
+            Just (Uri.PatternMatch _pathVals queryParams) -> do
+              case Map.lookup "file" queryParams of
+                Nothing -> do
+                  let val = JSON.object [ "error" .= ("missing file" :: Text) ]
+                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                Just fileTxt -> do
+                  let filePath = Text.unpack fileTxt
+                  r <- resolveModuleSpec state (ModuleByFilePath filePath)
+                  case r of
+                    Right (ModuleResolved _ _ _ docsMod) -> do
+                      let val = JSON.object
+                                [ "kind" .= ("fileDocs" :: Text)
+                                , "file" .= fileTxt
+                                , "docs" .= Ext.Encode.docs (Docs.toDict [docsMod])
+                                ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                    Left msg -> do
+                      let val = JSON.object [ "error" .= msg, "file" .= fileTxt ]
+                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+            Nothing -> do
+              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
+              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      }
+
+
 
 resourceValueDocs :: MCP.Resource
 resourceValueDocs =
@@ -798,7 +846,7 @@ resourceValueDocs =
   in MCP.Resource
       { MCP.resourceUri = pat
       , MCP.resourceName = "Value Docs"
-      , MCP.resourceDescription = Just "Docs for a value"
+      , MCP.resourceDescription = Just "Docs for a value (elm://docs/value/{Module.name}), e.g. elm://docs/value/List.map"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit connId -> do
@@ -858,18 +906,17 @@ resourceValueDocs =
 
 resourceTestStatus :: MCP.Resource
 resourceTestStatus =
-  let pat = Uri.pattern "elm" [Uri.s "tests/status"] ["projectId"]
+  let pat = Uri.pattern "elm" [Uri.s "tests/status"] []
   in MCP.Resource
       { MCP.resourceUri = pat
       , MCP.resourceName = "Test Status"
-      , MCP.resourceDescription = Just "Status of tests (?projectId=...)"
+      , MCP.resourceDescription = Just "Status of tests for the current project (elm://tests/status)"
       , MCP.resourceMimeType = Just "application/json"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Low Nothing)
       , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
-            Just (Uri.PatternMatch _pathVals queryParams) -> do
-              let mPid = lookupInt queryParams "projectId"
-              projectFound <- ProjectLookup.resolveProjectFromSession mPid connId state
+            Just (Uri.PatternMatch _pathVals _queryParams) -> do
+              projectFound <- ProjectLookup.resolveProjectFromSession Nothing connId state
               case projectFound of
                 Left msg -> do
                   let val = JSON.object [ "error" .= msg ]
@@ -947,6 +994,52 @@ findPackageModuleDocs state wantName = do
                             , Just (Client.PackageModule m) <- [Nothing] -- placeholder, never matches
                             ]
            in Nothing
+
+
+-- Shared docs resolver types
+data ModuleSpec
+  = ModuleByName Name.Name
+  | ModuleByFilePath FilePath
+
+data ModuleResolved = ModuleResolved
+  { resolvedName :: Name.Name
+  , resolvedPath :: Maybe FilePath
+  , resolvedPackage :: Maybe Pkg.Name
+  , resolvedDocs :: Docs.Module
+  }
+
+-- Resolve module docs either by module name or file path.
+-- Tries local project first, compiling when needed; then falls back to packages when given a name.
+resolveModuleSpec :: Client.State -> ModuleSpec -> IO (Either Text ModuleResolved)
+resolveModuleSpec state spec =
+  case spec of
+    ModuleByName wantName -> do
+      mLocal <- findLocalModuleDocs state wantName
+      case mLocal of
+        Just (fp, m) -> pure (Right (ModuleResolved wantName (Just fp) Nothing m))
+        Nothing -> do
+          mPkg <- findPackageModuleDocs state wantName
+          case mPkg of
+            Just (pkgName, m) -> pure (Right (ModuleResolved wantName Nothing (Just pkgName) m))
+            Nothing -> pure (Left "module not found")
+
+    ModuleByFilePath fp -> do
+      mInfo <- Client.getFileInfo fp state
+      case mInfo of
+        Just (Client.FileInfo { Client.docs = Just m@(Docs.Module name _ _ _ _ _) }) ->
+          pure (Right (ModuleResolved name (Just fp) Nothing m))
+        _ -> do
+          -- Try compiling the containing project, then retry
+          projectResult <- Client.getExistingProject fp state
+          case projectResult of
+            Left _ -> pure (Left "file not associated with a known project")
+            Right (pc, _) -> do
+              _ <- Watchtower.State.Compile.compile state pc []
+              mInfo2 <- Client.getFileInfo fp state
+              case mInfo2 of
+                Just (Client.FileInfo { Client.docs = Just m@(Docs.Module name _ _ _ _ _) }) ->
+                  pure (Right (ModuleResolved name (Just fp) Nothing m))
+                _ -> pure (Left "no docs for file")
 
 splitModuleAndValue :: Text -> Maybe (Name.Name, Name.Name)
 splitModuleAndValue t =

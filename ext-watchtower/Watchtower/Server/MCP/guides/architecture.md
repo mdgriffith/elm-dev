@@ -1,5 +1,7 @@
 # Elm Dev App Architecture
 
+This is a project that uses the Elm Dev App Architecture, which is a framework on top of the standard Elm Architecture.
+
 ## How it works
 
 Elm Dev has a built-in app architecture that is *optional*, but very useful for most apps.
