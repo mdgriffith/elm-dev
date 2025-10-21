@@ -23,4 +23,4 @@ architectureMd = T.decodeUtf8 architectureRaw
 
 
 version :: String
-version = "1.0.0"
+version = "2"

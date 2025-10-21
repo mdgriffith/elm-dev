@@ -802,7 +802,7 @@ resourceModuleDocs =
               pure (MCP.ReadResourceResponse [ MCP.json req val ])
       }
 
--- New: File-based docs resource
+
 resourceFileDocs :: MCP.Resource
 resourceFileDocs =
   let pat = Uri.pattern "elm" [Uri.s "docs/file"] ["file"]

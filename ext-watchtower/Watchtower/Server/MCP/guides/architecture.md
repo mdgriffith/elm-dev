@@ -58,7 +58,7 @@ Information from the URL template is passed to the `Page` on `init`.
 > **URL formatting**
 > 
 > The pattern language supports literals, variables, an optional path tail, and optional query fields.
-> Here are some URL exmaples and what would be passed to `Page.init` as `params`:
+> Here are some URL examples and what would be passed to `Page.init` as `params`:
 > 
 > - **"/"** → `{}`
 > - **"/about"** → `{}`
@@ -71,13 +71,22 @@ Information from the URL template is passed to the `Page` on `init`.
 > - **"/u/:id/*?{tab}"** with `/u/7/posts?tab=favorites` → `{ id = "7", path_ = [ "posts" ], tab = Just "favorites" }`
 > - **Multiple query values**: only the first value is used; e.g. `/search?q=one&q=two` → `{ q = Just "one" }`
 > - **Extra query fields** not listed in `{ ... }` are ignored; e.g. pattern `"/search?{q}"` with `/search?q=elm&other=x` → `{ q = Just "elm" }`
-> 
-> Notes:
-> - Use `:name` for path variables (each becomes a `String` field on the page params record).
-> - Use `*` to include the remaining path segments as `path_ : List String`.
-> - Use `?{fieldA,fieldB}` to declare optional query fields; each becomes `Maybe String` (`Nothing` when missing).
-> - Query field names must be letters only (A–Z, a–z).
-> - `?{**}` (query catch‑all) is reserved; it parses but is not passed to pages yet.
+
+
+> **Simple Redirects**
+>
+> If you want to maintain backwards compatibility when changing your urls, you can use `redirectFrom`.  This will automatically redirect people to the correct url if they have a link to the old one.
+> ```
+> {
+>    "pages": {
+>        "Home": "/",
+>        "Post": "/posts/*",
+>        "about": {"url": "/about", "redirectFrom": ["/abourt"] },
+>    }
+>}
+>```
+
+
 
 A `Page` is slightly different than a classic  Elm Model + Msg + update + view. Here are some differences.
 
