@@ -2,6 +2,7 @@ module Example.Type exposing
     ( matches, matchesName
     , isStartingPoint, isBuilder, isBuilderOf, isCreatorOf
     , getArgs, getResultType, getBuilderOf
+    , debugStartingPoint
     )
 
 {-|
@@ -89,6 +90,31 @@ isStartingPointHelper tipe =
 
         _ ->
             True
+
+
+debugStartingPoint : Elm.Type.Type -> List String
+debugStartingPoint tipe =
+    if isBuilder tipe then
+        [ "Is Builder, skipping" ]
+
+    else
+        List.reverse (debugIsStartingPointHelper tipe [])
+
+
+debugIsStartingPointHelper : Elm.Type.Type -> List String -> List String
+debugIsStartingPointHelper tipe pieces =
+    case tipe of
+        Elm.Type.Lambda arg result ->
+            if isPrimitive arg then
+                debugIsStartingPointHelper result
+                    (("yes, " ++ typeToString arg) :: pieces)
+
+            else
+                ("Not a primitive, skipping " ++ typeToString arg)
+                    :: pieces
+
+        _ ->
+            "Dont need to see anymore, it is" :: pieces
 
 
 {-| -}
@@ -262,3 +288,84 @@ primitiveSingleContainers =
     [ "List.List"
     , "Maybe.Maybe"
     ]
+
+
+
+{---}
+
+
+typeToString : Elm.Type.Type -> String
+typeToString tipe =
+    typeToStringHelper 0 tipe
+
+
+typeToStringHelper : Int -> Elm.Type.Type -> String
+typeToStringHelper indent tipe =
+    let
+        indentStr =
+            String.repeat (indent * 2) " "
+    in
+    case tipe of
+        Elm.Type.Var name ->
+            name
+
+        Elm.Type.Lambda arg result ->
+            let
+                argStr =
+                    typeToStringHelper indent arg
+
+                resultStr =
+                    typeToStringHelper indent result
+            in
+            "(" ++ argStr ++ "\n" ++ indentStr ++ "-> " ++ resultStr ++ ")"
+
+        Elm.Type.Tuple types ->
+            case types of
+                [] ->
+                    "()"
+
+                _ ->
+                    let
+                        typeStrs =
+                            List.map (typeToStringHelper indent) types
+                    in
+                    "(" ++ String.join ", " typeStrs ++ ")"
+
+        Elm.Type.Type name typeArgs ->
+            case typeArgs of
+                [] ->
+                    name
+
+                _ ->
+                    let
+                        argStrs =
+                            List.map (typeToStringHelper indent) typeArgs
+                    in
+                    name ++ " " ++ String.join " " argStrs
+
+        Elm.Type.Record fields maybeExtensible ->
+            let
+                extensiblePrefix =
+                    case maybeExtensible of
+                        Just extName ->
+                            extName ++ " | "
+
+                        Nothing ->
+                            ""
+
+                fieldStrs =
+                    List.map
+                        (\( fieldName, fieldType ) ->
+                            indentStr ++ fieldName ++ " : " ++ typeToStringHelper (indent + 1) fieldType
+                        )
+                        fields
+
+                fieldsStr =
+                    String.join "\n" fieldStrs
+            in
+            case fields of
+                [] ->
+                    "{}"
+
+                _ ->
+                    "{\n" ++ extensiblePrefix ++ fieldsStr ++ "\n" ++ String.repeat ((indent - 1) * 2) " " ++ "}"

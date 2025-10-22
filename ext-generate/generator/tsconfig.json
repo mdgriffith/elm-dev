@@ -30,6 +30,7 @@
   },
   "include": [
     "index.ts",
+    "interactiveIndex.ts",
     "options.ts"
   ],
   "exclude": [
