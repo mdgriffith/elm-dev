@@ -11,7 +11,6 @@ import App.View.Region
 import Browser
 import Data.Question
 import Effect exposing (Effect)
-import Effect.Http
 import Effect.Nav
 import Effect.Page
 import Effect.Scroll
@@ -20,8 +19,14 @@ import Html.Attributes as Attr
 import Http
 import Listen
 import Listen.DevServer
+import Store.Projects
 import Url
 import WebComponents.Elm
+
+
+
+-- test =
+--     True
 
 
 type alias Model =
@@ -89,12 +94,7 @@ main =
                         Just (App.View page) ->
                             { title = page.title
                             , body =
-                                [ Html.text "Hello, world!"
-                                , WebComponents.Elm.elm
-                                    { baseUrl = "http://localhost:51213"
-                                    , filepath = "src/Main.elm"
-                                    , cwd = "/Users/griff/projects/elm-dev/apps/elm-dev2"
-                                    }
+                                [ page.body
                                 ]
                             }
         }
@@ -107,6 +107,7 @@ type Msg
     | DevServerReceived Listen.DevServer.Event
 
 
+{-| -}
 update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect Msg )
 update stores msg model =
     case msg of
@@ -139,10 +140,18 @@ update stores msg model =
                     in
                     ( model, Effect.none )
 
+                Listen.DevServer.ProjectsStatusUpdated projects ->
+                    let
+                        _ =
+                            Debug.log "ProjectsStatusUpdated" projects
+                    in
+                    ( model, Effect.none )
+
                 _ ->
                     ( model, Effect.none )
 
 
+{-| -}
 loadUrl : Url.Url -> Model -> ( Model, Effect Msg )
 loadUrl url model =
     case App.Route.parse url of
@@ -174,7 +183,10 @@ toSub stores options model sub =
     Listen.toSubscription options sub
 
 
-toCmd : App.Stores.Stores -> App.CmdOptions Msg -> Model -> Effect.Effect (App.Msg Msg) -> Cmd (App.Msg Msg)
+
+-- toCmd : App.Stores.Stores -> App.CmdOptions Msg -> Model -> Effect.Effect (App.Msg Msg) -> Cmd (App.Msg Msg)
+
+
 toCmd stores options model effect =
     Effect.toCmd options
         (\urlBase ->
@@ -195,3 +207,10 @@ toCmd stores options model effect =
                     }
         )
         effect
+
+
+
+-- test : String
+-- test =
+--     True
+
