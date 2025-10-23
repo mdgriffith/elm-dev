@@ -23,22 +23,36 @@ Practical steps to build, package, and publish:
 - CI workflows live in `.github/workflows/` and call `distribution/build-*.sh`.
 - They upload “next” artifacts needed by packaging.
 
-Trigger example:
+Build Elm generator and trigger CI:
 
 ```bash
-# create and switch to a local branch named 'distribute'
-git switch -c distribute
-# push current HEAD to remote branch 'distribute' to trigger CI
-git push origin HEAD:distribute
+# 1) Run the build script (compile Elm assets used by Haskell build)
+./scripts/build-generator-assets.sh
+
+# 2) Commit outputs and push to main (run from repo root)
+cd ../..
+git switch main
+git add \
+  ext-generate/generator/dist/run.js \
+  ext-generate/generator/dist/interactive-run.js \
+  ext-generate/Gen/Javascript.hs \
+  ext-generate/Gen/Templates.hs
+git commit -m "chore: update generator outputs for release"
+git push origin main
+
+# 3) Rebase distribute on main and push to trigger CI
+git switch distribute || git switch -c distribute
+git fetch origin
+git rebase origin/main
+git push -f origin distribute
 ```
 
 ## Local: Rust proxy builds
 
-- Always built locally. From `apps/proxy` run:
+- Always built locally. From repo root run:
 
 ```bash
-cd apps/proxy
-./build_all_for_release.sh   # intended to run from this folder
+./scripts/build-proxy-binaries.sh
 ```
 
 This cross‑compiles and copies binaries into `installers-elm-dev/npm/packages/*`.
@@ -52,7 +66,8 @@ This cross‑compiles and copies binaries into `installers-elm-dev/npm/packages/
    - `installers-elm-dev/npm/scripts/download-binaries.sh` (`VERSION=`)
 
 2) Trigger CI for Haskell builds and wait for artifacts:
-   - Push to `distribute` (see above). Confirm CI jobs finished.
+   - Run the build script, commit to main, rebase `distribute` on main, and push `distribute` (see commands above).
+   - Confirm CI jobs finished.
 
 3) Build local packages(Rust proxy, npm packages, and VS Code extension):
    - `./installers-elm-dev/build-release-local.sh`
@@ -75,8 +90,7 @@ This cross‑compiles and copies binaries into `installers-elm-dev/npm/packages/
 If you need to build the proxy on its own (outside the orchestrator script):
 
 ```bash
-cd apps/proxy
-./build_all_for_release.sh   # run from this folder
+./scripts/build-proxy-binaries.sh
 ```
 
 This cross‑compiles and copies binaries into `installers-elm-dev/npm/packages/*`.

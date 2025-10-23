@@ -18,3 +18,4 @@ node_modules
 playground
 bun.lock
 apps/proxy/target
+installers-elm-dev/npm/packages/**/elm-dev-proxy*

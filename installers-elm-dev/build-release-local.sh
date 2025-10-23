@@ -10,13 +10,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 NPM_DIR="$ROOT_DIR/installers-elm-dev/npm"
-PROXY_DIR="$ROOT_DIR/apps/proxy"
 VS_DIR="$ROOT_DIR/apps/vscode"
 
 echo "[1/4] Building Rust proxy for all targets ..."
-pushd "$PROXY_DIR" >/dev/null
-  ./build_all_for_release.sh
-popd >/dev/null
+"$ROOT_DIR/scripts/build-proxy-binaries.sh"
 
 echo "[2/4] Downloading elm-dev binaries (optional if you built locally) ..."
 pushd "$NPM_DIR" >/dev/null
