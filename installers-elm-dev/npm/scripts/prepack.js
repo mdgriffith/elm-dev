@@ -20,7 +20,7 @@ function copyDirSync(srcDir, destDir) {
 }
 
 const repoRoot = path.join(__dirname, '..', '..', '..');
-const src = path.join(repoRoot, 'ts-tool');
+const src = path.join(repoRoot, 'apps', 'ts-tool');
 const dest = path.join(__dirname, '..', 'ts-tool');
 
 copyDirSync(src, dest);

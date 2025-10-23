@@ -10,8 +10,7 @@ var path = require('path');
 // called when --ignore-scripts is enabled.
 
 
-module.exports = function()
-{
+module.exports = function () {
 	// figure out package of binary
 	var version = package.version.replace(/^(\d+\.\d+\.\d+).*$/, '$1'); // turn '1.2.3-alpha' into '1.2.3'
 	var subPackageName = '@elm_dev_binaries/' + process.platform + '_' + process.arch;
@@ -20,18 +19,14 @@ module.exports = function()
 
 	var fileName = process.platform === 'win32' ? 'elm-dev.exe' : 'elm-dev';
 
-	try
-	{
+	try {
 		var subBinaryPath = require.resolve(subPackageName + '/' + fileName);
 	}
-	catch (error)
-	{
-		if (error && error.code === 'MODULE_NOT_FOUND')
-		{
+	catch (error) {
+		if (error && error.code === 'MODULE_NOT_FOUND') {
 			exitFailure(version, missingSubPackageHelp(subPackageName));
 		}
-		else
-		{
+		else {
 			exitFailure(version, 'I had trouble requiring the binary package for your platform (' + subPackageName + '):\n\n' + error);
 		}
 	}
@@ -41,8 +36,7 @@ module.exports = function()
 	var isYarnBerry = /\byarn\/(?!1\.)/.test(process.env.npm_config_user_agent || "");
 
 	// as mentioned in bin/elm we cannot do any optimizations on Windows
-	if (process.platform === 'win32' || isYarnBerry)
-	{
+	if (process.platform === 'win32' || isYarnBerry) {
 		return subBinaryPath;
 	}
 
@@ -51,18 +45,44 @@ module.exports = function()
 	var tmpPath = binaryPath + '.tmp';
 
 	// optimize by replacing the JS bin/elm with the native binary directly
-	try
-	{
+	try {
 		// atomically replace the file with a hard link to the binary
 		fs.linkSync(subBinaryPath, tmpPath);
 		fs.renameSync(tmpPath, binaryPath);
+
+		// Also place the proxy binary next to elm-dev so the runtime can find it
+		var proxyFileName = process.platform === 'win32' ? 'elm-dev-proxy.exe' : 'elm-dev-proxy';
+		var subProxyPath = path.join(path.dirname(subBinaryPath), proxyFileName);
+		var proxyDest = path.resolve(__dirname, 'bin', proxyFileName);
+		try {
+			if (fs.existsSync(subProxyPath)) {
+				var tmpProxy = proxyDest + '.tmp';
+				// remove any existing to avoid EXDEV surprises
+				try { fs.unlinkSync(tmpProxy); } catch (_) { }
+				try { fs.unlinkSync(proxyDest); } catch (_) { }
+				fs.linkSync(subProxyPath, tmpProxy);
+				fs.renameSync(tmpProxy, proxyDest);
+				try { fs.chmodSync(proxyDest, 0o755); } catch (_) { }
+			}
+		} catch (e) {
+			// Non-fatal; fallback paths will still work
+		}
 	}
-	catch (error)
-	{
+	catch (error) {
 		exitFailure(version, 'I had some trouble writing file to disk. It is saying:\n\n' + error);
 	}
 
 	return binaryPath;
+}
+
+// Expose helper to locate platform package path. Downstream scripts may use this to locate
+// additional artifacts (like elm-dev-proxy) placed in the same subpackage folder.
+module.exports.subPackageFolder = function () {
+	var version = package.version.replace(/^(\d+\.\d+\.\d+).*$/, '$1');
+	var subPackageName = '@elm_dev_binaries/' + process.platform + '_' + process.arch;
+	verifyPlatform(version, subPackageName);
+	var resolved = require.resolve(subPackageName + '/' + (process.platform === 'win32' ? 'elm-dev.exe' : 'elm-dev'));
+	return path.dirname(resolved);
 }
 
 
@@ -70,8 +90,7 @@ module.exports = function()
 // VERIFY PLATFORM
 
 
-function verifyPlatform(version, subPackageName)
-{
+function verifyPlatform(version, subPackageName) {
 	if (subPackageName in package.optionalDependencies) return;
 
 	var situation = process.platform + '_' + process.arch;
@@ -94,8 +113,7 @@ function verifyPlatform(version, subPackageName)
 // EXIT FAILURE
 
 
-function exitFailure(version, message)
-{
+function exitFailure(version, message) {
 	console.error(
 		'-- ERROR -----------------------------------------------------------------------\n\n'
 		+ message
@@ -112,8 +130,7 @@ function exitFailure(version, message)
 // MISSING SUB PACKAGE HELP
 
 
-function missingSubPackageHelp(subPackageName)
-{
+function missingSubPackageHelp(subPackageName) {
 	return (
 		'I tried to get `elm` from ' + subPackageName + ', but something went wrong.\n'
 		+ 'This can happen if you use the "--omit=optional" or "--no-optional" npm flag, or\n'
