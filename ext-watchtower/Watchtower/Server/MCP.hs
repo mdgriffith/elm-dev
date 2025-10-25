@@ -63,6 +63,7 @@ import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.Server.MCP.Protocol as MCP
 import qualified Watchtower.Server.MCP.Uri as Uri
 import qualified Watchtower.Server.MCP.ProjectLookup as ProjectLookup
+import qualified Watchtower.Server.MCP.Docs as DocsRender
 import qualified Data.Text as T
 import qualified Watchtower.Server.MCP.Guides as Guides
 import qualified Watchtower.State.Compile
@@ -701,7 +702,7 @@ resourcePackageDocs =
       { MCP.resourceUri = pat
       , MCP.resourceName = "Elm Package Docs"
       , MCP.resourceDescription = Just "Docs for a package (elm://docs/package/{author/project}), e.g. elm://docs/package/elm/json"
-      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
@@ -709,8 +710,8 @@ resourcePackageDocs =
               let mPkgTxt = Map.lookup "pkg" pathVals
               case mPkgTxt of
                 Nothing -> do
-                  let val = JSON.object [ "error" .= ("missing package" :: Text) ]
-                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                  let body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack "") Nothing) Nothing []
+                  pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
                 Just pkgTxt -> do
                   let parts = Text.splitOn "/" pkgTxt
                   case parts of
@@ -719,27 +720,20 @@ resourcePackageDocs =
                       pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
                       case Map.lookup pkgName pkgs of
                         Nothing -> do
-                          let val = JSON.object
-                                    [ "error" .= ("package not found" :: Text)
-                                    , "package" .= Text.pack (Pkg.toChars pkgName)
-                                    ]
-                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                          let body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack (Pkg.toChars pkgName)) Nothing) Nothing []
+                          pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
 
                         Just (Client.PackageInfo { Client.readme = r, Client.packageModules = mods }) -> do
                           let modulesDocs = [ Client.packageModuleDocs pm | pm <- Map.elems mods ]
-                              val = JSON.object
-                                      [ "kind" .= ("package" :: Text)
-                                      , "package" .= Text.pack (Pkg.toChars pkgName)
-                                      , "readme" .= maybe JSON.Null (JSON.String . Text.pack) r
-                                      , "docs" .= Ext.Encode.docs (Docs.toDict modulesDocs)
-                                      ]
-                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                              readme = fmap Text.pack r
+                              body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack (Pkg.toChars pkgName)) Nothing) readme modulesDocs
+                          pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
                     _ -> do
-                      let val = JSON.object [ "error" .= ("bad package id" :: Text) ]
-                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                      let body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack "") Nothing) Nothing []
+                      pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
             Nothing -> do
-              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
-              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+              let body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack "") Nothing) Nothing []
+              pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
       }
 
 resourceModuleDocs :: MCP.Resource
@@ -749,41 +743,32 @@ resourceModuleDocs =
       { MCP.resourceUri = pat
       , MCP.resourceName = "Elm Module Docs"
       , MCP.resourceDescription = Just "Documentation for a module (elm://docs/module/{Module}), e.g. elm://docs/module/App.Main"
-      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch pathVals _q) -> do
               case Map.lookup "Module" pathVals of
                 Nothing -> do
-                  let val = JSON.object [ "error" .= ("missing module" :: Text) ]
-                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                  pure (MCP.ReadResourceResponse
+                          [ MCP.markdown req "No module provided.  Call this resource like elm://docs/module/{Module}, e.g. elm://docs/module/App.Main"
+                          ])                  
                 Just moduleTxt -> do
                   let wantName = Name.fromChars (Text.unpack moduleTxt)
                   r <- resolveModuleSpec state (ModuleByName wantName)
                   case r of
                     Right (ModuleResolved _ maybePath maybePkg docsMod) -> do
-                      let base =
-                            [ "kind" .= ("module" :: Text)
-                            , "module" .= moduleTxt
-                            , "docs" .= Ext.Encode.docs (Docs.toDict [docsMod])
-                            ]
-                          withPath = maybe base (\fp -> ("path" .= Text.pack fp) : base) maybePath
-                          withPkg = case maybePkg of
-                                      Just pkgName -> ("package" .= Text.pack (Pkg.toChars pkgName))
-                                                     : ("packageResource" .= Text.concat ["elm://docs/package/", Text.pack (Pkg.toChars pkgName)])
-                                                     : withPath
-                                      Nothing -> withPath
-                          val = JSON.object withPkg
-                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                      let meta = DocsRender.ModuleMeta moduleTxt Nothing maybePath (fmap (Text.pack . Pkg.toChars) maybePkg)
+                          body = DocsRender.renderModule meta docsMod
+                      pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
                     Left _ -> do
-                      let val = JSON.object [ "error" .= ("module not found" :: Text)
-                                            , "module" .= moduleTxt
-                                            ]
-                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                      pure (MCP.ReadResourceResponse
+                            [ MCP.markdown req ("No module found named " <> moduleTxt)
+                            ])
             Nothing -> do
-              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
-              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+              pure (MCP.ReadResourceResponse
+                    [ MCP.markdown req "Unknown URI format. (elm://docs/module/{Module}), e.g. elm://docs/module/App.Main"
+                    ])
       }
 
 
@@ -794,32 +779,33 @@ resourceFileDocs =
       { MCP.resourceUri = pat
       , MCP.resourceName = "Elm File Docs"
       , MCP.resourceDescription = Just "Docs for a specific file (elm://docs/file?file=/abs/path/to/File.elm)"
-      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit _connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch _pathVals queryParams) -> do
               case Map.lookup "file" queryParams of
                 Nothing -> do
-                  let val = JSON.object [ "error" .= ("missing file" :: Text) ]
-                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                  pure (MCP.ReadResourceResponse
+                          [ MCP.markdown req "No file path provided.  Call this resource like elm://docs/file?file=/abs/path/to/File.elm" ]
+                        )
                 Just fileTxt -> do
                   let filePath = Text.unpack fileTxt
                   r <- resolveModuleSpec state (ModuleByFilePath filePath)
                   case r of
-                    Right (ModuleResolved _ _ _ docsMod) -> do
-                      let val = JSON.object
-                                [ "kind" .= ("fileDocs" :: Text)
-                                , "file" .= fileTxt
-                                , "docs" .= Ext.Encode.docs (Docs.toDict [docsMod])
-                                ]
-                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                    Right (ModuleResolved moduleName _ _ docsMod) -> do
+                      let body = DocsRender.renderModule (DocsRender.ModuleMeta (Text.pack (Name.toChars moduleName)) Nothing (Just (Text.unpack fileTxt)) Nothing) docsMod
+                      pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
+                    
                     Left msg -> do
-                      let val = JSON.object [ "error" .= msg, "file" .= fileTxt ]
-                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                      pure (MCP.ReadResourceResponse
+                              [ MCP.markdown req ("No module found at path " <> fileTxt <> " (" <> msg <> ")" )
+                              ]
+                           )
             Nothing -> do
-              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
-              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+              pure (MCP.ReadResourceResponse
+                    [ MCP.markdown req "Unknown URI format. (elm://docs/file?file=/abs/path/to/File.elm)"
+                    ])
       }
 
 
@@ -831,61 +817,38 @@ resourceValueDocs =
       { MCP.resourceUri = pat
       , MCP.resourceName = "Value Docs"
       , MCP.resourceDescription = Just "Docs for a value (elm://docs/value/{Module.name}), e.g. elm://docs/value/List.map"
-      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch pathVals _q) -> do
               case Map.lookup "Module.name" pathVals >>= splitModuleAndValue of
-                Nothing -> do
-                  let val = JSON.object [ "error" .= ("missing module or value" :: Text) ]
-                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                Nothing -> 
+                  pure (MCP.ReadResourceResponse
+                          [ MCP.markdown req ("No module name provided.  Call this resource like elm://docs/value/{Module.name}, e.g. elm://docs/value/List.map" )
+                          ])
                 Just (modName, valName) -> do
-                  -- Try local first
-                  mLocal <- findLocalModuleDocs state modName
-                  case mLocal of
-                    Just (fp, m) -> do
-                      let filtered = filterModuleForValue valName m
-                          note = if Map.null (case filtered of Docs.Module _ _ _ _ vs _ -> vs)
-                                 then Just ("value not found in local module" :: Text) else Nothing
-                          base =
-                            [ "module" .= Text.pack (Name.toChars modName)
-                            , "path" .= Text.pack fp
-                            , "docs" .= Ext.Encode.docs (Docs.toDict [filtered])
-                            ]
-                          val = JSON.object (maybe base (\n -> ("note" .= n):base) note)
-                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
-                    Nothing -> do
-                      -- packages
-                      pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
-                      let found = [ (pkg, m)
-                                  | (pkg, Client.PackageInfo { Client.packageModules = mods }) <- Map.toList pkgs
-                                  , Just (Client.PackageModule { Client.packageModuleDocs = m }) <- [Map.lookup modName mods]
-                                  ]
-                      case found of
-                        (pkgName, m):_ -> do
-                          let filtered = filterModuleForValue valName m
-                              note = if Map.null (case filtered of Docs.Module _ _ _ _ vs _ -> vs)
-                                     then Just ("value not found in package module" :: Text) else Nothing
-                              pkgUri = Text.concat ["elm://docs/package/", Text.pack (Pkg.toChars pkgName)]
-                              base =
-                                [ "module" .= Text.pack (Name.toChars modName)
-                                , "name" .= Text.pack (Name.toChars valName)
-                                , "package" .= Text.pack (Pkg.toChars pkgName)
-                                , "packageResource" .= pkgUri
-                                , "docs" .= Ext.Encode.docs (Docs.toDict [filtered])
-                                ]
-                              val = JSON.object (maybe base (\n -> ("note" .= n):base) note)
-                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
-                        _ -> do
-                          let val = JSON.object [ "error" .= ("value not found" :: Text)
-                                                , "module" .= Text.pack (Name.toChars modName)
-                                                , "name" .= Text.pack (Name.toChars valName)
-                                                ]
-                          pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                  r <- resolveModuleSpec state (ModuleByName modName)
+                  case r of
+                    Right (ModuleResolved _ maybePath maybePkg docsMod) -> do
+                      let meta = DocsRender.ValueMeta 
+                                    (Text.pack (Name.toChars modName))
+                                    (Text.pack (Name.toChars valName))
+                                    Nothing
+                                    maybePath
+                                    (fmap (Text.pack . Pkg.toChars) maybePkg)
+                          body = DocsRender.renderValue meta docsMod valName
+                      pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
+
+                    Left _ -> do
+                      pure (MCP.ReadResourceResponse
+                              [ MCP.markdown req ("No value found that matches " <> Text.pack (Name.toChars valName) )
+                              ]
+                           )
             Nothing -> do
-              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
-              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+              let msg :: Text
+                  msg = "Unknown URI format. (elm://docs/value/{Module.name}), e.g. elm://docs/value/List.map"
+              pure (MCP.ReadResourceResponse [ MCP.markdown req msg ])
       }
 
 resourceTestStatus :: MCP.Resource
@@ -1091,10 +1054,3 @@ splitModuleAndValue t =
          let valTxt = last parts
              modTxt = Text.intercalate "." (init parts)
          in Just (Name.fromChars (Text.unpack modTxt), Name.fromChars (Text.unpack valTxt))
-
-filterModuleForValue :: Name.Name -> Docs.Module -> Docs.Module
-filterModuleForValue valName (Docs.Module nm comment _unions _aliases values _binops) =
-  let one = case Map.lookup valName values of
-              Just v -> Map.singleton valName v
-              Nothing -> Map.empty
-  in Docs.Module nm comment Map.empty Map.empty one Map.empty
