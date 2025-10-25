@@ -89,7 +89,6 @@ availableTools =
   , toolAddTheme
   , toolTestInit
   , toolTestRun
-  , toolProjectList
   , toolProjectSet
   ]
 
@@ -405,22 +404,6 @@ toolTestRun = MCP.Tool
                 pure (ok (Text.pack rendered))
   }
 
--- list projects
-toolProjectList :: MCP.Tool
-toolProjectList = MCP.Tool
-  { MCP.toolName = "project_list"
-  , MCP.toolDescription = "List known projects with ids and roots."
-  , MCP.toolInputSchema = JSON.object [ "type" .= ("object" :: Text) ]
-  , MCP.toolOutputSchema = Nothing
-  , MCP.call = \_args state _emit connId -> do
-      let (Client.State _ mProjects _ _ _ _) = state
-      projects <- Control.Concurrent.STM.readTVarIO mProjects
-      let items = fmap (\(Client.ProjectCache proj _ _ _ _) -> JSON.object
-                        [ "id" .= Ext.Dev.Project._shortId proj
-                        , "root" .= Ext.Dev.Project.getRoot proj
-                        ]) projects
-      pure (ok (Text.pack (show (length items))) ) >> pure (MCP.ToolCallResponse [MCP.ToolResponseStructured Nothing (JSON.object ["projects" .= items])])
-  }
 
 -- set current project
 toolProjectSet :: MCP.Tool
@@ -464,6 +447,7 @@ urlToElmModuleName url =
 availableResources :: [MCP.Resource]
 availableResources =
   [ resourceOverview
+  , resourceProjects
   , resourceArchitecture
   , resourceDiagnostics
   , resourceFileDocs
@@ -944,6 +928,62 @@ resourceTestStatus =
             Nothing -> do
               let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
               pure (MCP.ReadResourceResponse [ MCP.json req val ])
+      }
+
+-- List known projects as a markdown resource with embedded YAML
+resourceProjects :: MCP.Resource
+resourceProjects =
+  let pat = Uri.pattern "elm" [Uri.s "projects"] []
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Elm Projects"
+      , MCP.resourceDescription = Just "Lists known projects, indicates compiling status and current selection"
+      , MCP.resourceMimeType = Just "text/markdown"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
+      , MCP.read = \req state _emit connId -> do
+          let (Client.State _ mProjects _ _ _ _) = state
+          projects <- Control.Concurrent.STM.readTVarIO mProjects
+          mFocused <- Client.getFocusedProjectId state connId
+
+          items <- mapM
+            (\(Client.ProjectCache proj _ _ mCompileResult _) -> do
+                cr <- Control.Concurrent.STM.readTVarIO mCompileResult
+                let compiling = case cr of
+                                  Client.NotCompiled -> True
+                                  _ -> False
+                    pid = Ext.Dev.Project._shortId proj
+                    root = Ext.Dev.Project.getRoot proj
+                    isCurrent = maybe False (== pid) mFocused
+                pure (pid, root, compiling, isCurrent)
+            )
+            projects
+
+          let header :: Text
+              header = "Projects"
+              note :: [Text]
+              note = case mFocused of
+                       Nothing -> ["\nNote: No project is currently selected."]
+                       Just _ -> []
+              yamlBlock :: [Text]
+              yamlBlock =
+                ["\n```yaml", "projects:"]
+                ++ concatMap
+                    (\(pid, root, compiling, isCurrent) ->
+                        let base =
+                              [ Text.concat ["  - id: ", Text.pack (show pid)]
+                              , Text.concat ["    root: ", Text.pack root]
+                              , Text.concat ["    compiling: ", if compiling then "true" else "false"]
+                              ]
+                            currentLine = if isCurrent then ["    current: true"] else []
+                        in base ++ currentLine
+                    )
+                    items
+                ++ ["```\n"]
+              footer :: Text
+              footer = "Use the `project_set` tool with the project id to select a project."
+              body :: Text
+              body = Text.intercalate "\n" ([header] ++ note) <> Text.concat yamlBlock <> "\n" <> footer
+          pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
       }
 
 -- * Available Prompts
