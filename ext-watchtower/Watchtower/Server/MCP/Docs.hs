@@ -197,7 +197,46 @@ parseDocsRefs line =
 
 -- Render helpers
 typeToText :: ElmType.Type -> Text
-typeToText tipe = Text.pack (RDoc.toLine (ElmType.toDoc Localizer.empty RenderType.None tipe))
+typeToText tipe =
+  let normalized = normalizeType tipe
+  in Text.pack (RDoc.toLine (ElmType.toDoc defaultLocalizer RenderType.None normalized))
+
+-- Remove default module qualifiers like "Basics.Int" -> "Int", "String.String" -> "String"
+normalizeType :: ElmType.Type -> ElmType.Type
+normalizeType tipe =
+  case tipe of
+    ElmType.Lambda a b -> ElmType.Lambda (normalizeType a) (normalizeType b)
+    ElmType.Var n -> ElmType.Var n
+    ElmType.Type n args -> ElmType.Type (stripDefaultPrefix n) (map normalizeType args)
+    ElmType.Record fields ext -> ElmType.Record (map (\(n,t) -> (n, normalizeType t)) fields) ext
+    ElmType.Unit -> ElmType.Unit
+    ElmType.Tuple a b cs -> ElmType.Tuple (normalizeType a) (normalizeType b) (map normalizeType cs)
+
+stripDefaultPrefix :: Name.Name -> Name.Name
+stripDefaultPrefix n =
+  let s = Name.toChars n
+      (modPart, rest) = break (== '.') s
+  in case rest of
+      [] -> n
+      (_:typeName) ->
+        if modPart `elem` defaultModules then Name.fromChars typeName else n
+
+defaultModules :: [String]
+defaultModules = ["Basics","String","List","Maybe","Result","Char","Tuple"]
+
+-- Use a localizer that treats Elm's default imports as unqualified
+defaultLocalizer :: Localizer.Localizer
+defaultLocalizer =
+  Localizer.fromNames $
+    Map.fromList
+      [ (Name.fromChars "Basics", ())
+      , (Name.fromChars "String", ())
+      , (Name.fromChars "List", ())
+      , (Name.fromChars "Maybe", ())
+      , (Name.fromChars "Result", ())
+      , (Name.fromChars "Char", ())
+      , (Name.fromChars "Tuple", ())
+      ]
 
 -- When a type appears as a constructor argument, certain forms need parentheses
 needsParens :: ElmType.Type -> Bool
