@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Watchtower.Server.MCP.Uri (Pattern, pattern, var, s, PatternMatch(..), match, renderPattern) where
+module Watchtower.Server.MCP.Uri (Pattern, pattern, var, s, PatternMatch(..), match, renderPattern, hasVariables) where
 
 import qualified Data.Map as Map
 import qualified Data.Text as Text
@@ -103,3 +103,12 @@ breakOnText :: Text -> Text -> Maybe (Text, Text)
 breakOnText needle haystack =
   let (before, after) = Text.breakOn needle haystack
   in if Text.null after then Nothing else Just (before, Text.drop (Text.length needle) after)
+
+
+-- | Determine if a Pattern contains any variable path tokens
+hasVariables :: Pattern -> Bool
+hasVariables (Pattern _ tokens _allowed) = any isVar tokens
+  where
+    isVar tk = case tk of
+      Var _ -> True
+      Literal _ -> False

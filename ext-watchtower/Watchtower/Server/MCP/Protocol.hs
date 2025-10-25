@@ -356,9 +356,14 @@ instance JSON.ToJSON ToolCallResponse where
 -- Custom ToJSON instance for Resource to omit function field
 instance JSON.ToJSON Resource where
   toJSON r = JSON.object $
-    [ "uri" .= Uri.renderPattern (resourceUri r)
-    , "name" .= resourceName r
-    ]
+    ( if Uri.hasVariables (resourceUri r)
+        then [ "uriTemplate" .= Uri.renderPattern (resourceUri r)
+             , "name" .= resourceName r
+             ]
+        else [ "uri" .= Uri.renderPattern (resourceUri r)
+             , "name" .= resourceName r
+             ]
+    )
     ++ maybe [] (\d -> ["description" .= d]) (resourceDescription r)
     ++ maybe [] (\m -> ["mimeType" .= m]) (resourceMimeType r)
     ++ maybe [] (\a -> ["annotations" .= a]) (resourceAnnotations r)
@@ -443,7 +448,11 @@ serve tools resources prompts state emit connId req@(JSONRPC.Request _ reqId met
             JSON.Error e -> return $ err reqId ("Invalid tool call request: " ++ e)
         Nothing -> return $ err reqId "Missing parameters for tools/call"
     "resources/list" -> do
-      return $ success reqId (JSON.object ["resources" .= resources])
+      let concreteResources = [ r | r <- resources, not (Uri.hasVariables (resourceUri r)) ]
+      return $ success reqId (JSON.object ["resources" .= concreteResources])
+    "resources/templates/list" -> do
+      let templateResources = [ r | r <- resources, Uri.hasVariables (resourceUri r) ]
+      return $ success reqId (JSON.object ["resourceTemplates" .= templateResources])
     "resources/read" -> do
       case params of
         Just p -> do
