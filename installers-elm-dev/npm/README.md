@@ -1,26 +1,75 @@
-# Elm Dev
+## Elm Dev
 
-Elm Dev is a version of the Elm compiler that is made to support editing tools.
+```bash
+npm install -g elm-dev
+```
 
-Not to be confused with Elm itself which lives here: https://elm-lang.org/
+Elm Dev is an Elm compiler with:
+- Language Server Protocol (LSP) support
+- Model Context Protocol (MCP) support  
+- Hot reloading
+- VS Code/Cursor plugin
+- A full app framework
 
-This package is for toolmakers, so if you're just starting out using Elm, you likely don't need this tool directly.
 
-Install via `npm install -g elm-dev` if you want to play with it. It's currently experimental, but will likely be stable soon.
+### Install in VS Code / Cursor
+- Open the Extensions view and install the **Elm Dev** extension.
 
-Currently this is a command line tool with the following commands that print or output JSON.
+### Set up MCP in VS Code / Cursor
+- **Cursor**: create `~/.cursor/mcp.json` with:
+```json
+{
+  "mcpServers": {
+    "elm-dev": {
+      "command": "elm-dev",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+- **VS Code**: if you use an MCP-capable AI extension, add a server named `elm-dev` with command `elm-dev` and args `["mcp"]`.
 
-- `warnings` - List missing type signatures and unused values.
-- `entrypoints` - Detect what `.elm` files are the potential roots of a project. This will also report any ports relevant to a specific entrypoint as well as the type signatures of those ports.
-- `docs` - Generate `docs.json` for any package, or any local `.elm` file.
-- `imports` - Given a list of modules, report all files and packages that they collectively depends on. This is useful for
-- `usage` - Given a module, return all usages of that module in a given project.
-- `explain` - Given a fully qualified type name, provide it's full definition.
+### Set up MCP in Codex and Claude Code
+- Add an MCP server named `elm-dev` using command `elm-dev` with args `["mcp"]` via each client's MCP settings UI or config file.
+```json
+{
+  "mcpServers": {
+    "elm-dev": { "command": "elm-dev", "args": ["mcp"] }
+  }
+}
+```
 
-Each command may instead report compilation errors if the file or project fails to compile.
+### CLI help
+```
+Welcome to Elm Dev
 
-## Roadmap
+  elm-dev init ...................... Create a new Elm project
+  elm-dev make [module] ............... Build your Elm project
+  elm-dev install [author/project] ......... Install a package
 
-The above functionality is a first pass on what would be useful for `elm-dev` to report and has been published to allow downstream projects to try stuff out.
+Add to your Elm app:
 
-In the medium term, the intention is to support the language-server protocol and to adjust functionaltiy based on downstream projects.
+  elm-dev add page <url> ...................... Add a new page
+  elm-dev add store <name> ................... Add a new store
+  elm-dev add effect <name> ................. Add a new effect
+  elm-dev add listener <name> ............. Add a new listener
+
+Move an elm-dev-generated file into your project:
+
+  elm-dev customize <module> .... Customize project components
+
+Testing:
+
+  elm-dev test .......... Discover, compile, and run Elm tests
+  elm-dev test init ............................ Setup testing
+  elm-dev test install <author/project> ..... Install test dep
+
+Development:
+
+  elm-dev dev serve ........... Run the Elm Dev dev (internal)
+  elm-dev dev start ................. Start dev if not running
+  elm-dev dev stop .................................. Stop dev
+  elm-dev dev status .................. Show dev server status
+  elm-dev mcp ................... Start the Elm Dev MCP server
+  elm-dev lsp ................... Start the Elm Dev LSP server
+```
