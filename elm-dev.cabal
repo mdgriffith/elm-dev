@@ -271,6 +271,7 @@ Executable elm-dev
         Watchtower.Server.MCP.Protocol
         Watchtower.Server.MCP.Uri
         Watchtower.Server.MCP.ProjectLookup
+        Watchtower.Server.MCP.Docs
         Watchtower.Server.MCP.Guides
         Watchtower.Server.Dev
         Watchtower.Server.DevWS
