@@ -343,13 +343,14 @@ isErrorChunk chunk = case chunk of
 
 instance JSON.ToJSON ToolCallResponse where
   toJSON (ToolCallResponse chunks) =
-    let contentBlocks = fmap encodeChunk chunks
-        hasError = any isErrorChunk chunks
+    let hasError = any isErrorChunk chunks
+        (contentBlocks, structuredField) = case chunks of
+          -- For maximum client compatibility, emit structured data only via the
+          -- top-level field and keep the content array empty.
+          [ToolResponseStructured _ val] -> ([], ["structuredContent" .= val])
+          _ -> (fmap encodeChunk chunks, [])
         baseFields = ["content" .= contentBlocks]
         errorField = ["isError" .= hasError]
-        structuredField = case chunks of
-          [ToolResponseStructured _ val] -> ["structuredContent" .= val]
-          _ -> []
     in JSON.object (baseFields ++ errorField ++ structuredField)
 
 -- Custom ToJSON instance for Resource to omit function field
