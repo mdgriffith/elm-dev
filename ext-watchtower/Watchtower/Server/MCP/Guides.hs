@@ -2,6 +2,7 @@
 
 module Watchtower.Server.MCP.Guides
   ( architectureMd
+  , wellFormedElmCodeMd
   ) where
 
 import qualified Data.ByteString as BS
@@ -20,6 +21,16 @@ architectureRaw = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-watchtowe
 -- | Decoded markdown text for use in MCP responses
 architectureMd :: T.Text
 architectureMd = T.decodeUtf8 architectureRaw
+
+
+-- | Embed the well-formed Elm code guide markdown at compile time
+wellFormedElmCodeRaw :: BS.ByteString
+wellFormedElmCodeRaw = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-watchtower" </> "Watchtower" </> "Server" </> "MCP" </> "guides" </> "well_formed_elm_code.md")) )
+
+
+-- | Decoded markdown text for use in MCP responses
+wellFormedElmCodeMd :: T.Text
+wellFormedElmCodeMd = T.decodeUtf8 wellFormedElmCodeRaw
 
 
 version :: String

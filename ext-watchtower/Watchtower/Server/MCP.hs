@@ -450,6 +450,7 @@ availableResources =
   [ resourceOverview
   , resourceProjects
   , resourceArchitecture
+  , resourceWellFormedElmCode
   , resourceDiagnostics
   , resourceFileDocs
   , resourceModuleGraph
@@ -575,6 +576,20 @@ resourceArchitecture =
               else do
                 let msg = ("This is a standard Elm app using the Elm Architecture." :: Text)
                 pure (MCP.ReadResourceResponse [ MCP.markdown req msg ])
+      }
+
+
+resourceWellFormedElmCode :: MCP.Resource
+resourceWellFormedElmCode =
+  let pat = Uri.pattern "file" [Uri.s "guides", Uri.s "well-formed-elm-code"] []
+  in MCP.Resource
+      { MCP.resourceUri = pat
+      , MCP.resourceName = "Well‑Formed Elm Code"
+      , MCP.resourceDescription = Just "Guidelines for writing clear, robust Elm code."
+      , MCP.resourceMimeType = Just "text/markdown"
+      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceAssistant] MCP.High Nothing)
+      , MCP.read = \req _state _emit _connId -> do
+          pure (MCP.ReadResourceResponse [ MCP.markdown req Guides.wellFormedElmCodeMd ])
       }
 
 
