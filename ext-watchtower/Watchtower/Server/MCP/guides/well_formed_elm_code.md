@@ -6,6 +6,25 @@
   - Keep call sites explicit and searchable. Avoid `as` and `exposing` unless there’s a strong reason.
   - Rare exceptions: infix ops from `Parser`.
 
+### Msg naming conventions
+
+`Msg`s should be named with a `{Domain Noun}{Domain Action}{Past tense Event}` format.
+Examples:
+- `PostArchiveClicked` - `Post` is a domain concept noun.  `Archive` is the action we're attempting to perform.  `Clicked` is the event, What happened.
+- `PostArchiveConfirmed` - We can visually scan that this is part of the same flow as the above Msg.
+- `PostsReceived` - Same `Post` domain noun.  No action, just `Received`, which is what happened.
+
+Tha main advantage for this format is that Msgs for related flows can be grouped visually in the Msg definition and in the `update` function, allowing for easy scanning and understanding.  It maps nicely to the information architecture we need to develop.
+
+Of note, some naming methodologies use `User` or `Server` in the naming convention, though in practice this information isn't very useful.
+
+The `Event` portion of the `Msg` can also be standardized on a per-project level. Some common `Event` names
+- `Clicked`
+- `Submitted`
+- `Received` (sometimes `Fetched` or `Got`).
+- `Confirmed`
+
+
 ### Use Modularity
 
 - **Design clear module interfaces**
