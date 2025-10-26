@@ -17,7 +17,11 @@
     "commands": [
       {
         "command": "elm.restart",
-        "title": "Restart Elm Dev (LSP, MCP, Daemon)"
+        "title": "Elm Dev: Restart"
+      },
+      {
+        "command": "elm.generateAgentDoc",
+        "title": "Elm Dev: Generate Elm Agent Doc (docs/agent.elm.md)"
       }
     ],
     "languages": [
