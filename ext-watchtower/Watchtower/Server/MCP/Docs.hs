@@ -70,8 +70,8 @@ renderModuleMeta meta =
         [ ("module_name", moduleName meta)
         ]
         ++ maybe [] (\p -> [("project_root", Text.pack p)]) (moduleProjectRoot meta)
-        ++ maybe [] (\p -> [("file_path", Text.pack p)]) (moduleFilePath meta)
-        ++ maybe [] (\p -> [("from_package", p)]) (moduleFromPackage meta)
+        ++ maybe [] (\p -> [("path", Text.pack p)]) (moduleFilePath meta)
+        ++ maybe [] (\p -> [("package", p)]) (moduleFromPackage meta)
   in renderYamlLines pairs
 
 renderValueMeta :: ValueMeta -> Text
@@ -81,14 +81,14 @@ renderValueMeta meta =
         , ("value_name", valueName meta)
         ]
         ++ maybe [] (\p -> [("project_root", Text.pack p)]) (valueProjectRoot meta)
-        ++ maybe [] (\p -> [("file_path", Text.pack p)]) (valueFilePath meta)
-        ++ maybe [] (\p -> [("from_package", p)]) (valueFromPackage meta)
+        ++ maybe [] (\p -> [("path", Text.pack p)]) (valueFilePath meta)
+        ++ maybe [] (\p -> [("package", p)]) (valueFromPackage meta)
   in renderYamlLines pairs
 
 renderPackageMeta :: PackageMeta -> Text
 renderPackageMeta meta =
   let pairs =
-        [ ("from_package", packageFromPackage meta)
+        [ ("package", packageFromPackage meta)
         ]
         ++ maybe [] (\p -> [("project_root", Text.pack p)]) (packageProjectRoot meta)
   in renderYamlLines pairs
@@ -119,9 +119,13 @@ renderValue meta (Docs.Module _ _ unions aliases values binops) valueNm =
 renderPackage :: PackageMeta -> Maybe Text -> [Docs.Module] -> Text
 renderPackage pkgMeta mReadme modules =
   let modulesSection =
-        Text.intercalate "\n\n" (map (\m@(Docs.Module modName _ _ _ _ _) ->
-          Text.concat ["## Module ", Text.pack (Name.toChars modName), "\n\n", toMarkdown m]
-        ) modules)
+        if null modules then ""
+        else
+          let items = map (\(Docs.Module modName _ _ _ _ _) ->
+                          let modTxt = Text.pack (Name.toChars modName)
+                          in Text.concat ["- [", modTxt, "](elm://docs/module/", modTxt, ")"]
+                        ) modules
+          in Text.intercalate "\n" ("## Modules" : "" : items)
 
       readmeSection = maybe "" (\t -> Text.concat ["# Readme\n\n", t]) mReadme
       body = Text.intercalate "\n\n" (filter (not . Text.null) [readmeSection, modulesSection])
@@ -183,9 +187,9 @@ toMarkdown (Docs.Module modName modComment unions aliases values _binops) =
       body =
         case trailingBlocks of
           [] -> bodyPrefix
-          _  -> Text.intercalate "\n" (filter (not . Text.null) [bodyPrefix, Text.intercalate "\n" trailingBlocks])
-      header = Text.concat ["# ", Text.pack (Name.toChars modName), "\n\n"]
-  in Text.append header body
+          _  -> Text.intercalate "\n\n" (filter (not . Text.null) [bodyPrefix, Text.intercalate "\n\n" trailingBlocks])
+      
+  in body
 
 -- Parse an @docs line to a list of names
 parseDocsRefs :: Text -> [Name.Name]

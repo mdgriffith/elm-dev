@@ -102,7 +102,7 @@ nextLiteral (_ : xs) = nextLiteral xs
 breakOnText :: Text -> Text -> Maybe (Text, Text)
 breakOnText needle haystack =
   let (before, after) = Text.breakOn needle haystack
-  in if Text.null after then Nothing else Just (before, Text.drop (Text.length needle) after)
+  in if Text.null after then Nothing else Just (before, after)
 
 
 -- | Determine if a Pattern contains any variable path tokens

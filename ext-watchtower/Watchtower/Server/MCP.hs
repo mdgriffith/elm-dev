@@ -697,44 +697,41 @@ resourceModuleGraph =
 
 resourcePackageDocs :: MCP.Resource
 resourcePackageDocs =
-  let pat = Uri.pattern "elm" [Uri.s "docs/package/", Uri.var "pkg"] []
+  let pat = Uri.pattern "elm" [Uri.s "docs/package/", Uri.var "author", Uri.s "/", Uri.var "project"] []
   in MCP.Resource
       { MCP.resourceUri = pat
       , MCP.resourceName = "Elm Package Docs"
-      , MCP.resourceDescription = Just "Docs for a package (elm://docs/package/{author/project}), e.g. elm://docs/package/elm/json"
+      , MCP.resourceDescription = Just "Docs for a package e.g. elm://docs/package/elm/json"
       , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
             Just (Uri.PatternMatch pathVals _q) -> do
-              let mPkgTxt = Map.lookup "pkg" pathVals
-              case mPkgTxt of
-                Nothing -> do
-                  let body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack "") Nothing) Nothing []
-                  pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
-                Just pkgTxt -> do
-                  let parts = Text.splitOn "/" pkgTxt
-                  case parts of
-                    [author, project] -> do
-                      let pkgName = Pkg.toName (Utf8.fromChars (Text.unpack author)) (Text.unpack project)
-                      pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
-                      case Map.lookup pkgName pkgs of
-                        Nothing -> do
-                          let body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack (Pkg.toChars pkgName)) Nothing) Nothing []
-                          pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
-
-                        Just (Client.PackageInfo { Client.readme = r, Client.packageModules = mods }) -> do
-                          let modulesDocs = [ Client.packageModuleDocs pm | pm <- Map.elems mods ]
-                              readme = fmap Text.pack r
-                              body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack (Pkg.toChars pkgName)) Nothing) readme modulesDocs
-                          pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
-                    _ -> do
-                      let body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack "") Nothing) Nothing []
+              let maybeAuthor = Map.lookup "author" pathVals
+              let maybeProject = Map.lookup "project" pathVals
+              case (maybeAuthor, maybeProject) of
+                (Just author, Just project) -> do
+                  let pkgName = Pkg.toName (Utf8.fromChars (Text.unpack author)) (Text.unpack project)
+                  pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+                  case Map.lookup pkgName pkgs of
+                    Nothing -> do
+                      let body = "Package not found: " <> author <> "/" <> project
                       pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
+
+                    Just (Client.PackageInfo { Client.readme = r, Client.packageModules = mods }) -> do
+                      let modulesDocs = [ Client.packageModuleDocs pm | pm <- Map.elems mods ]
+                          readme = fmap Text.pack r
+                          body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack (Pkg.toChars pkgName)) Nothing) readme modulesDocs
+                      pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
+                    
+                _ -> do
+                  let body = "Bad package name format: " <> MCP.readResourceUri req <> ".  Expected format: (elm://docs/package/{author/project}), e.g. elm://docs/package/elm/json"
+                  pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
+                  
             Nothing -> do
-              let body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack "") Nothing) Nothing []
+              let body = "Bad URI format. (elm://docs/package/{author/project}), e.g. elm://docs/package/elm/json"
               pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
-      }
+        }
 
 resourceModuleDocs :: MCP.Resource
 resourceModuleDocs =
@@ -984,19 +981,14 @@ findPackageModuleDocs :: Client.State -> Name.Name -> IO (Maybe (Pkg.Name, Docs.
 findPackageModuleDocs state wantName = do
   pkgsMap <- Control.Concurrent.STM.readTVarIO (Client.packages state)
   pure $
-    let findInPkg (pkgName, Client.PackageInfo { Client.packageModules = mods }) =
-          case Map.lookup wantName mods of
-            Just (Client.PackageModule { Client.packageModuleDocs = m }) -> Just (pkgName, m)
-            Nothing -> Nothing
-    in case mapM findInPkg (Map.toList pkgsMap) of
-         Just (x:_) -> Just x
-         _ ->
-           -- manual search
-           let candidates = [ (pkg, m)
-                            | (pkg, Client.PackageInfo { Client.packageModules = mods }) <- Map.toList pkgsMap
-                            , Just (Client.PackageModule m) <- [Nothing] -- placeholder, never matches
-                            ]
-           in Nothing
+    let go list =
+          case list of
+            [] -> Nothing
+            (pkgName, Client.PackageInfo { Client.packageModules = mods }) : rest ->
+              case Map.lookup wantName mods of
+                Just (Client.PackageModule { Client.packageModuleDocs = m }) -> Just (pkgName, m)
+                Nothing -> go rest
+    in go (Map.toList pkgsMap)
 
 
 -- Shared docs resolver types
