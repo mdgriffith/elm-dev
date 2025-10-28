@@ -448,7 +448,7 @@ urlToElmModuleName url =
 availableResources :: [MCP.Resource]
 availableResources =
   [ resourceOverview
-  , resourceProjects
+  , resourceProjectList
   , resourceArchitecture
   , resourceWellFormedElmCode
   , resourceDiagnostics
@@ -469,88 +469,139 @@ resourceOverview =
       { MCP.resourceUri = pat
       , MCP.resourceName = "Elm Dev Project Overview"
       , MCP.resourceDescription = Just "Overview for an Elm project. Examples: elm://overview, file://architecture"
-      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceAssistant] MCP.High Nothing)
       , MCP.read = \req state _emit connId -> do
           projectFound <- ProjectLookup.resolveProjectFromSession Nothing connId state
           case projectFound of
             Left msg -> do
-              let val = JSON.object [ "error" .= msg ]
-              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+              -- Build project list for frontmatter even when no project is selected
+              let (Client.State _ mProjects _ _ _ _) = state
+              projects <- Control.Concurrent.STM.readTVarIO mProjects
+              mFocused <- Client.getFocusedProjectId state connId
+
+              items <- mapM
+                (\(Client.ProjectCache p _ _ mCr _) -> do
+                    cr <- Control.Concurrent.STM.readTVarIO mCr
+                    let compiling = case cr of
+                                      Client.NotCompiled -> True
+                                      _ -> False
+                        pid = Ext.Dev.Project._shortId p
+                        root = Ext.Dev.Project.getRoot p
+                        isCurrent = maybe False (== pid) mFocused
+                    pure (pid, root, compiling, isCurrent)
+                )
+                projects
+
+              let frontmatter :: [Text]
+                  frontmatter =
+                    [ "---"
+                    , "title: Elm Project Overview"
+                    , "kind: overview"
+                    , "language: elm"
+                    , Text.concat ["error: ", msg]
+                    ]
+                    ++ ["projectList:", "  projects:"]
+                    ++ concatMap
+                        (\(pid, root, compiling, isCurrent) ->
+                           let base =
+                                 [ Text.concat ["  - id: ", Text.pack (show pid)]
+                                 , Text.concat ["    root: ", Text.pack root]
+                                 , Text.concat ["    compiling: ", if compiling then "true" else "false"]
+                                 ]
+                               currentLine = if isCurrent then ["    focused: true"] else []
+                           in base ++ currentLine
+                        )
+                        items
+                    ++ ["---"]
+                  body :: Text
+                  body = Text.intercalate "\n" frontmatter
+              pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
             Right pc@(Client.ProjectCache proj _ _ mCompileResult mTestResults) -> do
               -- ensure we have an up-to-date compile result
               _ <- Watchtower.State.Compile.compile state pc []
               currentResult <- Control.Concurrent.STM.readTVarIO mCompileResult
 
-              -- Build compilation summary
-              let compilationVal = case currentResult of
-                    Client.Success _ ->
-                      JSON.object [ "status" .= ("ok" :: Text) ]
-                    Client.NotCompiled ->
-                      JSON.object [ "status" .= ("compiling" :: Text) ]
-                    Client.Error (Client.GenerationError errMsg) ->
-                      JSON.object [ "status" .= ("generationError" :: Text)
-                                  , "message" .= errMsg
-                                  ]
-                    Client.Error (Client.ReactorError reactor) ->
-                      case reactor of
-                        Exit.ReactorBadBuild (Exit.BuildBadModules _root firstMod otherMods) ->
-                          let mods = firstMod : otherMods
-                              moduleSummaries =
-                                fmap
-                                  (\(Err.Module name path _time source err) ->
-                                     let reports = NE.toList (Ext.Reporting.Error.toReports (RenderCode.toSource source) err)
-                                         cnt :: Int
-                                         cnt = length reports
-                                         obj = JSON.object [ "module" .= Text.pack (ModuleName.toChars name)
-                                                           , "path" .= path
-                                                           , "count" .= cnt
-                                                           ]
-                                     in (cnt, obj)
-                                  )
-                                  mods
-                              perModule = fmap snd moduleSummaries
-                              totalErrors :: Int
-                              totalErrors = sum (fmap fst moduleSummaries)
-                          in JSON.object [ "status" .= ("errors" :: Text)
-                                         , "totalErrors" .= totalErrors
-                                         , "byModule" .= perModule
-                                         ]
-                        _ -> JSON.object [ "status" .= ("error" :: Text) ]
+              -- Determine compilation status text (for YAML)
+              let (compStatus :: Text, compMsgLine :: [Text]) = case currentResult of
+                    Client.Success _ -> ("ok", [])
+                    Client.NotCompiled -> ("compiling", [])
+                    Client.Error (Client.GenerationError errMsg) -> ("generationError", [ Text.concat ["  message: ", Text.pack errMsg] ])
+                    Client.Error (Client.ReactorError reactor) -> case reactor of
+                      Exit.ReactorBadBuild _ -> ("errors", [])
+                      _ -> ("error", [])
 
               -- Test summary (if any)
               mTests <- Control.Concurrent.STM.readTVarIO mTestResults
-              let testField = case mTests of
+              let testYaml :: [Text]
+                  testYaml = case mTests of
                     Nothing -> []
                     Just (Client.TestResults total passed failed _failures) ->
-                      [ "tests" .= JSON.object [ "total" .= total
-                                               , "passed" .= passed
-                                               , "failed" .= failed
-                                               ]
+                      [ "tests:"
+                      , Text.concat ["  total: ", Text.pack (show total)]
+                      , Text.concat ["  passed: ", Text.pack (show passed)]
+                      , Text.concat ["  failed: ", Text.pack (show failed)]
                       ]
 
               -- Architecture note if this is an elm-dev project
               isElmDev <- Ext.FileProxy.exists (Ext.Dev.Project.getRoot proj </> "elm.dev.json")
-              let archNoteField = if isElmDev then
-                                    [ "note" .= ("This project is using the Elm Dev App Architecture.  Read the `architecture` resource for further details." :: Text) ]
-                                  else []
+              let archNoteLine = if isElmDev then
+                                   ["note: This project is using the Elm Dev App Architecture. Read the `file://architecture` resource for further details."]
+                                 else []
 
-              let capabilitiesVal = JSON.object
-                    [ "fileScoped" .= ([ "diagnostics", "docs.file", "hover", "references" ] :: [Text])
-                    , "projectScoped" .= ([ "compile", "diagnostics", "graph.module", "tests" ] :: [Text])
+              -- Build project list for frontmatter
+              let (Client.State _ mProjects _ _ _ _) = state
+              projects <- Control.Concurrent.STM.readTVarIO mProjects
+              mFocused <- Client.getFocusedProjectId state connId
+              items <- mapM
+                (\(Client.ProjectCache p _ _ mCr _) -> do
+                    cr <- Control.Concurrent.STM.readTVarIO mCr
+                    let compiling = case cr of
+                                      Client.NotCompiled -> True
+                                      _ -> False
+                        pid = Ext.Dev.Project._shortId p
+                        root = Ext.Dev.Project.getRoot p
+                        isCurrent = maybe False (== pid) mFocused
+                    pure (pid, root, compiling, isCurrent)
+                )
+                projects
+
+              let entrypoints :: [Text]
+                  entrypoints = fmap Text.pack (NE.toList (Ext.Dev.Project._entrypoints proj))
+
+              let frontmatter :: [Text]
+                  frontmatter =
+                    [ "---"
+                    , "title: Elm Dev Project Overview"
+                    , "kind: overview"
+                    , "language: elm"
+                    , Text.concat ["projectId: ", Text.pack (show (Ext.Dev.Project._shortId proj))]
+                    , Text.concat ["root: ", Text.pack (Ext.Dev.Project.getRoot proj)]
+                    , "entrypoints:"
                     ]
-
-              let val = JSON.object (
-                          [ "kind" .= ("overview" :: Text)
-                          , "language" .= ("elm" :: Text)
-                          , "capabilities" .= capabilitiesVal
-                          , "projectId" .= Ext.Dev.Project._shortId proj
-                          , "root" .= Ext.Dev.Project.getRoot proj
-                          , "entrypoints" .= NE.toList (Ext.Dev.Project._entrypoints proj)
-                          , "compilation" .= compilationVal
-                          ] ++ testField ++ archNoteField
+                    ++ fmap (\e -> Text.concat ["  - ", e]) entrypoints
+                    ++ [ "compilation:"
+                       , Text.concat ["  status: ", compStatus]
+                       ]
+                    ++ compMsgLine
+                    ++ testYaml
+                    ++ archNoteLine
+                    ++ ["projectList:", "  projects:"]
+                    ++ concatMap
+                        (\(pid, root, compiling, isCurrent) ->
+                           let base =
+                                 [ Text.concat ["  - id: ", Text.pack (show pid)]
+                                 , Text.concat ["    root: ", Text.pack root]
+                                 , Text.concat ["    compiling: ", if compiling then "true" else "false"]
+                                 ]
+                               currentLine = if isCurrent then ["    focused: true"] else []
+                           in base ++ currentLine
                         )
-              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                        items
+                    ++ ["---"]
+                  body :: Text
+                  body = Text.intercalate "\n" frontmatter
+              pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
       }
 
 resourceArchitecture :: MCP.Resource
@@ -906,8 +957,8 @@ resourceTestStatus =
       }
 
 -- List known projects as a markdown resource with embedded YAML
-resourceProjects :: MCP.Resource
-resourceProjects =
+resourceProjectList :: MCP.Resource
+resourceProjectList =
   let pat = Uri.pattern "elm" [Uri.s "projects"] []
   in MCP.Resource
       { MCP.resourceUri = pat
@@ -949,7 +1000,7 @@ resourceProjects =
                               , Text.concat ["    root: ", Text.pack root]
                               , Text.concat ["    compiling: ", if compiling then "true" else "false"]
                               ]
-                            currentLine = if isCurrent then ["    current: true"] else []
+                            currentLine = if isCurrent then ["    focused: true"] else []
                         in base ++ currentLine
                     )
                     items
