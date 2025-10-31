@@ -57,7 +57,7 @@ This means
 
 -}
 upsertVirtual :: Client.State -> CompileHelpers.Flags -> FilePath -> FilePath -> IO (Maybe Client.ProjectCache)
-upsertVirtual state@(Client.State mClients mProjects _ _ _ _) flags root entrypoint = do
+upsertVirtual state@(Client.State mClients mProjects _ _ _ _ _) flags root entrypoint = do
   elmJsonResult <- insertVirtualElmJson root
   case elmJsonResult of
     Left err -> do
@@ -133,7 +133,7 @@ normalizeEntrypoints root entrypoints = do
     NE.List ep eps -> pure (NE.List (toAbs ep) (map toAbs eps))
 
 upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO Client.ProjectCache
-upsert state@(Client.State mClients mProjects _ _ _ _) flags root entrypoints = do
+upsert state@(Client.State mClients mProjects _ _ _ _ _) flags root entrypoints = do
   docsInfo <- readDocsInfo root
   normalizedEntrypoints <- normalizeEntrypoints root entrypoints
   -- Read srcDirs from elm.json

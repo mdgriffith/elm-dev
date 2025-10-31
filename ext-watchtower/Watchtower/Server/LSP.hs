@@ -72,6 +72,8 @@ import qualified Watchtower.AST.References
 import qualified Ext.Dev.Project
 import Watchtower.Server.LSP.Protocol
 import qualified Watchtower.Server.LSP.Helpers as Helpers
+import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
+import qualified Watchtower.Live.Client as Client
 
 
 
@@ -181,6 +183,11 @@ handleDidOpen state openParams = do
     Just filePath -> do
       -- Update in-memory cache with the full document text
       Ext.FileCache.insert filePath (Data.Text.Encoding.encodeUtf8 text)
+      -- Track editor open
+      let (Client.State _ _ _ _ _ _ mEditorsOpen) = state
+      Control.Concurrent.STM.atomically $ do
+        editors <- Control.Concurrent.STM.readTVar mEditorsOpen
+        Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedOpen filePath editors)
       -- Recompile relevant projects for this file
       Watchtower.State.Compile.compileRelevantProjects state [filePath]
       return $ Right JSON.Null
@@ -235,12 +242,18 @@ lspPositionToFilePosition lspPos =
     }
 
 handleDidClose :: Live.State -> DidCloseTextDocumentParams -> IO (Either String JSON.Value)
-handleDidClose _state closeParams = do
+handleDidClose state closeParams = do
   -- Handle document close notification
   let doc = didCloseTextDocumentParamsTextDocument closeParams
       uri = textDocumentIdentifierUri doc
-    
-  return $ Right JSON.Null
+  case uriToFilePath uri of
+    Nothing -> return $ Right JSON.Null
+    Just filePath -> do
+      let (Client.State _ _ _ _ _ _ mEditorsOpen) = state
+      Control.Concurrent.STM.atomically $ do
+        editors <- Control.Concurrent.STM.readTVar mEditorsOpen
+        Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedClosed filePath editors)
+      return $ Right JSON.Null
 
 handleDidSave :: Live.State -> DidSaveTextDocumentParams -> IO (Either String JSON.Value)
 handleDidSave state saveParams = do

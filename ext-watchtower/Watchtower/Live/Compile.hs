@@ -33,7 +33,7 @@ import qualified Reporting.Warning as Warning
 -- |
 -- Generally called once when the server starts, this will recompile all discovered projects in State
 compileAll :: Client.State -> IO ()
-compileAll (Client.State mClients mProjects _ _ _ _) = do
+compileAll (Client.State mClients mProjects _ _ _ _ _) = do
   Ext.Log.log Ext.Log.Live "🛫 Recompile everything"
   trackedForkIO $
     track "recompile all projects" $ do
@@ -52,7 +52,7 @@ compileProject mClients proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJs
 --
 -- Generally when a file change has been saved, or the user has changed what their looking at in the editor.
 recompile :: Client.State -> [String] -> IO ()
-recompile (Client.State mClients mProjects _ _ _ _) allChangedFiles = do
+recompile (Client.State mClients mProjects _ _ _ _ _) allChangedFiles = do
   let changedElmFiles = List.filter (\filepath -> ".elm" `List.isSuffixOf` filepath) allChangedFiles
   if (changedElmFiles /= [])
     then do
