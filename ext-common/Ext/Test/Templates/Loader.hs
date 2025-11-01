@@ -13,21 +13,21 @@ import System.FilePath ((</>))
 
 
 runnerElm :: BS.ByteString
-runnerElm = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "templates" </> "Runner.elm")) )
+runnerElm = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "Templates" </> "Runner.elm")) )
 
 
 runnerJs :: BS.ByteString
-runnerJs = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "templates" </> "runner.js")) )
+runnerJs = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "Templates" </> "runner.js")) )
 
 
 
 nodeRunnerJs :: BS.ByteString
-nodeRunnerJs = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "templates" </> "node-runner.js")) )
+nodeRunnerJs = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "Templates" </> "node-runner.js")) )
 
 
 
 exampleElm :: BS.ByteString
-exampleElm = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "templates" </> "Example.elm")) )
+exampleElm = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "Ext" </> "Test" </> "Templates" </> "Example.elm")) )
 
 
 version :: Int
