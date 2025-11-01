@@ -121,12 +121,13 @@ jobs:
   upload:
     needs: install
     name: Upload elm-dev-next.zip to SFTP
-    runs-on: lamdera-community-linux-x86_64
+    runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           name: elm-dev-next.zip
+          path: .
 
       - name: Install SSH key
         uses: shimataro/ssh-key-action@v2
@@ -136,7 +137,11 @@ jobs:
           known_hosts: ${{ secrets.KNOWN_HOSTS }}
           if_key_exists: replace
 
-      - run: |
-          pwd
-          ls -alh
-          echo "put elm-dev.zip elm-dev/elm-dev-next-windows-x86_64.zip" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com
+      - name: Upload via SCP
+        run: |
+          set -euo pipefail
+          src="elm-dev.zip"
+          if [ ! -f "$src" ] && [ -f "elm-dev-next.zip/elm-dev.zip" ]; then
+            src="elm-dev-next.zip/elm-dev.zip"
+          fi
+          scp -i ~/.ssh/id_ed25519 -P 22 "$src" github@apps.lamdera.com:elm-dev/elm-dev-next-windows-x86_64.zip
