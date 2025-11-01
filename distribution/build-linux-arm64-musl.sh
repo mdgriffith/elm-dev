@@ -26,6 +26,14 @@ else
     dockerHost="-H ssh://$project@lamdera-community-build-arm64"
 fi
 
+# Determine whether we need to force Docker to use ARM64 platform (for x64 CI with QEMU)
+hostArch="$(uname -m)"
+if [ "$hostArch" != "aarch64" ] && [ "$hostArch" != "arm64" ]; then
+    dockerPlatformArgs="--platform linux/arm64"
+else
+    dockerPlatformArgs=""
+fi
+
 cd "$compilerRoot"                                                   # Move into the project root
 git submodule init && git submodule update
 
@@ -107,7 +115,7 @@ declare -f build_binary_docker
 mkdir -p $dist
 
 [ "$GITHUB_ACTIONS" == "true" ] && runMode="--rm -i" || runMode="-it"
-docker $dockerHost run \
+docker $dockerHost run $dockerPlatformArgs \
     -v "$mountRoot:/root/compiler" \
     -v "$cacheRoot:/root/cache" \
     $runMode glcr.b-data.ch/ghc/ghc-musl:9.2.8 \
