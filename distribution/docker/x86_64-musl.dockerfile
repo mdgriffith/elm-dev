@@ -60,6 +60,8 @@ COPY LICENSE ./
 COPY ext-common ext-common
 COPY ext-dev ext-dev
 COPY ext-sentry ext-sentry
+COPY ext-generate ext-generate
+COPY ext-watchtower ext-watchtower
 COPY .git .git
 
 # Inexplicably the first build fails, but the second succeeds
