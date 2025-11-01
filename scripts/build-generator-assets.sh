@@ -21,10 +21,17 @@ pushd "$GEN_DIR" >/dev/null
 
   # Compile generator artifacts
   rm -rf dist
+  echo "Compiling runner in $PWD"
   elm make main/Run.elm --output=dist/generate.js --optimize
+  echo "Compiling interactive generator..."
   (cd dev; elm make Generate.elm --output=../dist/interactive-generate.js --optimize)
   bun build ./index.ts --outfile=dist/run.js
   bun build ./interactiveIndex.ts --outfile=dist/interactive-run.js
+
+  # Copy built JS to embedded location
+  mkdir -p ../Gen/js
+  cp ./dist/run.js ../Gen/js/run.js
+  cp ./dist/interactive-run.js ../Gen/js/interactive-run.js
 
   # Remove intermediates
   rm ./dist/generate.js || true

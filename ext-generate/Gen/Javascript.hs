@@ -19,14 +19,14 @@ generatorJs :: BS.ByteString
 generatorJs =
   $( Data.FileEmbed.bsToExp
        =<< Language.Haskell.TH.runIO
-         (BS.readFile ("ext-generate" </> "generator" </> "dist" </> "run.js"))
+        (BS.readFile ("ext-generate" </> "Gen" </> "js" </> "run.js"))
    )
 
 interactiveJs :: BS.ByteString
 interactiveJs =
   $( Data.FileEmbed.bsToExp
        =<< Language.Haskell.TH.runIO
-         (BS.readFile ("ext-generate" </> "generator" </> "dist" </> "interactive-run.js"))
+        (BS.readFile ("ext-generate" </> "Gen" </> "js" </> "interactive-run.js"))
    )
 
 -- | Execute embedded JavaScript using Node
@@ -44,4 +44,4 @@ run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
 
 -- Dynamically adjusted by build.sh to make sure haskell doesn't bamboozle us.
 version :: String
-version = "1565bd2ae36e81d0"
+version = "5bf2ec53fe4f5d73"
