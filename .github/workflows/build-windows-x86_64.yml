@@ -113,7 +113,7 @@ jobs:
           dest: elm-dev.zip
 
       - name: Archive elm-dev.zip artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: elm-dev-next.zip
           path: elm-dev.zip
@@ -124,7 +124,7 @@ jobs:
     runs-on: lamdera-community-linux-x86_64
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: elm-dev-next.zip
 
