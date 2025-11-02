@@ -5,7 +5,7 @@
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mdgriffith/elm-dev.git"
+    "url": "git+https://github.com/mdgriffith/elm-dev.git"
   },
   "homepage": "https://github.com/mdgriffith/elm-dev/tree/master/installers-elm-dev/npm",
   "bugs": "https://github.com/mdgriffith/elm-dev/issues",

@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "description": "Elm tools to support development",
   "main": "index.js",
-  "repository": "https://github.com/mdgriffith/elm-dev.git",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mdgriffith/elm-dev.git"
+  },
   "author": "Matthew Griffith <mdg.griffith@gmail.com>",
   "license": "BSD 3",
   "private": true,
