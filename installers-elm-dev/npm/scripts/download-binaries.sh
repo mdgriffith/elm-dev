@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# Make this script runnable from anywhere (repo root or this dir)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NPM_DIR="$SCRIPT_DIR/.."
+cd "$NPM_DIR"
+
 VERSION="0.1.3"
 RELEASE_DIR="releases/$VERSION"
 
@@ -10,12 +15,6 @@ URL_MACOS_ARM64="https://static.lamdera.com/bin/elm-dev/elm-dev-next-macos-arm64
 URL_MACOS_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-next-macos-x86_64"
 URL_WINDOWS_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-next-windows-x86_64.zip"
 
-# Proxy URLs
-URL_PROXY_LINUX_ARM64="https://static.lamdera.com/bin/elm-dev/elm-dev-proxy-linux-arm64"
-URL_PROXY_LINUX_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-proxy-linux-x86_64"
-URL_PROXY_MACOS_ARM64="https://static.lamdera.com/bin/elm-dev/elm-dev-proxy-macos-arm64"
-URL_PROXY_MACOS_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-proxy-macos-x86_64"
-URL_PROXY_WINDOWS_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-proxy-windows-x86_64.exe"
 
 # Create target directories
 mkdir -p packages/linux_arm64
@@ -32,12 +31,6 @@ curl -L $URL_MACOS_ARM64 -o packages/darwin_arm64/elm-dev
 curl -L $URL_MACOS_X86_64 -o packages/darwin_x64/elm-dev
 curl -L $URL_WINDOWS_X86_64 -o packages/win32_x64/elm-dev.zip
 
-# Download proxy binaries
-curl -L $URL_PROXY_LINUX_ARM64 -o packages/linux_arm64/elm-dev-proxy
-curl -L $URL_PROXY_LINUX_X86_64 -o packages/linux_x64/elm-dev-proxy
-curl -L $URL_PROXY_MACOS_ARM64 -o packages/darwin_arm64/elm-dev-proxy
-curl -L $URL_PROXY_MACOS_X86_64 -o packages/darwin_x64/elm-dev-proxy
-curl -L $URL_PROXY_WINDOWS_X86_64 -o packages/win32_x64/elm-dev-proxy.exe
 
 # # Unzip the Windows file and rename to elm-dev.exe
 unzip packages/win32_x64/elm-dev.zip -d packages/win32_x64
@@ -82,18 +75,23 @@ gzip --force "$RELEASE_DIR/elm-dev-darwin-x64"
 cp packages/win32_x64/elm-dev.exe "$RELEASE_DIR/elm-dev-win32-x64.exe"
 gzip --force "$RELEASE_DIR/elm-dev-win32-x64.exe"
 
-# Proxy artifacts
+# Proxy artifacts (required)
+[ -f packages/linux_arm64/elm-dev-proxy ] || { echo "Missing packages/linux_arm64/elm-dev-proxy" >&2; exit 1; }
 cp packages/linux_arm64/elm-dev-proxy "$RELEASE_DIR/elm-dev-proxy-linux-arm64"
 gzip --force "$RELEASE_DIR/elm-dev-proxy-linux-arm64"
 
+[ -f packages/linux_x64/elm-dev-proxy ] || { echo "Missing packages/linux_x64/elm-dev-proxy" >&2; exit 1; }
 cp packages/linux_x64/elm-dev-proxy "$RELEASE_DIR/elm-dev-proxy-linux-x64"
 gzip --force "$RELEASE_DIR/elm-dev-proxy-linux-x64"
 
+[ -f packages/darwin_arm64/elm-dev-proxy ] || { echo "Missing packages/darwin_arm64/elm-dev-proxy" >&2; exit 1; }
 cp packages/darwin_arm64/elm-dev-proxy "$RELEASE_DIR/elm-dev-proxy-darwin-arm64"
 gzip --force "$RELEASE_DIR/elm-dev-proxy-darwin-arm64"
 
+[ -f packages/darwin_x64/elm-dev-proxy ] || { echo "Missing packages/darwin_x64/elm-dev-proxy" >&2; exit 1; }
 cp packages/darwin_x64/elm-dev-proxy "$RELEASE_DIR/elm-dev-proxy-darwin-x64"
 gzip --force "$RELEASE_DIR/elm-dev-proxy-darwin-x64"
 
+[ -f packages/win32_x64/elm-dev-proxy.exe ] || { echo "Missing packages/win32_x64/elm-dev-proxy.exe" >&2; exit 1; }
 cp packages/win32_x64/elm-dev-proxy.exe "$RELEASE_DIR/elm-dev-proxy-win32-x64.exe"
 gzip --force "$RELEASE_DIR/elm-dev-proxy-win32-x64.exe"
