@@ -25,6 +25,8 @@ jobs:
         with:
           platforms: arm64
       - run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
+      - name: Install git submodules
+        run: git submodule update --init --recursive
       - name: Run distribution script
         run: |
           cd distribution
