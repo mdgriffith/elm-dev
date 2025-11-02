@@ -2,7 +2,6 @@ import * as vscode from "vscode";
 import { TextEncoder } from "util";
 import { log as elmLog } from "./utils/logging";
 import * as LSPClient from "./lsp";
-import * as MCPClient from "./mcp";
 import { stopElmDevDaemon } from "./elmDev";
 
 
@@ -27,7 +26,6 @@ The MCP is likely more efficient than scanning the codebase directly for a lot o
 // this method is called when your extension is activated
 export async function activate(context: vscode.ExtensionContext) {
   await LSPClient.startLanguageServer(context);
-  await MCPClient.startMCPServer(context);
 
   // Status bar item to show disconnected state and allow restart
   const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -72,12 +70,12 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    MCPClient.onStatus((evt) => {
+    LSPClient.onStatus((evt) => {
       if (isRestarting) return;
       if (evt.connected) {
         hideStatus();
       } else {
-        showDisconnected(evt.error ?? 'MCP disconnected');
+        showDisconnected(evt.error ?? 'LSP disconnected');
       }
     })
   );
@@ -94,9 +92,6 @@ export async function activate(context: vscode.ExtensionContext) {
         elmLog('🛑 Stopping LSP...');
         await LSPClient.stopLanguageServer();
 
-        elmLog('🛑 Stopping MCP...');
-        await MCPClient.stopMCPServer();
-
         await stopElmDevDaemon();
 
         // Small delay to ensure ports/processes are released
@@ -104,9 +99,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
         elmLog('🚀 Starting LSP...');
         await LSPClient.startLanguageServer(context);
-
-        elmLog('🚀 Starting MCP...');
-        await MCPClient.startMCPServer(context);
 
         elmLog('✅ Elm Dev components restarted successfully');
         vscode.window.showInformationMessage('Elm Dev restarted successfully');
@@ -160,6 +152,5 @@ export async function activate(context: vscode.ExtensionContext) {
 
 export async function deactivate() {
   await LSPClient.stopLanguageServer();
-  await MCPClient.stopMCPServer();
   await stopElmDevDaemon();
 }
