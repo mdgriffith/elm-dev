@@ -69,16 +69,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  context.subscriptions.push(
-    LSPClient.onStatus((evt) => {
-      if (isRestarting) return;
-      if (evt.connected) {
-        hideStatus();
-      } else {
-        showDisconnected(evt.error ?? 'LSP disconnected');
-      }
-    })
-  );
 
   // Unified restart command: stop LSP, MCP, daemon; then start LSP and MCP again
   context.subscriptions.push(
