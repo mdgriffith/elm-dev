@@ -132,7 +132,7 @@ function exitFailure(version, message) {
 
 function missingSubPackageHelp(subPackageName) {
 	return (
-		'I tried to get `elm` from ' + subPackageName + ', but something went wrong.\n'
+		'I tried to get `elm-dev` from ' + subPackageName + ', but something went wrong.\n'
 		+ 'This can happen if you use the "--omit=optional" or "--no-optional" npm flag, or\n'
 		+ 'if your "node_modules" folder was copied over from a different computer (or VM).\n'
 	);

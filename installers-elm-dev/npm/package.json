@@ -14,7 +14,7 @@
     "url": "https://github.com/mdgriffith"
   },
   "engines": {
-    "node": ">=7.0.0"
+    "node": ">=18.0.0"
   },
   "scripts": {
     "install": "node install.js",
@@ -41,6 +41,7 @@
   },
   "exports": {
     "./vite": {
+      "types": "./ts-tool/vite.d.ts",
       "import": "./ts-tool/vite.mjs",
       "default": "./ts-tool/vite.mjs"
     }
