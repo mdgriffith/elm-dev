@@ -144,21 +144,40 @@ defaultServerCapabilities = ServerCapabilities
 
 handleInitialize :: Live.State -> InitializeParams -> IO (Either String InitializeResult)
 handleInitialize state initParams = do
-  -- Extract root path from initialization parameters
-  let maybeRoot = case initializeParamsRootPath initParams of
-        Just path -> Just (Text.unpack path)
-        Nothing -> case initializeParamsRootUri initParams of
-          Just uri -> Just (Text.unpack uri)
-          Nothing -> Nothing
+  -- Prefer workspace folders; otherwise fall back to rootPath or rootUri (converted from file:// URI)
+  let folderRoots = case initializeParamsWorkspaceFolders initParams of
+        Just folders ->
+          [ root
+          | f <- folders
+          , let uri = workspaceFolderUri f
+          , Just root <- [uriToFilePath uri]
+          ]
+        Nothing -> []
+
+  case folderRoots of
+    r:rs -> do
+      mapM_ (Discover.discover state) (r:rs)
+    [] -> do
+      case initializeParamsRootPath initParams of
+        Just pathTxt -> do
+          let root = Text.unpack pathTxt
+          Discover.discover state root
+        Nothing ->
+          case initializeParamsRootUri initParams >>= uriToFilePath of
+            Just root -> do
+              Discover.discover state root
+            Nothing -> do
+              -- Log that no usable root was provided
+              Ext.Log.log Ext.Log.LSP "LSP Initialize: No root path provided"
+              pure ()
   
-  -- Call discover if we have a root path
-  case maybeRoot of
-    Just root -> do
-      Discover.discover state root
-    Nothing -> do
-      -- Log that no root was provided
-      Ext.Log.log Ext.Log.LSP "LSP Initialize: No root path provided"
-  
+  -- If no root was provided and there are no projects registered, fail initialization
+  let hadRootPath = Maybe.isJust (initializeParamsRootPath initParams)
+  let hadRootUri = Maybe.isJust (initializeParamsRootUri initParams)
+  let noRootProvided = null folderRoots && not hadRootPath && not hadRootUri
+  let (Client.State _ mProjects _ _ _ _ _) = state
+  projects <- Control.Concurrent.STM.readTVarIO mProjects
+
   let initResult = InitializeResult
         { initializeResultCapabilities = defaultServerCapabilities,
           initializeResultServerInfo = Just $ ServerInfo
@@ -166,7 +185,9 @@ handleInitialize state initParams = do
               serverInfoVersion = Just "1.0.0"
             }
         }
-  return $ Right initResult
+  if noRootProvided && null projects
+    then return $ Left "No workspace root provided and no projects are registered"
+    else return $ Right initResult
 
 handleDidOpen :: Live.State -> DidOpenTextDocumentParams -> IO (Either String JSON.Value)
 handleDidOpen state openParams = do

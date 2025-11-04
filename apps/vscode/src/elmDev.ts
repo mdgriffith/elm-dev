@@ -1,4 +1,5 @@
 import { spawn, ChildProcess, SpawnOptionsWithoutStdio, StdioOptions } from 'child_process';
+import * as path from 'path';
 import { log as elmLog } from './utils/logging';
 
 export function isProcessRunning(proc: ChildProcess | undefined): boolean {
@@ -19,7 +20,9 @@ export function startElmDevProcess(
     options?: SpawnOptionsWithoutStdio & { stdio?: StdioOptions },
     handlers?: ElmDevHandlers
 ): ChildProcess {
-    const proc = spawn('elm-dev', args, {
+    const launch = resolveElmDevLaunch();
+    elmLog(`🚀 Starting ${label} with command: ${launch.command} ${launch.preArgs.join(' ')} ${args.join(' ')}`);
+    const proc = spawn(launch.command, [...launch.preArgs, ...args], {
         stdio: options?.stdio ?? 'pipe',
         env: options?.env ?? process.env,
         cwd: options?.cwd ?? process.cwd(),
@@ -92,7 +95,8 @@ export async function gracefulStop(
 
 export async function stopElmDevDaemon(): Promise<void> {
     return await new Promise((resolve) => {
-        const proc = spawn('elm-dev', ['dev', 'stop'], {
+        const launch = resolveElmDevLaunch();
+        const proc = spawn(launch.command, [...launch.preArgs, 'dev', 'stop'], {
             stdio: 'pipe',
             env: process.env,
         });
@@ -125,6 +129,39 @@ export async function stopElmDevDaemon(): Promise<void> {
             resolve();
         });
     });
+}
+
+function resolveElmDevLaunch(): { command: string; preArgs: string[] } {
+    // Griffnote:  Is this really the standard way to reference a dependenct npm binary package?
+    // Prefer the package in dependencies via its bin field
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const pkgJsonPath = require.resolve('elm-dev/package.json');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const pkg = require(pkgJsonPath) as { bin?: string | Record<string, string> };
+        const pkgDir = path.dirname(pkgJsonPath);
+
+        let binRel: string | undefined;
+        if (typeof pkg.bin === 'string') {
+            binRel = pkg.bin;
+        } else if (pkg.bin && typeof pkg.bin === 'object') {
+            binRel = pkg.bin['elm-dev'] || Object.values(pkg.bin)[0];
+        }
+
+        if (binRel) {
+            const binPath = path.resolve(pkgDir, binRel);
+            if (process.platform === 'win32' && !/\.exe$/i.test(binPath)) {
+                // On Windows, the bin may be a JS stub; execute via Node
+                return { command: process.execPath, preArgs: [binPath] };
+            }
+            return { command: binPath, preArgs: [] };
+        }
+    } catch (_) {
+        // ignore and fall back
+    }
+
+    // Fallback to PATH
+    return { command: process.platform === 'win32' ? 'elm-dev.exe' : 'elm-dev', preArgs: [] };
 }
 
 

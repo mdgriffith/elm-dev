@@ -1,0 +1,34 @@
+# Exclude dev and source files from the VSIX
+
+# VCS / editor / CI
+.vscode/**
+.git/**
+.github/**
+.gitignore
+
+# Sources and configs not needed at runtime
+src/**
+**/*.ts
+**/*.tsx
+**/*.map
+tsconfig.json
+.eslintrc*
+.prettier*
+.npmrc
+
+# Build artifacts not needed inside the VSIX
+coverage/**
+dist/**
+
+# Node deps (we bundle runtime deps into out/extension.js)
+node_modules/**
+
+# Re-include elm-dev package and platform-specific binaries so the VSIX ships the CLI
+!node_modules/elm-dev/**
+!node_modules/@elm_dev_binaries/**
+
+# Misc
+.DS_Store
+bun.lock*
+
+

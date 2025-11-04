@@ -54,7 +54,7 @@ constraints:
   , dlist ==1.0
   , double-conversion ==2.0.4.2
   , edit-distance ==0.2.2.1
-  , elm-dev ==0.1.3
+  , elm-dev ==0.2.0
   , entropy ==0.4.1.10
   , exceptions ==0.10.4
   , file-embed ==0.0.15.0
