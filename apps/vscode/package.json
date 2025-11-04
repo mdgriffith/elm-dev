@@ -3,7 +3,7 @@
   "displayName": "Elm Dev",
   "description": "An Elm extension for handling large Elm codebases",
   "version": "0.1.1",
-  "publisher": "mgriffith",
+  "publisher": "ElmDev",
   "license": "BSD-3-Clause",
   "repository": "https://github.com/mdgriffith/elm-dev.git",
   "engines": {
