@@ -65,6 +65,7 @@ import qualified Data.Name as Name
 import qualified Elm.ModuleName
 import System.Environment (getArgs)
 import System.Exit (exitSuccess)
+ 
 
 -- | Information about a flag
 data FlagInfo = FlagInfo
@@ -202,12 +203,10 @@ parseArgs args =
            in (flags, arg : positional)
       | otherwise =
           let (flagName, maybeValue) = splitFlag arg
-              -- If flag has no value in the = format, check next arg
-              (finalValue, remaining) = case maybeValue of
-                Just value -> (Just value, rest)
-                Nothing -> case rest of
-                  (v : rs) | not (isFlag v) -> (Just v, rs)
-                  _ -> (Nothing, rest)
+              -- IMPORTANT: Only consume inline values provided via --flag=value.
+              -- Do NOT greedily consume the next token here; leave it in positional.
+              finalValue = maybeValue
+              remaining = rest
               (flags, positional) = parseFlags remaining ((flagName, finalValue) : acc)
            in (flags, positional)
 
@@ -319,10 +318,29 @@ parseFlag :: Flag a -> ParsedArgs -> Either String (Maybe a, ParsedArgs)
 parseFlag flag parsed =
   let matches = filter (\(name, _) -> findFlagName name flag) (parsedFlags parsed)
       remainingFlags = filter (\(name, _) -> not (findFlagName name flag)) (parsedFlags parsed)
-      updatedParams = parsed {parsedFlags = remainingFlags}
    in case matches of
-        [] -> Right (Nothing, updatedParams)
-        (_, value) : _ -> Right (flagParse flag value, updatedParams)
+        [] -> Right (Nothing, parsed {parsedFlags = remainingFlags})
+        (_, inlineValue) : _ ->
+          case inlineValue of
+            -- If an inline value was provided (e.g. --flag=value), parse it directly
+            Just v ->
+              case flagParse flag (Just v) of
+                Just parsedVal -> Right (Just parsedVal, parsed {parsedFlags = remainingFlags})
+                Nothing -> Left $ "Invalid value for flag " ++ flagToName flag
+            -- No inline value provided. If this flag expects a value, consume the next positional.
+            Nothing ->
+              if flagHasArg (flagInfo flag)
+                then case parsedCommands parsed of
+                  [] -> Left $ "Missing value for flag " ++ flagToName flag
+                  (v:vs) ->
+                    case flagParse flag (Just v) of
+                      Just parsedVal -> Right (Just parsedVal, parsed { parsedFlags = remainingFlags, parsedCommands = vs })
+                      Nothing -> Left $ "Invalid value for flag " ++ flagToName flag
+                else
+                  -- Boolean (no-arg) flag present without value
+                  case flagParse flag Nothing of
+                    Just parsedVal -> Right (Just parsedVal, parsed {parsedFlags = remainingFlags})
+                    Nothing -> Right (Nothing, parsed {parsedFlags = remainingFlags})
 
 -- | Parse two flags
 parseFlag2 :: Flag a -> Flag b -> ParsedArgs -> Either String ((Maybe a, Maybe b), ParsedArgs)
