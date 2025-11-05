@@ -147,4 +147,7 @@ hotDevRequest url maybeOutput = do
         Just (Make.Html (Make.File path)) -> do
           Dir.createDirectoryIfMissing True (FP.takeDirectory path)
           SBS.writeFile path bytes
-        Nothing -> SBS.hPut IO.stdout bytes
+        Nothing -> do
+          let defaultPath = "elm.js"
+          Dir.createDirectoryIfMissing True (FP.takeDirectory defaultPath)
+          SBS.writeFile defaultPath bytes
