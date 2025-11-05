@@ -25,6 +25,8 @@ import qualified Elm.Version as V
 import qualified Gen.Config as Config
 import qualified Gen.Templates
 import qualified Gen.Templates.Loader
+import qualified Gen.Generate
+import qualified Ext.Log
 import qualified Make
 import qualified Reporting.Exit as Exit
 import qualified System.Directory as Dir (createDirectoryIfMissing, doesFileExist, getCurrentDirectory, removeFile)
@@ -71,6 +73,7 @@ run () maybePkgManager = do
             Config.configGraphQL = Nothing,
             Config.configDocs = Nothing
           }
+  Ext.Log.log Ext.Log.Live ("Generating ")
   BS.writeFile "elm.dev.json" (Aeson.encodePretty defaultConfig)
 
   -- Create README.md
@@ -95,6 +98,8 @@ run () maybePkgManager = do
     [ "vite",
       "typescript"
     ]
+  
+  Gen.Generate.run
 
   putStrLn "Created elm.dev.json with default configuration"
 
