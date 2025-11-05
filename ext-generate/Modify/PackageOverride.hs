@@ -23,16 +23,7 @@ Branch zip vs release zip (why normalization is needed):
     archives by removing the common top-level directory if present.
 -}
 
-hotEnabled :: IO Bool
-hotEnabled = do
-  env <- Env.lookupEnv "ELM_DEV_HOT"
-  case env of
-    Nothing -> pure True
-    Just val ->
-      case fmap toLower val of
-        "0" -> pure False
-        "false" -> pure False
-        _ -> pure True
+
 
 -- Returns a direct zip URL if this package should be overridden.
 -- We intentionally keep versions resolved by the solver; the fork contents
@@ -43,6 +34,7 @@ overrideUrl pkg =
     "elm/core" -> Just "https://github.com/lydell/core/archive/refs/heads/hot-reload-stop.zip"
     "elm/browser" -> Just "https://github.com/lydell/browser/archive/refs/heads/hot-reload-stop.zip"
     "elm/virtual-dom" -> Just "https://github.com/lydell/virtual-dom/archive/refs/heads/hot-reload-stop.zip"
+    "elm/html" -> Just "https://github.com/lydell/html/archive/refs/heads/safe.zip"
     _ -> Nothing
 
 
