@@ -6,7 +6,6 @@
 
 module Gen.Config
   ( Config (..),
-    PackageManager (..),
     ThemeTarget (..),
     PageConfig (..),
     GraphQLConfig (..),
@@ -351,26 +350,6 @@ defaultDocs =
       docsInteractive = Nothing
     }
 
-data PackageManager
-  = NPM
-  | Yarn
-  | PNPM
-  | Bun
-  deriving (Generic)
-
-instance FromJSON PackageManager where
-  parseJSON = withText "PackageManager" $ \case
-    "npm" -> pure NPM
-    "yarn" -> pure Yarn
-    "pnpm" -> pure PNPM
-    "bun" -> pure Bun
-    _ -> fail "Invalid package manager"
-
-instance ToJSON PackageManager where
-  toJSON NPM = String "npm"
-  toJSON Yarn = String "yarn"
-  toJSON PNPM = String "pnpm"
-  toJSON Bun = String "bun"
 
 data ThemeTarget
   = Html

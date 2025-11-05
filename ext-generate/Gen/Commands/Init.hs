@@ -11,7 +11,6 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe)
 import qualified Data.NonEmptyList as NE
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding
@@ -36,31 +35,16 @@ import qualified System.Process
 import qualified Terminal.Colors
 import Text.RawString.QQ (r)
 
-flags ::
-  CommandParser.ParsedArgs ->
-  Either String (Maybe Config.PackageManager, CommandParser.ParsedArgs)
-flags =
-  CommandParser.parseFlag
-    ( CommandParser.flagWithArg
-        "package-manager"
-        "The package manager to use"
-        ( \str -> case str of
-            "npm" -> Just Config.NPM
-            "yarn" -> Just Config.Yarn
-            "pnpm" -> Just Config.PNPM
-            "bun" -> Just Config.Bun
-            _ -> Nothing
-        )
-    )
+flags :: CommandParser.ParsedArgs -> Either String ((), CommandParser.ParsedArgs)
+flags = CommandParser.noFlag
 
 args :: CommandParser.ArgParser ()
 args =
   CommandParser.noArg
 
 -- INIT COMMAND
-run :: () -> Maybe Config.PackageManager -> IO ()
-run () maybePkgManager = do
-  let pkgManager = fromMaybe Config.Bun maybePkgManager
+run :: () -> () -> IO ()
+run () () = do
 
   -- Create elm.dev.json
   let defaultConfig =
@@ -73,11 +57,10 @@ run () maybePkgManager = do
             Config.configGraphQL = Nothing,
             Config.configDocs = Nothing
           }
-  Ext.Log.log Ext.Log.Live ("Generating ")
   BS.writeFile "elm.dev.json" (Aeson.encodePretty defaultConfig)
 
   -- Create README.md
-  TIO.writeFile "README.md" (defaultReadme pkgManager)
+  TIO.writeFile "README.md" defaultReadme
 
   -- Create elm.json
   initResult <- initElmJson
@@ -90,14 +73,6 @@ run () maybePkgManager = do
 
   -- Create Page/Home.elm
   Gen.Templates.write "Page" "./src/app" "Home"
-
-  -- Create package.json and install dependencies
-  installDependencies
-    pkgManager
-    (DependencyOptions {dev = True, cwd = Nothing})
-    [ "vite",
-      "typescript"
-    ]
   
   Gen.Generate.run
 
@@ -124,25 +99,31 @@ defaultPackages =
       (Pkg.toName (Utf8.fromChars "lydell") "elm-app-url", Con.anything)
     ]
 
-defaultReadme :: Config.PackageManager -> Text.Text
-defaultReadme pkgManager =
+defaultReadme :: Text.Text
+defaultReadme =
   Text.pack $
     [r|# Elm Dev App
 
 This project was created with [elm-dev](https://github.com/mdgriffith/elm-dev).
 
-## Development
-
-Start the development server:
+## Install dependencies
 
 ```bash
-|]
-      ++ case pkgManager of
-        Config.NPM -> "npm run dev"
-        Config.Yarn -> "yarn dev"
-        Config.PNPM -> "pnpm dev"
-        Config.Bun -> "bun run dev"
-      ++ [r|
+npm install
+yarn install
+pnpm install
+bun install
+```
+
+## Development
+
+Run the development server:
+
+```bash
+npm run dev
+yarn dev
+pnpm dev
+bun run dev
 ```
 
 ## Building
@@ -150,13 +131,10 @@ Start the development server:
 Create a production build:
 
 ```bash
-|]
-      ++ case pkgManager of
-        Config.NPM -> "npm run build"
-        Config.Yarn -> "yarn build"
-        Config.PNPM -> "pnpm build"
-        Config.Bun -> "bun run build"
-      ++ [r|
+npm run build
+yarn build
+pnpm build
+bun run build
 ```
 
 ### Install in VS Code / Cursor
@@ -241,54 +219,6 @@ initElmJson =
                           Map.empty
                     return (Right ())
 
--- NPM stuff
-
-data DependencyOptions = DependencyOptions
-  { dev :: Bool,
-    cwd :: Maybe FilePath
-  }
-
--- | Install dependencies using the specified package manager
-installDependencies :: Config.PackageManager -> DependencyOptions -> [String] -> IO ()
-installDependencies manager options packages = do
-  let cwd' = cwd options
-  let saveDevFlag = if dev options then "--save-dev" else "--save"
-  let devFlag = if dev options then ["--dev"] else []
-
-  -- Check if package.json exists
-  packageJsonExists <- Dir.doesFileExist (maybe "." id cwd' </> "package.json")
-
-  -- If no package.json exists, create one first
-  Monad.unless packageJsonExists $ do
-    case manager of
-      Config.NPM -> runCommand cwd' "npm" ["init", "-y"]
-      Config.Yarn -> runCommand cwd' "yarn" ["init", "-y"]
-      Config.PNPM -> runCommand cwd' "pnpm" ["init"]
-      Config.Bun -> runCommand cwd' "bun" ["init", "-y"]
-
-    addScripts
-      [ ("dev", "vite"),
-        ("build", "vite build")
-      ]
-
-  -- Delete index.ts if it exists (created by bun init)
-  case manager of
-    Config.Bun -> do
-      let entryPath = maybe "." id cwd' </> "index.ts"
-      entryExists <- Dir.doesFileExist entryPath
-      Monad.when entryExists $ Dir.removeFile entryPath
-    _ -> return ()
-
-  -- Now install the dependencies
-  case manager of
-    Config.NPM -> do
-      runCommand cwd' "npm" (["install", saveDevFlag] ++ packages)
-    Config.Yarn -> do
-      runCommand cwd' "yarn" (["add"] ++ devFlag ++ packages)
-    Config.PNPM -> do
-      runCommand cwd' "pnpm" (["add"] ++ devFlag ++ packages)
-    Config.Bun -> do
-      runCommand cwd' "bun" (["add"] ++ devFlag ++ packages)
 
 -- | Helper function to run shell commands
 runCommand :: Maybe FilePath -> String -> [String] -> IO ()

@@ -15,6 +15,7 @@ import Data.List (intercalate, isPrefixOf)
 import Data.Char (toLower)
 import Language.Haskell.TH.Syntax (Lift)
 
+
 data Target = ToJs 
             | ToRoot 
             | ToHidden 

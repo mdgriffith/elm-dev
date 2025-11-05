@@ -1,0 +1,15 @@
+{
+    "devDependencies": {
+        "@types/bun": "latest",
+        "vite": "^7.2.0"
+    },
+    "name": "lore-latest",
+    "peerDependencies": {
+        "typescript": "^5.9.3"
+    },
+    "private": true,
+    "scripts": {
+        "build": "vite build",
+        "dev": "vite"
+    }
+}

@@ -188,7 +188,7 @@ toolInit = MCP.Tool
         Left e -> pure (errTxt (Text.pack e))
         Right dir -> do
           -- Run generator init in target dir
-          r <- Exception.try (withDir dir (GenInit.run () Nothing)) :: IO (Either SomeException ())
+          r <- Exception.try (withDir dir (GenInit.run () ())) :: IO (Either SomeException ())
           case r of
             Left _ -> pure (errTxt "Failed to initialize project")
             Right _ -> pure (ok "Initialized project")
