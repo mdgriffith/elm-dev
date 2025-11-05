@@ -45,8 +45,8 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
 
     // Let the language client spawn the server as an executable using stdio transport
     const serverOptions: ServerOptions = {
-      run: { command: 'elm-dev', args: ['lsp'], options: { env: process.env } },
-      debug: { command: 'elm-dev', args: ['lsp'], options: { env: process.env } },
+      run: { command: 'elm-dev', args: ['lsp'], options: { env: process.env, shell: true } },
+      debug: { command: 'elm-dev', args: ['lsp'], options: { env: process.env, shell: true } },
     };
 
     const clientOptions: LanguageClientOptions = {
