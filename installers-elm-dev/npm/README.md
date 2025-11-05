@@ -13,10 +13,13 @@ Elm Dev is an Elm compiler with:
 
 
 ### Install in VS Code / Cursor
-- Open the Extensions view and install the **Elm Dev** extension.
+- Open the Extensions view and install the [**Elm Dev**](https://marketplace.visualstudio.com/items?itemName=ElmDev.elm-dev-vscode) extension.
 
-### Set up MCP in VS Code / Cursor
-- **Cursor**: create `~/.cursor/mcp.json` with:
+### MCP Setup in VS Code/Cursor/Claude Code
+
+To use the elm-dev mcp, you just need your agent to run `elm-dev mcp`.
+
+In Cursor, this means creating `~/.cursor/mcp.json` with:
 ```json
 {
   "mcpServers": {
@@ -24,17 +27,6 @@ Elm Dev is an Elm compiler with:
       "command": "elm-dev",
       "args": ["mcp"]
     }
-  }
-}
-```
-- **VS Code**: if you use an MCP-capable AI extension, add a server named `elm-dev` with command `elm-dev` and args `["mcp"]`.
-
-### Set up MCP in Codex and Claude Code
-- Add an MCP server named `elm-dev` using command `elm-dev` with args `["mcp"]` via each client's MCP settings UI or config file.
-```json
-{
-  "mcpServers": {
-    "elm-dev": { "command": "elm-dev", "args": ["mcp"] }
   }
 }
 ```
