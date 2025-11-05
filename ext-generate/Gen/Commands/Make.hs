@@ -81,7 +81,7 @@ run maybeCwd (fstModule, modules) (debug, optimize, output, report, hot) = do
   if fromMaybe False hot
     then do
       maybeDaemonStatus <- Watchtower.Server.Daemon.status
-      putStrLn "Running Gen.Generate.run with hot reload"
+      
       case maybeDaemonStatus of
         Just st -> do
           let base = "http://" ++ Watchtower.Server.Daemon.domain st ++ ":" ++ show (Watchtower.Server.Daemon.httpPort st) ++ "/dev/js"
@@ -99,7 +99,6 @@ run maybeCwd (fstModule, modules) (debug, optimize, output, report, hot) = do
           return ()
     else do
         Dir.withCurrentDirectory cwd $ do
-          putStrLn "Running Gen.Generate.run"
           codegenResult <- Gen.Generate.run
           case codegenResult of
             Right () -> do
