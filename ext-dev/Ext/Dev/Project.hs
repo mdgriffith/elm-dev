@@ -24,12 +24,18 @@ import qualified Data.NonEmptyList as NE
 import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.Set as Set
+import qualified Data.ByteString as BS
+import qualified AST.Source as Src
+import qualified Data.Name as Name
+import qualified Reporting.Annotation as A
+import qualified Parse.Module
 import qualified Elm.Details
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline
 import qualified Elm.Package
 import qualified Ext.Log
 import qualified Json.Decode
+import qualified Gen.Generate
 import Json.Encode ((==>))
 import qualified Json.Encode
 import qualified Json.String
@@ -159,8 +165,7 @@ discover projectBase =
 
 shouldSkip :: FilePath -> Bool
 shouldSkip path =
-  List.isInfixOf "elm-stuff" path
-    || List.isInfixOf "node_modules" path
+  List.isInfixOf "node_modules" path
     || ( case path of
            '.' : _ ->
              True
@@ -181,9 +186,15 @@ searchProjectHelp projectRoot projs root = do
     then pure projs
     else do
       elmJsonExists <- Dir.doesFileExist (root </> "elm.json")
+      elmDevJsonExists <- Dir.doesFileExist (root </> "elm.dev.json")
       newProjects <-
         if elmJsonExists
           then do
+            if elmDevJsonExists
+              then do
+                Gen.Generate.run
+              else pure (Right ())
+              
             maybeProject <- captureProjectIfEntrypoints projectRoot root
             case maybeProject of
               Nothing -> pure projs
@@ -213,14 +224,14 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
   case outlineResult of
     Right (Elm.Outline.App app) -> do
       Ext.Log.log Ext.Log.Live ("Found App: " <> elmJsonRoot)
-      maybeElmMain <- findFirstFileNamed "Main.elm" elmJsonRoot
-      case maybeElmMain of
-        Nothing ->
+      let srcDirsList = NE.toList (Elm.Outline._app_source_dirs app)
+      let absoluteSrcDirsList = map (Elm.Outline.toAbsolute elmJsonRoot) srcDirsList
+      entrypoints <- findElmEntrypointsInDirs absoluteSrcDirsList
+      case entrypoints of
+        [] ->
           pure Nothing
-        Just main -> do
-          let srcDirsList = NE.toList (Elm.Outline._app_source_dirs app)
-          let absoluteSrcDirsList = map (Elm.Outline.toAbsolute elmJsonRoot) srcDirsList
-          pure (Just (Project elmJsonRoot projectRoot (NE.List main []) absoluteSrcDirsList 0))
+        (x:xs) ->
+          pure (Just (Project elmJsonRoot projectRoot (NE.List x xs) absoluteSrcDirsList 0))
     Right (Elm.Outline.Pkg pkg) -> do
       Ext.Log.log Ext.Log.Live ("Found package: " <> Elm.Package.toChars (Elm.Outline._pkg_name pkg) <> " at " <> elmJsonRoot)
       case Elm.Outline._pkg_exposed pkg of
@@ -271,6 +282,69 @@ findFirstFileNamed named dir =
             )
             Nothing
             dirs
+
+{-
+  Find all Elm files in the given source directories that expose `main`.
+  An Elm file is considered an entrypoint if its module exposing clause
+  exposes `main` (either explicitly or via `(..)`) and the file defines a
+  top-level `main` value.
+-}
+findElmEntrypointsInDirs :: [FilePath] -> IO [FilePath]
+findElmEntrypointsInDirs srcDirs = do
+  elmFiles <- Monad.foldM
+    (\acc dir -> do
+        files <- listElmFilesRecursive dir
+        pure (acc <> files)
+    )
+    []
+    srcDirs
+  Monad.filterM fileExposesMain elmFiles
+
+listElmFilesRecursive :: FilePath -> IO [FilePath]
+listElmFilesRecursive dir = do
+  isDir <- Dir.doesDirectoryExist dir
+  if not isDir || shouldSkip dir
+    then pure []
+    else do
+      names <- Dir.listDirectory dir
+      let paths = map (dir </>) names
+      (subdirs, files) <-
+        Monad.foldM
+          (\(ds, fs) p -> do
+              isSubDir <- Dir.doesDirectoryExist p
+              if isSubDir
+                then pure (p : ds, fs)
+                else pure (ds, p : fs)
+          )
+          ([], [])
+          paths
+      let elmFiles = filter (List.isSuffixOf ".elm") files
+      nested <- Monad.foldM (\acc d -> do xs <- listElmFilesRecursive d; pure (acc <> xs)) [] subdirs
+      pure (elmFiles <> nested)
+
+fileExposesMain :: FilePath -> IO Bool
+fileExposesMain path = do
+  bytes <- BS.readFile path
+  case Parse.Module.fromByteString Parse.Module.Application bytes of
+    Right modul -> pure (moduleExposesMain modul)
+    Left _ -> pure False
+
+moduleExposesMain :: Src.Module -> Bool
+moduleExposesMain (Src.Module _ exports _ _ values _ _ _ _) =
+  let exposesAll = case exports of
+        A.At _ Src.Open -> True
+        A.At _ (Src.Explicit exposed) -> any isExposedMain exposed
+      definesMain = any isMainValue values
+  in exposesAll && definesMain
+
+isExposedMain :: Src.Exposed -> Bool
+isExposedMain exposed =
+  case exposed of
+    Src.Lower (A.At _ name) -> name == Name._main
+    _ -> False
+
+isMainValue :: A.Located Src.Value -> Bool
+isMainValue (A.At _ (Src.Value (A.At _ name) _ _ _)) = name == Name._main
 
 decodeProject :: Json.Decode.Decoder String Project
 decodeProject =
