@@ -64,12 +64,4 @@ Testing:
   elm-dev test init ............................ Setup testing
   elm-dev test install <author/project> ..... Install test dep
 
-Development:
-
-  elm-dev dev serve ........... Run the Elm Dev dev (internal)
-  elm-dev dev start ................. Start dev if not running
-  elm-dev dev stop .................................. Stop dev
-  elm-dev dev status .................. Show dev server status
-  elm-dev mcp ................... Start the Elm Dev MCP server
-  elm-dev lsp ................... Start the Elm Dev LSP server
 ```

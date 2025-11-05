@@ -205,6 +205,17 @@ devStatusCommand = CommandParser.command ["dev","status"] "Show dev server statu
         Just status ->
           LBSChar.putStrLn (encodeStatus status)
 
+-- Discover Elm projects under the current root and print them
+discoverCommand :: CommandParser.Command
+discoverCommand = CommandParser.command ["discover"] "Discover Elm projects" devGroup CommandParser.noArg parseFlags runCmd
+  where
+    parseFlags = CommandParser.noFlag
+    runCmd _ _ = do
+      root <- Dir.getCurrentDirectory
+      projects <- Ext.Dev.Project.discover root
+      let json = Json.Encode.list Ext.Dev.Project.encodeProjectJson projects
+      LBSChar.putStrLn (Data.ByteString.Builder.toLazyByteString (Json.Encode.encode json))
+
 docsCommand :: CommandParser.Command
 docsCommand = CommandParser.command ["inspect", "docs"] "Report the docs.json" inspectGroup parseDocsArgs parseDocsFlags runDocs
   where
@@ -427,7 +438,6 @@ main = do
   CommandParser.run
     ( \commands givenCommand ->
         -- Show Help
-       
         let 
           joinArgs [] = ""
           joinArgs argList = " " ++ Data.List.intercalate " " argList
@@ -446,7 +456,9 @@ main = do
         in unlines header
               ++ 
         -- Group commands by their group (if any)
-        let groupedCommands = Data.List.groupBy (\a b -> CommandParser.cmdGroup a == CommandParser.cmdGroup b) commands
+        let includeDev = elem "dev" givenCommand
+            visibleCommands = filter (\m -> CommandParser.cmdGroup m /= devGroup || includeDev) commands
+            groupedCommands = Data.List.groupBy (\a b -> CommandParser.cmdGroup a == CommandParser.cmdGroup b) visibleCommands
             formatCommand (CommandParser.CommandMetadata name argList group desc) =
               formatCommandWithEllipsis
                 ("  elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name) ++ Terminal.Colors.grey (joinArgs argList))
@@ -474,6 +486,7 @@ main = do
       devStartCommand,
       devStopCommand,
       devStatusCommand,
+      discoverCommand,
       mcpCommand,
       lspCommand
       -- entrypointsCommand,
