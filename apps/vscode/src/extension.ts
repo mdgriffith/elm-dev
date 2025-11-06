@@ -64,7 +64,14 @@ export async function activate(context: vscode.ExtensionContext) {
       if (evt.connected) {
         hideStatus();
       } else {
-        showDisconnected(evt.error ?? 'LSP disconnected');
+        if (evt.error === 'ELM_DEV_NOT_FOUND') {
+          statusItem.text = 'Elm Dev not found';
+          statusItem.tooltip = 'You need to install Elm Dev globally or specify a path.';
+          statusItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+          statusItem.show();
+        } else {
+          showDisconnected(evt.error ?? 'LSP disconnected');
+        }
       }
     })
   );

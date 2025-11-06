@@ -8,6 +8,8 @@ import {
   CloseAction,
 } from 'vscode-languageclient/node';
 import { log as elmLog, outputChannel } from './utils/logging';
+import * as fs from 'fs';
+import { resolveElmDev } from './elmDev';
 
 // Emit status updates so the extension can show a status indicator when disconnected
 const statusEmitter = new vscode.EventEmitter<{ connected: boolean; error?: string }>();
@@ -43,10 +45,20 @@ export async function startLanguageServer(context: vscode.ExtensionContext): Pro
 
     elmLog('🏗️ Creating LSP client...');
 
+    // Resolve server command from config or PATH
+    const { command, useShell, notFoundReason } = resolveElmDev();
+
+    if (notFoundReason) {
+      elmLog(`❌ ${notFoundReason}`);
+      statusEmitter.fire({ connected: false, error: 'ELM_DEV_NOT_FOUND' });
+      isStarting = false;
+      return;
+    }
+
     // Let the language client spawn the server as an executable using stdio transport
     const serverOptions: ServerOptions = {
-      run: { command: 'elm-dev', args: ['lsp'], options: { env: process.env } },
-      debug: { command: 'elm-dev', args: ['lsp'], options: { env: process.env } },
+      run: { command, args: ['lsp'], options: { env: process.env, shell: useShell } },
+      debug: { command, args: ['lsp'], options: { env: process.env, shell: useShell } },
     };
 
     const clientOptions: LanguageClientOptions = {

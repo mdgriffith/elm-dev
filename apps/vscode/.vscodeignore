@@ -20,12 +20,8 @@ tsconfig.json
 coverage/**
 dist/**
 
-# Node deps (we bundle runtime deps into out/extension.js)
+# Node deps (we bundle runtime deps into out/extension.js). Do not ship CLI or binaries.
 node_modules/**
-
-# Re-include elm-dev package and platform-specific binaries so the VSIX ships the CLI
-!node_modules/elm-dev/**
-!node_modules/@elm_dev_binaries/**
 
 # Misc
 .DS_Store

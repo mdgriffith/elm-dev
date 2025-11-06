@@ -2,7 +2,7 @@
   "name": "elm-dev-vscode",
   "displayName": "Elm Dev",
   "description": "An Elm extension for handling large Elm codebases",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "ElmDev",
   "license": "BSD-3-Clause",
   "repository": "https://github.com/mdgriffith/elm-dev.git",
@@ -61,7 +61,14 @@
     "configuration": {
       "type": "object",
       "title": "Elm configuration",
-      "properties": {}
+      "properties": {
+        "elmDev.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional absolute path to the `elm-dev` executable. If unset, the extension will look for `elm-dev` on PATH.",
+          "scope": "machine-overridable"
+        }
+      }
     }
   },
   "scripts": {
@@ -85,7 +92,7 @@
     "vsce": "^2.9.1"
   },
   "dependencies": {
-    "elm-dev": "0.2.0",
-    "vscode-languageclient": "^9.0.1"
+    "vscode-languageclient": "^9.0.1",
+    "which": "^5.0.0"
   }
 }

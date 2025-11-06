@@ -1,6 +1,8 @@
 import { spawn, ChildProcess, SpawnOptionsWithoutStdio, StdioOptions } from 'child_process';
-import * as path from 'path';
+import * as vscode from 'vscode';
 import { log as elmLog } from './utils/logging';
+import * as fs from 'fs';
+import which from 'which';
 
 export function isProcessRunning(proc: ChildProcess | undefined): boolean {
     return !!proc && !proc.killed;
@@ -20,14 +22,15 @@ export function startElmDevProcess(
     options?: SpawnOptionsWithoutStdio & { stdio?: StdioOptions },
     handlers?: ElmDevHandlers
 ): ChildProcess {
-    const launch = resolveElmDevLaunch();
-    elmLog(`🚀 Starting ${label} with command: ${launch.command} ${launch.preArgs.join(' ')} ${args.join(' ')}`);
-    const proc = spawn(launch.command, [...launch.preArgs, ...args], {
+    const launch = resolveElmDev();
+
+    const proc = spawn(launch.command, args, {
         stdio: options?.stdio ?? 'pipe',
         env: options?.env ?? process.env,
         cwd: options?.cwd ?? process.cwd(),
         detached: options?.detached ?? false,
         windowsHide: options?.windowsHide ?? true,
+        shell: options?.shell ?? launch.useShell ?? false,
     });
 
     // Only attach stdout listener if a handler is provided, to avoid interfering with LSP streams
@@ -95,10 +98,11 @@ export async function gracefulStop(
 
 export async function stopElmDevDaemon(): Promise<void> {
     return await new Promise((resolve) => {
-        const launch = resolveElmDevLaunch();
-        const proc = spawn(launch.command, [...launch.preArgs, 'dev', 'stop'], {
+        const launch = resolveElmDev();
+        const proc = spawn(launch.command, ['dev', 'stop'], {
             stdio: 'pipe',
             env: process.env,
+            shell: launch.useShell ?? false,
         });
 
         proc.stdout?.on('data', (chunk: Buffer | string) => {
@@ -131,37 +135,45 @@ export async function stopElmDevDaemon(): Promise<void> {
     });
 }
 
-function resolveElmDevLaunch(): { command: string; preArgs: string[] } {
-    // Griffnote:  Is this really the standard way to reference a dependenct npm binary package?
-    // Prefer the package in dependencies via its bin field
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const pkgJsonPath = require.resolve('elm-dev/package.json');
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const pkg = require(pkgJsonPath) as { bin?: string | Record<string, string> };
-        const pkgDir = path.dirname(pkgJsonPath);
+export function resolveElmDev(): { command: string; useShell?: boolean, notFoundReason?: string } {
 
-        let binRel: string | undefined;
-        if (typeof pkg.bin === 'string') {
-            binRel = pkg.bin;
-        } else if (pkg.bin && typeof pkg.bin === 'object') {
-            binRel = pkg.bin['elm-dev'] || Object.values(pkg.bin)[0];
+    const cfg = vscode.workspace.getConfiguration('elmDev');
+    const configured = (cfg.get<string>('path') || '').trim();
+    const isWin = process.platform === 'win32';
+
+    // If a path is configured, use it directly
+    if (configured) {
+        const exists = fs.existsSync(configured);
+        if (!exists) {
+            return { command: configured, useShell: isWin, notFoundReason: `Configured elmDev.path not found: ${configured}` };
         }
-
-        if (binRel) {
-            const binPath = path.resolve(pkgDir, binRel);
-            if (process.platform === 'win32' && !/\.exe$/i.test(binPath)) {
-                // On Windows, the bin may be a JS stub; execute via Node
-                return { command: process.execPath, preArgs: [binPath] };
+        try {
+            const stats = fs.statSync(configured);
+            if (stats.isDirectory()) {
+                return { command: configured, useShell: isWin, notFoundReason: `Configured elmDev.path is a directory, expected an executable.` };
             }
-            return { command: binPath, preArgs: [] };
+            if (!isWin) {
+                try {
+                    fs.accessSync(configured, fs.constants.X_OK);
+                } catch (_) {
+                    return { command: configured, useShell: isWin, notFoundReason: `Configured elmDev.path is not executable: ${configured}` };
+                }
+            }
+        } catch (e) {
+            return { command: configured, useShell: isWin, notFoundReason: `Unable to access configured elmDev.path: ${configured}` };
         }
-    } catch (_) {
-        // ignore and fall back
+
+        return { command: configured, useShell: isWin };
     }
 
-    // Fallback to PATH
-    return { command: process.platform === 'win32' ? 'elm-dev.exe' : 'elm-dev', preArgs: [] };
+    // Try to resolve 'elm-dev' on PATH using 'which'
+    const cmd = 'elm-dev';
+    const resolved = which.sync(cmd, { nothrow: true });
+    if (resolved) {
+        return { command: resolved, useShell: isWin };
+    }
+
+    return { command: cmd, useShell: isWin, notFoundReason: `elm-dev not found on PATH. Install it or set 'elmDev.path' in settings.` };
 }
 
 
