@@ -2,7 +2,7 @@
   "name": "elm-dev-vscode",
   "displayName": "Elm Dev",
   "description": "An Elm extension for handling large Elm codebases",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "ElmDev",
   "license": "BSD-3-Clause",
   "repository": "https://github.com/mdgriffith/elm-dev.git",
@@ -19,8 +19,12 @@
   "contributes": {
     "commands": [
       {
-        "command": "elm.restart",
-        "title": "Elm Dev: Restart"
+        "command": "elm.reconnect",
+        "title": "Elm Dev: Reconnect"
+      },
+      {
+        "command": "elm.stopServer",
+        "title": "Elm Dev: Stop Server"
       },
       {
         "command": "elm.generateAgentDoc",

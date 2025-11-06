@@ -30,22 +30,22 @@ export async function activate(context: vscode.ExtensionContext) {
   // Status bar item to show disconnected state and allow restart
   const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusItem.name = 'Elm Dev';
-  statusItem.command = 'elm.restart';
+  statusItem.command = 'elm.reconnect';
   context.subscriptions.push(statusItem);
 
   // Prevent status updates from overriding the explicit Restarting message
   let isRestarting = false;
 
   function showDisconnected(message: string) {
-    statusItem.text = 'Elm Dev Disconnected (click to restart)';
+    statusItem.text = 'Elm Dev Disconnected (click to reconnect)';
     statusItem.tooltip = message;
     statusItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
     statusItem.show();
   }
 
-  function showRestarting() {
-    statusItem.text = 'Elm Dev Restarting....';
-    statusItem.tooltip = 'Elm Dev Restarting....';
+  function showReconnecting() {
+    statusItem.text = 'Elm Dev Reconnecting....';
+    statusItem.tooltip = 'Elm Dev Reconnecting....';
     statusItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
     statusItem.show();
   }
@@ -79,17 +79,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Unified restart command: stop LSP, MCP, daemon; then start LSP and MCP again
   context.subscriptions.push(
-    vscode.commands.registerCommand("elm.restart", async () => {
+    vscode.commands.registerCommand("elm.reconnect", async () => {
       // Show restarting state in status bar with normal background
       isRestarting = true;
-      showRestarting();
+      showReconnecting();
 
-      elmLog('🔄 Elm Dev Restarting....');
+      elmLog('🔄 Elm Dev Reconnecting....');
       try {
         elmLog('🛑 Stopping LSP...');
         await LSPClient.stopLanguageServer();
-
-        await stopElmDevDaemon();
 
         // Small delay to ensure ports/processes are released
         await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -107,6 +105,20 @@ export async function activate(context: vscode.ExtensionContext) {
         showDisconnected('Elm Dev restart failed');
       } finally {
         isRestarting = false;
+      }
+    })
+  );
+
+  // Stop only the Elm Dev Daemon
+  context.subscriptions.push(
+    vscode.commands.registerCommand("elm.stopServer", async () => {
+      try {
+        elmLog('🛑 Stopping Elm Dev Daemon...');
+        await stopElmDevDaemon();
+        vscode.window.showInformationMessage('Elm Dev server stopped');
+      } catch (error) {
+        elmLog(`❌ Failed to stop Elm Dev daemon: ${error}`);
+        vscode.window.showErrorMessage('Failed to stop Elm Dev daemon');
       }
     })
   );
