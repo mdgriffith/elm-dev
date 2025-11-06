@@ -13,7 +13,11 @@ Elm Dev is an Elm compiler with:
 
 
 ### Install in VS Code / Cursor
+
+
 - Open the Extensions view and install the [**Elm Dev**](https://marketplace.visualstudio.com/items?itemName=ElmDev.elm-dev-vscode) extension.
+
+> Make sure you have `elm-dev` installed globally, or have set the path in the extension settings.
 
 ### MCP Setup in VS Code/Cursor/Claude Code
 

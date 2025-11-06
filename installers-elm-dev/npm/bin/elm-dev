@@ -15,8 +15,8 @@ var child_process = require('child_process');
 // On Windows, our binary file must be named elm.exe for it to run properly.
 // Instead of symlinks, npm creates two files:
 //
-//   - node_modules/.bin/elm (a bash file)
-//   - node_modules/.bin/elm.cmd (a batch file)
+//   - node_modules/.bin/elm-dev (a bash file)
+//   - node_modules/.bin/elm-dev.cmd (a batch file)
 //
 // Both files specifically invoke `node` to run the file listed at package.bin,
 // so there is no way around instantiating node for no reason on Windows.
