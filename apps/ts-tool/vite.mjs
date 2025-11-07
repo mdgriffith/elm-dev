@@ -20,7 +20,7 @@ function log(...args) {
 
 async function discoverDevServer() {
     return new Promise((resolve) => {
-        const child = spawn('elm-dev', ['daemon', 'status'], { shell: true });
+        const child = spawn('elm-dev', ['dev', 'status'], { shell: true });
         let out = '';
         let err = '';
         child.stdout.on('data', (d) => { out += d.toString(); });

@@ -1,7 +1,8 @@
 {
     "devDependencies": {
         "@types/bun": "latest",
-        "vite": "^7.2.0"
+        "vite": "^7.2.0",
+        "elm-dev": "^0.2.1"
     },
     "name": "lore-latest",
     "peerDependencies": {
@@ -11,5 +12,6 @@
     "scripts": {
         "build": "vite build",
         "dev": "vite"
-    }
+    },
+    "dependencies": {}
 }

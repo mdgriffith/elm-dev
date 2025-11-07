@@ -5,13 +5,14 @@ import * as Effects from "./js/effects";
 import Webcomponents from "./js/webcomponents";
 
 // Import all generated CSS files
+// @ts-ignore
 import.meta.glob("../elm-stuff/generated/**/*.css", { eager: true });
 
 // Include any custom elements we need.
 Webcomponents();
 
 // Boot up the Elm App
-const app = Elm.Main.init({
+const app = Elm.init({
   flags: { now: Date.now(), localStorage: LocalStorage.getAll() },
 });
 
