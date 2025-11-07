@@ -1,6 +1,6 @@
 {
   "name": "elm-dev",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Elm Dev: a version of the Elm compiler to help with editor tooling.",
   "license": "BSD-3-Clause",
   "repository": {
@@ -54,10 +54,10 @@
     }
   },
   "optionalDependencies": {
-    "@elm_dev_binaries/darwin_arm64": "0.2.1",
-    "@elm_dev_binaries/darwin_x64": "0.2.1",
-    "@elm_dev_binaries/linux_arm64": "0.2.1",
-    "@elm_dev_binaries/linux_x64": "0.2.1",
-    "@elm_dev_binaries/win32_x64": "0.2.1"
+    "@elm_dev_binaries/darwin_arm64": "0.2.2",
+    "@elm_dev_binaries/darwin_x64": "0.2.2",
+    "@elm_dev_binaries/linux_arm64": "0.2.2",
+    "@elm_dev_binaries/linux_x64": "0.2.2",
+    "@elm_dev_binaries/win32_x64": "0.2.2"
   }
 }
