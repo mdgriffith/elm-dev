@@ -2,9 +2,9 @@
     "devDependencies": {
         "@types/bun": "latest",
         "vite": "^7.2.0",
-        "elm-dev": "^0.2.1"
+        "elm-dev": "^0.2.2"
     },
-    "name": "lore-latest",
+    "name": "elm-project",
     "peerDependencies": {
         "typescript": "^5.9.3"
     },
