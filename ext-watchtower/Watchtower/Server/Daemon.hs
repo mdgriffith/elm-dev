@@ -168,25 +168,14 @@ allocateServeParams = do
 -- | Start the daemon servers for a workspace root; if already running and healthy, return its state
 ensureRunning :: IO StateInfo
 ensureRunning = do
-  mState <- readState
+  mState <- status
   case mState of
-    Just s -> do
-      healthy <- isHealthy s
-      if healthy then pure s else withDaemonLock $ do
-        -- Re-check under lock to avoid duplicate spawns
-        m2 <- readState
-        case m2 of
-          Just s2 -> do
-            ok2 <- isHealthy s2
-            if ok2 then pure s2 else start
-          Nothing -> start
+    Just s -> pure s
     Nothing -> withDaemonLock $ do
       -- Double-check under lock in case another process just started it
-      m2 <- readState
+      m2 <- status
       case m2 of
-        Just s2 -> do
-          ok2 <- isHealthy s2
-          if ok2 then pure s2 else start
+        Just s2 -> pure s2
         Nothing -> start
 
 -- | Launch the daemon in the background if not running, wait until state is ready, and return it
@@ -204,14 +193,10 @@ start = do
   _ <- Process.createProcess cp
   -- Wait for state.json to appear and for services to become healthy
   let waitLoop n = do
-        ms <- readState
+        ms <- status
         case ms of
-          Just s -> do
-            ok <- isHealthy s
-            if ok then pure s else if n <= 0 then ioError (userError "dev did not become healthy") else do
-              Concurrent.threadDelay 200000 -- 200ms
-              waitLoop (n - 1)
-          Nothing -> if n <= 0 then ioError (userError "dev did not start") else do
+          Just s -> pure s
+          Nothing -> if n <= 0 then ioError (userError "dev did not become healthy") else do
             Concurrent.threadDelay 200000 -- 200ms
             waitLoop (n - 1)
   waitLoop (50 :: Int)
@@ -261,37 +246,39 @@ serve params = do
 
 stop :: IO ()
 stop = do
-  ms <- readState
-  case ms of
+  maybeState <- readState
+  case maybeState of
     Nothing -> pure ()
-    Just st -> do
-      alive <- pidAlive (pid st)
-      healthy <- isHealthy st
-      let cleanup = do
-            path <- stateFilePath
-            safeRemove path
-      if not alive && not healthy
-        then cleanup
-        else do
-#if !defined(mingw32_HOST_OS)
-          let pid' = PosixTypes.CPid (fromIntegral (pid st))
-          _ <- (Exception.try (PosixSig.signalProcess PosixSig.sigTERM pid') :: IO (Either IOError ()))
-          _ <- waitForDeath 50 (pid st)
-          stillAlive <- pidAlive (pid st)
-          Monad.when stillAlive $ do
-            _ <- (Exception.try (PosixSig.signalProcess PosixSig.sigKILL pid') :: IO (Either IOError ()))
-            _ <- waitForDeath 25 (pid st)
-            pure ()
+    Just state -> do
+ -- Unix-like OSes: Linux, macOS, etc. (not Windows): send SIGTERM and SIGKILL to the daemon process
+#if !defined(mingw32_HOST_OS) 
+      let pid' = PosixTypes.CPid (fromIntegral (pid state))
+      _ <- (Exception.try (PosixSig.signalProcess PosixSig.sigTERM pid') :: IO (Either IOError ()))
+      _ <- waitForDeath 50 (pid state)
+      stillAlive2 <- pidAlive (pid state)
+      Monad.when stillAlive2 $ do
+        _ <- (Exception.try (PosixSig.signalProcess PosixSig.sigKILL pid') :: IO (Either IOError ()))
+        _ <- waitForDeath 25 (pid state)
+        pure ()
 #else
-          let cp = (Process.proc "taskkill" ["/PID", show (pid st), "/T"]) -- gentle; Windows lacks SIGTERM
-          _ <- Process.withCreateProcess cp { Process.std_in = Process.Inherit, Process.std_out = Process.Inherit, Process.std_err = Process.Inherit } $ \_ _ _ ph -> Process.waitForProcess ph >> pure ()
-          -- Wait for ports to close as our best indication of shutdown on Windows
-          _ <- waitPortsClosed st 50
+      -- Windows: use taskkill to gracefully stop the daemon process
+      let cp = (Process.proc "taskkill" ["/PID", show (pid state), "/T"]) -- gentle; Windows lacks SIGTERM
+      _ <- Process.withCreateProcess cp { Process.std_in = Process.Inherit, Process.std_out = Process.Inherit, Process.std_err = Process.Inherit } $ \_ _ _ ph -> Process.waitForProcess ph >> pure ()
+      -- Wait for ports to close as our best indication of shutdown on Windows
+      _ <- waitPortsClosed st 50
 #endif
-          cleanup
+      path <- stateFilePath
+      safeRemove path
+        
 
 status :: IO (Maybe StateInfo)
-status = readState
+status = do
+  ms <- readState
+  case ms of
+    Just s -> do
+      ok <- isHealthy s
+      if ok then pure (Just s) else pure Nothing
+    Nothing -> pure Nothing
 
 -- | Try to connect to host:port, return True if successful
 canConnect :: String -> Int -> IO Bool
@@ -362,11 +349,9 @@ withDaemonLock action = do
 -- | Wait up to N attempts for an existing daemon to become healthy.
 waitForHealthy :: Int -> IO Bool
 waitForHealthy n = do
-  ms <- readState
+  ms <- status
   case ms of
-    Just s -> do
-      ok <- isHealthy s
-      if ok then pure True else delayAndRetry
+    Just _ -> pure True
     Nothing -> delayAndRetry
   where
     delayAndRetry = if n <= 0
