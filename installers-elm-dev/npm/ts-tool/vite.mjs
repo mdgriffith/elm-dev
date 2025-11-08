@@ -18,33 +18,57 @@ function log(...args) {
     if (loggingEnabled) console.log(...args);
 }
 
+
+// Normalize a possibly-relative file path to an absolute path using the Vite root
+function toAbsolute(p) {
+    if (!p) return p;
+    // Strip query/hash which Vite may append
+    const cleaned = p.split('?')[0].split('#')[0];
+    // Absolute FS path encoded by Vite
+    if (cleaned.startsWith('/@fs/')) {
+        return cleaned.slice('/@fs/'.length);
+    }
+    return path.isAbsolute(cleaned) ? cleaned : path.resolve(process.cwd(), cleaned);
+}
+
 async function discoverDevServer() {
     return new Promise((resolve) => {
-        const child = spawn('elm-dev', ['dev', 'status'], { shell: true });
+        log("Starting dev server")
+        const child = spawn('elm-dev', ['dev', 'start'], { shell: true });
         let out = '';
         let err = '';
+        let settled = false;
+        const settle = (val) => {
+            if (!settled) {
+                settled = true;
+                resolve(val);
+            }
+        };
         child.stdout.on('data', (d) => { out += d.toString(); });
         child.stderr.on('data', (d) => { err += d.toString(); });
-        child.on('close', () => {
-            try {
-                const json = JSON.parse(out);
-                if (json && json.http && json.http.domain && json.http.port) {
-                    if (process.env.NODE_ENV !== 'production') {
-                        log('discovered dev server', json.http.domain, json.http.port);
-                    }
-                    resolve({ domain: json.http.domain, httpPort: json.http.port });
-                } else if (json && json.httpPort) {
-                    if (process.env.NODE_ENV !== 'production') {
-                        log('discovered dev server (legacy key) 127.0.0.1', json.httpPort);
-                    }
-                    resolve({ domain: '127.0.0.1', httpPort: json.httpPort });
-                } else {
-                    resolve(null);
-                }
-            } catch (_e) {
-                resolve(null);
-            }
+        child.on('error', (e) => {
+            log('error spawning dev server', e);
+            settle(null);
         });
+        const onFinish = (code, evt) => {
+            try {
+
+                let json = null;
+                try { json = JSON.parse(out); } catch (_e) { }
+                if (json && json.http && json.http.domain && json.http.port) {
+                    log('discovered dev server', json.http.domain, json.http.port);
+                    settle({ domain: json.http.domain, httpPort: json.http.port });
+                    return;
+                }
+                log('error starting dev server', out, err);
+                settle(null);
+            } catch (_e) {
+                log('error discovering dev server', _e);
+                settle(null);
+            }
+        };
+        child.on('exit', (code) => onFinish(code, 'exit'));
+        child.on('close', (code) => onFinish(code, 'close'));
     });
 }
 
@@ -69,13 +93,16 @@ if (import.meta.hot) {
 }
 
 async function compileWithDevServer(id, debug, optimize, serverInfo) {
+    // Always resolve to an absolute path for the dev server
+    const absoluteId = toAbsolute(id);
+
     const options = {
         dir: process.cwd(),
-        // The dev server expects file paths relative to the project root (dir)
-        file: path.isAbsolute(id) ? path.relative(process.cwd(), id) : id,
+        file: path.relative(process.cwd(), absoluteId),
         debug,
         optimize,
     };
+    log('compileWithDevServer', serverInfo, options);
 
     const params = new URLSearchParams({
         dir: options.dir,
@@ -86,6 +113,7 @@ async function compileWithDevServer(id, debug, optimize, serverInfo) {
     const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/dev/js?${params.toString()}`;
     const res = await fetch(url, { method: 'GET' });
     if (!res.ok) {
+        log('FAILED', res.status, res.statusText);
         const payload = await res.text();
         return { error: payload || 'Compilation failed' };
     }
@@ -95,14 +123,17 @@ async function compileWithDevServer(id, debug, optimize, serverInfo) {
         return { error: 'Empty response from dev server' };
     }
 
-    const wrappedCode = wrapCompiledElmCode(id, compiledJs);
+    const wrappedCode = wrapCompiledElmCode(absoluteId, compiledJs);
     return { code: wrappedCode };
 }
 
 async function notifyFileChanged(file, serverInfo) {
+    // Always send absolute paths to the dev server
+    const absolutePath = toAbsolute(file);
     const params = new URLSearchParams({
-        path: file,
+        path: absolutePath,
     });
+    log('notifyFileChanged', absolutePath);
     const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/dev/fileChanged?${params.toString()}`;
     try {
         const res = await fetch(url, { method: 'GET' });
@@ -116,7 +147,9 @@ async function notifyFileChanged(file, serverInfo) {
 }
 
 async function compileWithCli(id, debug, optimize) {
-    const args = ['make', path.join('.', id), '--output=stdout'];
+    // Always compile using an absolute file path
+    const absoluteId = toAbsolute(id);
+    const args = ['make', absoluteId, '--output=stdout'];
     if (debug) args.push('--debug');
     if (optimize) args.push('--optimize');
     return await new Promise((resolve, reject) => {
@@ -127,7 +160,7 @@ async function compileWithCli(id, debug, optimize) {
         elmDev.stderr.on('data', (data) => { error += data.toString(); });
         elmDev.on('close', (code) => {
             if (code === 0) {
-                const wrappedCode = wrapCompiledElmCode(id, output);
+                const wrappedCode = wrapCompiledElmCode(absoluteId, output);
                 resolve(wrappedCode);
             } else {
                 reject(new Error(error));
@@ -145,11 +178,14 @@ export default function elmDevPlugin(options = {}) {
         name: 'vite-plugin-elm-dev',
         enforce: 'pre',
 
-        async resolveId(id) {
-            if (id.endsWith('.elm')) {
-                return id;
-            }
-            return null;
+        // Resolve Elm module ids to filesystem paths using Vite/Rollup's resolver.
+        // This is the most "standard" way to get an absolute (or `/@fs/`) id.
+        // We still keep `toAbsolute` elsewhere as a fallback because `id` in
+        // load/transform may include query strings.
+        async resolveId(id, importer) {
+            if (!id.endsWith('.elm')) return null;
+            const resolved = await this.resolve(id, importer, { skipSelf: true });
+            return resolved ? resolved.id : id;
         },
 
         async load(id) {
@@ -205,6 +241,7 @@ export default function elmDevPlugin(options = {}) {
                         return;
                     }
 
+                    log('compiling with cli', id);
                     const wrappedCode = await compileWithCli(id, debug, optimize);
                     moduleState.code = wrappedCode;
                     moduleState.isCompiling = false;
@@ -228,7 +265,6 @@ export default function elmDevPlugin(options = {}) {
 
             // HMR strategy: 
             if (useDevServer && devServer) {
-                if (loggingEnabled) log('notifying dev server of change', file);
                 await notifyFileChanged(file, devServer);
                 return [];
             }
