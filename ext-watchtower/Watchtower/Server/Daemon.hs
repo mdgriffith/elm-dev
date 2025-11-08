@@ -30,6 +30,7 @@ import qualified System.IO as IO
 import qualified Network.Socket as Net
 import qualified Watchtower.Server.DevWS as DevWS
 import qualified Watchtower.Live.Client
+import qualified Stuff
 import qualified Watchtower.Server.Run
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.MCP as MCP
@@ -88,8 +89,8 @@ instance JSON.FromJSON StateInfo where
 -- Global daemon state directory/file (single daemon across all workspaces)
 stateDir :: IO FilePath
 stateDir = do
-  xdg <- Dir.getXdgDirectory Dir.XdgCache "elm-dev"
-  let dir = xdg Path.</> "daemon"
+  elmHome <- Stuff.getElmHome
+  let dir = elmHome Path.</> "daemon"
   Dir.createDirectoryIfMissing True dir
   pure dir
 
