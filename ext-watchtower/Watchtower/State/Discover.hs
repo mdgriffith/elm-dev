@@ -33,8 +33,12 @@ discover state root = do
 initializeProject :: Client.State -> [Client.ProjectCache] -> Ext.Dev.Project.Project -> IO [Client.ProjectCache]
 initializeProject state accum project = do
   let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput
-  projectCache <- Watchtower.State.Project.upsert state flags (Ext.Dev.Project._root project) (Ext.Dev.Project._entrypoints project)
-  pure (projectCache : accum)
+  result <- Watchtower.State.Project.upsert state flags (Ext.Dev.Project._root project) (Ext.Dev.Project._entrypoints project)
+  case result of
+    Left _ ->
+      pure accum
+    Right projectCache ->
+      pure (projectCache : accum)
 
 getProjectShorthand :: FilePath -> Ext.Dev.Project.Project -> FilePath
 getProjectShorthand root proj =

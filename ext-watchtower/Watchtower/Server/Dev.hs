@@ -440,38 +440,50 @@ compile state root file debug optimize report = do
 
   -- Find an existing project whose elm.json root equals the given root; otherwise create it
   existingProjects <- STM.readTVarIO (Client.projects state)
-  projCache <- Watchtower.State.Project.upsert state flags root (NE.List file [])
-  liftIO markCompileStart
-  compiledR <- Watchtower.State.Compile.compile state projCache [file]
-  liftIO markCompileEnd
-  -- Record a GC sample after each compile completes
-  recordPostCompileSample
-  Ext.Log.log Ext.Log.Live ("Recompiled")
-  case compiledR of
-    Left clientErr -> do
-      Ext.Log.log Ext.Log.Live ("Compilation error")
-      case report of
-        ReportJson -> do
-          let errJson = Client.encodeCompilationResult (Client.Error clientErr)
-          pure (Left (ErrorJson errJson))
-        ReportTerminal -> do
-          let msg = case clientErr of
-                      Client.ReactorError exit -> Text.pack (Reporting.Exit.toAnsiString (Reporting.Exit.reactorToReport exit))
-                      Client.GenerationError err -> Text.pack err
-          pure (Left (ErrorTerminal msg))
-    Right result ->
-      case result of
-        CompileHelpers.CompiledJs jsBuilder -> do
-          Ext.Log.log Ext.Log.Live ("Compiled JS")
-          pure (Right (hotJs <> jsBuilder))
+  eProj <- Watchtower.State.Project.upsert state flags root (NE.List file [])
+  case eProj of
+    Left upErr -> do
+      let detail =
+            case upErr of
+              Watchtower.State.Project.NoElmJson r ->
+                Text.pack ("No elm.json found at root: " <> r)
+              Watchtower.State.Project.EntrypointNotFound ps ->
+                Text.pack ("Entrypoint does not exist: " <> List.intercalate ", " ps)
+              Watchtower.State.Project.EntrypointOutsideSourceDirs p srcs ->
+                Text.pack ("Entrypoint is outside source-directories: " <> p <> " (srcDirs: " <> List.intercalate ", " srcs <> ")")
+      pure (Left (ErrorTerminal detail))
+    Right projCache -> do
+      liftIO markCompileStart
+      compiledR <- Watchtower.State.Compile.compile state projCache [file]
+      liftIO markCompileEnd
+      -- Record a GC sample after each compile completes
+      recordPostCompileSample
+      Ext.Log.log Ext.Log.Live ("Recompiled")
+      case compiledR of
+        Left clientErr -> do
+          Ext.Log.log Ext.Log.Live ("Compilation error")
+          case report of
+            ReportJson -> do
+              let errJson = Client.encodeCompilationResult (Client.Error clientErr)
+              pure (Left (ErrorJson errJson))
+            ReportTerminal -> do
+              let msg = case clientErr of
+                          Client.ReactorError exit -> Text.pack (Reporting.Exit.toAnsiString (Reporting.Exit.reactorToReport exit))
+                          Client.GenerationError err -> Text.pack err
+              pure (Left (ErrorTerminal msg))
+        Right result ->
+          case result of
+            CompileHelpers.CompiledJs jsBuilder -> do
+              Ext.Log.log Ext.Log.Live ("Compiled JS")
+              pure (Right (hotJs <> jsBuilder))
 
-        CompileHelpers.CompiledHtml _ -> do
-          Ext.Log.log Ext.Log.Live ("HTML output not supported on /dev/js")
-          pure (Left (ErrorTerminal (Text.pack "HTML output not supported on /dev/js")))
-            
-        CompileHelpers.CompiledSkippedOutput -> do
-          Ext.Log.log Ext.Log.Live ("Compilation skipped")
-          pure (Left (ErrorTerminal (Text.pack "Compilation skipped")))
+            CompileHelpers.CompiledHtml _ -> do
+              Ext.Log.log Ext.Log.Live ("HTML output not supported on /dev/js")
+              pure (Left (ErrorTerminal (Text.pack "HTML output not supported on /dev/js")))
+                
+            CompileHelpers.CompiledSkippedOutput -> do
+              Ext.Log.log Ext.Log.Live ("Compilation skipped")
+              pure (Left (ErrorTerminal (Text.pack "Compilation skipped")))
           
 
 -- Perform the same logic as Questions.Interactive branch

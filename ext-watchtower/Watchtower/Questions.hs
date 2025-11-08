@@ -13,6 +13,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Char8
 import Data.Function ((&))
+import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
@@ -344,8 +345,20 @@ ask state question =
                       _ -> CompileHelpers.Dev
               )
               (CompileHelpers.OutputTo CompileHelpers.Js)
-      projectCache <- Watchtower.State.Project.upsert state flags cwd entrypoints
-      compilationResult <- Watchtower.State.Compile.compile state projectCache []
+      upsertResult <- Watchtower.State.Project.upsert state flags cwd entrypoints
+      compilationResult <- case upsertResult of
+        Left upErr ->
+          case upErr of
+            Watchtower.State.Project.NoElmJson r ->
+              pure (Left (Watchtower.Live.Client.GenerationError ("No elm.json found at root: " <> r)))
+            Watchtower.State.Project.ElmJsonError outlineExit ->
+              pure (Left (Watchtower.Live.Client.GenerationError (Exit.toAnsiString (Exit.toOutlineReport outlineExit))))
+            Watchtower.State.Project.EntrypointNotFound ps ->
+              pure (Left (Watchtower.Live.Client.GenerationError ("Entrypoint does not exist: " <> List.intercalate ", " ps)))
+            Watchtower.State.Project.EntrypointOutsideSourceDirs p srcs ->
+              pure (Left (Watchtower.Live.Client.GenerationError ("Entrypoint is outside source-directories: " <> p <> " (srcDirs: " <> List.intercalate ", " srcs <> ")")))
+        Right projectCache ->
+          Watchtower.State.Compile.compile state projectCache []
       case compilationResult of
         Left (Watchtower.Live.Client.ReactorError reactorExit) ->
           pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))

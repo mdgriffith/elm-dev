@@ -1,4 +1,5 @@
-module Watchtower.State.Project (upsert, upsertVirtual) where
+{-# LANGUAGE ScopedTypeVariables #-}
+module Watchtower.State.Project (upsert, upsertVirtual, UpsertError(..)) where
 
 import qualified Control.Concurrent.STM as STM
 import qualified Data.ByteString as BS
@@ -8,6 +9,7 @@ import qualified Data.List as List
 import qualified Data.NonEmptyList as NE
 import qualified Elm.Outline
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
+import qualified Reporting.Exit
 import qualified Ext.Dev.Project
 import qualified Ext.FileCache
 import qualified Ext.Filewatch
@@ -21,6 +23,7 @@ import System.FilePath ((</>))
 import qualified System.FilePath as FilePath
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.State.Compile
+import qualified Control.Exception as Exception
 
 
 entrypointsIncluded :: NE.List FilePath -> NE.List FilePath -> Bool
@@ -131,60 +134,99 @@ normalizeEntrypoints root entrypoints = do
           else FilePath.normalise (absRoot </> p)
   case entrypoints of
     NE.List ep eps -> pure (NE.List (toAbs ep) (map toAbs eps))
-
-upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO Client.ProjectCache
+ 
+data UpsertError
+  = NoElmJson FilePath
+  | ElmJsonError Reporting.Exit.Outline
+  | EntrypointNotFound [FilePath]
+  | EntrypointOutsideSourceDirs FilePath [FilePath]
+  deriving (Show)
+ 
+upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO (Either UpsertError Client.ProjectCache)
 upsert state@(Client.State mClients mProjects _ _ _ _ _) flags root entrypoints = do
-  docsInfo <- readDocsInfo root
   normalizedEntrypoints <- normalizeEntrypoints root entrypoints
-  -- Read srcDirs from elm.json
-  outlineResult <- Elm.Outline.read root
-  srcDirs <- case outlineResult of
-    Right (Elm.Outline.App appOutline) -> do
-      let srcDirsList = NE.toList (Elm.Outline._app_source_dirs appOutline)
-      pure (map (Elm.Outline.toAbsolute root) srcDirsList)
-    Right (Elm.Outline.Pkg _) -> pure [root </> "src"]
-    Left _ -> pure []
-  -- Assign a stable shortId based on existing projects; reuse if matching project exists, else next available
-  existingProjects <- STM.readTVarIO mProjects
-  let existingIds = map (Ext.Dev.Project._shortId . (\(Client.ProjectCache p _ _ _ _) -> p)) existingProjects
-  let nextId = case existingIds of
-                 [] -> 1
-                 _  -> (maximum existingIds) + 1
-  let newProject = Ext.Dev.Project.Project root root normalizedEntrypoints srcDirs nextId 
-  mCompileResult <- STM.newTVarIO Client.NotCompiled
-  mTestResults <- STM.newTVarIO Nothing
-  let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults
 
-  (isNew, project) <- STM.atomically $ do
-    existingProjects <- STM.readTVar mProjects
-    case List.find (Client.matchingProject newProjectCache) existingProjects of
-      Just existingProject -> do
-        case updateProjectIfNecessary existingProject flags normalizedEntrypoints of
-          Nothing -> do
-            pure (False, existingProject)
-          Just updatedProjectCache -> do
-            let updatedProjects =
-                  updatedProjectCache : List.filter (not . Client.matchingProject newProjectCache) existingProjects
-            STM.writeTVar mProjects updatedProjects
-            pure (False, updatedProjectCache)
-      Nothing -> do
-        STM.writeTVar mProjects (newProjectCache : existingProjects)
-        pure (True, newProjectCache)
+  eOutline <- Exception.try (Elm.Outline.read root)
+  case eOutline of
+    Left (_ :: Exception.IOException) ->
+      pure (Left (NoElmJson root))
+    Right (Left outlineExit) ->
+      pure (Left (ElmJsonError outlineExit))
+    Right (Right outline) -> do
+      srcDirs <- case outline of
+        Elm.Outline.App appOutline -> do
+          let srcDirsList = NE.toList (Elm.Outline._app_source_dirs appOutline)
+          pure (map (Elm.Outline.toAbsolute root) srcDirsList)
+        Elm.Outline.Pkg _ -> pure [root </> "src"]
+      let normalizedList = NE.toList normalizedEntrypoints
+      
+      missing <- missingFiles normalizedList
+      case missing of
+        (_:_) ->
+          pure (Left (EntrypointNotFound missing))
+        [] -> do
+          let inAnySrc ep =
+                any
+                  (\dir ->
+                    let d = FilePath.addTrailingPathSeparator (FilePath.normalise dir)
+                        f = FilePath.normalise ep
+                    in List.isPrefixOf d f
+                  )
+                  srcDirs
+          case List.find (not . inAnySrc) normalizedList of
+            Just badEp ->
+              pure (Left (EntrypointOutsideSourceDirs badEp srcDirs))
+            Nothing -> do
+              docsInfo <- readDocsInfo root
 
-  if isNew
-    then do
-      -- Ext.Filewatch.watch
-      --   root
-      --   ( \filesChanged -> do
-      --       Ext.Log.log Ext.Log.Live $ "👀 files changed: " <> List.intercalate ", " (map FilePath.takeFileName filesChanged)
-      --       mapM_ Ext.FileCache.delete filesChanged
-      --       Watchtower.State.Compile.compile state flags newProjectCache filesChanged
-      --       pure ()
-      --   )
-      pure ()
-    else pure ()
+              -- Assign a stable shortId based on existing projects; reuse if matching project exists, else next available
+              existingProjects <- STM.readTVarIO mProjects
+              let existingIds = map (Ext.Dev.Project._shortId . (\(Client.ProjectCache p _ _ _ _) -> p)) existingProjects
+              let nextId = case existingIds of
+                             [] -> 1
+                             _  -> (maximum existingIds) + 1
+              let newProject = Ext.Dev.Project.Project root root normalizedEntrypoints srcDirs nextId 
+              mCompileResult <- STM.newTVarIO Client.NotCompiled
+              mTestResults <- STM.newTVarIO Nothing
+              let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults
 
-  pure project
+              (isNew, project) <- STM.atomically $ do
+                existingProjects' <- STM.readTVar mProjects
+                case List.find (Client.matchingProject newProjectCache) existingProjects' of
+                  Just existingProject -> do
+                    case updateProjectIfNecessary existingProject flags normalizedEntrypoints of
+                      Nothing -> do
+                        pure (False, existingProject)
+                      Just updatedProjectCache -> do
+                        let updatedProjects =
+                              updatedProjectCache : List.filter (not . Client.matchingProject newProjectCache) existingProjects'
+                        STM.writeTVar mProjects updatedProjects
+                        pure (False, updatedProjectCache)
+                  Nothing -> do
+                    STM.writeTVar mProjects (newProjectCache : existingProjects')
+                    pure (True, newProjectCache)
+
+              if isNew
+                then do
+                  -- Ext.Filewatch.watch
+                  --   root
+                  --   ( \filesChanged -> do
+                  --       Ext.Log.log Ext.Log.Live $ "👀 files changed: " <> List.intercalate ", " (map FilePath.takeFileName filesChanged)
+                  --       mapM_ Ext.FileCache.delete filesChanged
+                  --       Watchtower.State.Compile.compile state flags newProjectCache filesChanged
+                  --       pure ()
+                  --   )
+                  pure ()
+                else pure ()
+
+              pure (Right project)
+
+
+missingFiles :: [FilePath] -> IO [FilePath]
+missingFiles paths = do
+  statuses <- mapM Dir.doesFileExist paths
+  let combined = zip paths statuses
+  pure [p | (p, exists) <- combined, not exists]
 
 readDocsInfo :: FilePath -> IO Gen.Config.DocsConfig
 readDocsInfo root =
