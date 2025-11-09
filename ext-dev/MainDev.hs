@@ -433,7 +433,7 @@ formatCommandWithEllipsis cmd desc =
    in cmd ++ " " ++ dots ++ " " ++ desc
 
 version :: String
-version = "0.2.2"
+version = "0.2.3"
 
 -- Main function
 main :: IO ()
