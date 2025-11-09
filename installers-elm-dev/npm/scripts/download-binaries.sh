@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NPM_DIR="$SCRIPT_DIR/.."
 cd "$NPM_DIR"
 
-VERSION="0.2.2"
+VERSION="0.2.3"
 RELEASE_DIR="releases/$VERSION"
 
 # Define URLs for download
@@ -51,13 +51,6 @@ chmod +x packages/linux_x64/elm-dev-proxy || true
 chmod +x packages/darwin_arm64/elm-dev-proxy || true
 chmod +x packages/darwin_x64/elm-dev-proxy || true
 
-# Update version in package.json for each directory
-for dir in packages/linux_arm64 packages/linux_x64 packages/darwin_arm64 packages/darwin_x64 packages/win32_x64; do
-    if [ -f "$dir/package.json" ]; then
-        # Use jq to update the version. jq must be installed.
-        jq --arg v "$VERSION" '.version = $v' "$dir/package.json" > tmp.json && mv tmp.json "$dir/package.json"
-    fi
-done
 
 # Copy and gzip each file into the releases directory
 cp packages/linux_arm64/elm-dev "$RELEASE_DIR/elm-dev-linux-arm64"
