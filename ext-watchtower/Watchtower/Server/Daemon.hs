@@ -266,7 +266,7 @@ stop = do
       let cp = (Process.proc "taskkill" ["/PID", show (pid state), "/T"]) -- gentle; Windows lacks SIGTERM
       _ <- Process.withCreateProcess cp { Process.std_in = Process.Inherit, Process.std_out = Process.Inherit, Process.std_err = Process.Inherit } $ \_ _ _ ph -> Process.waitForProcess ph >> pure ()
       -- Wait for ports to close as our best indication of shutdown on Windows
-      _ <- waitPortsClosed st 50
+      _ <- waitPortsClosed state 50
 #endif
       path <- stateFilePath
       safeRemove path
