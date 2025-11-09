@@ -432,10 +432,14 @@ formatCommandWithEllipsis cmd desc =
       dots = replicate spacing '.'
    in cmd ++ " " ++ dots ++ " " ++ desc
 
+version :: String
+version = "0.2.2"
+
 -- Main function
 main :: IO ()
 main = do
   CommandParser.run
+    version
     ( \commands givenCommand ->
         -- Show Help
         let 

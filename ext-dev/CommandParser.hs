@@ -413,24 +413,27 @@ parseFlag5 flag1 flag2 flag3 flag4 flag5 parsed =
                         else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed5)
 
 -- | Run a list of commands with parsed arguments
-run :: ([CommandMetadata] -> [String] -> String) -> [Command] -> IO ()
-run showHelp commands = do
+run :: String -> ([CommandMetadata] -> [String] -> String) -> [Command] -> IO ()
+run version showHelp commands = do
   args <- getArgs
+  -- Special case for version flag
+  if not (null args) && head args == "--version"
+    then putStrLn version >> exitSuccess
+    else
+      -- Special case for help command
+      if not (null args) && (head args == "help" || head args == "--help" || head args == "-h")
+        then
+          let helpArgs = if length args > 1 then tail args else []
+              helpParsed = ParsedArgs [] helpArgs
+           in printHelp commands helpParsed >> exitSuccess
+        else do
+          let parsed = parseArgs args
+              results = map (\cmd -> cmd parsed) commands
 
-  -- Special case for help command
-  if not (null args) && (head args == "help" || head args == "--help" || head args == "-h")
-    then
-      let helpArgs = if length args > 1 then tail args else []
-          helpParsed = ParsedArgs [] helpArgs
-       in printHelp commands helpParsed >> exitSuccess
-    else do
-      let parsed = parseArgs args
-          results = map (\cmd -> cmd parsed) commands
-
-      case findRun results of
-        Just action -> action ()
-        Nothing -> do
-          printHelp commands parsed
+          case findRun results of
+            Just action -> action ()
+            Nothing -> do
+              printHelp commands parsed
   where
     findRun :: [CommandResult] -> Maybe (() -> IO ())
     findRun [] = Nothing
