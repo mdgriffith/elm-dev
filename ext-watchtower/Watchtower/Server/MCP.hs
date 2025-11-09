@@ -76,6 +76,7 @@ import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Code as RenderCode
 import qualified Reporting.Error as Err
 import qualified Data.NonEmptyList as NE
+import qualified Reporting.Exit.Help as Help
 
 
 availableTools :: [MCP.Tool]
@@ -209,7 +210,16 @@ toolCompile = MCP.Tool
         Right projCache -> do
           compileResult <- Watchtower.State.Compile.compile state projCache []
           case compileResult of
-            Left _ -> pure (errTxt "Compilation failed")
+            Left clientErr -> do
+              -- Render errors as terminal-style text, like `elm make`
+              let doc =
+                    case clientErr of
+                      Client.ReactorError reactor ->
+                        Help.reportToDoc (Exit.reactorToReport reactor)
+                      Client.GenerationError msg ->
+                        Help.reportToDoc (Help.report "GENERATION ERROR" Nothing msg [])
+              let txt = Text.pack (Help.toString doc)
+              pure (errTxt txt)
             Right _ -> pure (ok "Compiled successfully")
   }
 
