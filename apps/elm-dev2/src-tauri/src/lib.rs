@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+use tauri::menu::*;
 use tauri::Emitter;
 use tauri::Manager;
 
@@ -27,7 +28,7 @@ struct AppState {
 
 fn fetch_daemon_status() -> Option<DaemonStatus> {
     let output = Command::new("elm-dev")
-        .args(["daemon", "start"]) // prints a single JSON object to stdout
+        .args(["dev", "start"]) // prints a single JSON object to stdout
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -65,11 +66,35 @@ fn get_daemon_status(state: tauri::State<Arc<AppState>>) -> Option<DaemonStatus>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .manage(Arc::new(AppState::default()))
         .invoke_handler(tauri::generate_handler![get_daemon_status])
         .setup(|app| {
+            // System tray with Quit option
+            let handle_for_menu = app.handle();
+            let quit =
+                MenuItem::with_id(handle_for_menu, "quit", "Quit Elm Dev", true, None::<&str>)?;
+            let tray_menu = tauri::menu::MenuBuilder::new(handle_for_menu)
+                .separator()
+                .item(&quit)
+                .build()?;
+
+            tauri::tray::TrayIconBuilder::with_id("elm-dev-tray")
+                .title("Elm Dev")
+                .menu(&tray_menu)
+                .on_menu_event(|app, event| match event.id.0.as_str() {
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray_handle, event| {
+                    tauri_plugin_positioner::on_tray_event(tray_handle.app_handle(), &event);
+                })
+                .build(app)?;
+
             let handle = app.handle().clone();
             // Clone the inner Arc so it is owned and 'static for the thread
             let state_arc: Arc<AppState> = app.state::<Arc<AppState>>().inner().clone();
