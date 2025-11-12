@@ -582,8 +582,8 @@ allProjectStatuses (Watchtower.Live.Client.State clients mProjects _ _ _ _ _) =
             result <- STM.readTVarIO mCompileResult
             let projectStatus =
                   case result of
-                    Watchtower.Live.Client.Success _ -> Watchtower.Live.Client.ProjectStatus proj True (Watchtower.Live.Client.toOldJSON result) docsInfo
-                    _ -> Watchtower.Live.Client.ProjectStatus proj False (Watchtower.Live.Client.toOldJSON result) docsInfo
+                    Watchtower.Live.Client.Success _ -> Watchtower.Live.Client.ProjectStatus proj True (Watchtower.Live.Client.toOldJSON result) docsInfo Nothing
+                    _ -> Watchtower.Live.Client.ProjectStatus proj False (Watchtower.Live.Client.toOldJSON result) docsInfo Nothing
             pure $ projectStatus : gathered
         )
         []

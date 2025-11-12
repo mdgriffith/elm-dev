@@ -74,6 +74,7 @@ import Watchtower.Server.LSP.Protocol
 import qualified Watchtower.Server.LSP.Helpers as Helpers
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Live.Client as Client
+import qualified Watchtower.Server.DevWS
 
 
 
@@ -209,6 +210,7 @@ handleDidOpen state openParams = do
       Control.Concurrent.STM.atomically $ do
         editors <- Control.Concurrent.STM.readTVar mEditorsOpen
         Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedOpen filePath editors)
+      Watchtower.Server.DevWS.broadcastServiceStatus state
       -- Recompile relevant projects for this file
       Watchtower.State.Compile.compileRelevantProjects state [filePath]
       return $ Right JSON.Null
@@ -274,6 +276,7 @@ handleDidClose state closeParams = do
       Control.Concurrent.STM.atomically $ do
         editors <- Control.Concurrent.STM.readTVar mEditorsOpen
         Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedClosed filePath editors)
+      Watchtower.Server.DevWS.broadcastServiceStatus state
       return $ Right JSON.Null
 
 handleDidSave :: Live.State -> DidSaveTextDocumentParams -> IO (Either String JSON.Value)

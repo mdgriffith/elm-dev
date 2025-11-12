@@ -21,6 +21,7 @@ import qualified Gen.Javascript
 import qualified Json.Encode
 import qualified Watchtower.Live as Live
 import qualified Watchtower.Live.Client as Client
+import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.State.Project
 import qualified Watchtower.State.Compile
@@ -209,6 +210,7 @@ routes state =
   , ("/dev/fileChanged", fileChangedHandler state)
   , ("/dev/memory", memoryHandler state)
   , ("/projectList", projectListHandler state)
+  , ("/dev/service/status", serviceStatusHandler state)
   ]
 
 -- Helpers
@@ -422,6 +424,24 @@ projectListHandler state = do
   modifyResponse $ setContentType "application/json"
   liftIO (Ext.Log.log Ext.Log.Live ("Project list: " <> show (length statuses) <> " projects"))
   writeBuilder (Client.encodeOutgoing (Client.ElmStatus statuses))
+
+-- Report current service status: sessions and editors open
+serviceStatusHandler :: Live.State -> Snap ()
+serviceStatusHandler state = do
+  sessionsMap <- liftIO (STM.readTVarIO (Client.sessions state))
+  editorsOpen <- liftIO (STM.readTVarIO (Client.projectsBeingEdited state))
+  let editorsJson =
+        case editorsOpen of
+          EditorsOpen.EditorsOpen m -> JSON.toJSON m
+  modifyResponse $ setContentType "application/json"
+  writeLBS
+    ( JSON.encode
+        ( JSON.object
+            [ "sessions" JSON..= sessionsMap
+            , "editorsOpen" JSON..= editorsJson
+            ]
+        )
+    )
 
 -- Return raw JS as a Builder for efficient streaming to Snap
 data Report = ReportJson | ReportTerminal

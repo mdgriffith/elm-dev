@@ -34,6 +34,7 @@ import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.Live.Client as Client
 import qualified Data.Text as T
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import qualified Watchtower.Server.DevWS
 {-# NOINLINE stdoutWriteLock #-}
 stdoutWriteLock :: MVar ()
 stdoutWriteLock = unsafePerformIO (newMVar ())
@@ -148,6 +149,7 @@ runTcp state handler notificationHandler host port = do
         -- Register per-connection session context with a generated id
         connId <- generateShortId
         Client.registerSession state connId
+        Watchtower.Server.DevWS.broadcastServiceStatus state
         h <- Net.socketToHandle conn IO.ReadWriteMode
         IO.hSetBuffering h IO.NoBuffering
         writeLock <- newMVar ()
@@ -191,7 +193,8 @@ runTcp state handler notificationHandler host port = do
         loop `finally` (do
           IO.hClose h
           -- Cleanup per-connection session
-          Client.unregisterSession state connId)
+          Client.unregisterSession state connId
+          Watchtower.Server.DevWS.broadcastServiceStatus state)
 
 -- Small helper: manage socket lifetime
 bracketedSocket :: Net.AddrInfo -> (Net.Socket -> IO a) -> IO a
@@ -296,6 +299,8 @@ runStdIO state handler notificationHandler = do
   connId <- generateShortId
   Client.registerSession state connId
   
+  Watchtower.Server.DevWS.broadcastServiceStatus state
+  
   -- Create an event channel and a background thread to forward events to stdout
   eventsChan <- STM.newTChanIO :: IO (STM.TChan JSONRPC.Outbound)
   let emitEvent :: EventEmitter
@@ -371,7 +376,9 @@ runHttp state handler notificationHandler = do
                 mFocused <- Client.getFocusedProjectId state connId
                 case mFocused of
                   Just _ -> pure ()
-                  Nothing -> Client.registerSession state connId
+                  Nothing -> do
+                    Client.registerSession state connId
+                    Watchtower.Server.DevWS.broadcastServiceStatus state
           body <- readRequestBody 65536 -- 64KB limit
           case JSON.eitherDecode body of
             Left err -> do

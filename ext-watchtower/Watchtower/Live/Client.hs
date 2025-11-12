@@ -94,6 +94,7 @@ import qualified Reporting.Render.Type.Localizer
 import qualified Reporting.Warning as Warning
 import qualified Reporting.Exit
 import qualified System.FilePath as FilePath
+import qualified System.Directory as Dir
 import qualified Watchtower.Editor
 import qualified Watchtower.Websocket
 import qualified Ext.CompileHelpers.Generic
@@ -441,7 +442,13 @@ getStatus (ProjectCache proj docsInfo _ mCompileResult _) =
             Success _ -> True
             _ -> False
     let json = toOldJSON result
-    pure (ProjectStatus proj successful json docsInfo)
+    let elmJsonPath = Ext.Dev.Project._projectRoot proj FilePath.</> "elm.json"
+    exists <- Dir.doesFileExist elmJsonPath
+    elmJsonContents <-
+      if exists
+        then Just <$> readFile elmJsonPath
+        else pure Nothing
+    pure (ProjectStatus proj successful json docsInfo elmJsonContents)
 
 outgoingToLog :: Outgoing -> String
 outgoingToLog outgoing =
@@ -460,7 +467,7 @@ outgoingToLog outgoing =
       "Tests"
 
 projectStatusToString :: ProjectStatus -> String
-projectStatusToString (ProjectStatus proj success json docs) =
+projectStatusToString (ProjectStatus proj success json docs _elmJson) =
   if success
     then "Success: ../" ++ FilePath.takeBaseName (Ext.Dev.Project.getRoot proj)
     else "Failing: ../" ++ FilePath.takeBaseName (Ext.Dev.Project.getRoot proj)
@@ -469,7 +476,8 @@ data ProjectStatus = ProjectStatus
   { _project :: Ext.Dev.Project.Project,
     _success :: Bool,
     _json :: Json.Encode.Value,
-    _docs :: Gen.Config.DocsConfig
+    _docs :: Gen.Config.DocsConfig,
+    _elmJson :: Maybe String
   }
 
 encodeOutgoing :: Outgoing -> Data.ByteString.Builder.Builder
@@ -481,7 +489,7 @@ encodeOutgoing out =
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "Status"),
             "details"
               ==> Json.Encode.list
-                ( \(ProjectStatus project success status docs) ->
+                ( \(ProjectStatus project success status docs elmJson) ->
                     Json.Encode.object
                       [ "shortId" ==> Json.Encode.int (Ext.Dev.Project._shortId project),
                         "root"
@@ -499,7 +507,12 @@ encodeOutgoing out =
                             (Json.Encode.string . Json.String.fromChars)
                             (NE.toList (Ext.Dev.Project._entrypoints project)),
                         "status" ==> status,
-                        "docs" ==> encodeDocsConfig docs
+                        "docs" ==> encodeDocsConfig docs,
+                        "elmJson"
+                          ==> ( case elmJson of
+                                  Just contents -> Json.Encode.chars contents
+                                  Nothing -> Json.Encode.null
+                              )
                       ]
                 )
                 statuses
@@ -728,7 +741,7 @@ broadcast mClients msg =
 
                   affectedProjectsThatWereListeningTo =
                     List.filter
-                      ( \(ProjectStatus proj _ _ _) ->
+                      ( \(ProjectStatus proj _ _ _ _) ->
                           isWatchingProject proj clientData
                       )
                       projectStatusList

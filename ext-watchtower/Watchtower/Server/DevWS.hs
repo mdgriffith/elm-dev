@@ -5,6 +5,7 @@ module Watchtower.Server.DevWS
   , websocket
   , broadcastCompiled
   , broadcastCompilationError
+  , broadcastServiceStatus
   ) where
 
 import qualified Control.Concurrent.STM as STM
@@ -18,6 +19,7 @@ import qualified Develop.Generate.Help
 import Snap.Core hiding (path)
 import Snap.Http.Server
 import qualified Watchtower.Live.Client as Client
+import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Websocket
 import qualified Ext.Log
 
@@ -92,5 +94,23 @@ broadcastCompilationError (Client.State mClients _ _ _ _ _ _) errVal = do
 
 aesonToText :: JSON.Value -> T.Text
 aesonToText = T.decodeUtf8 . LBS.toStrict . JSON.encode
+
+-- Broadcast current sessions and editors-open status to all clients
+broadcastServiceStatus :: Client.State -> IO ()
+broadcastServiceStatus (Client.State mClients _ _ _ _ mSessions mEditors) = do
+  sessionsMap <- STM.readTVarIO mSessions
+  editorsOpen <- STM.readTVarIO mEditors
+  let editorsJson =
+        case editorsOpen of
+          EditorsOpen.EditorsOpen m -> JSON.toJSON m
+  let payload =
+        JSON.object
+          [ "msg" JSON..= JSON.String (T.pack "ServiceStatus")
+          , "details" JSON..= JSON.object
+              [ "sessions" JSON..= sessionsMap
+              , "editorsOpen" JSON..= editorsJson
+              ]
+          ]
+  Watchtower.Websocket.broadcastWith mClients (\_ -> True) (aesonToText payload)
 
 -- 

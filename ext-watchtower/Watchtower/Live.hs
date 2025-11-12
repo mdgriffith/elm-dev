@@ -85,8 +85,8 @@ websocket_ state@(Client.State mClients mProjects _ _ _ _ _) = do
                     result <- STM.readTVarIO mCompileResult
                     let projectStatus =
                           case result of
-                            Client.Success _ -> Client.ProjectStatus proj True (Client.toOldJSON result) docsInfo
-                            _ -> Client.ProjectStatus proj False (Client.toOldJSON result) docsInfo
+                            Client.Success _ -> Client.ProjectStatus proj True (Client.toOldJSON result) docsInfo Nothing
+                            _ -> Client.ProjectStatus proj False (Client.toOldJSON result) docsInfo Nothing
                     pure $ projectStatus : gathered
                 )
                 []

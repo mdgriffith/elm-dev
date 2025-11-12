@@ -127,14 +127,14 @@ recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.De
         Client.broadcast
           mClients
           ( Client.ElmStatus
-              [ Client.ProjectStatus proj True (Client.toOldJSON newResult) docsInfo
+              [ Client.ProjectStatus proj True (Client.toOldJSON newResult) docsInfo Nothing
               ]
           )
       Client.Error _ -> do
         Client.broadcast
           mClients
           ( Client.ElmStatus
-              [ Client.ProjectStatus proj False (Client.toOldJSON newResult) docsInfo
+              [ Client.ProjectStatus proj False (Client.toOldJSON newResult) docsInfo Nothing
               ]
           )
 

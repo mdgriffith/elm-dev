@@ -69,6 +69,7 @@ import qualified Watchtower.Server.MCP.Guides as Guides
 import qualified Watchtower.State.Compile
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.LSP.Helpers as Helpers
+import qualified Watchtower.Server.DevWS
 import qualified Ext.Encode
 import qualified Elm.Details
 import qualified Elm.ModuleName as ModuleName
@@ -433,7 +434,9 @@ toolProjectSet = MCP.Tool
             (Client.ProjectCache _proj _ _ _ _ : _) -> do
               okSet <- Client.setFocusedProjectId state connId pid
               if okSet
-                then pure (ok (Text.pack ("Focused project set to " ++ show pid)))
+                then do
+                  Watchtower.Server.DevWS.broadcastServiceStatus state
+                  pure (ok (Text.pack ("Focused project set to " ++ show pid)))
                 else pure (errTxt "Project id not found")
             _ -> do
               let known = ProjectLookup.listKnownProjectsText projects
