@@ -17,7 +17,7 @@ where
 
 import Control.Concurrent.STM
 import Control.Exception (finally)
-import Control.Monad (forM_, forever)
+import Control.Monad (forM_, forever, when)
 import Control.Monad.Trans (liftIO)
 import Data.List (find)
 import qualified Data.List as List
@@ -114,8 +114,9 @@ broadcastWith mClients filterTo message = do
  
   clients <- atomically $ readTVar mClients
   let filteredClients = List.filter filterTo clients
-  Ext.Log.log Ext.Log.Live $ " Broadcasting!" <> show (length filteredClients) <> " " <> show (T.take 500 message)
-  broadcast_ filteredClients message
+  when (length filteredClients > 1) $ do
+    Ext.Log.log Ext.Log.Live $ " Broadcasting!" <> show (length filteredClients) <> " " <> show (T.take 500 message)
+    broadcast_ filteredClients message
 
 filterMap :: (a -> Maybe b) -> [a] -> [b]
 filterMap toMaybe list =

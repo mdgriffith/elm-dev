@@ -1,7 +1,7 @@
 module Store.Projects exposing
     ( store
     , Model, Msg
-    , view
+    , lookup, view
     )
 
 {-|
@@ -29,31 +29,22 @@ import Listen
 import Listen.DevServer
 
 
-type alias Path =
-    String
+type alias ShortId =
+    Int
 
 
 type alias Model =
-    { current : Maybe Path
-    , projects : Dict.Dict Path Data.ProjectStatus.Project
+    { current : Maybe ShortId
+    , projects : Dict.Dict ShortId Data.ProjectStatus.Project
     , base : Maybe String
+    , sessions : Dict.Dict String Int
+    , editorsOpen : Dict.Dict String Int
     }
-
-
-
--- type alias Project =
---     { root : Path
---     , projectRoot : String
---     , status : Status
---     , entrypoints : List String
---     , info : Elm.Project.ApplicationInfo
---     , localModules : List Elm.Module.Name
---     }
 
 
 type Msg
     = ProjectReceived Data.ProjectStatus.Project
-    | ProjectSelected Path
+    | ProjectSelected ShortId
     | ProjectListReceived (Result Http.Error Data.Question.ProjectList)
     | DevServerReceived Listen.DevServer.Event
 
@@ -73,6 +64,8 @@ store =
                                 { current = Nothing
                                 , projects = Dict.empty
                                 , base = Nothing
+                                , sessions = Dict.empty
+                                , editorsOpen = Dict.empty
                                 }
                 in
                 ( model
@@ -89,7 +82,7 @@ store =
                                         Dict.fromList
                                             (List.map
                                                 (\project ->
-                                                    ( project.root
+                                                    ( project.shortId
                                                     , project
                                                     )
                                                 )
@@ -104,7 +97,7 @@ store =
                                                         found
 
                                                     Nothing ->
-                                                        Just project.root
+                                                        Just project.shortId
                                             )
                                             model.current
                                             status.projects
@@ -119,14 +112,14 @@ store =
 
                     ProjectReceived project ->
                         ( { model
-                            | projects = Dict.insert project.root project model.projects
+                            | projects = Dict.insert project.shortId project model.projects
                             , current =
                                 case model.current of
                                     Just current ->
                                         model.current
 
                                     Nothing ->
-                                        Just project.root
+                                        Just project.shortId
                           }
                         , Effect.none
                         )
@@ -153,9 +146,17 @@ store =
                                     | projects =
                                         Dict.fromList
                                             (List.map
-                                                (\project -> ( project.root, project ))
+                                                (\project -> ( project.shortId, project ))
                                                 (Debug.log "ProjectsStatusUpdated" projects)
                                             )
+                                  }
+                                , Effect.none
+                                )
+
+                            Listen.DevServer.ServiceStatusUpdated { sessions, editorsOpen } ->
+                                ( { model
+                                    | sessions = sessions
+                                    , editorsOpen = editorsOpen
                                   }
                                 , Effect.none
                                 )
@@ -166,6 +167,11 @@ store =
             \_ ->
                 Listen.DevServer.listen DevServerReceived
         }
+
+
+lookup : ShortId -> Model -> Maybe Data.ProjectStatus.Project
+lookup shortId model =
+    Dict.get shortId model.projects
 
 
 view : Model -> Html.Html msg

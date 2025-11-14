@@ -72,6 +72,21 @@ function connectWithStatus(status: DaemonStatus) {
     } catch (_) {
       // plugin not available (non-Tauri env)
     }
+
+    // Prefetch service status (sessions, editors open)
+    try {
+      void fetch(`http://${domain}:${port}/dev/service/status`, { method: "GET" })
+        .then((res: TauriHttpResponse) => (res.ok ? res.json() : null))
+        .then((body: unknown) => {
+          if (body != null && typeof body === "object") {
+            const details = (body as any).details ?? body;
+            app.ports.devServer.send({ msg: "ServiceStatus", details });
+          }
+        })
+        .catch(() => { });
+    } catch (_) {
+      // plugin not available (non-Tauri env)
+    }
   };
 
   websocket.onmessage = (event) => {

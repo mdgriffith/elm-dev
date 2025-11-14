@@ -29,6 +29,7 @@ successful statuses =
 type alias Project =
     { shortId : Int
     , root : String
+    , name : String
     , projectRoot : String
     , entrypoints : List String
     , status : Status
@@ -41,6 +42,7 @@ type alias DocsOverview =
     , guides : List String
     , interactive : List String
     }
+
 
 emptyDocsOverview : DocsOverview
 emptyDocsOverview =
@@ -154,13 +156,14 @@ inEditor file editor =
 
 decodeProject : Decode.Decoder Project
 decodeProject =
-    Decode.map6 Project
+    Decode.map7 Project
         (Decode.field "shortId" Decode.int)
         (Decode.field "root" Decode.string)
+        (Decode.field "root" Decode.string |> Decode.map nameFromRoot)
         (Decode.field "projectRoot" Decode.string)
         (Decode.field "entrypoints" (Decode.list Decode.string))
         (Decode.field "status" decodeStatus)
-        (Decode.map  (Maybe.withDefault emptyDocsOverview) (Decode.maybe (Decode.field "docs" decodeDocsOverview)))
+        (Decode.map (Maybe.withDefault emptyDocsOverview) (Decode.maybe (Decode.field "docs" decodeDocsOverview)))
 
 
 decodeDocsOverview : Decode.Decoder DocsOverview
@@ -169,6 +172,123 @@ decodeDocsOverview =
         (Decode.field "modules" (Decode.list Decode.string))
         (Decode.field "guides" (Decode.list Decode.string))
         (Decode.field "interactive" (Decode.list Decode.string))
+
+
+{-| Derive a human-friendly project name from a root path.
+- Takes the last path segment
+- Splits on '-' and '\_'
+- Splits camelCase while preserving acronym sequences
+- Capitalizes words, preserving all-caps acronyms
+-}
+nameFromRoot : String -> String
+nameFromRoot root =
+    let
+        base =
+            root
+                |> String.split "/"
+                |> List.reverse
+                |> List.head
+                |> Maybe.withDefault root
+
+        delimiterNormalized =
+            base
+                |> String.map
+                    (\c ->
+                        if c == '-' || c == '_' then
+                            ' '
+
+                        else
+                            c
+                    )
+
+        words =
+            delimiterNormalized
+                |> String.words
+                |> List.concatMap splitCamelPreserveAcronyms
+                |> List.map capitalizePreservingAcronym
+    in
+    String.join " " words
+
+
+splitCamelPreserveAcronyms : String -> List String
+splitCamelPreserveAcronyms segment =
+    let
+        chars =
+            String.toList segment
+
+        isUpper c =
+            let
+                s =
+                    String.fromChar c
+            in
+            s == String.toUpper s && s /= String.toLower s
+
+        isLower c =
+            let
+                s =
+                    String.fromChar c
+            in
+            s == String.toLower s && s /= String.toUpper s
+
+        step prev currentToken revTokens remaining =
+            case remaining of
+                [] ->
+                    case currentToken of
+                        [] ->
+                            List.reverse revTokens
+
+                        _ ->
+                            List.reverse (String.fromList (List.reverse currentToken) :: revTokens)
+
+                c :: xs ->
+                    let
+                        next =
+                            case xs of
+                                n :: _ ->
+                                    Just n
+
+                                [] ->
+                                    Nothing
+
+                        boundary =
+                            case prev of
+                                Nothing ->
+                                    False
+
+                                Just p ->
+                                    (isLower p && isUpper c)
+                                        || (isUpper p
+                                                && isUpper c
+                                                && (case next of
+                                                        Just n ->
+                                                            isLower n
+
+                                                        Nothing ->
+                                                            False
+                                                   )
+                                           )
+                    in
+                    if boundary then
+                        step (Just c) [ c ] (String.fromList (List.reverse currentToken) :: revTokens) xs
+
+                    else
+                        step (Just c) (c :: currentToken) revTokens xs
+    in
+    step Nothing [] [] chars
+
+
+capitalizePreservingAcronym : String -> String
+capitalizePreservingAcronym word =
+    if word == String.toUpper word && word /= String.toLower word then
+        word
+
+    else
+        case String.uncons word of
+            Nothing ->
+                word
+
+            Just ( first, rest ) ->
+                String.toUpper (String.fromChar first) ++ String.toLower rest
 
 
 decodeStatus : Decode.Decoder Status
@@ -627,3 +747,4 @@ maybeColor =
                 )
         , Decode.null Nothing
         ]
+

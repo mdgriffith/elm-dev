@@ -13,6 +13,7 @@ port module Listen.DevServer exposing
 
 import Data.Editor as Editor
 import Data.ProjectStatus as ProjectStatus
+import Dict
 import Json.Decode as Decode
 import Listen
 import Platform.Sub
@@ -36,6 +37,10 @@ type Event
         { visible : List Editor.Editor
         }
     | ProjectsStatusUpdated (List ProjectStatus.Project)
+    | ServiceStatusUpdated
+        { sessions : Dict.Dict String Int
+        , editorsOpen : Dict.Dict String Int
+        }
     | WarningsUpdated
         { filepath : String
         , warnings : List ProjectStatus.Warning
@@ -94,6 +99,19 @@ eventDecoder =
                                 (Decode.list
                                     ProjectStatus.decodeProject
                                 )
+                            )
+
+                    "ServiceStatus" ->
+                        Decode.field "details"
+                            (Decode.map2
+                                (\sessions editorsOpen ->
+                                    ServiceStatusUpdated
+                                        { sessions = sessions
+                                        , editorsOpen = editorsOpen
+                                        }
+                                )
+                                (Decode.field "sessions" (Decode.dict Decode.int))
+                                (Decode.field "editorsOpen" (Decode.dict Decode.int))
                             )
 
                     "EditorVisibilityChanged" ->

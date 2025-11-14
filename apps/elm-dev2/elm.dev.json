@@ -4,7 +4,8 @@
         "Guide": "/guide/*",
         "Module": "/module/*",
         "Reference": "/ref",
-        "Package": "/package/*"
+        "Package": "/package/*",
+        "Project": "/project/:projectid"
     },
     "assets": {
         "./public": "assets"
