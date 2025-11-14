@@ -229,12 +229,11 @@ missingFiles paths = do
   pure [p | (p, exists) <- combined, not exists]
 
 readDocsInfo :: FilePath -> IO Gen.Config.DocsConfig
-readDocsInfo root =
-  Dir.withCurrentDirectory root $ do
-    configResult <- Gen.Generate.readConfig
-    case configResult of
-      Gen.Generate.ConfigFound _ config -> do
-        case Gen.Config.configDocs config of
-          Just docsConfig -> pure docsConfig
-          Nothing -> pure Gen.Config.defaultDocs
-      _ -> pure Gen.Config.defaultDocs
+readDocsInfo root = do
+  configResult <- Gen.Generate.readConfig root
+  case configResult of
+    Gen.Generate.ConfigFound _ config -> do
+      case Gen.Config.configDocs config of
+        Just docsConfig -> pure docsConfig
+        Nothing -> pure Gen.Config.defaultDocs
+    _ -> pure Gen.Config.defaultDocs

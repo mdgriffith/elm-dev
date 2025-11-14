@@ -99,7 +99,7 @@ run maybeCwd (fstModule, modules) (debug, optimize, output, report, hot) = do
           return ()
     else do
         Dir.withCurrentDirectory cwd $ do
-          codegenResult <- Gen.Generate.run
+          codegenResult <- Gen.Generate.run cwd
           case codegenResult of
             Right () -> do
                 Ext.Log.with [Ext.Log.ElmCompilerError] $

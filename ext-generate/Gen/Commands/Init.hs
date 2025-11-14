@@ -74,7 +74,8 @@ run () () = do
   -- Create Page/Home.elm
   Gen.Templates.write "Page" "./src/app" "Home"
   
-  Gen.Generate.run
+  cwd <- Dir.getCurrentDirectory
+  Gen.Generate.run cwd
 
   putStrLn "I've generated a new Elm project for you using the Elm Dev codegen!\n\nCheckout the README.md to get started!"
 

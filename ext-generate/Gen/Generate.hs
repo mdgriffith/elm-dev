@@ -32,21 +32,22 @@ data ConfigResult
   | ConfigNotFound
   | ConfigParseError String
 
-readConfig :: IO ConfigResult
-readConfig = do
-  exists <- Dir.doesFileExist "elm.dev.json"
+readConfig :: FilePath -> IO ConfigResult
+readConfig root = do
+  let cfgPath = root </> "elm.dev.json"
+  exists <- Dir.doesFileExist cfgPath
   if not exists
     then return ConfigNotFound
     else do
-      mtime <- Dir.getModificationTime "elm.dev.json"
-      config <- BSL.readFile "elm.dev.json"
+      mtime <- Dir.getModificationTime cfgPath
+      config <- BSL.readFile cfgPath
       case eitherDecodeStrict (BSL.toStrict config) of
         Left err -> return $ ConfigParseError err
         Right cfg -> return $ ConfigFound mtime cfg
 
-readConfigOrFail :: IO Config.Config
-readConfigOrFail = do
-  configResult <- readConfig
+readConfigOrFail :: FilePath -> IO Config.Config
+readConfigOrFail root = do
+  configResult <- readConfig root
   case configResult of
     ConfigParseError err ->
       fail $ "Failed to parse elm.dev.json: " ++ err
@@ -88,29 +89,32 @@ isOutOfDateByHash generationPath runConfig = do
 {-
 
 -}
-run :: IO (Either String ())
-run = do
-  configResult <- readConfig
+run :: FilePath -> IO (Either String ())
+run root = do
+  configResult <- readConfig root
   case configResult of
     ConfigFound configLastModified config -> do
-      cwd <- Dir.getCurrentDirectory
-      runConfig <- RunConfig.toRunConfig cwd config
-      let hashPath = "./elm-stuff/generated/generated.hash"
+      runConfig <- RunConfig.toRunConfig root config
+      let hashPath = root </> "elm-stuff/generated/generated.hash"
 
       (newHash, needsGeneration) <- isOutOfDateByHash hashPath runConfig
       if needsGeneration
         then do
           generateResult <- Gen.Generate.generate runConfig
 
-          Templates.writeGroupCustomizable Loader.Customizable "./src/app" "./elm-stuff/generated"
-          Templates.writeGroup Loader.ToHidden "./elm-stuff/generated"
+          Templates.writeGroupCustomizable Loader.Customizable (root </> "src/app") (root </> "elm-stuff/generated")
+          Templates.writeGroup Loader.ToHidden (root </> "elm-stuff/generated")
 
           case generateResult of
             Right files -> do
               -- Write each file to disk
               Control.Monad.mapM_
                 ( \file -> do
-                    let fullPath = Gen.Generate.path file
+                    let filePathRel = Gen.Generate.path file
+                    let fullPath =
+                          if FP.isAbsolute filePathRel
+                            then filePathRel
+                            else root </> filePathRel
                     Dir.createDirectoryIfMissing True (FP.takeDirectory fullPath)
                     TIO.writeFile fullPath (Text.pack $ Gen.Generate.contents file)
                 )
@@ -123,9 +127,11 @@ run = do
               return (Left err)
         else do
           return $ Right ()
-    ConfigNotFound ->
+    ConfigNotFound -> do
+      putStrLn "elm.dev.json not found, skipping generation"
       return (Right ())
-    ConfigParseError err ->
+    ConfigParseError err -> do
+      putStrLn err
       return (Left err)
 
 -- | Main generation function

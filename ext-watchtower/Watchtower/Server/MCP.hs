@@ -266,7 +266,7 @@ toolAddPage = MCP.Tool
             Right (Client.ProjectCache proj _ _ _ _) -> do
               let dir = Ext.Dev.Project.getRoot proj
               withDir dir $ do
-                cfg <- Gen.Generate.readConfigOrFail
+                cfg <- Gen.Generate.readConfigOrFail dir
                 let name = urlToElmModuleName url
                 Templates.write "Page" Config.elmSrc name
                 let urlText = Text.pack url
@@ -295,7 +295,7 @@ toolAddStore = MCP.Tool
             Right (Client.ProjectCache proj _ _ _ _) -> do
               let dir = Ext.Dev.Project.getRoot proj
               withDir dir $ do
-                _ <- Gen.Generate.readConfigOrFail
+                _ <- Gen.Generate.readConfigOrFail dir
                 Templates.write "Store" Config.elmSrc modul
                 pure (ok (Text.pack ("Created store " ++ modul)))
   }
@@ -319,7 +319,7 @@ toolAddEffect = MCP.Tool
             Right (Client.ProjectCache proj _ _ _ _) -> do
               let dir = Ext.Dev.Project.getRoot proj
               withDir dir $ do
-                _ <- Gen.Generate.readConfigOrFail
+                _ <- Gen.Generate.readConfigOrFail dir
                 Templates.write "Effect" Config.elmSrc modul
                 Templates.writeTs "effect" Config.effectTsSrc modul
                 pure (ok (Text.pack ("Created effect " ++ modul)))
@@ -343,7 +343,7 @@ toolAddListener = MCP.Tool
             Right (Client.ProjectCache proj _ _ _ _) -> do
               let dir = Ext.Dev.Project.getRoot proj
               withDir dir $ do
-                _ <- Gen.Generate.readConfigOrFail
+                _ <- Gen.Generate.readConfigOrFail dir
                 Templates.write "Listen" Config.elmSrc modul
                 pure (ok (Text.pack ("Created listener " ++ modul)))
   }
@@ -363,7 +363,7 @@ toolAddTheme = MCP.Tool
         Right (Client.ProjectCache proj _ _ _ _) -> do
           let dir = Ext.Dev.Project.getRoot proj
           withDir dir $ do
-            cfg <- Gen.Generate.readConfigOrFail
+            cfg <- Gen.Generate.readConfigOrFail dir
             case Config.configTheme cfg of
               Just _ -> pure (errTxt "Theme already exists")
               Nothing -> do

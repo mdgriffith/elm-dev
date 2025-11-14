@@ -73,7 +73,8 @@ addPage = CommandParser.command ["add", "page"] "Add a new page" addGroup parseP
     runPage :: String -> () -> IO ()
     runPage url _ = do
       let name = urlToElmModuleName url
-      configResult <- Gen.Generate.readConfigOrFail
+      cwd <- Dir.getCurrentDirectory
+      configResult <- Gen.Generate.readConfigOrFail cwd
 
       Gen.Templates.write "Page" Config.elmSrc name
       let urlText = Text.pack url
@@ -95,7 +96,8 @@ addStore = CommandParser.command ["add", "store"] "Add a new store" addGroup Com
   where
     runStore :: Elm.ModuleName.Raw -> () -> IO ()
     runStore modName _ = do
-      configResult <- Gen.Generate.readConfigOrFail
+      cwd <- Dir.getCurrentDirectory
+      configResult <- Gen.Generate.readConfigOrFail cwd
 
       let storeName = Elm.ModuleName.toChars modName
       Gen.Templates.write "Store" Config.elmSrc storeName
@@ -108,7 +110,8 @@ addEffect = CommandParser.command ["add", "effect"] "Add a new effect" addGroup 
   where
     runEffect :: Elm.ModuleName.Raw -> () -> IO ()
     runEffect modName _ = do
-      configResult <- Gen.Generate.readConfigOrFail
+      cwd <- Dir.getCurrentDirectory
+      configResult <- Gen.Generate.readConfigOrFail cwd
       let name = Elm.ModuleName.toChars modName
 
       Gen.Templates.write "Effect" Config.elmSrc name
@@ -123,7 +126,8 @@ addListener = CommandParser.command ["add", "listener"] "Add a new listener" add
   where
     runListener :: Elm.ModuleName.Raw -> () -> IO ()
     runListener modName _ = do
-      configResult <- Gen.Generate.readConfigOrFail
+      cwd <- Dir.getCurrentDirectory
+      configResult <- Gen.Generate.readConfigOrFail cwd
       let name = Elm.ModuleName.toChars modName
 
       Gen.Templates.write "Listen" Config.elmSrc name
@@ -136,7 +140,8 @@ addDocs = CommandParser.command ["add", "docs"] "Add docs site" addGroup Command
   where
     runDocs :: () -> () -> IO ()
     runDocs _ _ = do
-      configResult <- Gen.Generate.readConfigOrFail
+      cwd <- Dir.getCurrentDirectory
+      configResult <- Gen.Generate.readConfigOrFail cwd
 
       case Config.configDocs configResult of
         Just _ ->
@@ -152,7 +157,8 @@ addTheme = CommandParser.command ["add", "theme"] "Add a theme" addGroup Command
   where
     runTheme :: () -> () -> IO ()
     runTheme _ _ = do
-      configResult <- Gen.Generate.readConfigOrFail
+      cwd <- Dir.getCurrentDirectory
+      configResult <- Gen.Generate.readConfigOrFail cwd
 
       case Config.configTheme configResult of
         Just _ ->
@@ -196,9 +202,8 @@ customizeGroup = Just "Move an elm-dev-generated file into your project"
 customize :: CommandParser.Command
 customize = CommandParser.command ["customize"] "Customize project components" customizeGroup (CommandParser.parseArg (CommandParser.arg "module")) CommandParser.noFlag $ \moduleName () -> do
   -- Read config to get source directory
-  configResult <- Gen.Generate.readConfigOrFail
-
   cwd <- Dir.getCurrentDirectory
+  configResult <- Gen.Generate.readConfigOrFail cwd
 
   -- Convert moduleName to a file path
   let moduleFilePath = foldr (</>) "" $ words $ map (\c -> if c == '.' then ' ' else c) moduleName <.> "elm"

@@ -193,7 +193,8 @@ searchProjectHelp projectRoot projs root = do
           then do
             if elmDevJsonExists
               then do
-                Gen.Generate.run
+                Ext.Log.log Ext.Log.Live ("elm.dev.json found for " <> root)
+                Gen.Generate.run root
               else pure (Right ())
               
             maybeProject <- captureProjectIfEntrypoints projectRoot root
@@ -226,7 +227,6 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
   outlineResult <- Elm.Outline.read canonicalElmJsonRoot
   case outlineResult of
     Right (Elm.Outline.App app) -> do
-      Ext.Log.log Ext.Log.Live ("Found App: " <> canonicalElmJsonRoot)
       let srcDirsList = NE.toList (Elm.Outline._app_source_dirs app)
       absoluteSrcDirsList <- traverse (Dir.canonicalizePath . Elm.Outline.toAbsolute canonicalElmJsonRoot) srcDirsList
       foundEntrypoints <- findElmEntrypointsInDirs absoluteSrcDirsList
@@ -237,7 +237,6 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
         (x:xs) ->
           pure (Just (Project canonicalElmJsonRoot canonicalProjectRoot (NE.List x xs) absoluteSrcDirsList 0))
     Right (Elm.Outline.Pkg pkg) -> do
-      Ext.Log.log Ext.Log.Live ("Found package: " <> Elm.Package.toChars (Elm.Outline._pkg_name pkg) <> " at " <> canonicalElmJsonRoot)
       case Elm.Outline._pkg_exposed pkg of
         Elm.Outline.ExposedList rawModNameList ->
           do
@@ -260,8 +259,8 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
     Left err -> do
       Ext.Log.log
           Ext.Log.Live
-          ("Skipping: " <> canonicalElmJsonRoot <> " Elm Outline Error: " <> Exit.toString (Exit.toOutlineReport err)
-          )
+          ("Skipping: " <> canonicalElmJsonRoot <> " Elm Outline Error")
+      -- Exit.toString (Exit.toOutlineReport err)
       pure Nothing
 
 

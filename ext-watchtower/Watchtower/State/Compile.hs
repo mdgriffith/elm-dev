@@ -30,7 +30,7 @@ compile :: Client.State -> Client.ProjectCache -> [FilePath] -> IO (Either Clien
 compile state@(Client.State _ _ mFileInfo mPackages _ _ _ ) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
-    codegenResult <- Gen.Generate.run
+    codegenResult <- Gen.Generate.run projectRoot
     case codegenResult of
       Right () -> do
         let filesToCompile = NE.append files entrypoints

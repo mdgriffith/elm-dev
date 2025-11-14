@@ -23,7 +23,7 @@ discover state root = do
   Ext.Log.log Ext.Log.Live ("👀 discover requested: " <> canonicalRoot)
   projects <- Ext.Dev.Project.discover canonicalRoot
 
-  let projectTails = fmap (getProjectShorthand canonicalRoot) projects
+  let projectTails = zipWith (\ix proj -> show ix ++ ":" ++ getProjectShorthand canonicalRoot proj) [0..] projects
 
   if List.null projectTails
     then Ext.Log.log Ext.Log.Live "found no projects"
