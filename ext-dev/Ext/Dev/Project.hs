@@ -160,8 +160,9 @@ Ultimately we want to:
 
 -}
 discover :: FilePath -> IO [Project]
-discover projectBase =
-  searchProjectHelp projectBase [] projectBase
+discover projectBase = do
+  canonicalBase <- Dir.canonicalizePath projectBase
+  searchProjectHelp canonicalBase [] canonicalBase
 
 shouldSkip :: FilePath -> Bool
 shouldSkip path =
@@ -220,37 +221,46 @@ searchProjectHelp projectRoot projs root = do
 -}
 captureProjectIfEntrypoints :: FilePath -> FilePath -> IO (Maybe Project)
 captureProjectIfEntrypoints projectRoot elmJsonRoot = do
-  outlineResult <- Elm.Outline.read elmJsonRoot
+  canonicalProjectRoot <- Dir.canonicalizePath projectRoot
+  canonicalElmJsonRoot <- Dir.canonicalizePath elmJsonRoot
+  outlineResult <- Elm.Outline.read canonicalElmJsonRoot
   case outlineResult of
     Right (Elm.Outline.App app) -> do
-      Ext.Log.log Ext.Log.Live ("Found App: " <> elmJsonRoot)
+      Ext.Log.log Ext.Log.Live ("Found App: " <> canonicalElmJsonRoot)
       let srcDirsList = NE.toList (Elm.Outline._app_source_dirs app)
-      let absoluteSrcDirsList = map (Elm.Outline.toAbsolute elmJsonRoot) srcDirsList
-      entrypoints <- findElmEntrypointsInDirs absoluteSrcDirsList
-      case entrypoints of
+      absoluteSrcDirsList <- traverse (Dir.canonicalizePath . Elm.Outline.toAbsolute canonicalElmJsonRoot) srcDirsList
+      foundEntrypoints <- findElmEntrypointsInDirs absoluteSrcDirsList
+      canonicalEntrypoints <- traverse Dir.canonicalizePath foundEntrypoints
+      case canonicalEntrypoints of
         [] ->
           pure Nothing
         (x:xs) ->
-          pure (Just (Project elmJsonRoot projectRoot (NE.List x xs) absoluteSrcDirsList 0))
+          pure (Just (Project canonicalElmJsonRoot canonicalProjectRoot (NE.List x xs) absoluteSrcDirsList 0))
     Right (Elm.Outline.Pkg pkg) -> do
-      Ext.Log.log Ext.Log.Live ("Found package: " <> Elm.Package.toChars (Elm.Outline._pkg_name pkg) <> " at " <> elmJsonRoot)
+      Ext.Log.log Ext.Log.Live ("Found package: " <> Elm.Package.toChars (Elm.Outline._pkg_name pkg) <> " at " <> canonicalElmJsonRoot)
       case Elm.Outline._pkg_exposed pkg of
         Elm.Outline.ExposedList rawModNameList ->
-          let paths = rawModuleNameToPackagePath elmJsonRoot <$> rawModNameList
-              srcDirs = [elmJsonRoot </> "src"]
-          in case paths of
-               [] -> pure Nothing
-               (x:xs) -> pure (Just (Project elmJsonRoot projectRoot (NE.List x xs) srcDirs 0))
+          do
+            let pathsUncanon = rawModuleNameToPackagePath canonicalElmJsonRoot <$> rawModNameList
+            paths <- traverse Dir.canonicalizePath pathsUncanon
+            canonicalSrc <- Dir.canonicalizePath (canonicalElmJsonRoot </> "src")
+            let srcDirs = [canonicalSrc]
+            case paths of
+              [] -> pure Nothing
+              (x:xs) -> pure (Just (Project canonicalElmJsonRoot canonicalProjectRoot (NE.List x xs) srcDirs 0))
         Elm.Outline.ExposedDict dict ->
-          let paths = concatMap (\(_, modList) -> rawModuleNameToPackagePath elmJsonRoot <$> modList) dict
-              srcDirs = [elmJsonRoot </> "src"]
-          in case paths of
-               [] -> pure Nothing
-               (x:xs) -> pure (Just (Project elmJsonRoot projectRoot (NE.List x xs) srcDirs 0))
+          do
+            let pathsUncanon = concatMap (\(_, modList) -> rawModuleNameToPackagePath canonicalElmJsonRoot <$> modList) dict
+            paths <- traverse Dir.canonicalizePath pathsUncanon
+            canonicalSrc <- Dir.canonicalizePath (canonicalElmJsonRoot </> "src")
+            let srcDirs = [canonicalSrc]
+            case paths of
+              [] -> pure Nothing
+              (x:xs) -> pure (Just (Project canonicalElmJsonRoot canonicalProjectRoot (NE.List x xs) srcDirs 0))
     Left err -> do
       Ext.Log.log
           Ext.Log.Live
-          ("Skipping: " <> elmJsonRoot <> " Elm Outline Error: " <> Exit.toString (Exit.toOutlineReport err)
+          ("Skipping: " <> canonicalElmJsonRoot <> " Elm Outline Error: " <> Exit.toString (Exit.toOutlineReport err)
           )
       pure Nothing
 

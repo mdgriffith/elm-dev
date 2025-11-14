@@ -11,6 +11,7 @@ import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Ext.Dev.Project
 import qualified Ext.Log
 import qualified Ext.Sentry
+import qualified System.Directory as Dir
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Live.Compile
 import qualified Watchtower.State.Project
@@ -18,14 +19,15 @@ import qualified Watchtower.Websocket
 
 discover :: Client.State -> FilePath -> IO ()
 discover state root = do
-  Ext.Log.log Ext.Log.Live ("👀 discover requested: " <> root)
-  projects <- Ext.Dev.Project.discover root
+  canonicalRoot <- Dir.canonicalizePath root
+  Ext.Log.log Ext.Log.Live ("👀 discover requested: " <> canonicalRoot)
+  projects <- Ext.Dev.Project.discover canonicalRoot
 
-  let projectTails = fmap (getProjectShorthand root) projects
+  let projectTails = fmap (getProjectShorthand canonicalRoot) projects
 
   if List.null projectTails
     then Ext.Log.log Ext.Log.Live "found no projects"
-    else Ext.Log.log Ext.Log.Live (("found projects (" ++ root ++ ")") <> Ext.Log.formatList projectTails)
+    else Ext.Log.log Ext.Log.Live (("found projects (" ++ canonicalRoot ++ ")") <> Ext.Log.formatList projectTails)
 
   Monad.foldM_ (initializeProject state) [] projects
   
