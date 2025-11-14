@@ -1,10 +1,7 @@
 module Ui.Nav exposing (view)
 
 import App.Route
-import Docs.Guides
-import Docs.Modules
-import Docs.Packages
-import Elm.Docs
+import Data.ProjectStatus
 import Html exposing (Html, i)
 import Html.Attributes as Attr
 import Theme
@@ -21,7 +18,7 @@ width =
     256
 
 
-view : {} -> Html msg
+view : { project : Data.ProjectStatus.Project } -> Html msg
 view options =
     Html.nav
         [ Ui.Attr.width width
@@ -41,84 +38,61 @@ view options =
             , Ui.Attr.scrollbars
             , Attr.class "navbar"
             ]
-            [ viewSection "Guides"
-                (Docs.Guides.all_
-                    |> List.foldl gatherGuideGroups
-                        { label = [], rendered = [] }
-                    |> .rendered
-                    |> List.reverse
-                )
+            [ -- Project home link
+              Html.a
+                [ Attr.href
+                    (App.Route.toString
+                        (App.Route.Project { projectid = String.fromInt options.project.shortId })
+                    )
+                , Attr.style "display" "block"
+                , Attr.style "font-weight" "600"
+                , Attr.style "margin-bottom" "0.75rem"
+                ]
+                [ Html.text "Overview" ]
+            , viewSection "Guides"
+                (List.map viewGuidePath options.project.docs.guides)
             , viewSection "Modules"
-                (List.map viewModules Docs.Modules.modules)
+                (List.map viewModuleName options.project.docs.modules)
             , viewSection "Packages"
-                (List.map viewPackage Docs.Packages.directory)
+                (List.map viewPackageInfo options.project.docs.packages)
             ]
         ]
 
 
-gatherGuideGroups :
-    { content : String, path : String }
-    ->
-        { label : List String
-        , rendered : List (Html msg)
-        }
-    ->
-        { label : List String
-        , rendered : List (Html msg)
-        }
-gatherGuideGroups guide { label, rendered } =
+viewModuleName : String -> Html msg
+viewModuleName name =
     let
-        pieces =
-            String.split "/" guide.path
+        path_ =
+            if String.contains "." name then
+                String.split "." name
 
-        groupStack =
-            pieces
-                -- Drop 'guides' at the beginning
-                |> List.drop 1
-                |> List.reverse
-                -- Drop the filename
-                |> List.drop 1
-                |> List.reverse
-                |> List.map
-                    (\inner ->
-                        inner
-                            |> capitalize
-                            |> String.replace "-" " "
-                            |> String.replace "_" " "
-                    )
-
-        newHeaders =
-            headerDiff label groupStack
-                |> List.reverse
+            else
+                String.split "/" name
     in
-    { label = groupStack
-    , rendered =
-        case newHeaders of
-            [] ->
-                viewGuide guide :: rendered
+    Html.a
+        [ Attr.href
+            (App.Route.toString
+                (App.Route.Module { path_ = path_ })
+            )
+        , Ui.Attr.ellipsis
+        , Ui.Attr.width (width - (padding * 2))
+        , Attr.style "display" "inline-block"
+        ]
+        [ Html.text name ]
 
-            _ ->
-                viewGuide guide :: List.map sectionSubheader newHeaders ++ rendered
-    }
 
-
-headerDiff : List String -> List String -> List String
-headerDiff existing new =
-    case existing of
-        [] ->
-            new
-
-        top :: remain ->
-            case new of
-                [] ->
-                    []
-
-                topNew :: remainingNew ->
-                    if top == topNew then
-                        headerDiff remain remainingNew
-
-                    else
-                        new
+viewPackageInfo : Data.ProjectStatus.PackageInfo -> Html msg
+viewPackageInfo package =
+    Html.a
+        [ Attr.href
+            (App.Route.toString
+                (App.Route.Package { path_ = String.split "/" package.name })
+            )
+        , Ui.Attr.ellipsis
+        , Ui.Attr.width (width - (padding * 2))
+        , Attr.style "display" "inline-block"
+        ]
+        [ Html.text (package.name ++ " @" ++ package.version) ]
 
 
 heightWindow =
@@ -174,29 +148,10 @@ viewSection title items =
         Html.text ""
 
     else
-        Theme.column.sm2 []
+        Theme.column.sm []
             [ sectionHeader title
-            , Theme.column.sm3 [] items
+            , Theme.column.sm [] items
             ]
-
-
-viewModules : Elm.Docs.Module -> Html msg
-viewModules module_ =
-    Html.a
-        [ Attr.href
-            (App.Route.toString
-                (App.Route.Module
-                    { path_ =
-                        String.split "/"
-                            module_.name
-                    }
-                )
-            )
-        , Ui.Attr.ellipsis
-        , Ui.Attr.width (width - (padding * 2))
-        , Attr.style "display" "inline-block"
-        ]
-        [ Html.text module_.name ]
 
 
 capitalize : String -> String
@@ -211,19 +166,19 @@ capitalize str =
     String.toUpper top ++ remain
 
 
-viewGuide : { path : String, content : String } -> Html msg
-viewGuide guide =
+viewGuidePath : String -> Html msg
+viewGuidePath path =
     let
         pieces =
-            String.split "/" guide.path
+            String.split "/" path
 
         name =
             List.reverse pieces
                 |> List.head
-                |> Maybe.withDefault guide.path
+                |> Maybe.withDefault path
                 |> String.split "."
                 |> List.head
-                |> Maybe.withDefault guide.path
+                |> Maybe.withDefault path
                 |> capitalize
                 |> String.replace "-" " "
                 |> String.replace "_" " "
@@ -234,7 +189,7 @@ viewGuide guide =
                 (App.Route.Guide
                     { path_ =
                         String.split "/"
-                            guide.path
+                            path
                     }
                 )
             )
@@ -245,18 +200,3 @@ viewGuide guide =
         ]
         [ Html.text name ]
 
-
-viewPackage : { name : String, modules : List Elm.Docs.Module } -> Html msg
-viewPackage package =
-    Html.div []
-        [ Html.a
-            [ Attr.href
-                (App.Route.toString
-                    (App.Route.Package { path_ = String.split "/" package.name })
-                )
-            , Ui.Attr.ellipsis
-            , Ui.Attr.width (width - (padding * 2))
-            , Attr.style "display" "inline-block"
-            ]
-            [ Html.text package.name ]
-        ]

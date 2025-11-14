@@ -15,9 +15,14 @@ import Broadcast
 import Docs.Ref.Get
 import Effect exposing (Effect)
 import Elm.Docs
+import Html
+import Html.Attributes as Attr
 import Listen exposing (Listen)
 import Store.Modules
+import Store.Projects
+import String
 import Ui.Module
+import WebComponents.Elm
 
 
 {-| -}
@@ -97,7 +102,45 @@ view : App.View.Region.Id -> App.Stores.Stores -> Model -> App.View.View Msg
 view viewId shared model =
     { title = model.module_.info.name
     , body =
-        Ui.Module.view
-            { onClick = Just TypeClicked }
-            model.module_.info
+        Html.div []
+            [ Ui.Module.view
+                { onClick = Just TypeClicked }
+                model.module_.info
+            , let
+                maybeRoot =
+                    case shared.projects.current of
+                        Just shortId ->
+                            Store.Projects.lookup shortId shared.projects
+                                |> Maybe.map .projectRoot
+
+                        Nothing ->
+                            Nothing
+
+                moduleFilepath =
+                    "src/"
+                        ++ (String.split "." model.module_.info.name
+                                |> String.join "/"
+                           )
+                        ++ ".elm"
+              in
+              case maybeRoot of
+                Nothing ->
+                    Html.text ""
+
+                Just root ->
+                    Html.div
+                        [ Attr.style "margin-top" "16px"
+                        , Attr.style "height" "480px"
+                        , Attr.style "border" "1px solid #e5e7eb"
+                        , Attr.style "border-radius" "8px"
+                        , Attr.style "overflow" "hidden"
+                        ]
+                        [ WebComponents.Elm.elm
+                            { baseUrl = "http://localhost:1420"
+                            , filepath = moduleFilepath
+                            , cwd = root
+                            }
+                        ]
+            ]
     }
+

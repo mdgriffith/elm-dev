@@ -41,6 +41,13 @@ type alias DocsOverview =
     { modules : List String
     , guides : List String
     , interactive : List String
+    , packages : List PackageInfo
+    }
+
+
+type alias PackageInfo =
+    { name : String
+    , version : String
     }
 
 
@@ -49,6 +56,7 @@ emptyDocsOverview =
     { modules = []
     , guides = []
     , interactive = []
+    , packages = []
     }
 
 
@@ -168,17 +176,27 @@ decodeProject =
 
 decodeDocsOverview : Decode.Decoder DocsOverview
 decodeDocsOverview =
-    Decode.map3 DocsOverview
+    Decode.map4 DocsOverview
         (Decode.field "modules" (Decode.list Decode.string))
         (Decode.field "guides" (Decode.list Decode.string))
         (Decode.field "interactive" (Decode.list Decode.string))
+        (Decode.field "packages" (Decode.list decodePackageInfo))
+
+
+decodePackageInfo : Decode.Decoder PackageInfo
+decodePackageInfo =
+    Decode.map2 PackageInfo
+        (Decode.field "name" Decode.string)
+        (Decode.field "version" Decode.string)
 
 
 {-| Derive a human-friendly project name from a root path.
-- Takes the last path segment
-- Splits on '-' and '\_'
-- Splits camelCase while preserving acronym sequences
-- Capitalizes words, preserving all-caps acronyms
+
+  - Takes the last path segment
+  - Splits on '-' and '\_'
+  - Splits camelCase while preserving acronym sequences
+  - Capitalizes words, preserving all-caps acronyms
+
 -}
 nameFromRoot : String -> String
 nameFromRoot root =
