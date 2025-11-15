@@ -54,7 +54,7 @@ view options =
             , viewSection "Modules"
                 (List.map viewModuleName options.project.docs.modules)
             , viewSection "Packages"
-                (List.map viewPackageInfo options.project.docs.packages)
+                (List.map viewPackageInfo options.project.dependencies.direct)
             ]
         ]
 

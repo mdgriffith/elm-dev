@@ -3,6 +3,7 @@ module Data.ProjectStatus exposing (..)
 {-| -}
 
 import Data.Editor as Editor
+import Dict
 import Json.Decode as Decode
 
 
@@ -34,6 +35,14 @@ type alias Project =
     , entrypoints : List String
     , status : Status
     , docs : DocsOverview
+    , dependencies : Deps
+    , testDependencies : Deps
+    }
+
+
+type alias Deps =
+    { direct : List PackageInfo
+    , indirect : List PackageInfo
     }
 
 
@@ -41,7 +50,6 @@ type alias DocsOverview =
     { modules : List String
     , guides : List String
     , interactive : List String
-    , packages : List PackageInfo
     }
 
 
@@ -56,7 +64,6 @@ emptyDocsOverview =
     { modules = []
     , guides = []
     , interactive = []
-    , packages = []
     }
 
 
@@ -164,30 +171,38 @@ inEditor file editor =
 
 decodeProject : Decode.Decoder Project
 decodeProject =
-    Decode.map7 Project
+    Decode.map8
+        (\shortId root name projectRoot entrypoints status docs allDeps ->
+            Project shortId root name projectRoot entrypoints status docs allDeps.dependencies allDeps.testDependencies
+        )
         (Decode.field "shortId" Decode.int)
         (Decode.field "root" Decode.string)
         (Decode.field "root" Decode.string |> Decode.map nameFromRoot)
         (Decode.field "projectRoot" Decode.string)
         (Decode.field "entrypoints" (Decode.list Decode.string))
         (Decode.field "status" decodeStatus)
-        (Decode.map (Maybe.withDefault emptyDocsOverview) (Decode.maybe (Decode.field "docs" decodeDocsOverview)))
+        (Decode.map (Maybe.withDefault emptyDocsOverview)
+            (Decode.maybe (Decode.field "docs" decodeDocsOverview))
+        )
+        (Decode.field "elmJson" Decode.string
+            |> Decode.andThen
+                (\str ->
+                    case Decode.decodeString decodeElmJsonFile str of
+                        Ok parsed ->
+                            Decode.succeed parsed
+
+                        Err _ ->
+                            Decode.fail "Failed to decode elm.json"
+                )
+        )
 
 
 decodeDocsOverview : Decode.Decoder DocsOverview
 decodeDocsOverview =
-    Decode.map4 DocsOverview
+    Decode.map3 DocsOverview
         (Decode.field "modules" (Decode.list Decode.string))
         (Decode.field "guides" (Decode.list Decode.string))
         (Decode.field "interactive" (Decode.list Decode.string))
-        (Decode.field "packages" (Decode.list decodePackageInfo))
-
-
-decodePackageInfo : Decode.Decoder PackageInfo
-decodePackageInfo =
-    Decode.map2 PackageInfo
-        (Decode.field "name" Decode.string)
-        (Decode.field "version" Decode.string)
 
 
 {-| Derive a human-friendly project name from a root path.
@@ -765,4 +780,39 @@ maybeColor =
                 )
         , Decode.null Nothing
         ]
+
+
+
+{- elm.json decoding -}
+
+
+type alias ElmJsonDeps =
+    { dependencies : Deps
+    , testDependencies : Deps
+    }
+
+
+emptyDeps : Deps
+emptyDeps =
+    { direct = [], indirect = [] }
+
+
+decodeElmJsonFile : Decode.Decoder ElmJsonDeps
+decodeElmJsonFile =
+    Decode.map2 ElmJsonDeps
+        (Decode.field "dependencies" decodeElmJsonDeps)
+        (Decode.field "test-dependencies" decodeElmJsonDeps)
+
+
+decodeElmJsonDeps : Decode.Decoder Deps
+decodeElmJsonDeps =
+    Decode.map2 Deps
+        (Decode.field "direct" decodeDeps)
+        (Decode.field "indirect" decodeDeps)
+
+
+decodeDeps : Decode.Decoder (List PackageInfo)
+decodeDeps =
+    Decode.keyValuePairs Decode.string
+        |> Decode.map (List.map (\( name, version ) -> PackageInfo name version))
 
