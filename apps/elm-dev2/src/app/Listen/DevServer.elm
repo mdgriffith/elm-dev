@@ -41,6 +41,7 @@ type Event
         { visible : List Editor.Editor
         }
     | ProjectsStatusUpdated (List ProjectStatus.Project)
+    | ProjectModulesUpdated (List Elm.Docs.Module)
     | ServiceStatusUpdated
         { sessions : Dict.Dict String Int
         , editorsOpen : Dict.Dict String Int
@@ -171,6 +172,10 @@ eventDecoder =
                                     (Decode.field "docs" (Decode.list Elm.Docs.decoder))
                                 )
                             )
+
+                    "ProjectModulesUpdated" ->
+                        Decode.map ProjectModulesUpdated
+                            (Decode.field "details" (Decode.list Elm.Docs.decoder))
 
                     _ ->
                         Decode.value

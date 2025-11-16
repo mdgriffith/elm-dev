@@ -96,6 +96,7 @@ import qualified Reporting.Render.Type
 import qualified Reporting.Render.Type.Localizer
 import qualified Reporting.Warning as Warning
 import qualified Reporting.Exit
+import System.FilePath ((</>))
 import qualified System.FilePath as FilePath
 import qualified System.Directory as Dir
 import qualified Data.ByteString.Lazy.Char8 as BL8
@@ -253,7 +254,7 @@ getFileInfoFromModuleName (ProjectCache proj _ _ _ _) (ModuleName.Canonical _pkg
   fileInfoMap <- STM.readTVarIO mFileInfo
   let moduleRelPath = ModuleName.toFilePath rawName ++ ".elm"
   let srcDirs = Ext.Dev.Project._srcDirs proj
-  let candidates = fmap (\dir -> FilePath.normalise (dir FilePath.</> moduleRelPath)) srcDirs
+  let candidates = fmap (\dir -> FilePath.normalise (dir </> moduleRelPath)) srcDirs
   pure (List.foldl (\acc p -> case acc of
                                 Nothing -> Map.lookup p fileInfoMap
                                 justVal -> justVal
@@ -439,26 +440,26 @@ getAllStatuses state@(State _ mProjects _ _ _ _ _) =
 
 -- Discover project modules (name and full path) by scanning src dirs
 discoverProjectModules :: Ext.Dev.Project.Project -> IO [(String, FilePath)]
-discoverProjectModules proj = do
-  let srcDirs = Ext.Dev.Project._srcDirs proj
-  files <-
-    Monad.foldM
-      ( \acc dir -> do
-          xs <- listElmFiles dir
-          pure (acc <> xs)
-      )
-      []
-      srcDirs
-  pure (Maybe.mapMaybe (toModulePair srcDirs) files)
+discoverProjectModules proj = do  
+  Monad.foldM
+    ( \acc dir -> do
+        xs <- listElmFiles dir dir
+        pure (acc <> xs)
+    )
+    []
+    (Ext.Dev.Project._srcDirs proj)
+  
   where
-    listElmFiles :: FilePath -> IO [FilePath]
-    listElmFiles dir = do
+    -- listElmFiles takes the srcDir root and the current directory being scanned.
+    -- It returns pairs of (Elm module name, absolute file path).
+    listElmFiles :: FilePath -> FilePath -> IO [(String, FilePath)]
+    listElmFiles srcDir dir = do
       isDir <- Dir.doesDirectoryExist dir
       if not isDir
         then pure []
         else do
           names <- Dir.listDirectory dir
-          let paths = fmap (dir FilePath.</>) names
+          let paths = fmap (dir </>) names
           (subdirs, files) <-
             Monad.foldM
               ( \(ds, fs) p -> do
@@ -470,38 +471,24 @@ discoverProjectModules proj = do
               ([], [])
               paths
           let filteredSubs = filter (not . shouldSkip) subdirs
-          nested <- Monad.foldM (\acc d -> do xs <- listElmFiles d; pure (acc <> xs)) [] filteredSubs
-          pure (files <> nested)
+          nested <- Monad.foldM (\acc d -> do xs <- listElmFiles srcDir d; pure (acc <> xs)) [] filteredSubs
+          let filePairs =
+                fmap
+                  ( \full ->
+                      let rel = FilePath.makeRelative srcDir full
+                          noExt = FilePath.dropExtension rel
+                          modName = fmap (\c -> if c == FilePath.pathSeparator then '.' else c) noExt
+                       in (modName, full)
+                  )
+                  files
+          pure (filePairs <> nested)
 
     shouldSkip :: FilePath -> Bool
     shouldSkip path =
       List.isInfixOf "node_modules" path
-        || List.isInfixOf "elm-stuff" path
         || case FilePath.takeFileName path of
              ('.' : _) -> True
              _ -> False
-
-    toModulePair :: [FilePath] -> FilePath -> Maybe (String, FilePath)
-    toModulePair srcDirs full =
-      let maybeRel =
-            List.foldl
-              ( \found dir ->
-                  case found of
-                    Just _ -> found
-                    Nothing ->
-                      let rel = FilePath.makeRelative dir full
-                       in if List.isPrefixOf ".." rel
-                            then Nothing
-                            else Just rel
-              )
-              Nothing
-              srcDirs
-       in case maybeRel of
-            Nothing -> Nothing
-            Just rel ->
-              let noExt = FilePath.dropExtension rel
-                  modName = fmap (\c -> if c == FilePath.pathSeparator then '.' else c) noExt
-               in Just (modName, full)
 
 -- Parse direct package dependency names from elm.json contents
 directDepsFromElmJson :: Maybe String -> [String]
@@ -543,7 +530,7 @@ getStatus (ProjectCache proj docsInfo _ mCompileResult _) (State _ _ _ mPackages
             Success _ -> True
             _ -> False
     let json = toOldJSON result
-    let elmJsonPath = Ext.Dev.Project._projectRoot proj FilePath.</> "elm.json"
+    let elmJsonPath = Ext.Dev.Project._projectRoot proj </> "elm.json"
     exists <- Dir.doesFileExist elmJsonPath
     elmJsonContents <-
       if exists

@@ -210,6 +210,7 @@ routes :: Live.State -> [(BS.ByteString, Snap ())]
 routes state =
   [ ("/dev/js", jsHandler state)
   , ("/dev/interactive", interactiveHandler state)
+  , ("/dev/docs/module", moduleDocsHandler state)
   , ("/dev/log", logHandler)
   , ("/dev/package", packageHandler state)
   , ("/dev/fileChanged", fileChangedHandler state)
@@ -277,6 +278,20 @@ interactiveHandler state = do
       let dir = Text.unpack (Data.Text.Encoding.decodeUtf8 dirBs)
       let file = Text.unpack (Data.Text.Encoding.decodeUtf8 fileBs)
       value <- liftIO (interactiveDocs state dir file)
+      modifyResponse $ setContentType "application/json"
+      writeLBS (JSON.encode value)
+
+moduleDocsHandler :: Live.State -> Snap ()
+moduleDocsHandler state = do
+  mDir <- getParam "dir"
+  mFile <- getParam "file"
+  case (mDir, mFile) of
+    (Nothing, _) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: dir")
+    (_, Nothing) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: file")
+    (Just dirBs, Just fileBs) -> do
+      let dir = Text.unpack (Data.Text.Encoding.decodeUtf8 dirBs)
+      let file = Text.unpack (Data.Text.Encoding.decodeUtf8 fileBs)
+      value <- liftIO (moduleDocs state dir file)
       modifyResponse $ setContentType "application/json"
       writeLBS (JSON.encode value)
 
@@ -556,6 +571,8 @@ compile state root file debug optimize report = do
             case upErr of
               Watchtower.State.Project.NoElmJson r ->
                 Text.pack ("No elm.json found at root: " <> r)
+              Watchtower.State.Project.ElmJsonError outlineExit ->
+                Text.pack (Reporting.Exit.toAnsiString (Reporting.Exit.toOutlineReport outlineExit))
               Watchtower.State.Project.EntrypointNotFound ps ->
                 Text.pack ("Entrypoint does not exist: " <> List.intercalate ", " ps)
               Watchtower.State.Project.EntrypointOutsideSourceDirs p srcs ->
@@ -618,6 +635,19 @@ interactiveDocs liveState cwd filepath = do
               case JSON.eitherDecode lbs of
                 Left e -> pure (JSON.String (Text.pack e))
                 Right v -> pure v
+
+-- Return docs.json content (as Aeson Value) for a single module/file
+moduleDocs :: Live.State -> FilePath -> FilePath -> IO JSON.Value
+moduleDocs _liveState cwd filepath = do
+  maybeDocs <- Ext.Dev.docs cwd filepath
+  case maybeDocs of
+    Nothing -> pure (JSON.toJSON (Text.pack "Docs are not available"))
+    Just docs -> do
+      let docsJson = Docs.encode (Docs.toDict [docs])
+      let lbs = Builder.toLazyByteString (Json.Encode.encodeUgly docsJson)
+      case JSON.eitherDecode lbs of
+        Left e -> pure (JSON.String (Text.pack e))
+        Right v -> pure v
 
 -- Utilities
 

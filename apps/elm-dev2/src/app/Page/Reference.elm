@@ -89,6 +89,9 @@ subscriptions stores model =
             case broadcastMsg of
                 Broadcast.RefPinned ref ->
                     Just (RefAdded ref)
+
+                Broadcast.ProjectSelected shortId ->
+                    Nothing
         )
 
 

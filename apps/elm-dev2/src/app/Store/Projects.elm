@@ -13,6 +13,7 @@ module Store.Projects exposing
 -}
 
 import App.Store
+import Broadcast
 import Data.Editor
 import Data.ProjectStatus
 import Data.Question
@@ -165,7 +166,18 @@ store =
                                 ( model, Effect.none )
         , subscriptions =
             \_ ->
-                Listen.DevServer.listen DevServerReceived
+                Listen.batch
+                    [ Listen.DevServer.listen DevServerReceived
+                    , Listen.onBroadcast
+                        (\broadcastMsg ->
+                            case broadcastMsg of
+                                Broadcast.ProjectSelected shortId ->
+                                    Just (ProjectSelected shortId)
+
+                                _ ->
+                                    Nothing
+                        )
+                    ]
         }
 
 

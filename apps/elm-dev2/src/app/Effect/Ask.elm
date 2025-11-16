@@ -1,6 +1,7 @@
 port module Effect.Ask exposing
     ( projectList
     , packageRequested
+    , moduleRequested
     )
 
 {-|
@@ -47,6 +48,21 @@ packageRequested { name, version } =
                 [ ( "route", Encode.string "PackageRequested" )
                 , ( "name", Encode.string name )
                 , ( "version", Encode.string version )
+                ]
+        }
+
+
+{-| Request loading docs for a single project module file. -}
+moduleRequested : { dir : String, file : String } -> Effect.Effect msg
+moduleRequested { dir, file } =
+    Effect.SendToWorld
+        { toPort = ask
+        , portName = "ask"
+        , payload =
+            Encode.object
+                [ ( "route", Encode.string "ModuleRequested" )
+                , ( "dir", Encode.string dir )
+                , ( "file", Encode.string file )
                 ]
         }
 

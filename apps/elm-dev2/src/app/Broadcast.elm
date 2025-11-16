@@ -27,3 +27,4 @@ import Docs.Ref
 
 type Msg
     = RefPinned Docs.Ref.Ref
+    | ProjectSelected Int

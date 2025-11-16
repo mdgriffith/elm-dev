@@ -52,7 +52,10 @@ view options =
             , viewSection "Guides"
                 (List.map viewGuidePath options.project.docs.guides)
             , viewSection "Modules"
-                (List.map viewModuleName options.project.docs.modules)
+                (options.project.modules
+                    |> List.sortBy .name
+                    |> List.map (.name >> viewModuleName)
+                )
             , viewSection "Packages"
                 (List.map viewPackageInfo options.project.dependencies.direct)
             ]

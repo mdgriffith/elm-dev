@@ -8,10 +8,12 @@ module Page.Module exposing (page, Model, Msg)
 
 import App.Page
 import App.Page.Id
+import App.Route
 import App.Stores
 import App.View
 import App.View.Region
 import Broadcast
+import Data.ProjectStatus as ProjectStatus
 import Docs.Ref.Get
 import Effect exposing (Effect)
 import Elm.Docs
@@ -22,6 +24,7 @@ import Store.Modules
 import Store.Projects
 import String
 import Ui.Module
+import Ui.Nav.Top
 import WebComponents.Elm
 
 
@@ -56,29 +59,6 @@ init pageId params stores maybeCached =
             App.Page.notFound
 
 
-lookupModule : List String -> List Elm.Docs.Module -> Maybe Elm.Docs.Module
-lookupModule path_ modules =
-    let
-        moduleName =
-            String.join "." path_
-    in
-    List.foldl
-        (\module_ found ->
-            case found of
-                Just m ->
-                    found
-
-                Nothing ->
-                    if module_.name == moduleName then
-                        Just module_
-
-                    else
-                        Nothing
-        )
-        Nothing
-        modules
-
-
 update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect Msg )
 update stores msg model =
     case msg of
@@ -102,8 +82,28 @@ view : App.View.Region.Id -> App.Stores.Stores -> Model -> App.View.View Msg
 view viewId shared model =
     { title = model.module_.info.name
     , body =
+        let
+            maybeProject =
+                case shared.projects.current of
+                    Just shortId ->
+                        Store.Projects.lookup shortId shared.projects
+
+                    Nothing ->
+                        Nothing
+        in
         Html.div []
-            [ Ui.Module.view
+            [ Ui.Nav.Top.view
+                { title = model.module_.info.name
+                , back =
+                    case maybeProject of
+                        Just project ->
+                            App.Route.toString (App.Route.Project { projectid = String.fromInt project.shortId })
+
+                        Nothing ->
+                            "/"
+                , status = ProjectStatus.NoData
+                }
+            , Ui.Module.view
                 { onClick = Just TypeClicked }
                 model.module_.info
             , let

@@ -12,16 +12,19 @@ import App.Route
 import App.Stores
 import App.View
 import App.View.Region
+import Broadcast
 import Data.ProjectStatus as ProjectStatus
 import Effect exposing (Effect)
 import Html exposing (Html)
 import Html.Attributes as Attr
 import Listen exposing (Listen)
+import Store.Modules
 import Store.Packages
 import Store.Projects
 import String
 import Ui
 import Ui.Nav
+import Ui.Nav.Top
 
 
 {-| -}
@@ -53,7 +56,12 @@ init _ params stores _ =
                     (\p ->
                         App.Page.initWith
                             { project = p }
-                            (Store.Packages.requestMissingForProject p stores.packages)
+                            (Effect.batch
+                                [ Effect.broadcast (Broadcast.ProjectSelected p.shortId)
+                                , Store.Packages.requestMissingForProject p stores.packages
+                                , Store.Modules.requestMissingForProject p stores.modules
+                                ]
+                            )
                     )
                 |> Maybe.withDefault App.Page.notFound
 
@@ -83,7 +91,11 @@ view _ _ model =
     { title = projectName
     , body =
         Ui.column []
-            [ viewTopBar project
+            [ Ui.Nav.Top.view
+                { title = projectName
+                , back = "/"
+                , status = project.status
+                }
             , Ui.row [ Attr.style "width" "100%" ]
                 [ -- left nav (fixed)
                   Ui.Nav.view { project = project }
@@ -98,81 +110,6 @@ view _ _ model =
                 ]
             ]
     }
-
-
-viewTopBar : ProjectStatus.Project -> Html Msg
-viewTopBar project =
-    let
-        backHref =
-            -- Fall back to root if Home route constructor is not available here
-            "/"
-    in
-    Html.div
-        [ Attr.style "display" "flex"
-        , Attr.style "align-items" "center"
-        , Attr.style "justify-content" "space-between"
-        , Attr.style "gap" "12px"
-        , Attr.style "padding" "8px 16px"
-        , Attr.style "border-bottom" "1px solid #e5e7eb"
-        , Attr.style "position" "sticky"
-        , Attr.style "top" "0"
-        , Attr.style "background" "white"
-        , Attr.style "z-index" "1"
-        , Attr.style "color" "#111827"
-        ]
-        [ Html.div
-            [ Attr.style "display" "flex"
-            , Attr.style "align-items" "center"
-            , Attr.style "gap" "8px"
-            ]
-            [ Html.a
-                [ Attr.href backHref
-                , Attr.style "text-decoration" "none"
-                , Attr.style "display" "inline-flex"
-                , Attr.style "align-items" "center"
-                , Attr.style "gap" "6px"
-                , Attr.style "padding" "6px 8px"
-                , Attr.style "border-radius" "6px"
-                , Attr.style "border" "1px solid #e5e7eb"
-                , Attr.style "background" "#f9fafb"
-                ]
-                [ Html.text "‹"
-                ]
-            , Html.h1
-                [ Attr.style "margin" "0"
-                , Attr.style "font-size" "18px"
-                , Attr.style "font-weight" "600"
-                ]
-                [ Html.text project.name ]
-            ]
-        , Html.div
-            [ Attr.style "color" "#6b7280"
-            , Attr.style "font-size" "12px"
-            ]
-            [ Html.text (statusSummary project.status) ]
-        ]
-
-
-statusSummary : ProjectStatus.Status -> String
-statusSummary status =
-    case status of
-        ProjectStatus.NoData ->
-            "Unknown"
-
-        ProjectStatus.Success ->
-            "0 errors"
-
-        ProjectStatus.GlobalError _ ->
-            "1 error"
-
-        ProjectStatus.CompilerError record ->
-            let
-                total =
-                    record.errors
-                        |> List.map (\file -> List.length file.problem)
-                        |> List.sum
-            in
-            String.fromInt total ++ " errors"
 
 
 viewDetailsCard : ProjectStatus.Project -> Html Msg
@@ -198,7 +135,7 @@ viewDetailsCard project =
                 [ Attr.style "color" "#6b7280"
                 , Attr.style "font-size" "12px"
                 ]
-                [ Html.text (statusSummary project.status) ]
+                [ Html.text (Ui.Nav.Top.statusSummary project.status) ]
             ]
         , Html.div
             [ Attr.style "margin-bottom" "8px"

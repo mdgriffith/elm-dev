@@ -2,6 +2,7 @@ module Store.Modules exposing
     ( store
     , Model, Msg(..)
     , Module, lookup, getByName
+    , requestMissingForProject
     )
 
 {-|
@@ -11,12 +12,15 @@ module Store.Modules exposing
 @docs Model, Msg
 
 @docs Module, lookup, getByName
+@docs requestMissingForProject
 
 -}
 
 import App.Store
+import Data.ProjectStatus as ProjectStatus
 import Dict
 import Effect
+import Effect.Ask
 import Elm.Docs
 import Elm.Module
 import Elm.Package
@@ -103,9 +107,35 @@ store =
                         case event of
                             Listen.DevServer.PackageUpdated pkg ->
                                 ModulesReceived pkg.name pkg.modules
+                            Listen.DevServer.ProjectModulesUpdated mods ->
+                                -- Tag project modules under a synthetic local package
+                                case Elm.Package.fromString "author/project" of
+                                    Just package ->
+                                        ModulesReceived package mods
+                                    Nothing ->
+                                        IgnoreDevServer "non-package event"
 
                             _ ->
                                 IgnoreDevServer "non-package event"
                     )
         }
+
+
+{-| For a given project, request any modules that are not already present in the modules store. -}
+requestMissingForProject : ProjectStatus.Project -> Model -> Effect.Effect msg
+requestMissingForProject project model =
+    let
+        missingPaths : List String
+        missingPaths =
+            project.modules
+                |> List.filter
+                    (\mi ->
+                        Dict.member mi.name model.modules
+                            |> not
+                    )
+                |> List.map .path
+    in
+    missingPaths
+        |> List.map (\file -> Effect.Ask.moduleRequested { dir = project.projectRoot, file = file })
+        |> Effect.batch
 

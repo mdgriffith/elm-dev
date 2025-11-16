@@ -37,6 +37,13 @@ type alias Project =
     , docs : DocsOverview
     , dependencies : Deps
     , testDependencies : Deps
+    , modules : List ModuleInfo
+    }
+
+
+type alias ModuleInfo =
+    { name : String
+    , path : String
     }
 
 
@@ -169,32 +176,47 @@ inEditor file editor =
 {- HELPERS -}
 
 
+andMap : Decode.Decoder a -> Decode.Decoder (a -> b) -> Decode.Decoder b
+andMap argDec funcDec =
+    Decode.map2 (\a f -> f a) argDec funcDec
+
+
 decodeProject : Decode.Decoder Project
 decodeProject =
-    Decode.map8
-        (\shortId root name projectRoot entrypoints status docs allDeps ->
-            Project shortId root name projectRoot entrypoints status docs allDeps.dependencies allDeps.testDependencies
+    Decode.succeed
+        (\shortId root name projectRoot entrypoints status docs allDeps modules ->
+            Project shortId root name projectRoot entrypoints status docs allDeps.dependencies allDeps.testDependencies modules
         )
-        (Decode.field "shortId" Decode.int)
-        (Decode.field "root" Decode.string)
-        (Decode.field "root" Decode.string |> Decode.map nameFromRoot)
-        (Decode.field "projectRoot" Decode.string)
-        (Decode.field "entrypoints" (Decode.list Decode.string))
-        (Decode.field "status" decodeStatus)
-        (Decode.map (Maybe.withDefault emptyDocsOverview)
-            (Decode.maybe (Decode.field "docs" decodeDocsOverview))
-        )
-        (Decode.field "elmJson" Decode.string
-            |> Decode.andThen
-                (\str ->
-                    case Decode.decodeString decodeElmJsonFile str of
-                        Ok parsed ->
-                            Decode.succeed parsed
+        |> andMap (Decode.field "shortId" Decode.int)
+        |> andMap (Decode.field "root" Decode.string)
+        |> andMap (Decode.field "root" Decode.string |> Decode.map nameFromRoot)
+        |> andMap (Decode.field "projectRoot" Decode.string)
+        |> andMap (Decode.field "entrypoints" (Decode.list Decode.string))
+        |> andMap (Decode.field "status" decodeStatus)
+        |> andMap
+            (Decode.map (Maybe.withDefault emptyDocsOverview)
+                (Decode.maybe (Decode.field "docs" decodeDocsOverview))
+            )
+        |> andMap
+            (Decode.field "elmJson" Decode.string
+                |> Decode.andThen
+                    (\str ->
+                        case Decode.decodeString decodeElmJsonFile str of
+                            Ok parsed ->
+                                Decode.succeed parsed
 
-                        Err _ ->
-                            Decode.fail "Failed to decode elm.json"
-                )
-        )
+                            Err _ ->
+                                Decode.fail "Failed to decode elm.json"
+                    )
+            )
+        |> andMap (Decode.field "modules" (Decode.list decodeModuleInfo))
+
+
+decodeModuleInfo : Decode.Decoder ModuleInfo
+decodeModuleInfo =
+    Decode.map2 ModuleInfo
+        (Decode.field "name" Decode.string)
+        (Decode.field "path" Decode.string)
 
 
 decodeDocsOverview : Decode.Decoder DocsOverview

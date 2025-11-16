@@ -127,7 +127,10 @@ async function setupDaemonIntegration() {
 setupDaemonIntegration();
 
 // Listen for Elm asks and fulfill via Tauri HTTP
-type AskMessage = { route: "ProjectList" } | { route: "PackageRequested", name: string, version: string };
+type AskMessage =
+  | { route: "ProjectList" }
+  | { route: "PackageRequested"; name: string; version: string }
+  | { route: "ModuleRequested"; dir: string; file: string };
 app.ports?.ask?.subscribe?.((msg: AskMessage) => {
   console.log("Ask", msg, currentBase);
   if (!currentBase) return;
@@ -161,6 +164,33 @@ app.ports?.ask?.subscribe?.((msg: AskMessage) => {
         })
         .catch((err) => {
           console.log("PackageRequested error", err);
+        });
+      break;
+    }
+    case "ModuleRequested": {
+      const dir = encodeURIComponent(msg.dir);
+      const file = encodeURIComponent(msg.file);
+      void fetch(`${currentBase}/dev/docs/module?dir=${dir}&file=${file}`, { method: "GET" })
+        .then((res: TauriHttpResponse) => (res.ok ? res.json() : null))
+        .then((body: unknown) => {
+          console.log("ModuleRequested response", body);
+          if (body == null) return;
+          let modules: unknown[] = [];
+          if (Array.isArray(body)) {
+            modules = body as unknown[];
+          } else if (typeof body === "object") {
+            const obj = body as Record<string, unknown>;
+            if (Array.isArray((obj as any).modules)) {
+              modules = (obj as any).modules as unknown[];
+            } else {
+              const values = Object.values(obj);
+              modules = values.length > 0 ? values : [body];
+            }
+          }
+          app.ports.devServer.send({ msg: "ProjectModulesUpdated", details: modules });
+        })
+        .catch((err) => {
+          console.log("ModuleRequested error", err);
         });
       break;
     }
