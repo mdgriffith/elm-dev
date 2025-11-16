@@ -8,6 +8,11 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "global-shortcut:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-is-registered",
+    "global-shortcut:allow-unregister",
+    "core:window:allow-set-always-on-top",
     {
       "identifier": "http:default",
       "allow": [
