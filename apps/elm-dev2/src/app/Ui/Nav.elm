@@ -92,7 +92,7 @@ viewPackageInfo package =
         , Ui.Attr.width (width - (padding * 2))
         , Attr.style "display" "inline-block"
         ]
-        [ Html.text (package.name ++ " @" ++ package.version) ]
+        [ Html.text package.name ]
 
 
 heightWindow =

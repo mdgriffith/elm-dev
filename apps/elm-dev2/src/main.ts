@@ -127,7 +127,7 @@ async function setupDaemonIntegration() {
 setupDaemonIntegration();
 
 // Listen for Elm asks and fulfill via Tauri HTTP
-type AskMessage = { route: string };
+type AskMessage = { route: "ProjectList" } | { route: "PackageRequested", name: string, version: string };
 app.ports?.ask?.subscribe?.((msg: AskMessage) => {
   console.log("Ask", msg, currentBase);
   if (!currentBase) return;
@@ -146,6 +146,21 @@ app.ports?.ask?.subscribe?.((msg: AskMessage) => {
         .catch((err) => {
 
           console.log("ProjectList error", err);
+        });
+      break;
+    }
+    case "PackageRequested": {
+      void fetch(`${currentBase}/dev/package?name=${msg.name}@${msg.version}`, { method: "GET" })
+        .then((res: TauriHttpResponse) => (res.ok ? res.json() : null))
+        .then((body: unknown) => {
+          console.log("PackageRequested response", body);
+          if (body != null && typeof body === "object") {
+            const details = (body as any).details ?? body;
+            app.ports.devServer.send({ msg: "PackageUpdated", details });
+          }
+        })
+        .catch((err) => {
+          console.log("PackageRequested error", err);
         });
       break;
     }

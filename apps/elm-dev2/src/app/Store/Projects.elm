@@ -75,7 +75,7 @@ store =
             \msg model ->
                 case msg of
                     ProjectListReceived result ->
-                        case Debug.log "ProjectListReceived" result of
+                        case result of
                             Ok status ->
                                 ( { model
                                     | projects =

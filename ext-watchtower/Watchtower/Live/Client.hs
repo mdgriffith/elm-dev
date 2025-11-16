@@ -45,6 +45,7 @@ module Watchtower.Live.Client
     builderToString,
     watchedFiles,
     toOldJSON,
+    getStatus,
     -- Session helpers
     registerSession,
     unregisterSession,
@@ -64,6 +65,8 @@ import qualified Data.ByteString.Builder
 import qualified Data.ByteString.Lazy
 import qualified Data.Aeson as Aeson
 import Data.Aeson ((.=))
+import qualified Data.Aeson.Key as AesonKey
+import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Either as Either
 import qualified Data.List as List
 import qualified Data.Map as Map
@@ -95,6 +98,7 @@ import qualified Reporting.Warning as Warning
 import qualified Reporting.Exit
 import qualified System.FilePath as FilePath
 import qualified System.Directory as Dir
+import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Watchtower.Editor
 import qualified Watchtower.Websocket
 import qualified Ext.CompileHelpers.Generic
@@ -427,14 +431,111 @@ getAllStatuses state@(State _ mProjects _ _ _ _ _) =
     Monad.foldM
       ( \statuses proj ->
           do
-            status <- getStatus proj
+            status <- getStatus proj state
             pure (status : statuses)
       )
       []
       projects
 
-getStatus :: ProjectCache -> IO ProjectStatus
-getStatus (ProjectCache proj docsInfo _ mCompileResult _) =
+-- Discover project modules (name and full path) by scanning src dirs
+discoverProjectModules :: Ext.Dev.Project.Project -> IO [(String, FilePath)]
+discoverProjectModules proj = do
+  let srcDirs = Ext.Dev.Project._srcDirs proj
+  files <-
+    Monad.foldM
+      ( \acc dir -> do
+          xs <- listElmFiles dir
+          pure (acc <> xs)
+      )
+      []
+      srcDirs
+  pure (Maybe.mapMaybe (toModulePair srcDirs) files)
+  where
+    listElmFiles :: FilePath -> IO [FilePath]
+    listElmFiles dir = do
+      isDir <- Dir.doesDirectoryExist dir
+      if not isDir
+        then pure []
+        else do
+          names <- Dir.listDirectory dir
+          let paths = fmap (dir FilePath.</>) names
+          (subdirs, files) <-
+            Monad.foldM
+              ( \(ds, fs) p -> do
+                  isSub <- Dir.doesDirectoryExist p
+                  if isSub
+                    then pure (p : ds, fs)
+                    else pure (ds, if List.isSuffixOf ".elm" p then (p : fs) else fs)
+              )
+              ([], [])
+              paths
+          let filteredSubs = filter (not . shouldSkip) subdirs
+          nested <- Monad.foldM (\acc d -> do xs <- listElmFiles d; pure (acc <> xs)) [] filteredSubs
+          pure (files <> nested)
+
+    shouldSkip :: FilePath -> Bool
+    shouldSkip path =
+      List.isInfixOf "node_modules" path
+        || List.isInfixOf "elm-stuff" path
+        || case FilePath.takeFileName path of
+             ('.' : _) -> True
+             _ -> False
+
+    toModulePair :: [FilePath] -> FilePath -> Maybe (String, FilePath)
+    toModulePair srcDirs full =
+      let maybeRel =
+            List.foldl
+              ( \found dir ->
+                  case found of
+                    Just _ -> found
+                    Nothing ->
+                      let rel = FilePath.makeRelative dir full
+                       in if List.isPrefixOf ".." rel
+                            then Nothing
+                            else Just rel
+              )
+              Nothing
+              srcDirs
+       in case maybeRel of
+            Nothing -> Nothing
+            Just rel ->
+              let noExt = FilePath.dropExtension rel
+                  modName = fmap (\c -> if c == FilePath.pathSeparator then '.' else c) noExt
+               in Just (modName, full)
+
+-- Parse direct package dependency names from elm.json contents
+directDepsFromElmJson :: Maybe String -> [String]
+directDepsFromElmJson Nothing = []
+directDepsFromElmJson (Just contents) =
+  case Aeson.eitherDecode (BL8.pack contents) :: Either String Aeson.Value of
+    Right (Aeson.Object obj) ->
+      case KeyMap.lookup (AesonKey.fromString "dependencies") obj of
+        Just (Aeson.Object depsObj) ->
+          let directObj =
+                case KeyMap.lookup (AesonKey.fromString "direct") depsObj of
+                  Just (Aeson.Object d) -> d
+                  _ -> depsObj
+           in fmap (T.unpack . AesonKey.toText) (KeyMap.keys directObj)
+        _ -> []
+    _ -> []
+
+-- For each dependency name, list module names if present in tracked packages
+packageModulesForDeps :: [(Pkg.Name, PackageInfo)] -> [String] -> [(String, [String])]
+packageModulesForDeps pkgList depNames =
+  fmap
+    ( \dep ->
+        let found =
+              List.find (\(pkgName, _) -> Pkg.toChars pkgName == dep) pkgList
+         in case found of
+              Nothing -> (dep, [])
+              Just (_, pinfo) ->
+                let names = fmap (ModuleName.toChars) (Map.keys (packageModules pinfo))
+                 in (dep, names)
+    )
+    depNames
+
+getStatus :: ProjectCache -> State -> IO ProjectStatus
+getStatus (ProjectCache proj docsInfo _ mCompileResult _) (State _ _ _ mPackages _ _ _) =
   do
     result <- STM.readTVarIO mCompileResult
     let successful =
@@ -448,7 +549,12 @@ getStatus (ProjectCache proj docsInfo _ mCompileResult _) =
       if exists
         then Just <$> readFile elmJsonPath
         else pure Nothing
-    pure (ProjectStatus proj successful json docsInfo elmJsonContents)
+    modules <- discoverProjectModules proj
+    packagesMap <- STM.readTVarIO mPackages
+    let pkgList = Map.toList packagesMap
+    let depNames = directDepsFromElmJson elmJsonContents
+    let packages = packageModulesForDeps pkgList depNames
+    pure (ProjectStatus proj successful json docsInfo elmJsonContents modules packages)
 
 outgoingToLog :: Outgoing -> String
 outgoingToLog outgoing =
@@ -467,7 +573,7 @@ outgoingToLog outgoing =
       "Tests"
 
 projectStatusToString :: ProjectStatus -> String
-projectStatusToString (ProjectStatus proj success json docs _elmJson) =
+projectStatusToString (ProjectStatus proj success _ _ _ _ _) =
   if success
     then "Success: ../" ++ FilePath.takeBaseName (Ext.Dev.Project.getRoot proj)
     else "Failing: ../" ++ FilePath.takeBaseName (Ext.Dev.Project.getRoot proj)
@@ -477,7 +583,9 @@ data ProjectStatus = ProjectStatus
     _success :: Bool,
     _json :: Json.Encode.Value,
     _docs :: Gen.Config.DocsConfig,
-    _elmJson :: Maybe String
+    _elmJson :: Maybe String,
+    _modules :: [(String, FilePath)],
+    _packages :: [(String, [String])]
   }
 
 encodeOutgoing :: Outgoing -> Data.ByteString.Builder.Builder
@@ -489,7 +597,7 @@ encodeOutgoing out =
           [ "msg" ==> Json.Encode.string (Json.String.fromChars "Status"),
             "details"
               ==> Json.Encode.list
-                ( \(ProjectStatus project success status docs elmJson) ->
+                ( \(ProjectStatus project success status docs elmJson modules packages) ->
                     Json.Encode.object
                       [ "shortId" ==> Json.Encode.int (Ext.Dev.Project._shortId project),
                         "root"
@@ -512,7 +620,26 @@ encodeOutgoing out =
                           ==> ( case elmJson of
                                   Just contents -> Json.Encode.chars contents
                                   Nothing -> Json.Encode.null
-                              )
+                              ),
+                        "modules"
+                          ==> Json.Encode.list
+                                ( \(name, path) ->
+                                    Json.Encode.object
+                                      [ "name" ==> Json.Encode.chars name
+                                      , "path" ==> Json.Encode.chars path
+                                      ]
+                                )
+                                modules,
+                        "packages"
+                          ==> Json.Encode.object
+                                ( fmap
+                                    ( \(pkgName, modNames) ->
+                                        ( Json.String.fromChars pkgName
+                                        , Json.Encode.list Json.Encode.chars modNames
+                                        )
+                                    )
+                                    packages
+                                )
                       ]
                 )
                 statuses
@@ -741,7 +868,7 @@ broadcast mClients msg =
 
                   affectedProjectsThatWereListeningTo =
                     List.filter
-                      ( \(ProjectStatus proj _ _ _ _) ->
+                      ( \(ProjectStatus proj _ _ _ _ _ _) ->
                           isWatchingProject proj clientData
                       )
                       projectStatusList

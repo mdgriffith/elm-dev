@@ -1,6 +1,7 @@
 port module Listen.DevServer exposing
     ( listen, Event(..)
     , ServerStatus(..), ServerInfo
+    , Package
     )
 
 {-| Listen for updates from the dev server.
@@ -14,6 +15,9 @@ port module Listen.DevServer exposing
 import Data.Editor as Editor
 import Data.ProjectStatus as ProjectStatus
 import Dict
+import Elm.Docs
+import Elm.Package
+import Elm.Project
 import Json.Decode as Decode
 import Listen
 import Platform.Sub
@@ -46,6 +50,7 @@ type Event
         , warnings : List ProjectStatus.Warning
         }
     | ServerStatusUpdated Server
+    | PackageUpdated Package
 
 
 type alias Server =
@@ -65,12 +70,21 @@ type alias ServerInfo =
     }
 
 
+type alias Package =
+    { readme : Maybe String
+    , name : Elm.Package.Name
+    , info : Elm.Project.Project
+    , version : String
+    , modules : List Elm.Docs.Module
+    }
+
+
 eventDecoder : Decode.Decoder Event
 eventDecoder =
     Decode.field "msg" Decode.string
         |> Decode.andThen
             (\msg ->
-                case msg of
+                case Debug.log "EVENT DECODER" msg of
                     "Server" ->
                         Decode.field "details"
                             (Decode.field "status" Decode.string
@@ -142,10 +156,46 @@ eventDecoder =
                                 )
                             )
 
+                    "PackageUpdated" ->
+                        Decode.map PackageUpdated
+                            (Decode.field "details"
+                                (Decode.map5 Package
+                                    (Decode.field "readme" (Decode.maybe Decode.string))
+                                    (Decode.field "name"
+                                        Elm.Package.decoder
+                                    )
+                                    (Decode.field "elmJson"
+                                        Elm.Project.decoder
+                                    )
+                                    (Decode.field "version" Decode.string)
+                                    (Decode.field "docs" (Decode.list Elm.Docs.decoder))
+                                )
+                            )
+
                     _ ->
                         Decode.value
                             |> Decode.andThen
                                 (\val ->
+                                    let
+                                        _ =
+                                            Debug.log "UNRECOGNIZED INCOMING MSG" val
+                                    in
                                     Decode.fail "UNRECOGNIZED INCOMING MSG"
                                 )
             )
+
+
+
+-- placeholderProject : Elm.Project.Project
+-- placeholderProject =
+--     Elm.Project.Package
+--         { name = Elm.Package.Name "placeholder"
+--         , version = "0.0.0"
+--         , exposed = Elm.Project.ExposedList []
+--         , deps = Elm.Project.Deps [] []
+--         , elm = Elm.Constraint.Constraint "0.0.0"
+--         , license = Elm.License.License "placeholder"
+--         , summary = "placeholder"
+--         , testDeps = Elm.Project.Deps [] []
+--         }
+

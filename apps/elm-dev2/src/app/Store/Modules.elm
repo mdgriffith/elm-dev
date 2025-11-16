@@ -23,6 +23,7 @@ import Elm.Package
 import Json.Decode
 import Json.Encode
 import Listen
+import Listen.DevServer
 
 
 type alias Model =
@@ -38,6 +39,7 @@ type alias Module =
 
 type Msg
     = ModulesReceived Elm.Package.Name (List Elm.Docs.Module)
+    | IgnoreDevServer String
 
 
 lookup : List String -> Model -> Maybe Module
@@ -91,5 +93,19 @@ store =
                           }
                         , Effect.none
                         )
-        , subscriptions = \_ -> Listen.none
+
+                    IgnoreDevServer _ ->
+                        ( model, Effect.none )
+        , subscriptions =
+            \_ ->
+                Listen.DevServer.listen
+                    (\event ->
+                        case event of
+                            Listen.DevServer.PackageUpdated pkg ->
+                                ModulesReceived pkg.name pkg.modules
+
+                            _ ->
+                                IgnoreDevServer "non-package event"
+                    )
         }
+

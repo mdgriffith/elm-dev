@@ -17,6 +17,7 @@ import Effect exposing (Effect)
 import Html exposing (Html)
 import Html.Attributes as Attr
 import Listen exposing (Listen)
+import Store.Packages
 import Store.Projects
 import String
 import Ui
@@ -48,7 +49,12 @@ init _ params stores _ =
     case String.toInt params.projectid of
         Just shortId ->
             Store.Projects.lookup shortId stores.projects
-                |> Maybe.map (\p -> App.Page.init { project = p })
+                |> Maybe.map
+                    (\p ->
+                        App.Page.initWith
+                            { project = p }
+                            (Store.Packages.requestMissingForProject p stores.packages)
+                    )
                 |> Maybe.withDefault App.Page.notFound
 
         Nothing ->

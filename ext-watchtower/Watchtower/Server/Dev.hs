@@ -30,12 +30,12 @@ import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Data.NonEmptyList as NE
 import qualified Data.List as List
 import qualified Reporting.Exit
-
 import qualified Ext.Log
 import Snap.Core
 import Control.Monad.Trans (liftIO)
 import qualified Data.Map as Map
 import qualified Ext.FileCache
+import System.FilePath ((</>), (<.>))
 import qualified File
 import qualified GHC.Stats as RT
 import qualified System.Mem as Mem
@@ -49,6 +49,10 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text as Text
 import Data.Maybe (fromMaybe)
+import qualified Stuff
+import qualified Control.Exception
+
+
 -- Convert bytes to megabytes (MiB)
 bytesToMb :: (Integral a) => a -> Double
 bytesToMb b = (fromIntegral b) / (1024.0 * 1024.0)
@@ -207,6 +211,7 @@ routes state =
   [ ("/dev/js", jsHandler state)
   , ("/dev/interactive", interactiveHandler state)
   , ("/dev/log", logHandler)
+  , ("/dev/package", packageHandler state)
   , ("/dev/fileChanged", fileChangedHandler state)
   , ("/dev/memory", memoryHandler state)
   , ("/projectList", projectListHandler state)
@@ -283,6 +288,90 @@ logHandler = do
     Right _ -> do
       modifyResponse $ setContentType "application/json"
       writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
+
+-- Return package elm.json and README, given ?name=owner/project@version or owner/project/version
+packageHandler :: Live.State -> Snap ()
+packageHandler _state = do
+  mName <- getParam "name"
+  case mName of
+    Nothing -> problemSnap 400 "bad_request" (Text.pack "Missing query param: name")
+    Just nameBs -> do
+      let nameStr = Text.unpack (Data.Text.Encoding.decodeUtf8 nameBs)
+      case parsePkg nameStr of
+        Nothing ->
+          problemSnap 400 "bad_request" (Text.pack "Expected name like owner/project@version or owner/project/version")
+        Just (owner, project, version) -> do
+          elmHome <- liftIO Stuff.getElmHome
+          let base = elmHome </> "0.19.1" </> "packages" </> owner </> project </> version
+          readmeBytes <- liftIO (readFileSafe (base </> "README.md"))
+          elmJsonBytes <- liftIO (readFileSafe (base </> "elm.json"))
+          docsBytes <- liftIO (readFileSafe (base </> "docs.json"))
+          let docsVal =
+                case docsBytes of
+                  Nothing -> JSON.Null
+                  Just bs ->
+                    case JSON.eitherDecodeStrict bs of
+                      Left _ -> JSON.Null
+                      Right v -> v
+          let readmeVal =
+                case readmeBytes of
+                  Nothing -> JSON.Null
+                  Just bs -> JSON.String (T.decodeUtf8 bs)
+          let elmJsonVal =
+                case elmJsonBytes of
+                  Nothing -> JSON.Null
+                  Just bs ->
+                    case JSON.eitherDecodeStrict bs of
+                      Left _ -> JSON.Null
+                      Right v -> v
+          modifyResponse $ setContentType "application/json"
+          writeLBS
+            ( JSON.encode
+                ( JSON.object
+                    [ "name" JSON..= (owner <> "/" <> project)
+                    , "version" JSON..= version
+                    , "readme" JSON..= readmeVal
+                    , "elmJson" JSON..= elmJsonVal
+                    , "docs" JSON..= docsVal
+                    ]
+                )
+            )
+
+  where
+    parsePkg :: String -> Maybe (String, String, String)
+    parsePkg str =
+      case break (== '@') str of
+        (beforeAt, '@' : v) ->
+          case splitSlash beforeAt of
+            Just (o, p) -> Just (o, p, v)
+            Nothing -> Nothing
+        _ ->
+          case splitSlashVersion str of
+            Just (o, p, v) -> Just (o, p, v)
+            Nothing -> Nothing
+
+    splitSlash :: String -> Maybe (String, String)
+    splitSlash s =
+      case break (== '/') s of
+        (o, '/' : p) | not (null o) && not (null p) -> Just (o, p)
+        _ -> Nothing
+
+    splitSlashVersion :: String -> Maybe (String, String, String)
+    splitSlashVersion s =
+      case splitSlash s of
+        Just (o, rest) ->
+          case break (== '/') rest of
+            (p, '/' : v) | not (null p) && not (null v) -> Just (o, p, v)
+            _ -> Nothing
+        _ -> Nothing
+    
+-- Safely read a file; return empty bytes if missing or unreadable
+readFileSafe :: FilePath -> IO (Maybe BS.ByteString)
+readFileSafe path = do
+  r <- Control.Exception.try (BS.readFile path) :: IO (Either Control.Exception.IOException BS.ByteString)
+  case r of
+    Left _ -> pure Nothing
+    Right bs -> pure (Just bs)
 
 -- Memory summary
 memoryHandler :: Live.State -> Snap ()

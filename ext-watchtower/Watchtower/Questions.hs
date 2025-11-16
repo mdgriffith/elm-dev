@@ -573,23 +573,7 @@ flattenJsonStatus (Left json) = json
 flattenJsonStatus (Right json) = json
 
 allProjectStatuses :: Watchtower.Live.Client.State -> IO Data.ByteString.Builder.Builder
-allProjectStatuses (Watchtower.Live.Client.State clients mProjects _ _ _ _ _) =
+allProjectStatuses state =
   do
-    projects <- STM.readTVarIO mProjects
-    projectStatuses <-
-      Monad.foldM
-        ( \gathered (Watchtower.Live.Client.ProjectCache proj docsInfo _ mCompileResult _) -> do
-            result <- STM.readTVarIO mCompileResult
-            let projectStatus =
-                  case result of
-                    Watchtower.Live.Client.Success _ -> Watchtower.Live.Client.ProjectStatus proj True (Watchtower.Live.Client.toOldJSON result) docsInfo Nothing
-                    _ -> Watchtower.Live.Client.ProjectStatus proj False (Watchtower.Live.Client.toOldJSON result) docsInfo Nothing
-            pure $ projectStatus : gathered
-        )
-        []
-        projects
-
-    pure
-      ( Watchtower.Live.Client.encodeOutgoing
-          (Watchtower.Live.Client.ElmStatus projectStatuses)
-      )
+    statuses <- Watchtower.Live.Client.getAllStatuses state
+    pure (Watchtower.Live.Client.encodeOutgoing (Watchtower.Live.Client.ElmStatus statuses))

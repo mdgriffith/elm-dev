@@ -78,21 +78,9 @@ websocket_ state@(Client.State mClients mProjects _ _ _ _ _) = do
   case mKey of
     Just key -> do
       let onJoined clientId totalClients = do
-            projects <- STM.readTVarIO mProjects
-            statuses <-
-              Monad.foldM
-                ( \gathered (Client.ProjectCache proj docsInfo _ mCompileResult _) -> do
-                    result <- STM.readTVarIO mCompileResult
-                    let projectStatus =
-                          case result of
-                            Client.Success _ -> Client.ProjectStatus proj True (Client.toOldJSON result) docsInfo Nothing
-                            _ -> Client.ProjectStatus proj False (Client.toOldJSON result) docsInfo Nothing
-                    pure $ projectStatus : gathered
-                )
-                []
-                projects
+            statuses <- Client.getAllStatuses state
 
-            Ext.Log.log Ext.Log.Live ("💪  Joined, reporting project statuses: " <> show (length projects))
+            Ext.Log.log Ext.Log.Live ("💪  Joined, reporting project statuses: " <> show (length statuses))
             pure $ Just $ Client.builderToString $ Client.encodeOutgoing (Client.ElmStatus statuses)
 
       Watchtower.Websocket.runWebSocketsSnap $

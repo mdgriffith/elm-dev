@@ -33,26 +33,26 @@ import qualified Reporting.Warning as Warning
 -- |
 -- Generally called once when the server starts, this will recompile all discovered projects in State
 compileAll :: Client.State -> IO ()
-compileAll (Client.State mClients mProjects _ _ _ _ _) = do
+compileAll state@(Client.State _ mProjects _ _ _ _ _) = do
   Ext.Log.log Ext.Log.Live "🛫 Recompile everything"
   trackedForkIO $
     track "recompile all projects" $ do
       projects <- STM.readTVarIO mProjects
       Monad.mapM_
-        (compileProject mClients)
+        (compileProject state)
         projects
 
       Ext.Log.log Ext.Log.Live "🛬 Recompile everything finished"
 
-compileProject :: STM.TVar [Client.Client] -> Client.ProjectCache -> IO ()
-compileProject mClients proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot projectRoot (NE.List topEntry remainEntry) _srcDirs _shortId) docsInfo _ _ _) =
-  recompileFile mClients (topEntry, remainEntry, proj)
+compileProject :: Client.State -> Client.ProjectCache -> IO ()
+compileProject state proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot projectRoot (NE.List topEntry remainEntry) _srcDirs _shortId) docsInfo _ _ _) =
+  recompileFile state (topEntry, remainEntry, proj)
 
 -- | This is called frequently.
 --
 -- Generally when a file change has been saved, or the user has changed what their looking at in the editor.
 recompile :: Client.State -> [String] -> IO ()
-recompile (Client.State mClients mProjects _ _ _ _ _) allChangedFiles = do
+recompile state@(Client.State mClients mProjects _ _ _ _ _) allChangedFiles = do
   let changedElmFiles = List.filter (\filepath -> ".elm" `List.isSuffixOf` filepath) allChangedFiles
   if (changedElmFiles /= [])
     then do
@@ -68,12 +68,12 @@ recompile (Client.State mClients mProjects _ _ _ _ _) allChangedFiles = do
         track "recompile" $ do
           -- send down status for
           Monad.mapM_
-            (recompileFile mClients)
+            (recompileFile state)
             affectedProjects
 
           -- Get the status of the entire project
           Monad.mapM_
-            (recompileProject mClients)
+            (recompileProject state)
             affectedProjects
 
           -- send down warnings and docs
@@ -92,13 +92,14 @@ toAffectedProject changedFiles projCache@(Client.ProjectCache proj@(Ext.Dev.Proj
         then Just (top, remain, projCache)
         else Nothing
 
-recompileProject :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
-recompileProject mClients (_, _, proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot _ (NE.List topEntry remainEntry) _srcDirs _shortId) docsInfo _ _ _)) =
-  recompileFile mClients (topEntry, remainEntry, proj)
+recompileProject :: Client.State -> (String, [String], Client.ProjectCache) -> IO ()
+recompileProject state (_, _, proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonRoot _ (NE.List topEntry remainEntry) _srcDirs _shortId) docsInfo _ _ _)) =
+  recompileFile state (topEntry, remainEntry, proj)
 
-recompileFile :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
-recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot _ entrypoints _srcDirs _shortId) docsInfo _ mCompileResult _)) =
+recompileFile :: Client.State -> (String, [String], Client.ProjectCache) -> IO ()
+recompileFile state (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot _ entrypoints _srcDirs _shortId) docsInfo _ mCompileResult _)) =
   do
+    let (Client.State mClients _ _ _ _ _ _) = state
     let entry = NonEmpty.List top remain
     eitherResult <-
       Ext.CompileProxy.compile
@@ -124,19 +125,15 @@ recompileFile mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.De
     -- Send compilation status
     case newResult of
       Client.Success _ -> do
+        status <- Client.getStatus projCache state
         Client.broadcast
           mClients
-          ( Client.ElmStatus
-              [ Client.ProjectStatus proj True (Client.toOldJSON newResult) docsInfo Nothing
-              ]
-          )
+          ( Client.ElmStatus [ status ] )
       Client.Error _ -> do
+        status <- Client.getStatus projCache state
         Client.broadcast
           mClients
-          ( Client.ElmStatus
-              [ Client.ProjectStatus proj False (Client.toOldJSON newResult) docsInfo Nothing
-              ]
-          )
+          ( Client.ElmStatus [ status ] )
 
 sendInfo :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
 sendInfo mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot projectRoot entrypoints _srcDirs _shortId) docsInfo _ _ _)) = do
