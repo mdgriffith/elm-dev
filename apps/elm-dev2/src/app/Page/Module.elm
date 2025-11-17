@@ -14,6 +14,7 @@ import App.View
 import App.View.Region
 import Broadcast
 import Data.ProjectStatus as ProjectStatus
+import Docs.Ref
 import Docs.Ref.Get
 import Effect exposing (Effect)
 import Elm.Docs
@@ -116,31 +117,42 @@ view viewId shared model =
                         Nothing ->
                             Nothing
 
-                moduleFilepath =
-                    "src/"
-                        ++ (String.split "." model.module_.info.name
-                                |> String.join "/"
-                           )
-                        ++ ".elm"
+                maybeFilepath =
+                    case model.module_.location of
+                        Docs.Ref.LocalFile path ->
+                            Just path
+
+                        Docs.Ref.Package _ ->
+                            Nothing
               in
               case maybeRoot of
                 Nothing ->
                     Html.text ""
 
                 Just root ->
-                    Html.div
-                        [ Attr.style "margin-top" "16px"
-                        , Attr.style "height" "480px"
-                        , Attr.style "border" "1px solid #e5e7eb"
-                        , Attr.style "border-radius" "8px"
-                        , Attr.style "overflow" "hidden"
-                        ]
-                        [ WebComponents.Elm.elm
-                            { baseUrl = "http://localhost:1420"
-                            , filepath = moduleFilepath
-                            , cwd = root
-                            }
-                        ]
+                    case shared.devServer.base of
+                        Nothing ->
+                            Html.text ""
+
+                        Just baseUrl ->
+                            case maybeFilepath of
+                                Nothing ->
+                                    Html.text ""
+
+                                Just moduleFilepath ->
+                                    Html.div
+                                        [ Attr.style "margin-top" "16px"
+                                        , Attr.style "height" "480px"
+                                        , Attr.style "border" "1px solid #e5e7eb"
+                                        , Attr.style "border-radius" "8px"
+                                        , Attr.style "overflow" "hidden"
+                                        ]
+                                        [ WebComponents.Elm.elm
+                                            { baseUrl = baseUrl
+                                            , filepath = moduleFilepath
+                                            , cwd = root
+                                            }
+                                        ]
             ]
     }
 

@@ -53,7 +53,8 @@ getBlockRef id modName typeName mod =
                 { id = Docs.Ref.Id id
                 , source =
                     { moduleName = modName
-                    , package = mod.package
+                    , location =
+                        mod.location
                     }
                 , block = block
                 }
@@ -106,3 +107,4 @@ toBlockName block =
 
         Elm.Docs.UnknownBlock text ->
             Nothing
+

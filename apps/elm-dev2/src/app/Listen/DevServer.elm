@@ -41,7 +41,7 @@ type Event
         { visible : List Editor.Editor
         }
     | ProjectsStatusUpdated (List ProjectStatus.Project)
-    | ProjectModulesUpdated (List Elm.Docs.Module)
+    | ModuleLocalUpdated { filepath : String, modul : Elm.Docs.Module }
     | ServiceStatusUpdated
         { sessions : Dict.Dict String Int
         , editorsOpen : Dict.Dict String Int
@@ -173,9 +173,18 @@ eventDecoder =
                                 )
                             )
 
-                    "ProjectModulesUpdated" ->
-                        Decode.map ProjectModulesUpdated
-                            (Decode.field "details" (Decode.list Elm.Docs.decoder))
+                    "ModuleLocalUpdated" ->
+                        Decode.field "details"
+                            (Decode.map2
+                                (\filepath module_ ->
+                                    ModuleLocalUpdated
+                                        { filepath = filepath
+                                        , modul = module_
+                                        }
+                                )
+                                (Decode.field "filepath" Decode.string)
+                                (Decode.field "module" Elm.Docs.decoder)
+                            )
 
                     _ ->
                         Decode.value

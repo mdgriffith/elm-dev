@@ -37,7 +37,6 @@ type alias ShortId =
 type alias Model =
     { current : Maybe ShortId
     , projects : Dict.Dict ShortId Data.ProjectStatus.Project
-    , base : Maybe String
     , sessions : Dict.Dict String Int
     , editorsOpen : Dict.Dict String Int
     }
@@ -64,7 +63,6 @@ store =
                             |> Maybe.withDefault
                                 { current = Nothing
                                 , projects = Dict.empty
-                                , base = Nothing
                                 , sessions = Dict.empty
                                 , editorsOpen = Dict.empty
                                 }
@@ -134,7 +132,7 @@ store =
                         case event of
                             Listen.DevServer.ServerStatusUpdated { status } ->
                                 case status of
-                                    Listen.DevServer.Connected info ->
+                                    Listen.DevServer.Connected _ ->
                                         ( model
                                         , Effect.Ask.projectList
                                         )
@@ -148,7 +146,7 @@ store =
                                         Dict.fromList
                                             (List.map
                                                 (\project -> ( project.shortId, project ))
-                                                (Debug.log "ProjectsStatusUpdated" projects)
+                                                projects
                                             )
                                   }
                                 , Effect.none

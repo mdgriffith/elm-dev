@@ -19,6 +19,7 @@ module Store.Modules exposing
 import App.Store
 import Data.ProjectStatus as ProjectStatus
 import Dict
+import Docs.Ref
 import Effect
 import Effect.Ask
 import Elm.Docs
@@ -36,13 +37,13 @@ type alias Model =
 
 
 type alias Module =
-    { package : Elm.Package.Name
+    { location : Docs.Ref.Location
     , info : Elm.Docs.Module
     }
 
 
 type Msg
-    = ModulesReceived Elm.Package.Name (List Elm.Docs.Module)
+    = ModulesReceived Docs.Ref.Location (List Elm.Docs.Module)
     | IgnoreDevServer String
 
 
@@ -80,7 +81,7 @@ store =
         , update =
             \msg model ->
                 case msg of
-                    ModulesReceived packageName newModules ->
+                    ModulesReceived location newModules ->
                         ( { model
                             | modules =
                                 List.foldl
@@ -88,7 +89,7 @@ store =
                                         -- Overwrite the module if it already exists
                                         Dict.insert m.name
                                             { info = m
-                                            , package = packageName
+                                            , location = location
                                             }
                                             acc
                                     )
@@ -106,14 +107,10 @@ store =
                     (\event ->
                         case event of
                             Listen.DevServer.PackageUpdated pkg ->
-                                ModulesReceived pkg.name pkg.modules
-                            Listen.DevServer.ProjectModulesUpdated mods ->
-                                -- Tag project modules under a synthetic local package
-                                case Elm.Package.fromString "author/project" of
-                                    Just package ->
-                                        ModulesReceived package mods
-                                    Nothing ->
-                                        IgnoreDevServer "non-package event"
+                                ModulesReceived (Docs.Ref.Package pkg.name) pkg.modules
+
+                            Listen.DevServer.ModuleLocalUpdated { filepath, modul } ->
+                                ModulesReceived (Docs.Ref.LocalFile filepath) [ modul ]
 
                             _ ->
                                 IgnoreDevServer "non-package event"
@@ -121,7 +118,8 @@ store =
         }
 
 
-{-| For a given project, request any modules that are not already present in the modules store. -}
+{-| For a given project, request any modules that are not already present in the modules store.
+-}
 requestMissingForProject : ProjectStatus.Project -> Model -> Effect.Effect msg
 requestMissingForProject project model =
     let

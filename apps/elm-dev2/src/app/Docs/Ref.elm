@@ -1,5 +1,6 @@
 module Docs.Ref exposing
     ( Id(..)
+    , Location(..)
     , Ref
     )
 
@@ -21,5 +22,10 @@ type Id
 
 type alias Source =
     { moduleName : Elm.Module.Name
-    , package : Elm.Package.Name
+    , location : Location
     }
+
+
+type Location
+    = Package Elm.Package.Name
+    | LocalFile String
