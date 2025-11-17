@@ -7,6 +7,9 @@ module Watchtower.Server.Dev (routes) where
 import qualified Control.Concurrent.STM as STM
 import Data.Aeson ((.=))
 import qualified Data.Aeson as JSON
+import qualified AST.Source as Src
+import qualified AST.Optimized as Opt
+import qualified Compile
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Lazy as LBS
@@ -14,8 +17,19 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Builder as BB
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding
+import qualified Deps.Solver as Solver
 import qualified Elm.Docs as Docs
+import qualified Elm.Interface as I
+import qualified Elm.ModuleName as ModuleName
+import qualified Elm.Outline as Outline
+import qualified Elm.Package as Pkg
+import qualified Elm.Version as V
+import qualified Generate.JavaScript as JS
+import qualified Generate.Mode as Mode
 import qualified Ext.Dev
+import qualified Ext.MemoryCached.Details as MDetails
+import qualified BackgroundWriter as BW
+import qualified Elm.Constraint as Con
 import qualified Gen.Generate
 import qualified Gen.Javascript
 import qualified Json.Encode
@@ -39,6 +53,7 @@ import System.FilePath ((</>), (<.>))
 import qualified File
 import qualified GHC.Stats as RT
 import qualified System.Mem as Mem
+import qualified System.Directory as Dir
 import Control.Monad (when)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import System.IO.Unsafe (unsafePerformIO)
@@ -51,6 +66,21 @@ import qualified Data.Text as Text
 import Data.Maybe (fromMaybe)
 import qualified Stuff
 import qualified Control.Exception
+import qualified Data.Name as Name
+import qualified Data.Map.Strict as MapStrict
+import qualified Data.Map as Map
+import qualified Json.Encode as Encode
+import qualified Reporting.Exit
+import qualified Reporting.Exit.Help as Help
+import qualified Reporting
+import qualified Parse.Module as Parse
+import qualified Data.NonEmptyList as NE
+import qualified Data.Utf8 as Utf8
+import qualified Reporting.Annotation as A
+import qualified Reporting.Error.Import as Import
+import qualified Reporting.Error as Error
+import qualified AST.Canonical as Can
+import Control.Concurrent.MVar (readMVar)
 
 
 -- Convert bytes to megabytes (MiB)
@@ -210,6 +240,7 @@ routes :: Live.State -> [(BS.ByteString, Snap ())]
 routes state =
   [ ("/dev/js", jsHandler state)
   , ("/dev/interactive", interactiveHandler state)
+  , ("/dev/interactive/compile", interactiveCompileHandler state)
   , ("/dev/docs/module", moduleDocsHandler state)
   , ("/dev/log", logHandler)
   , ("/dev/package", packageHandler state)
@@ -277,9 +308,36 @@ interactiveHandler state = do
     (Just dirBs, Just fileBs) -> do
       let dir = Text.unpack (Data.Text.Encoding.decodeUtf8 dirBs)
       let file = Text.unpack (Data.Text.Encoding.decodeUtf8 fileBs)
-      value <- liftIO (interactiveDocs state dir file)
-      modifyResponse $ setContentType "application/json"
-      writeLBS (JSON.encode value)
+      result <- liftIO (interactiveOutput state dir file)
+      case result of
+        Left err -> do
+          modifyResponse $ setResponseCode 422
+          modifyResponse $ setContentType "application/json"
+          writeLBS (JSON.encode (JSON.object ["error" JSON..= err]))
+        Right jsOrJsonText -> do
+          -- The interactive generator returns raw text (currently JSON describing generated files).
+          -- Send it through as text so clients can decide how to use it.
+          modifyResponse $ setContentType "text/plain; charset=utf-8"
+          writeBS (Data.Text.Encoding.encodeUtf8 (Text.pack jsOrJsonText))
+
+-- Compile a single Elm source file (passed as ?source=...) using a minimal
+-- transient app with explicit dependencies and return raw JS.
+interactiveCompileHandler :: Live.State -> Snap ()
+interactiveCompileHandler _state = do
+  mSource <- getParam "source"
+  case mSource of
+    Nothing ->
+      problemSnap 400 "bad_request" (Text.pack "Missing query param: source")
+    Just sourceBs -> do
+      e <- liftIO (compileSourceToJs sourceBs)
+      case e of
+        Left errText -> do
+          modifyResponse $ setResponseCode 422
+          modifyResponse $ setContentType "application/json"
+          writeLBS (JSON.encode (JSON.object ["error" JSON..= errText]))
+        Right jsBuilder -> do
+          modifyResponse $ setContentType "application/javascript; charset=utf-8"
+          writeBuilder jsBuilder
 
 moduleDocsHandler :: Live.State -> Snap ()
 moduleDocsHandler state = do
@@ -612,29 +670,18 @@ compile state root file debug optimize report = do
               pure (Left (ErrorTerminal (Text.pack "Compilation skipped")))
           
 
--- Perform the same logic as Questions.Interactive branch
-interactiveDocs :: Live.State -> FilePath -> FilePath -> IO JSON.Value
-interactiveDocs liveState cwd filepath = do
+-- Produce the raw output from the interactive generator (currently JSON describing generated Elm files)
+interactiveOutput :: Live.State -> FilePath -> FilePath -> IO (Either String String)
+interactiveOutput _liveState cwd filepath = do
   maybeDocs <- Ext.Dev.docs cwd filepath
   case maybeDocs of
-    Nothing -> pure (JSON.toJSON (Text.pack "Docs are not available"))
+    Nothing -> pure (Left "Interactive docs are not available")
     Just docs -> do
       let docsJson = Docs.encode (Docs.toDict [docs])
       let docsProject = Json.Encode.object [("project", docsJson), ("viewers", Json.Encode.array [])]
       let flags = Json.Encode.object [("flags", docsProject)]
       let input = LBS.toStrict (Builder.toLazyByteString (Json.Encode.encodeUgly flags))
-      result <- Gen.Javascript.run Gen.Javascript.interactiveJs input
-      case result of
-        Left err -> pure (JSON.toJSON err)
-        Right output -> do
-          case JSON.eitherDecodeStrict (Data.Text.Encoding.encodeUtf8 (Text.pack output)) of
-            Left err -> pure (JSON.toJSON err)
-            Right (Gen.Generate.GeneratedFiles _generatedFiles) -> do
-              -- Return the docs JSON as Aeson.Value to mirror Questions.Interactive behavior
-              let lbs = Builder.toLazyByteString (Json.Encode.encodeUgly docsJson)
-              case JSON.eitherDecode lbs of
-                Left e -> pure (JSON.String (Text.pack e))
-                Right v -> pure v
+      Gen.Javascript.run Gen.Javascript.interactiveJs input
 
 -- Return docs.json content (as Aeson Value) for a single module/file
 moduleDocs :: Live.State -> FilePath -> FilePath -> IO JSON.Value
@@ -683,4 +730,130 @@ problemSnap code problemCode detail = do
 decodeAsValue :: LBS.ByteString -> Either String JSON.Value
 decodeAsValue = JSON.eitherDecode
 
+
+-- -----------------------------
+-- Interactive single-file compile helpers
+-- -----------------------------
+
+-- Starting dependencies for interactive single-file compilation.
+-- Adjust here as needed.
+interactiveDepsDirect :: Map.Map Pkg.Name V.Version
+interactiveDepsDirect =
+  Map.fromList
+    [ (Pkg.browser, V.Version 1 0 2)
+    , (Pkg.core, V.Version 1 0 5)
+    , (Pkg.html, V.Version 1 0 0)
+    , (Pkg.json, V.Version 1 1 3)
+    , (Pkg.toName Pkg.elm "parser", V.Version 1 1 0)
+    , (Pkg.toName Pkg.elm "project-metadata-utils", V.Version 1 0 2)
+    , (Pkg.toName (Utf8.fromChars "mdgriffith") "elm-codegen", V.Version 5 1 1)
+    ]
+
+-- Build a minimal elm.json Outline with exact direct + computed indirect deps.
+buildInteractiveOutline :: IO (Either String Outline.Outline)
+buildInteractiveOutline = do
+  envR <- Solver.initEnv
+  case envR of
+    Left _problem ->
+      pure (Left "Failed to initialize package solver environment")
+    Right (Solver.Env cache _manager connection registry) -> do
+      -- Solve exact versions from our direct set
+      let toExactly v = Con.exactly v
+          constraints = Map.map toExactly interactiveDepsDirect
+      verifyR <- Solver.verify cache connection registry constraints
+      case verifyR of
+        Solver.Err _ -> pure (Left "Dependency solver error")
+        Solver.NoSolution -> pure (Left "No solution for given dependencies")
+        Solver.NoOfflineSolution -> pure (Left "No offline solution for given dependencies")
+        Solver.Ok detailsMap -> do
+          -- Build solution map pkg -> version
+          let solution = Map.map (\(Solver.Details vsn _deps) -> vsn) detailsMap
+              direct = interactiveDepsDirect
+              indirect = Map.difference solution direct
+              srcDirs = NE.List (Outline.RelativeSrcDir "src") []
+              outline =
+                Outline.App
+                  ( Outline.AppOutline
+                      V.compiler
+                      srcDirs
+                      direct
+                      indirect
+                      Map.empty
+                      Map.empty
+                  )
+          pure (Right outline)
+
+-- Check that the module's imports exist in the provided interfaces and
+-- return the subset of interfaces actually imported by the module.
+checkImportsForModule
+  :: Map.Map ModuleName.Raw I.Interface
+  -> [Src.Import]
+  -> Either (NE.List Import.Error) (Map.Map ModuleName.Raw I.Interface)
+checkImportsForModule interfaces imports =
+  let
+    importDict = Map.fromList (map (\i -> (Src.getImportName i, i)) imports)
+    missing = Map.difference importDict interfaces
+  in
+  case Map.elems missing of
+    [] ->
+      Right (Map.intersection interfaces importDict)
+    i:is ->
+      let
+        unimported = Map.keysSet (Map.difference interfaces importDict)
+        toError (Src.Import (A.At region name) _ _) =
+          Import.Error region name unimported Import.NotFound
+      in
+      Left (fmap toError (NE.List i is))
+
+-- Core compiler path: create a transient project, load package artifacts, and compile source.
+compileSourceToJs :: BS.ByteString -> IO (Either String Builder.Builder)
+compileSourceToJs source = do
+  -- Create a transient root and ensure src dir exists physically (Outline.read checks it)
+  sysTmp <- Dir.getTemporaryDirectory
+  let root = sysTmp </> "elm-dev-interactive"
+  Dir.createDirectoryIfMissing True (root </> "src")
+  -- Prepare an elm.json Outline with exact deps + computed indirects
+  outlineR <- buildInteractiveOutline
+  case outlineR of
+    Left e -> pure (Left e)
+    Right outline -> do
+      -- Write elm.json
+      Outline.write root outline
+      -- Load Details (interfaces/objects)
+      detailsR <- BW.withScope $ \scope -> MDetails.load Reporting.silent scope root Nothing
+      case detailsR of
+        Left exit -> pure (Left (Reporting.Exit.toAnsiString (Reporting.Exit.toDetailsReport exit)))
+        Right details -> do
+          ifacesVar <- MDetails.loadInterfaces root details
+          objsVar <- MDetails.loadObjects root details
+          mifaces <- readMVar ifacesVar
+          mobjs <- readMVar objsVar
+          case (mifaces, mobjs) of
+            (Nothing, _) -> pure (Left "Failed to load package interfaces")
+            (_, Nothing) -> pure (Left "Failed to load package objects")
+            (Just depIfaces, Just objects) -> do
+              let interfaces = CompileHelpers.toInterfaces depIfaces
+              -- Parse and compile the provided source
+              case Parse.fromByteString Parse.Application source of
+                Left err ->
+                  pure (Left (Help.toString (Help.reportToDoc (Help.compilerReport "/" (Error.Module (Name.fromChars "Interactive") "/interactive" File.zeroTime source (Error.BadSyntax err)) []))))
+                Right modul ->
+                  case checkImportsForModule interfaces (Src._imports modul) of
+                    Left _importErrs ->
+                      pure (Left "Import error: missing or invalid imports for the given dependencies")
+                    Right ifaces ->
+                      case Compile.compile Pkg.dummyName ifaces modul of
+                        Left err ->
+                          pure (Left (Help.toString (Help.reportToDoc (Help.compilerReport "/" (Error.Module (Src.getName modul) "/interactive" File.zeroTime source err) []))))
+                        Right (Compile.Artifacts canModule _ locals) ->
+                          case locals of
+                            Opt.LocalGraph Nothing _ _ ->
+                              pure (Left "No `main` found in module")
+                            Opt.LocalGraph (Just main_) _ _ -> do
+                              let mode = Mode.Dev Nothing
+                                  home = Can._name canModule
+                                  name = ModuleName._module home
+                                  mains = MapStrict.singleton home main_
+                                  graph = Opt.addLocalGraph locals objects
+                              pure (Right (JS.generate mode graph mains Nothing))
 
