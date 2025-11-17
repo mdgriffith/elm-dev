@@ -1,3 +1,5 @@
+import { fetch } from "@tauri-apps/plugin-http";
+
 type Params = {
     baseUrl: string;
     filepath: string;
@@ -44,6 +46,7 @@ export default function include() {
             }
 
             private async _loadAndMountElm() {
+                console.log("LOADING ELM", { baseUrl: this._baseUrl, filepath: this._filepath, cwd: this._cwd });
                 if (!this._baseUrl || !this._filepath || !this._cwd) {
                     this._showError(`Missing required attributes: base-url, filepath, and cwd:\n   base:${this._baseUrl}\n   filepath:${this._filepath}\n   cwd:${this._cwd}`);
                     return;
@@ -71,26 +74,31 @@ export default function include() {
                     // Add the container to the element
                     this.appendChild(container);
 
-                    // Build the URL with query parameters
-                    const url = new URL(`${this._baseUrl}/interactive`);
+                    // Build the URL with query parameters (dev JS endpoint)
+                    const url = new URL(`${this._baseUrl}/dev/interactive`);
                     url.searchParams.set('file', this._filepath);
                     if (this._cwd) {
-                        url.searchParams.set('cwd', this._cwd);
+                        url.searchParams.set('dir', this._cwd);
                     }
 
-                    const response = await fetch(url.toString());
-
+                    // Use Tauri HTTP (no browser fallback)
+                    const response = await fetch(url.toString(), { method: "GET" });
                     if (!response.ok) {
                         throw new Error(`Failed to fetch Elm code: ${response.status} ${response.statusText}`);
                     }
-
                     const textResult = await response.text();
-                    if (!textResult.startsWith("// success")) {
-                        const error = JSON.parse(textResult);
-                        throw new Error(`Failed to fetch Elm code: ${error.message}`);
+
+                    if (!textResult || textResult.length === 0) {
+                        throw new Error("Empty response when fetching compiled Elm JS");
                     }
 
                     console.log("FETCHED ELM CODE", textResult);
+
+                    const parsed = JSON.parse(textResult);
+                    console.log("PARSED", parsed);
+                    for (const file of parsed.generated) {
+                        console.log(file.contents);
+                    }
 
                     // Execute the compiled code in a custom scope
                     // const scope: any = {};
@@ -101,16 +109,18 @@ export default function include() {
                     const EmbeddedElm = (window as any).Elm || {};
 
                     // Initialize the Elm app with the container
-                    if (EmbeddedElm.Interactive && EmbeddedElm.Interactive.init) {
-                        console.log("INITIALIZING ELM APP", { container, embeddedElm: EmbeddedElm.Interactive });
-                        this._app = EmbeddedElm.Interactive.init({
-                            node: container,
-                            flags: {}
-                        });
-
-                    } else {
-                        throw new Error("Elm.Interactive.init not found in compiled code");
+                    const candidate =
+                        (EmbeddedElm.Interactive && EmbeddedElm.Interactive.init)
+                            ? EmbeddedElm.Interactive
+                            : Object.values(EmbeddedElm).find((m: any) => m && typeof (m as any).init === "function");
+                    if (!candidate || typeof (candidate as any).init !== "function") {
+                        throw new Error("No Elm module with an init function was found in compiled code");
                     }
+                    console.log("INITIALIZING ELM APP", { container, module: candidate });
+                    this._app = (candidate as any).init({
+                        node: container,
+                        flags: {}
+                    });
 
                 } catch (error: any) {
                     console.error("Failed to load and mount Elm widget:", error);

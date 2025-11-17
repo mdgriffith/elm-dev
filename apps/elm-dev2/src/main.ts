@@ -173,21 +173,35 @@ app.ports?.ask?.subscribe?.((msg: AskMessage) => {
       void fetch(`${currentBase}/dev/docs/module?dir=${dir}&file=${file}`, { method: "GET" })
         .then((res: TauriHttpResponse) => (res.ok ? res.json() : null))
         .then((body: unknown) => {
-          console.log("ModuleRequested response", body);
+          console.log("ModuleRequested response", { filepath: msg.file, dir: msg.dir }, body);
           if (body == null) return;
-          let modules: unknown[] = [];
+          let singleModule: unknown = null;
           if (Array.isArray(body)) {
-            modules = body as unknown[];
+            if (body.length === 1) {
+              singleModule = body[0];
+            } else {
+              console.error("ModuleRequested expected an array with exactly one element", body);
+            }
           } else if (typeof body === "object") {
             const obj = body as Record<string, unknown>;
+            let modulesCandidate: unknown[] | null = null;
             if (Array.isArray((obj as any).modules)) {
-              modules = (obj as any).modules as unknown[];
+              modulesCandidate = (obj as any).modules as unknown[];
             } else {
               const values = Object.values(obj);
-              modules = values.length > 0 ? values : [body];
+              modulesCandidate = values.length > 0 ? values : [body];
             }
+            if (Array.isArray(modulesCandidate)) {
+              if (modulesCandidate.length === 1) {
+                singleModule = modulesCandidate[0];
+              } else {
+                console.error("ModuleRequested expected exactly one module in object response", modulesCandidate);
+              }
+            }
+          } else {
+            console.error("ModuleRequested unexpected response shape", body);
           }
-          app.ports.devServer.send({ msg: "ProjectModulesUpdated", details: modules });
+          app.ports.devServer.send({ msg: "ModuleLocalUpdated", details: { filepath: msg.file, module: singleModule } });
         })
         .catch((err) => {
           console.log("ModuleRequested error", err);
