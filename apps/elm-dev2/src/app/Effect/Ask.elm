@@ -1,7 +1,6 @@
 port module Effect.Ask exposing
     ( projectList
-    , packageRequested
-    , moduleRequested
+    , interactiveExamples, moduleRequested, packageRequested
     )
 
 {-|
@@ -52,7 +51,8 @@ packageRequested { name, version } =
         }
 
 
-{-| Request loading docs for a single project module file. -}
+{-| Request loading docs for a single project module file.
+-}
 moduleRequested : { dir : String, file : String } -> Effect.Effect msg
 moduleRequested { dir, file } =
     Effect.SendToWorld
@@ -66,3 +66,18 @@ moduleRequested { dir, file } =
                 ]
         }
 
+
+{-| Request interactive examples for a given local module file.
+-}
+interactiveExamples : { dir : String, file : String } -> Effect.Effect msg
+interactiveExamples { dir, file } =
+    Effect.SendToWorld
+        { toPort = ask
+        , portName = "ask"
+        , payload =
+            Encode.object
+                [ ( "route", Encode.string "InteractiveExamples" )
+                , ( "dir", Encode.string dir )
+                , ( "file", Encode.string file )
+                ]
+        }

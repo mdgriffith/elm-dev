@@ -17,27 +17,31 @@ import Data.ProjectStatus as ProjectStatus
 import Docs.Ref
 import Docs.Ref.Get
 import Effect exposing (Effect)
+import Effect.Ask
 import Elm.Docs
 import Html
 import Html.Attributes as Attr
 import Listen exposing (Listen)
+import Listen.DevServer
 import Store.Modules
 import Store.Projects
 import String
 import Ui.Module
 import Ui.Nav.Top
-import WebComponents.Elm
+import WebComponents.Playground
 
 
 {-| -}
 type alias Model =
     { module_ : Store.Modules.Module
+    , interactiveExamples : Maybe (List Listen.DevServer.InteractiveExample)
     }
 
 
 {-| -}
 type Msg
     = TypeClicked String
+    | DevServerReceived Listen.DevServer.Event
 
 
 page : App.Page.Page App.Stores.Stores App.Page.Id.Module_Params Msg Model
@@ -54,7 +58,36 @@ init : App.Page.Id.Id -> App.Page.Id.Module_Params -> App.Stores.Stores -> Maybe
 init pageId params stores maybeCached =
     case Store.Modules.lookup params.path_ stores.modules of
         Just module_ ->
-            App.Page.init { module_ = module_ }
+            let
+                maybeProject =
+                    case stores.projects.current of
+                        Just shortId ->
+                            Store.Projects.lookup shortId stores.projects
+
+                        Nothing ->
+                            Nothing
+
+                maybeEffect =
+                    case ( maybeProject, module_.location ) of
+                        ( Just project, Docs.Ref.LocalFile path ) ->
+                            Just (Effect.Ask.interactiveExamples { dir = project.projectRoot, file = path })
+
+                        _ ->
+                            Nothing
+            in
+            case maybeEffect of
+                Just eff ->
+                    App.Page.initWith
+                        { module_ = module_
+                        , interactiveExamples = Nothing
+                        }
+                        eff
+
+                Nothing ->
+                    App.Page.init
+                        { module_ = module_
+                        , interactiveExamples = Nothing
+                        }
 
         Nothing ->
             App.Page.notFound
@@ -73,10 +106,31 @@ update stores msg model =
                     Effect.broadcast (Broadcast.RefPinned ref)
             )
 
+        DevServerReceived event ->
+            case event of
+                Listen.DevServer.InteractiveExamplesUpdated { file, examples } ->
+                    let
+                        matchesThisModule =
+                            case model.module_.location of
+                                Docs.Ref.LocalFile path ->
+                                    path == file
+
+                                Docs.Ref.Package _ ->
+                                    False
+                    in
+                    if Debug.log "PLS" matchesThisModule then
+                        ( { model | interactiveExamples = Just examples }, Effect.none )
+
+                    else
+                        ( model, Effect.none )
+
+                _ ->
+                    ( model, Effect.none )
+
 
 subscriptions : App.Stores.Stores -> Model -> Listen Msg
 subscriptions shared model =
-    Listen.none
+    Listen.DevServer.listen DevServerReceived
 
 
 view : App.View.Region.Id -> App.Stores.Stores -> Model -> App.View.View Msg
@@ -109,50 +163,32 @@ view viewId shared model =
                 model.module_.info
             , let
                 maybeRoot =
-                    case shared.projects.current of
-                        Just shortId ->
-                            Store.Projects.lookup shortId shared.projects
-                                |> Maybe.map .projectRoot
-
-                        Nothing ->
-                            Nothing
-
-                maybeFilepath =
-                    case model.module_.location of
-                        Docs.Ref.LocalFile path ->
-                            Just path
-
-                        Docs.Ref.Package _ ->
-                            Nothing
+                    Maybe.map .projectRoot maybeProject
               in
-              case maybeRoot of
-                Nothing ->
-                    Html.text ""
+              case ( maybeRoot, shared.devServer.base ) of
+                ( Just root, Just baseUrl ) ->
+                    case model.interactiveExamples of
+                        Just (first :: _) ->
+                            Html.div
+                                [ Attr.style "margin-top" "16px"
+                                , Attr.style "height" "480px"
+                                , Attr.style "border" "1px solid #e5e7eb"
+                                , Attr.style "border-radius" "8px"
+                                , Attr.style "overflow" "hidden"
+                                ]
+                                [ WebComponents.Playground.playground
+                                    { baseUrl = baseUrl
+                                    , projectRoot = root
+                                    , elmSource = first.elmSource
+                                    , filePath = first.path
+                                    }
+                                ]
 
-                Just root ->
-                    case shared.devServer.base of
-                        Nothing ->
+                        _ ->
                             Html.text ""
 
-                        Just baseUrl ->
-                            case maybeFilepath of
-                                Nothing ->
-                                    Html.text ""
-
-                                Just moduleFilepath ->
-                                    Html.div
-                                        [ Attr.style "margin-top" "16px"
-                                        , Attr.style "height" "480px"
-                                        , Attr.style "border" "1px solid #e5e7eb"
-                                        , Attr.style "border-radius" "8px"
-                                        , Attr.style "overflow" "hidden"
-                                        ]
-                                        [ WebComponents.Elm.elm
-                                            { baseUrl = baseUrl
-                                            , filepath = moduleFilepath
-                                            , cwd = root
-                                            }
-                                        ]
+                _ ->
+                    Html.text ""
             ]
     }
 

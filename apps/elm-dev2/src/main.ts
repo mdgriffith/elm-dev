@@ -130,7 +130,8 @@ setupDaemonIntegration();
 type AskMessage =
   | { route: "ProjectList" }
   | { route: "PackageRequested"; name: string; version: string }
-  | { route: "ModuleRequested"; dir: string; file: string };
+  | { route: "ModuleRequested"; dir: string; file: string }
+  | { route: "InteractiveExamples"; dir: string; file: string };
 app.ports?.ask?.subscribe?.((msg: AskMessage) => {
   console.log("Ask", msg, currentBase);
   if (!currentBase) return;
@@ -205,6 +206,33 @@ app.ports?.ask?.subscribe?.((msg: AskMessage) => {
         })
         .catch((err) => {
           console.log("ModuleRequested error", err);
+        });
+      break;
+    }
+    case "InteractiveExamples": {
+      const dir = encodeURIComponent(msg.dir);
+      const file = encodeURIComponent(msg.file);
+      void fetch(`${currentBase}/dev/interactive?dir=${dir}&file=${file}`, { method: "GET" })
+        .then(async (res: TauriHttpResponse) => {
+          if (!res.ok) return null;
+          // interactive endpoint returns text/plain that is JSON; parse carefully
+          try {
+            const text = await (res as any).text?.() as string | undefined;
+            if (!text) return null;
+            const parsed = JSON.safeParse(text);
+            return parsed;
+          } catch {
+            return null;
+          }
+        })
+        .then((body: unknown) => {
+          console.log("InteractiveExamples response", body);
+          if (body != null) {
+            app.ports.devServer.send({ msg: "InteractiveExamples", details: { file: msg.file, value: body } });
+          }
+        })
+        .catch((err) => {
+          console.log("InteractiveExamples error", err);
         });
       break;
     }

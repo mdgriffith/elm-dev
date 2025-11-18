@@ -49,12 +49,16 @@ import Snap.Core
 import Control.Monad.Trans (liftIO)
 import qualified Data.Map as Map
 import qualified Ext.FileCache
+import qualified Ext.CompileProxy
+import qualified Ext.Dev.Project
+import qualified Ext.VirtualFile
 import System.FilePath ((</>), (<.>))
+import qualified System.FilePath as FilePath
 import qualified File
 import qualified GHC.Stats as RT
 import qualified System.Mem as Mem
 import qualified System.Directory as Dir
-import Control.Monad (when)
+import Control.Monad (when, filterM)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Word (Word64)
@@ -314,22 +318,68 @@ interactiveHandler state = do
           modifyResponse $ setResponseCode 422
           modifyResponse $ setContentType "application/json"
           writeLBS (JSON.encode (JSON.object ["error" JSON..= err]))
-        Right jsOrJsonText -> do
-          -- The interactive generator returns raw text (currently JSON describing generated files).
-          -- Send it through as text so clients can decide how to use it.
-          modifyResponse $ setContentType "text/plain; charset=utf-8"
-          writeBS (Data.Text.Encoding.encodeUtf8 (Text.pack jsOrJsonText))
+        Right jsonText -> do
+          modifyResponse $ setContentType "application/json"
+          writeBS (Data.Text.Encoding.encodeUtf8 (Text.pack jsonText))
 
 -- Compile a single Elm source file (passed as ?source=...) using a minimal
 -- transient app with explicit dependencies and return raw JS.
 interactiveCompileHandler :: Live.State -> Snap ()
-interactiveCompileHandler _state = do
-  mSource <- getParam "source"
-  case mSource of
-    Nothing ->
-      problemSnap 400 "bad_request" (Text.pack "Missing query param: source")
-    Just sourceBs -> do
-      e <- liftIO (compileSourceToJs sourceBs)
+interactiveCompileHandler state = do
+  mDir <- getParam "dir"
+  mFile <- getParam "file"
+  body <- readRequestBody (2 * 1024 * 1024) -- 2MB
+  case (mDir, mFile) of
+    (Nothing, _) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: dir")
+    (_, Nothing) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: file")
+    (Just dirBs, Just fileBs) -> do
+      let dir = Text.unpack (Data.Text.Encoding.decodeUtf8 dirBs)
+      let relFilePath = Text.unpack (Data.Text.Encoding.decodeUtf8 fileBs)
+      let source = LBS.toStrict body
+      e <- liftIO $ do
+        -- 1) Read the project's elm.json and prepare a virtual application elm.json
+        outlineR <- Outline.read dir
+        case outlineR of
+          Left outlineExit ->
+            pure (Left (Reporting.Exit.toAnsiString (Reporting.Exit.toOutlineReport outlineExit)))
+          Right originalOutline -> do
+            -- Create virtual root and ensure src exists physically so Outline.read succeeds
+            let virtualRoot = Ext.VirtualFile.dir dir
+            let virtualSrcDir = virtualRoot </> "src"
+            Dir.createDirectoryIfMissing True virtualRoot
+            Dir.createDirectoryIfMissing True virtualSrcDir
+
+            -- Build a virtual outline with relative src dirs and updated dependencies
+            virtualOutlineR <- buildVirtualOutline dir virtualRoot originalOutline
+            case virtualOutlineR of
+              Left err ->
+                pure (Left err)
+              Right virtualOutline -> do
+                -- Write virtual elm.json into the virtual root (in-memory via FileProxy)
+                Outline.write virtualRoot virtualOutline
+
+                -- 2) Write the provided source into the virtual root at src/{filePath}
+                let virtualRelPath = "src" </> relFilePath
+                Ext.VirtualFile.write dir virtualRelPath source
+
+                -- 3) Compile using the virtual root and the virtual absolute entrypoint
+                let absoluteElmPath = FilePath.normalise (virtualRoot </> virtualRelPath)
+                let flags =
+                      CompileHelpers.Flags
+                        CompileHelpers.Dev
+                        (CompileHelpers.OutputTo CompileHelpers.Js)
+                result <- Ext.CompileProxy.compile virtualRoot (NE.List absoluteElmPath []) flags (Just (Client.packages state))
+                case result of
+                  Left exit ->
+                    pure (Left (Reporting.Exit.toAnsiString (Reporting.Exit.reactorToReport exit)))
+                  Right (compiled, _fileInfoByPath) ->
+                    case compiled of
+                      CompileHelpers.CompiledJs jsBuilder ->
+                        pure (Right jsBuilder)
+                      CompileHelpers.CompiledHtml _ ->
+                        pure (Left "HTML output not supported for interactive compile")
+                      CompileHelpers.CompiledSkippedOutput ->
+                        pure (Left "Compilation skipped")
       case e of
         Left errText -> do
           modifyResponse $ setResponseCode 422
@@ -783,6 +833,85 @@ buildInteractiveOutline = do
                   )
           pure (Right outline)
 
+-- Build a virtual application outline for a project by:
+-- - Converting source-directories to be relative to the virtual root and ensuring \"src\" is present
+-- - Ensuring mdgriffith/elm-codegen is a direct dependency (if missing)
+-- - Recomputing indirect dependencies using the solver (from the direct set)
+buildVirtualOutline
+  :: FilePath                       -- ^ real project root
+  -> FilePath                       -- ^ virtual root
+  -> Outline.Outline                -- ^ original project outline
+  -> IO (Either String Outline.Outline)
+buildVirtualOutline realRoot virtualRoot originalOutline = do
+  envR <- Solver.initEnv
+  case envR of
+    Left _problem ->
+      pure (Left "Failed to initialize package solver environment")
+    Right (Solver.Env cache _manager connection registry) -> do
+      -- Extract base info from the original outline
+      let (elmVersion, baseSrcDirs, baseConstraints, testDirect, testIndirect) =
+            case originalOutline of
+              Outline.App appOutline ->
+                ( Outline._app_elm_version appOutline
+                , NE.toList (Outline._app_source_dirs appOutline)
+                , Map.map Con.exactly (Outline._app_deps_direct appOutline)
+                , Outline._app_test_direct appOutline
+                , Outline._app_test_indirect appOutline
+                )
+              Outline.Pkg pkgOutline ->
+                ( V.compiler
+                , [] -- packages do not have source-directories in elm.json
+                , Outline._pkg_deps pkgOutline
+                , Map.empty
+                , Map.empty
+                )
+
+      -- Make original source dirs relative to virtualRoot, skipping duplicates of \"src\"
+      let originalAbsDirs = map (Outline.toAbsolute realRoot) baseSrcDirs
+      let relToVirtual p = FilePath.makeRelative virtualRoot p
+      let relativeOriginalDirs =
+            [ Outline.RelativeSrcDir rel
+            | absP <- originalAbsDirs
+            , let rel = relToVirtual absP
+            , rel /= "src"
+            ]
+      let newSrcDirs = NE.List (Outline.RelativeSrcDir "src") relativeOriginalDirs
+
+      -- Add elm-codegen to constraints (exactly 5.1.1)
+      let codegenName = Pkg.toName (Utf8.fromChars "mdgriffith") "elm-codegen"
+      let constraintsWithCodegen =
+            Map.insert codegenName (Con.exactly (V.Version 5 1 1)) baseConstraints
+
+      -- Solve to exact versions
+      verifyR <- Solver.verify cache connection registry constraintsWithCodegen
+      case verifyR of
+        Solver.Err _ -> pure (Left "Dependency solver error")
+        Solver.NoSolution -> pure (Left "No solution for given dependencies")
+        Solver.NoOfflineSolution -> pure (Left "No offline solution for given dependencies")
+        Solver.Ok detailsMap -> do
+          let solution = Map.map (\(Solver.Details vsn _deps) -> vsn) detailsMap
+              -- Choose direct = the packages we explicitly constrained (keys of constraintsWithCodegen)
+              direct =
+                Map.foldlWithKey
+                  (\acc k _ -> case Map.lookup k solution of
+                                 Just v -> Map.insert k v acc
+                                 Nothing -> acc
+                  )
+                  Map.empty
+                  constraintsWithCodegen
+              indirect = Map.difference solution direct
+              outline =
+                Outline.App
+                  ( Outline.AppOutline
+                      elmVersion
+                      newSrcDirs
+                      direct
+                      indirect
+                      testDirect
+                      testIndirect
+                  )
+          pure (Right outline)
+
 -- Check that the module's imports exist in the provided interfaces and
 -- return the subset of interfaces actually imported by the module.
 checkImportsForModule
@@ -805,55 +934,55 @@ checkImportsForModule interfaces imports =
       in
       Left (fmap toError (NE.List i is))
 
--- Core compiler path: create a transient project, load package artifacts, and compile source.
-compileSourceToJs :: BS.ByteString -> IO (Either String Builder.Builder)
-compileSourceToJs source = do
-  -- Create a transient root and ensure src dir exists physically (Outline.read checks it)
-  sysTmp <- Dir.getTemporaryDirectory
-  let root = sysTmp </> "elm-dev-interactive"
-  Dir.createDirectoryIfMissing True (root </> "src")
-  -- Prepare an elm.json Outline with exact deps + computed indirects
-  outlineR <- buildInteractiveOutline
-  case outlineR of
-    Left e -> pure (Left e)
-    Right outline -> do
-      -- Write elm.json
-      Outline.write root outline
-      -- Load Details (interfaces/objects)
-      detailsR <- BW.withScope $ \scope -> MDetails.load Reporting.silent scope root Nothing
-      case detailsR of
-        Left exit -> pure (Left (Reporting.Exit.toAnsiString (Reporting.Exit.toDetailsReport exit)))
-        Right details -> do
-          ifacesVar <- MDetails.loadInterfaces root details
-          objsVar <- MDetails.loadObjects root details
-          mifaces <- readMVar ifacesVar
-          mobjs <- readMVar objsVar
-          case (mifaces, mobjs) of
-            (Nothing, _) -> pure (Left "Failed to load package interfaces")
-            (_, Nothing) -> pure (Left "Failed to load package objects")
-            (Just depIfaces, Just objects) -> do
-              let interfaces = CompileHelpers.toInterfaces depIfaces
-              -- Parse and compile the provided source
-              case Parse.fromByteString Parse.Application source of
-                Left err ->
-                  pure (Left (Help.toString (Help.reportToDoc (Help.compilerReport "/" (Error.Module (Name.fromChars "Interactive") "/interactive" File.zeroTime source (Error.BadSyntax err)) []))))
-                Right modul ->
-                  case checkImportsForModule interfaces (Src._imports modul) of
-                    Left _importErrs ->
-                      pure (Left "Import error: missing or invalid imports for the given dependencies")
-                    Right ifaces ->
-                      case Compile.compile Pkg.dummyName ifaces modul of
-                        Left err ->
-                          pure (Left (Help.toString (Help.reportToDoc (Help.compilerReport "/" (Error.Module (Src.getName modul) "/interactive" File.zeroTime source err) []))))
-                        Right (Compile.Artifacts canModule _ locals) ->
-                          case locals of
-                            Opt.LocalGraph Nothing _ _ ->
-                              pure (Left "No `main` found in module")
-                            Opt.LocalGraph (Just main_) _ _ -> do
-                              let mode = Mode.Dev Nothing
-                                  home = Can._name canModule
-                                  name = ModuleName._module home
-                                  mains = MapStrict.singleton home main_
-                                  graph = Opt.addLocalGraph locals objects
-                              pure (Right (JS.generate mode graph mains Nothing))
+-- -- Core compiler path: create a transient project, load package artifacts, and compile source.
+-- compileSourceToJs :: BS.ByteString -> IO (Either String Builder.Builder)
+-- compileSourceToJs source = do
+--   -- Create a transient root and ensure src dir exists physically (Outline.read checks it)
+--   sysTmp <- Dir.getTemporaryDirectory
+--   let root = sysTmp </> "elm-dev-interactive"
+--   Dir.createDirectoryIfMissing True (root </> "src")
+--   -- Prepare an elm.json Outline with exact deps + computed indirects
+--   outlineR <- buildInteractiveOutline
+--   case outlineR of
+--     Left e -> pure (Left e)
+--     Right outline -> do
+--       -- Write elm.json
+--       Outline.write root outline
+--       -- Load Details (interfaces/objects)
+--       detailsR <- BW.withScope $ \scope -> MDetails.load Reporting.silent scope root Nothing
+--       case detailsR of
+--         Left exit -> pure (Left (Reporting.Exit.toAnsiString (Reporting.Exit.toDetailsReport exit)))
+--         Right details -> do
+--           ifacesVar <- MDetails.loadInterfaces root details
+--           objsVar <- MDetails.loadObjects root details
+--           mifaces <- readMVar ifacesVar
+--           mobjs <- readMVar objsVar
+--           case (mifaces, mobjs) of
+--             (Nothing, _) -> pure (Left "Failed to load package interfaces")
+--             (_, Nothing) -> pure (Left "Failed to load package objects")
+--             (Just depIfaces, Just objects) -> do
+--               let interfaces = CompileHelpers.toInterfaces depIfaces
+--               -- Parse and compile the provided source
+--               case Parse.fromByteString Parse.Application source of
+--                 Left err ->
+--                   pure (Left (Help.toString (Help.reportToDoc (Help.compilerReport "/" (Error.Module (Name.fromChars "Interactive") "/interactive" File.zeroTime source (Error.BadSyntax err)) []))))
+--                 Right modul ->
+--                   case checkImportsForModule interfaces (Src._imports modul) of
+--                     Left _importErrs ->
+--                       pure (Left "Import error: missing or invalid imports for the given dependencies")
+--                     Right ifaces ->
+--                       case Compile.compile Pkg.dummyName ifaces modul of
+--                         Left err ->
+--                           pure (Left (Help.toString (Help.reportToDoc (Help.compilerReport "/" (Error.Module (Src.getName modul) "/interactive" File.zeroTime source err) []))))
+--                         Right (Compile.Artifacts canModule _ locals) ->
+--                           case locals of
+--                             Opt.LocalGraph Nothing _ _ ->
+--                               pure (Left "No `main` found in module")
+--                             Opt.LocalGraph (Just main_) _ _ -> do
+--                               let mode = Mode.Dev Nothing
+--                                   home = Can._name canModule
+--                                   name = ModuleName._module home
+--                                   mains = MapStrict.singleton home main_
+--                                   graph = Opt.addLocalGraph locals objects
+--                               pure (Right (JS.generate mode graph mains Nothing))
 

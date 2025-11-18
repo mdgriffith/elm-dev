@@ -1,7 +1,7 @@
 port module Listen.DevServer exposing
     ( listen, Event(..)
     , ServerStatus(..), ServerInfo
-    , Package
+    , InteractiveExample, Package
     )
 
 {-| Listen for updates from the dev server.
@@ -52,6 +52,7 @@ type Event
         }
     | ServerStatusUpdated Server
     | PackageUpdated Package
+    | InteractiveExamplesUpdated { file : String, examples : List InteractiveExample }
 
 
 type alias Server =
@@ -77,6 +78,12 @@ type alias Package =
     , info : Elm.Project.Project
     , version : String
     , modules : List Elm.Docs.Module
+    }
+
+
+type alias InteractiveExample =
+    { elmSource : String
+    , path : String
     }
 
 
@@ -173,6 +180,20 @@ eventDecoder =
                                 )
                             )
 
+                    "InteractiveExamples" ->
+                        Decode.field "details"
+                            (Decode.map2
+                                (\file examples ->
+                                    Debug.log "INTERACTIVE EXAMPLES" <| InteractiveExamplesUpdated { file = file, examples = examples }
+                                )
+                                (Decode.field "file" Decode.string)
+                                (Decode.field "value"
+                                    (Decode.field "generated"
+                                        (Decode.list interactiveExampleDecoder)
+                                    )
+                                )
+                            )
+
                     "ModuleLocalUpdated" ->
                         Decode.field "details"
                             (Decode.map2
@@ -197,6 +218,13 @@ eventDecoder =
                                     Decode.fail "UNRECOGNIZED INCOMING MSG"
                                 )
             )
+
+
+interactiveExampleDecoder : Decode.Decoder InteractiveExample
+interactiveExampleDecoder =
+    Decode.map2 InteractiveExample
+        (Decode.field "contents" Decode.string |> Decode.map (\s -> s))
+        (Decode.field "path" Decode.string)
 
 
 
