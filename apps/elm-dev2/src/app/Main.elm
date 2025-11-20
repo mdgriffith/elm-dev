@@ -20,6 +20,7 @@ import Http
 import Listen
 import Listen.DevServer
 import Store.Projects
+import Ui.Button
 import Url
 import WebComponents.Elm
 
@@ -65,7 +66,7 @@ main =
                 if model.urlNotFound then
                     -- Globally, this url was not found
                     { title = "Not found"
-                    , body = [ Html.text "Not found" ]
+                    , body = [ Html.text "Not found", Ui.Button.view "Button" ]
                     }
 
                 else

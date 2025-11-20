@@ -21,6 +21,10 @@ const app = Main.init({
   flags: { now: Date.now(), localStorage: LocalStorage.getAll() },
 });
 
+// Expose the Elm main app instance globally for webcomponents to bridge ports
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(window as any).__elmDevMain = app;
+
 // Connect all effects
 Effects.connect(app, {});
 

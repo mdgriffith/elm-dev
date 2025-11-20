@@ -10,6 +10,8 @@ export default function include() {
             private _projectRoot: string | null = null;
             private _filePath: string | null = null;
             private _lastCompiled: string | null = null;
+            private _childOutgoingUnsubs: Array<(payload: any) => void> = [];
+            private _mainOutgoingUnsub: ((payload: any) => void) | null = null;
 
             static get observedAttributes() {
                 return ["elm-source", "baseurl", "project-root", "filepath"];
@@ -24,6 +26,9 @@ export default function include() {
                 this._baseurl = this.getAttribute("baseurl");
                 this._projectRoot = this.getAttribute("project-root");
                 this._filePath = this.getAttribute("filepath");
+
+                console.log("MOUNTING ELM");
+                console.log(this._elmSource);
                 void this._compileAndMount();
             }
 
@@ -75,12 +80,9 @@ export default function include() {
 
                     // Execute compiled JS and initialize Elm app
                     const start = new Function(js);
-                    start.call(window);
-                    const Elm = (window as any).Elm || {};
-                    const candidate =
-                        (Elm.Main && Elm.Main.init)
-                            ? Elm.Main
-                            : Object.values(Elm).find((m: any) => m && typeof (m as any).init === "function");
+                    start.call(container);
+                    const Elm = (container as any).Elm || {};
+                    const candidate = this._findElmInitModule(Elm);
                     if (!candidate || typeof (candidate as any).init !== "function") {
                         throw new Error("No Elm module with an init function found");
                     }
@@ -88,6 +90,9 @@ export default function include() {
                         node: container,
                         flags: {}
                     });
+
+                    // Wire child <-> main ports
+                    this._wirePorts();
                 } catch (err: any) {
                     console.error("elm-playground error:", err);
                     this._showError(err?.message ?? String(err));
@@ -105,6 +110,16 @@ export default function include() {
                     }
                     this._app = null;
                 }
+                // Unsubscribe any bridge callbacks registered on main app
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const mainApp: any = (window as any).__elmDevMain;
+                if (mainApp && mainApp.ports) {
+                    if (this._mainOutgoingUnsub && mainApp.ports.interactivePropertyUpdated && typeof mainApp.ports.interactivePropertyUpdated.unsubscribe === "function") {
+                        try { mainApp.ports.interactivePropertyUpdated.unsubscribe(this._mainOutgoingUnsub); } catch { /* ignore */ }
+                    }
+                }
+                this._childOutgoingUnsubs = [];
+                this._mainOutgoingUnsub = null;
                 this.innerHTML = "";
             }
 
@@ -126,8 +141,69 @@ export default function include() {
             disconnectedCallback() {
                 this._cleanup();
             }
+
+            private _wirePorts() {
+                if (!this._app || !this._filePath) return;
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const mainApp: any = (window as any).__elmDevMain;
+                if (!mainApp || !mainApp.ports) return;
+
+                // Child -> Main: subscribe to all child's controlsUpdated_* and forward with filepath
+                if (mainApp.ports.onControlsUpdated && typeof mainApp.ports.onControlsUpdated.send === "function") {
+                    const ports = (this._app.ports ?? {}) as Record<string, any>;
+                    for (const name of Object.keys(ports).filter((k) => k.startsWith("controlsUpdated_") && typeof ports[k]?.subscribe === "function")) {
+                        const portObj = ports[name];
+                        const forwardToMain = (controls: any) => {
+                            try {
+                                mainApp.ports.onControlsUpdated.send({ filepath: this._filePath, controls });
+                            } catch (e) {
+                                console.error("Failed to send onControlsUpdated to main app", e);
+                            }
+                        };
+                        portObj.subscribe(forwardToMain);
+                        this._childOutgoingUnsubs.push(forwardToMain);
+                    }
+                }
+
+                // Main -> Child: subscribe to main's interactivePropertyUpdated and send to child's propertyUpdated_*
+                const forwardToChild = (msg: any) => {
+                    try {
+                        if (!msg || msg.filepath !== this._filePath) return;
+                        const ports = (this._app.ports ?? {}) as Record<string, any>;
+                        for (const name of Object.keys(ports).filter((k) => k.startsWith("propertyUpdated_") && typeof ports[k]?.send === "function")) {
+                            const childIn = ports[name];
+                            if (childIn && typeof childIn.send === "function") {
+                                childIn.send({ name: msg.key, value: msg.value });
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Failed to forward interactivePropertyUpdated to child", e);
+                    }
+                };
+                if (mainApp.ports.interactivePropertyUpdated && typeof mainApp.ports.interactivePropertyUpdated.subscribe === "function") {
+                    mainApp.ports.interactivePropertyUpdated.subscribe(forwardToChild);
+                    this._mainOutgoingUnsub = forwardToChild;
+                }
+            }
+
+            private _findElmInitModule(root: any): any | null {
+                const visited = new Set<any>();
+                const search = (obj: any): any | null => {
+                    if (!obj || typeof obj !== "object" || visited.has(obj)) return null;
+                    visited.add(obj);
+                    if (typeof obj.init === "function") return obj;
+                    for (const key of Object.keys(obj)) {
+                        const child = (obj as any)[key];
+                        if (child && typeof child === "object" && /^[A-Z]/.test(key)) {
+                            const found = search(child);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                };
+                return search(root);
+            }
         }
     );
 }
-
 

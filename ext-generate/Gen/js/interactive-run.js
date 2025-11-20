@@ -8142,6 +8142,14 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
     var $mdgriffith$elm_codegen$Elm$alias = F2(function(name, innerAnnotation) {
       return A3($mdgriffith$elm_codegen$Elm$aliasWith, name, _List_Nil, innerAnnotation);
     });
+    var $author$project$Gen$Json$Decode$moduleName_ = _List_fromArray(["Json", "Decode"]);
+    var $author$project$Gen$Json$Decode$annotation_ = {
+      iy: function(decoderArg0) {
+        return A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Decode"]), "Decoder", _List_fromArray([decoderArg0]));
+      },
+      dc: A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Decode"]), "Error", _List_Nil),
+      hU: A4($mdgriffith$elm_codegen$Elm$Annotation$alias, $author$project$Gen$Json$Decode$moduleName_, "Value", _List_Nil, A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil))
+    };
     var $mdgriffith$elm_codegen$Elm$Annotation$record = function(fields) {
       return {
         ib: A3($elm$core$List$foldl, F2(function(_v0, aliases) {
@@ -8306,8 +8314,21 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
         }), _List_fromArray([sandboxArg_]));
       }
     };
-    var $author$project$GenApp$modelType = $mdgriffith$elm_codegen$Elm$Annotation$var("Model");
-    var $author$project$GenApp$msgType = $mdgriffith$elm_codegen$Elm$Annotation$var("Msg");
+    var $mdgriffith$elm_codegen$Elm$Annotation$named = F2(function(mod, name) {
+      return {
+        ib: $mdgriffith$elm_codegen$Internal$Compiler$emptyAliases,
+        bM: A2($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$Typed, $mdgriffith$elm_codegen$Internal$Compiler$nodify(_Utils_Tuple2(mod, $mdgriffith$elm_codegen$Internal$Format$formatType(name))), _List_Nil),
+        c: function() {
+          if (!mod.b) {
+            return _List_Nil;
+          } else {
+            return _List_fromArray([mod]);
+          }
+        }()
+      };
+    });
+    var $author$project$GenApp$modelType = A2($mdgriffith$elm_codegen$Elm$Annotation$named, _List_Nil, "Model");
+    var $author$project$GenApp$msgType = A2($mdgriffith$elm_codegen$Elm$Annotation$named, _List_Nil, "Msg");
     var $mdgriffith$elm_codegen$Internal$Compiler$DuplicateFieldInRecord = function(a) {
       return { $: 5, a };
     };
@@ -8396,9 +8417,7 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
     };
     var $author$project$GenApp$appMain = $author$project$Gen$Browser$call_.c5($mdgriffith$elm_codegen$Elm$record(_List_fromArray([
       _Utils_Tuple2("init", $mdgriffith$elm_codegen$Elm$value({
-        bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
-          $mdgriffith$elm_codegen$Elm$Annotation$var("flags")
-        ]), $author$project$GenApp$updateTupleType)),
+        bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([$author$project$Gen$Json$Decode$annotation_.hU]), $author$project$GenApp$updateTupleType)),
         eo: _List_Nil,
         ag: "init"
       })),
@@ -8713,39 +8732,6 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
         }
       }
     });
-    var $mdgriffith$elm_codegen$Internal$Arg$val = F2(function(index, name) {
-      var typename = A2($mdgriffith$elm_codegen$Internal$Index$protectTypeName, name, index);
-      var type_ = $stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$GenericType(typename);
-      var annotation = $elm$core$Result$Ok({ ib: $mdgriffith$elm_codegen$Internal$Compiler$emptyAliases, e: $elm$core$Dict$empty, hG: type_ });
-      return _Utils_Tuple3(function(_v0) {
-        return {
-          bM: annotation,
-          iH: A2($stil4m$elm_syntax$Elm$Syntax$Expression$FunctionOrValue, _List_Nil, $mdgriffith$elm_codegen$Internal$Format$sanitize(name)),
-          c: _List_Nil
-        };
-      }, annotation, type_);
-    });
-    var $mdgriffith$elm_codegen$Internal$Arg$var = function(rawName) {
-      return function(index) {
-        var imports = _List_Nil;
-        var _v0 = A2($mdgriffith$elm_codegen$Internal$Index$getName, rawName, index);
-        var name = _v0.a;
-        var nameIndex = _v0.b;
-        var _v1 = A2($mdgriffith$elm_codegen$Internal$Arg$val, nameIndex, name);
-        var value = _v1.a;
-        var annotation = _v1.b;
-        return {
-          cQ: {
-            bM: annotation,
-            c: imports,
-            f$: $mdgriffith$elm_codegen$Internal$Compiler$nodify($stil4m$elm_syntax$Elm$Syntax$Pattern$VarPattern(name))
-          },
-          at: $mdgriffith$elm_codegen$Internal$Index$next(nameIndex),
-          hU: value
-        };
-      };
-    };
-    var $mdgriffith$elm_codegen$Elm$Arg$var = $mdgriffith$elm_codegen$Internal$Arg$var;
     var $mdgriffith$elm_codegen$Internal$Arg$varWith = F2(function(rawName, ann) {
       return function(index) {
         var imports = $mdgriffith$elm_codegen$Internal$Compiler$getAnnotationImports(ann);
@@ -8778,7 +8764,9 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
     var $author$project$GenApp$element = F2(function(modName, app) {
       return A2($mdgriffith$elm_codegen$Elm$file, modName, _Utils_ap(_List_fromArray([
         A2($mdgriffith$elm_codegen$Elm$declaration, "main", $author$project$GenApp$appMain),
-        A2($mdgriffith$elm_codegen$Elm$declaration, "init", A2($mdgriffith$elm_codegen$Elm$fn, $mdgriffith$elm_codegen$Elm$Arg$var("flags"), app.J)),
+        A2($mdgriffith$elm_codegen$Elm$declaration, "init", A2($mdgriffith$elm_codegen$Elm$fn, A2($mdgriffith$elm_codegen$Elm$Arg$varWith, "flags", $author$project$Gen$Json$Decode$annotation_.hU), function(flags) {
+          return A2($mdgriffith$elm_codegen$Elm$withType, $author$project$GenApp$updateTupleType, app.J(flags));
+        })),
         A2($mdgriffith$elm_codegen$Elm$alias, "Model", app.av),
         A2($mdgriffith$elm_codegen$Elm$customType, "Msg", A2($elm$core$List$map, function(msg) {
           return A2($mdgriffith$elm_codegen$Elm$variantWith, msg.ag, msg.cB);
@@ -8814,6 +8802,144 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
         return _Utils_Tuple2(name, $author$project$Interactive$inputToAnnotation(info.E));
       }, fields));
     };
+    var $stil4m$elm_syntax$Elm$Syntax$Expression$RecordAccess = F2(function(a, b) {
+      return { $: 20, a, b };
+    });
+    var $mdgriffith$elm_codegen$Internal$Compiler$AttemptingGetOnTypeNameNotAnAlias = function(a) {
+      return { $: 9, a };
+    };
+    var $mdgriffith$elm_codegen$Internal$Compiler$AttemptingToGetOnIncorrectType = function(a) {
+      return { $: 8, a };
+    };
+    var $mdgriffith$elm_codegen$Internal$Compiler$getFieldFromList = F2(function(selector, fields) {
+      getFieldFromList:
+        while (true) {
+          if (!fields.b) {
+            return $elm$core$Maybe$Nothing;
+          } else {
+            var _v1 = fields.a;
+            var _v2 = _v1.b;
+            var _v3 = _v2.a;
+            var fieldname = _v3.b;
+            var _v4 = _v2.b;
+            var contents = _v4.b;
+            var remain = fields.b;
+            if (_Utils_eq(fieldname, selector)) {
+              return $elm$core$Maybe$Just(contents);
+            } else {
+              var $temp$selector = selector, $temp$fields = remain;
+              selector = $temp$selector;
+              fields = $temp$fields;
+              continue getFieldFromList;
+            }
+          }
+        }
+    });
+    var $mdgriffith$elm_codegen$Internal$Compiler$inferRecordField = F2(function(index, _v0) {
+      var nameOfRecord = _v0.fn;
+      var fieldName = _v0.dz;
+      var fieldType = $stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$GenericType($mdgriffith$elm_codegen$Internal$Format$formatValue(_Utils_ap(fieldName, $mdgriffith$elm_codegen$Internal$Index$indexToString(index))));
+      return $elm$core$Result$Ok({
+        ib: $mdgriffith$elm_codegen$Internal$Compiler$emptyAliases,
+        e: A3($mdgriffith$elm_codegen$Internal$Compiler$addInference, nameOfRecord, A2($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$GenericRecord, $mdgriffith$elm_codegen$Internal$Compiler$nodify(nameOfRecord), $mdgriffith$elm_codegen$Internal$Compiler$nodify(_List_fromArray([
+          $mdgriffith$elm_codegen$Internal$Compiler$nodify(_Utils_Tuple2($mdgriffith$elm_codegen$Internal$Compiler$nodify(fieldName), $mdgriffith$elm_codegen$Internal$Compiler$nodify(fieldType)))
+        ]))), $elm$core$Dict$empty),
+        hG: fieldType
+      });
+    });
+    var $mdgriffith$elm_codegen$Internal$Compiler$resolveField = F5(function(index, type_, aliases, inferences, fieldName) {
+      resolveField:
+        while (true) {
+          if ($mdgriffith$elm_codegen$Internal$Index$typecheck(index)) {
+            switch (type_.$) {
+              case 4:
+                var fields = type_.a;
+                var _v1 = A2($mdgriffith$elm_codegen$Internal$Compiler$getFieldFromList, fieldName, fields);
+                if (!_v1.$) {
+                  var ann = _v1.a;
+                  return $elm$core$Result$Ok({ ib: aliases, e: inferences, hG: ann });
+                } else {
+                  return $elm$core$Result$Err(_List_fromArray([
+                    $mdgriffith$elm_codegen$Internal$Compiler$CouldNotFindField({
+                      iE: A2($elm$core$List$map, A2($elm$core$Basics$composeR, $mdgriffith$elm_codegen$Internal$Compiler$denode, A2($elm$core$Basics$composeR, $elm$core$Tuple$first, $mdgriffith$elm_codegen$Internal$Compiler$denode)), fields),
+                      ar: fieldName
+                    })
+                  ]));
+                }
+              case 5:
+                var _v2 = type_.b;
+                var fields = _v2.b;
+                var _v3 = A2($mdgriffith$elm_codegen$Internal$Compiler$getFieldFromList, fieldName, fields);
+                if (!_v3.$) {
+                  var ann = _v3.a;
+                  return $elm$core$Result$Ok({ ib: aliases, e: inferences, hG: ann });
+                } else {
+                  return $elm$core$Result$Err(_List_fromArray([
+                    $mdgriffith$elm_codegen$Internal$Compiler$CouldNotFindField({
+                      iE: A2($elm$core$List$map, A2($elm$core$Basics$composeR, $mdgriffith$elm_codegen$Internal$Compiler$denode, A2($elm$core$Basics$composeR, $elm$core$Tuple$first, $mdgriffith$elm_codegen$Internal$Compiler$denode)), fields),
+                      ar: fieldName
+                    })
+                  ]));
+                }
+              case 0:
+                var nameOfRecord = type_.a;
+                return A2($mdgriffith$elm_codegen$Internal$Compiler$inferRecordField, index, { dz: fieldName, fn: nameOfRecord });
+              case 1:
+                var nodedModAndName = type_.a;
+                var _v4 = A2($mdgriffith$elm_codegen$Internal$Compiler$getAlias, nodedModAndName, aliases);
+                if (_v4.$ === 1) {
+                  return $elm$core$Result$Err(_List_fromArray([
+                    $mdgriffith$elm_codegen$Internal$Compiler$AttemptingGetOnTypeNameNotAnAlias({ ar: fieldName, fy: type_ })
+                  ]));
+                } else {
+                  var aliased = _v4.a;
+                  var $temp$index = index, $temp$type_ = aliased.hf, $temp$aliases = aliases, $temp$inferences = inferences, $temp$fieldName = fieldName;
+                  index = $temp$index;
+                  type_ = $temp$type_;
+                  aliases = $temp$aliases;
+                  inferences = $temp$inferences;
+                  fieldName = $temp$fieldName;
+                  continue resolveField;
+                }
+              case 3:
+                return $elm$core$Result$Err(_List_fromArray([
+                  $mdgriffith$elm_codegen$Internal$Compiler$AttemptingToGetOnIncorrectType({ ar: fieldName, fy: type_ })
+                ]));
+              case 2:
+                return $elm$core$Result$Err(_List_fromArray([
+                  $mdgriffith$elm_codegen$Internal$Compiler$AttemptingToGetOnIncorrectType({ ar: fieldName, fy: type_ })
+                ]));
+              default:
+                return $elm$core$Result$Err(_List_fromArray([
+                  $mdgriffith$elm_codegen$Internal$Compiler$AttemptingToGetOnIncorrectType({ ar: fieldName, fy: type_ })
+                ]));
+            }
+          } else {
+            return $elm$core$Result$Err(_List_Nil);
+          }
+        }
+    });
+    var $mdgriffith$elm_codegen$Elm$get = F2(function(unformattedFieldName, recordExpression) {
+      return function(index) {
+        var fieldName = $mdgriffith$elm_codegen$Internal$Format$formatValue(unformattedFieldName);
+        var _v0 = A2($mdgriffith$elm_codegen$Internal$Compiler$toExpressionDetails, index, recordExpression);
+        var expr = _v0.b;
+        return {
+          bM: function() {
+            var _v1 = expr.bM;
+            if (!_v1.$) {
+              var recordAnn = _v1.a;
+              return A5($mdgriffith$elm_codegen$Internal$Compiler$resolveField, index, recordAnn.hG, recordAnn.ib, recordAnn.e, fieldName);
+            } else {
+              var otherwise = _v1;
+              return otherwise;
+            }
+          }(),
+          iH: A2($stil4m$elm_syntax$Elm$Syntax$Expression$RecordAccess, $mdgriffith$elm_codegen$Internal$Compiler$nodify(expr.iH), $mdgriffith$elm_codegen$Internal$Compiler$nodify(fieldName)),
+          c: expr.c
+        };
+      };
+    });
     var $stil4m$elm_syntax$Elm$Syntax$Pattern$ListPattern = function(a) {
       return { $: 10, a };
     };
@@ -8853,19 +8979,6 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
       };
     });
     var $mdgriffith$elm_codegen$Elm$Arg$item = $mdgriffith$elm_codegen$Internal$Arg$item;
-    var $mdgriffith$elm_codegen$Elm$Annotation$named = F2(function(mod, name) {
-      return {
-        ib: $mdgriffith$elm_codegen$Internal$Compiler$emptyAliases,
-        bM: A2($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$Typed, $mdgriffith$elm_codegen$Internal$Compiler$nodify(_Utils_Tuple2(mod, $mdgriffith$elm_codegen$Internal$Format$formatType(name))), _List_Nil),
-        c: function() {
-          if (!mod.b) {
-            return _List_Nil;
-          } else {
-            return _List_fromArray([mod]);
-          }
-        }()
-      };
-    });
     var $author$project$Gen$Platform$Cmd$none = $mdgriffith$elm_codegen$Elm$value({
       bM: $elm$core$Maybe$Just(A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_Nil, "Cmd", _List_fromArray([
         $mdgriffith$elm_codegen$Elm$Annotation$var("msg")
@@ -8873,9 +8986,98 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
       eo: _List_fromArray(["Cmd"]),
       ag: "none"
     });
+    var $stil4m$elm_syntax$Elm$Syntax$Declaration$PortDeclaration = function(a) {
+      return { $: 3, a };
+    };
+    var $mdgriffith$elm_codegen$Elm$groupAnn = function(ann) {
+      return $mdgriffith$elm_codegen$Internal$Compiler$nodify($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$Tupled(_List_fromArray([ann])));
+    };
+    var $mdgriffith$elm_codegen$Elm$sub = A2($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$Typed, $mdgriffith$elm_codegen$Internal$Compiler$nodify(_Utils_Tuple2(_List_Nil, "Sub")), _List_fromArray([
+      $mdgriffith$elm_codegen$Internal$Compiler$nodify($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$GenericType("msg"))
+    ]));
+    var $mdgriffith$elm_codegen$Elm$portIncoming = F2(function(nameStr, args) {
+      var name = $mdgriffith$elm_codegen$Internal$Format$formatDeclarationName(nameStr);
+      return $mdgriffith$elm_codegen$Internal$Compiler$Declaration({
+        aQ: $elm$core$Maybe$Nothing,
+        du: $mdgriffith$elm_codegen$Internal$Compiler$NotExposed,
+        c: A2($elm$core$List$concatMap, $mdgriffith$elm_codegen$Internal$Compiler$getAnnotationImports, args),
+        ag: name,
+        _: function(_v0) {
+          return {
+            X: _List_Nil,
+            iw: $stil4m$elm_syntax$Elm$Syntax$Declaration$PortDeclaration({
+              ag: $mdgriffith$elm_codegen$Internal$Compiler$nodify(name),
+              aH: $mdgriffith$elm_codegen$Internal$Compiler$nodify(function() {
+                if (!args.b) {
+                  return A2($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$FunctionTypeAnnotation, $mdgriffith$elm_codegen$Internal$Compiler$nodify($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$GenericType("msg")), $mdgriffith$elm_codegen$Internal$Compiler$nodify($mdgriffith$elm_codegen$Elm$sub));
+                } else {
+                  return A2($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$FunctionTypeAnnotation, $mdgriffith$elm_codegen$Elm$groupAnn($mdgriffith$elm_codegen$Internal$Compiler$nodify($mdgriffith$elm_codegen$Internal$Compiler$getInnerAnnotation(A2($mdgriffith$elm_codegen$Elm$Annotation$function, args, $mdgriffith$elm_codegen$Elm$Annotation$var("msg"))))), $mdgriffith$elm_codegen$Internal$Compiler$nodify($mdgriffith$elm_codegen$Elm$sub));
+                }
+              }())
+            }),
+            jE: $elm$core$Maybe$Nothing
+          };
+        }
+      });
+    });
+    var $mdgriffith$elm_codegen$Elm$cmd = A2($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$Typed, $mdgriffith$elm_codegen$Internal$Compiler$nodify(_Utils_Tuple2(_List_Nil, "Cmd")), _List_fromArray([
+      $mdgriffith$elm_codegen$Internal$Compiler$nodify($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$GenericType("msg"))
+    ]));
+    var $mdgriffith$elm_codegen$Elm$portOutgoing = F2(function(nameStr, ann) {
+      var name = $mdgriffith$elm_codegen$Internal$Format$formatDeclarationName(nameStr);
+      return $mdgriffith$elm_codegen$Internal$Compiler$Declaration({
+        aQ: $elm$core$Maybe$Nothing,
+        du: $mdgriffith$elm_codegen$Internal$Compiler$NotExposed,
+        c: $mdgriffith$elm_codegen$Internal$Compiler$getAnnotationImports(ann),
+        ag: name,
+        _: function(_v0) {
+          return {
+            X: _List_Nil,
+            iw: $stil4m$elm_syntax$Elm$Syntax$Declaration$PortDeclaration({
+              ag: $mdgriffith$elm_codegen$Internal$Compiler$nodify(name),
+              aH: $mdgriffith$elm_codegen$Internal$Compiler$nodify(A2($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$FunctionTypeAnnotation, $mdgriffith$elm_codegen$Internal$Compiler$nodify($mdgriffith$elm_codegen$Internal$Compiler$getInnerAnnotation(ann)), $mdgriffith$elm_codegen$Internal$Compiler$nodify($mdgriffith$elm_codegen$Elm$cmd)))
+            }),
+            jE: $elm$core$Maybe$Nothing
+          };
+        }
+      });
+    });
     var $mdgriffith$elm_codegen$Elm$Annotation$result = F2(function(err, ok) {
       return A3($mdgriffith$elm_codegen$Elm$Annotation$typed, _List_Nil, "Result", _List_fromArray([err, ok]));
     });
+    var $mdgriffith$elm_codegen$Internal$Arg$val = F2(function(index, name) {
+      var typename = A2($mdgriffith$elm_codegen$Internal$Index$protectTypeName, name, index);
+      var type_ = $stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$GenericType(typename);
+      var annotation = $elm$core$Result$Ok({ ib: $mdgriffith$elm_codegen$Internal$Compiler$emptyAliases, e: $elm$core$Dict$empty, hG: type_ });
+      return _Utils_Tuple3(function(_v0) {
+        return {
+          bM: annotation,
+          iH: A2($stil4m$elm_syntax$Elm$Syntax$Expression$FunctionOrValue, _List_Nil, $mdgriffith$elm_codegen$Internal$Format$sanitize(name)),
+          c: _List_Nil
+        };
+      }, annotation, type_);
+    });
+    var $mdgriffith$elm_codegen$Internal$Arg$var = function(rawName) {
+      return function(index) {
+        var imports = _List_Nil;
+        var _v0 = A2($mdgriffith$elm_codegen$Internal$Index$getName, rawName, index);
+        var name = _v0.a;
+        var nameIndex = _v0.b;
+        var _v1 = A2($mdgriffith$elm_codegen$Internal$Arg$val, nameIndex, name);
+        var value = _v1.a;
+        var annotation = _v1.b;
+        return {
+          cQ: {
+            bM: annotation,
+            c: imports,
+            f$: $mdgriffith$elm_codegen$Internal$Compiler$nodify($stil4m$elm_syntax$Elm$Syntax$Pattern$VarPattern(name))
+          },
+          at: $mdgriffith$elm_codegen$Internal$Index$next(nameIndex),
+          hU: value
+        };
+      };
+    };
+    var $mdgriffith$elm_codegen$Elm$Arg$var = $mdgriffith$elm_codegen$Internal$Arg$var;
     var $mdgriffith$elm_codegen$Elm$Case$result = F2(function(mainExpression, branches) {
       return A3($mdgriffith$elm_codegen$Elm$Case$custom, mainExpression, A2($mdgriffith$elm_codegen$Elm$Annotation$result, $mdgriffith$elm_codegen$Elm$Annotation$var("err"), $mdgriffith$elm_codegen$Elm$Annotation$var("result")), _List_fromArray([
         A2($mdgriffith$elm_codegen$Elm$Case$branch, A2($mdgriffith$elm_codegen$Elm$Arg$item, $mdgriffith$elm_codegen$Elm$Arg$var(branches.i7.a), A2($mdgriffith$elm_codegen$Elm$Arg$customType, "Ok", $elm$core$Basics$identity)), function(val) {
@@ -8895,6 +9097,137 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
         $mdgriffith$elm_codegen$Elm$bool(boolArg_)
       ]));
     };
+    var $mdgriffith$elm_codegen$Elm$Annotation$list = function(inner) {
+      return A3($mdgriffith$elm_codegen$Elm$Annotation$typed, _List_Nil, "List", _List_fromArray([inner]));
+    };
+    var $author$project$Gen$Json$Encode$call_ = {
+      bR: F2(function(arrayArg_, arrayArg_0) {
+        return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
+          bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+            A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+              $mdgriffith$elm_codegen$Elm$Annotation$var("a")
+            ]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil)),
+            A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Array"]), "Array", _List_fromArray([
+              $mdgriffith$elm_codegen$Elm$Annotation$var("a")
+            ]))
+          ]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil))),
+          eo: _List_fromArray(["Json", "Encode"]),
+          ag: "array"
+        }), _List_fromArray([arrayArg_, arrayArg_0]));
+      }),
+      ij: function(boolArg_) {
+        return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
+          bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([$mdgriffith$elm_codegen$Elm$Annotation$bool]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil))),
+          eo: _List_fromArray(["Json", "Encode"]),
+          ag: "bool"
+        }), _List_fromArray([boolArg_]));
+      },
+      cS: F3(function(dictArg_, dictArg_0, dictArg_1) {
+        return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
+          bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+            A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+              $mdgriffith$elm_codegen$Elm$Annotation$var("k")
+            ]), $mdgriffith$elm_codegen$Elm$Annotation$string),
+            A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+              $mdgriffith$elm_codegen$Elm$Annotation$var("v")
+            ]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil)),
+            A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Dict"]), "Dict", _List_fromArray([
+              $mdgriffith$elm_codegen$Elm$Annotation$var("k"),
+              $mdgriffith$elm_codegen$Elm$Annotation$var("v")
+            ]))
+          ]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil))),
+          eo: _List_fromArray(["Json", "Encode"]),
+          ag: "dict"
+        }), _List_fromArray([dictArg_, dictArg_0, dictArg_1]));
+      }),
+      c8: F2(function(encodeArg_, encodeArg_0) {
+        return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
+          bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+            $mdgriffith$elm_codegen$Elm$Annotation$int,
+            A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil)
+          ]), $mdgriffith$elm_codegen$Elm$Annotation$string)),
+          eo: _List_fromArray(["Json", "Encode"]),
+          ag: "encode"
+        }), _List_fromArray([encodeArg_, encodeArg_0]));
+      }),
+      iI: function(floatArg_) {
+        return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
+          bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([$mdgriffith$elm_codegen$Elm$Annotation$float]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil))),
+          eo: _List_fromArray(["Json", "Encode"]),
+          ag: "float"
+        }), _List_fromArray([floatArg_]));
+      },
+      iT: function(intArg_) {
+        return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
+          bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([$mdgriffith$elm_codegen$Elm$Annotation$int]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil))),
+          eo: _List_fromArray(["Json", "Encode"]),
+          ag: "int"
+        }), _List_fromArray([intArg_]));
+      },
+      eO: F2(function(listArg_, listArg_0) {
+        return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
+          bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+            A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+              $mdgriffith$elm_codegen$Elm$Annotation$var("a")
+            ]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil)),
+            $mdgriffith$elm_codegen$Elm$Annotation$list($mdgriffith$elm_codegen$Elm$Annotation$var("a"))
+          ]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil))),
+          eo: _List_fromArray(["Json", "Encode"]),
+          ag: "list"
+        }), _List_fromArray([listArg_, listArg_0]));
+      }),
+      fw: function(objectArg_) {
+        return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
+          bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+            $mdgriffith$elm_codegen$Elm$Annotation$list(A2($mdgriffith$elm_codegen$Elm$Annotation$tuple, $mdgriffith$elm_codegen$Elm$Annotation$string, A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil)))
+          ]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil))),
+          eo: _List_fromArray(["Json", "Encode"]),
+          ag: "object"
+        }), _List_fromArray([objectArg_]));
+      },
+      gO: F2(function(setArg_, setArg_0) {
+        return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
+          bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+            A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
+              $mdgriffith$elm_codegen$Elm$Annotation$var("a")
+            ]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil)),
+            A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Set"]), "Set", _List_fromArray([
+              $mdgriffith$elm_codegen$Elm$Annotation$var("a")
+            ]))
+          ]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil))),
+          eo: _List_fromArray(["Json", "Encode"]),
+          ag: "set"
+        }), _List_fromArray([setArg_, setArg_0]));
+      }),
+      jt: function(stringArg_) {
+        return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
+          bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([$mdgriffith$elm_codegen$Elm$Annotation$string]), A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_fromArray(["Json", "Encode"]), "Value", _List_Nil))),
+          eo: _List_fromArray(["Json", "Encode"]),
+          ag: "string"
+        }), _List_fromArray([stringArg_]));
+      }
+    };
+    var $author$project$Interactive$encodeDefault = F2(function(input, expr) {
+      encodeDefault:
+        while (true) {
+          switch (input.$) {
+            case 0:
+              return $author$project$Gen$Json$Encode$call_.jt(expr);
+            case 1:
+              return $author$project$Gen$Json$Encode$call_.ij(expr);
+            case 2:
+              return $author$project$Gen$Json$Encode$call_.iT(expr);
+            case 3:
+              return $author$project$Gen$Json$Encode$call_.iI(expr);
+            default:
+              var inner = input.a;
+              var $temp$input = inner, $temp$expr = expr;
+              input = $temp$input;
+              expr = $temp$expr;
+              continue encodeDefault;
+          }
+        }
+    });
     var $author$project$Interactive$inputToString = function(input) {
       inputToString:
         while (true) {
@@ -9048,9 +9381,6 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
         };
       });
     };
-    var $mdgriffith$elm_codegen$Elm$Annotation$list = function(inner) {
-      return A3($mdgriffith$elm_codegen$Elm$Annotation$typed, _List_Nil, "List", _List_fromArray([inner]));
-    };
     var $author$project$Gen$Json$Encode$object = function(objectArg_) {
       return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
         bM: $elm$core$Maybe$Just(A2($mdgriffith$elm_codegen$Elm$Annotation$function, _List_fromArray([
@@ -9079,19 +9409,15 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
           A2($author$project$Interactive$keyValue, "name", $author$project$Gen$Json$Encode$string(name)),
           A2($author$project$Interactive$keyValue, "type", $author$project$Gen$Json$Encode$string($author$project$Interactive$inputToString(info.E))),
           A2($author$project$Interactive$keyValue, "required", $author$project$Gen$Json$Encode$bool($author$project$Interactive$isRequired(info.E))),
-          A2($author$project$Interactive$keyValue, "default", info.J)
+          A2($author$project$Interactive$keyValue, "default", A2($author$project$Interactive$encodeDefault, info.E, info.J))
         ])));
       }, fields));
     };
-    var $author$project$Interactive$sendControlsUpdated = function(fields) {
-      return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
-        bM: $elm$core$Maybe$Nothing,
-        eo: _List_fromArray(["Ports"]),
-        ag: "controlsUpdated"
-      }), _List_fromArray([
+    var $author$project$Interactive$sendControlsUpdated = F2(function(portName, fields) {
+      return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({ bM: $elm$core$Maybe$Nothing, eo: _List_Nil, ag: portName }), _List_fromArray([
         $author$project$Interactive$encodeControls(fields)
       ]));
-    };
+    });
     var $stil4m$elm_syntax$Elm$Syntax$Pattern$AllPattern = { $: 0 };
     var $stil4m$elm_syntax$Elm$Syntax$Expression$UnitExpr = { $: 0 };
     var $mdgriffith$elm_codegen$Internal$Compiler$inference = function(type_) {
@@ -9314,68 +9640,85 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
       });
     });
     var $author$project$Interactive$generateSingle = F2(function(moduleName, interact) {
+      var moduleId = A2($elm$core$String$join, "", moduleName);
+      var portInName = "propertyUpdated" + moduleId;
+      var portOutName = "controlsUpdated" + moduleId;
       return A2($author$project$GenApp$element, moduleName, {
-        ix: _List_Nil,
+        ix: _List_fromArray([
+          A2($mdgriffith$elm_codegen$Elm$portIncoming, portInName, _List_fromArray([
+            $mdgriffith$elm_codegen$Elm$Annotation$record(_List_fromArray([
+              _Utils_Tuple2("name", $mdgriffith$elm_codegen$Elm$Annotation$string),
+              _Utils_Tuple2("value", $author$project$Gen$Json$Encode$annotation_.hU)
+            ]))
+          ])),
+          A2($mdgriffith$elm_codegen$Elm$portOutgoing, portOutName, $author$project$Gen$Json$Encode$annotation_.hU)
+        ]),
         J: function(flags) {
           return A2($mdgriffith$elm_codegen$Elm$tuple, $mdgriffith$elm_codegen$Elm$record(A2($elm$core$List$map, function(_v0) {
             var name = _v0.a;
             var info = _v0.b;
             return _Utils_Tuple2(name, info.J);
-          }, interact.aU)), $author$project$Interactive$sendControlsUpdated(interact.aU));
+          }, interact.aU)), A2($author$project$Interactive$sendControlsUpdated, portOutName, interact.aU));
         },
-        fc: _List_fromArray([
-          {
+        fc: _Utils_ap(A2($elm$core$List$map, function(_v1) {
+          var fieldName = _v1.a;
+          var info = _v1.b;
+          var variantName = "Property" + ($author$project$Interactive$capitalize(fieldName) + "Updated");
+          return {
             cB: _List_fromArray([
-              $author$project$Interactive$fieldsToAnnotation(interact.aU)
+              $author$project$Interactive$inputToAnnotation(info.E)
             ]),
-            ag: "Updated",
+            ag: variantName,
             hP: function(model) {
-              return A2($mdgriffith$elm_codegen$Elm$Case$branch, A2($mdgriffith$elm_codegen$Elm$Arg$item, $mdgriffith$elm_codegen$Elm$Arg$var("jsonValue"), A2($mdgriffith$elm_codegen$Elm$Arg$item, $mdgriffith$elm_codegen$Elm$Arg$var("name"), A2($mdgriffith$elm_codegen$Elm$Arg$customType, "Updated", $elm$core$Tuple$pair))), function(_v1) {
-                var name = _v1.a;
-                var jsonValue = _v1.b;
-                return A2($mdgriffith$elm_codegen$Elm$Case$string, name, {
-                  il: A2($elm$core$List$map, function(_v2) {
-                    var fieldName = _v2.a;
-                    var info = _v2.b;
-                    return _Utils_Tuple2(fieldName, A2($mdgriffith$elm_codegen$Elm$Case$result, A2($author$project$Interactive$decode, info.E, jsonValue), {
-                      iD: _Utils_Tuple2("err", function(error) {
-                        return A2($mdgriffith$elm_codegen$Elm$tuple, model, $author$project$Gen$Platform$Cmd$none);
-                      }),
-                      i7: _Utils_Tuple2("val", function(decodedValue) {
-                        return A2($mdgriffith$elm_codegen$Elm$tuple, A2($mdgriffith$elm_codegen$Elm$updateRecord, _List_fromArray([
-                          _Utils_Tuple2(fieldName, decodedValue)
-                        ]), model), $author$project$Gen$Platform$Cmd$none);
-                      })
-                    }));
-                  }, interact.aU),
-                  jc: A2($mdgriffith$elm_codegen$Elm$tuple, model, $author$project$Gen$Platform$Cmd$none)
-                });
+              return A2($mdgriffith$elm_codegen$Elm$Case$branch, A2($mdgriffith$elm_codegen$Elm$Arg$item, A2($mdgriffith$elm_codegen$Elm$Arg$varWith, "value", $author$project$Interactive$inputToAnnotation(info.E)), A2($mdgriffith$elm_codegen$Elm$Arg$customType, variantName, $elm$core$Basics$identity)), function(value) {
+                return A2($mdgriffith$elm_codegen$Elm$tuple, A2($mdgriffith$elm_codegen$Elm$updateRecord, _List_fromArray([
+                  _Utils_Tuple2(fieldName, value)
+                ]), model), $author$project$Gen$Platform$Cmd$none);
               });
             }
-          },
+          };
+        }, interact.aU), _List_fromArray([
           {
-            cB: _List_fromArray([
-              $author$project$Interactive$fieldsToAnnotation(interact.aU)
-            ]),
+            cB: _List_fromArray([$mdgriffith$elm_codegen$Elm$Annotation$string]),
             ag: "UnknownProperty",
             hP: function(model) {
-              return A2($mdgriffith$elm_codegen$Elm$Case$branch, A2($mdgriffith$elm_codegen$Elm$Arg$item, A2($mdgriffith$elm_codegen$Elm$Arg$varWith, "name", $mdgriffith$elm_codegen$Elm$Annotation$string), A2($mdgriffith$elm_codegen$Elm$Arg$customType, "UnknownProperty", $elm$core$Basics$identity)), function(name) {
+              return A2($mdgriffith$elm_codegen$Elm$Case$branch, A2($mdgriffith$elm_codegen$Elm$Arg$item, A2($mdgriffith$elm_codegen$Elm$Arg$varWith, "name", $mdgriffith$elm_codegen$Elm$Annotation$string), A2($mdgriffith$elm_codegen$Elm$Arg$customType, "UnknownProperty", $elm$core$Basics$identity)), function(_v2) {
                 return A2($mdgriffith$elm_codegen$Elm$tuple, model, $author$project$Gen$Platform$Cmd$none);
               });
             }
           }
-        ]),
+        ])),
         av: $author$project$Interactive$fieldsToAnnotation(interact.aU),
         bk: function(_v3) {
-          return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({
-            bM: $elm$core$Maybe$Nothing,
-            eo: _List_fromArray(["Ports"]),
-            ag: "propertyUpdated"
-          }), _List_fromArray([
-            A3($mdgriffith$elm_codegen$Elm$fn2, A2($mdgriffith$elm_codegen$Elm$Arg$varWith, "key", $mdgriffith$elm_codegen$Elm$Annotation$string), A2($mdgriffith$elm_codegen$Elm$Arg$varWith, "value", $author$project$Gen$Json$Encode$annotation_.hU), F2(function(key, value) {
-              return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$val("PropertyUpdated"), _List_fromArray([key, value]));
-            }))
-          ]));
+          return A2($mdgriffith$elm_codegen$Elm$withType, A3($mdgriffith$elm_codegen$Elm$Annotation$namedWith, _List_Nil, "Sub", _List_fromArray([
+            A2($mdgriffith$elm_codegen$Elm$Annotation$named, _List_Nil, "Msg")
+          ])), A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$value({ bM: $elm$core$Maybe$Nothing, eo: _List_Nil, ag: portInName }), _List_fromArray([
+            A2($mdgriffith$elm_codegen$Elm$fn, A2($mdgriffith$elm_codegen$Elm$Arg$varWith, "payload", $mdgriffith$elm_codegen$Elm$Annotation$record(_List_fromArray([
+              _Utils_Tuple2("name", $mdgriffith$elm_codegen$Elm$Annotation$string),
+              _Utils_Tuple2("value", $author$project$Gen$Json$Encode$annotation_.hU)
+            ]))), function(payload) {
+              return A2($mdgriffith$elm_codegen$Elm$Case$string, A2($mdgriffith$elm_codegen$Elm$get, "name", payload), {
+                il: A2($elm$core$List$map, function(_v4) {
+                  var fieldName = _v4.a;
+                  var info = _v4.b;
+                  var variantName = "Property" + ($author$project$Interactive$capitalize(fieldName) + "Updated");
+                  return _Utils_Tuple2(fieldName, A2($mdgriffith$elm_codegen$Elm$Case$result, A2($author$project$Interactive$decode, info.E, A2($mdgriffith$elm_codegen$Elm$get, "value", payload)), {
+                    iD: _Utils_Tuple2("err", function(_v5) {
+                      return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$val("UnknownProperty"), _List_fromArray([
+                        A2($mdgriffith$elm_codegen$Elm$get, "name", payload)
+                      ]));
+                    }),
+                    i7: _Utils_Tuple2("val", function(decodedValue) {
+                      return A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$val(variantName), _List_fromArray([decodedValue]));
+                    })
+                  }));
+                }, interact.aU),
+                jc: A2($mdgriffith$elm_codegen$Elm$apply, $mdgriffith$elm_codegen$Elm$val("UnknownProperty"), _List_fromArray([
+                  A2($mdgriffith$elm_codegen$Elm$get, "name", payload)
+                ]))
+              });
+            })
+          ])));
         },
         bu: function(model) {
           return A2($mdgriffith$elm_codegen$Elm$withType, $author$project$Ui$annotation_.c5(A2($mdgriffith$elm_codegen$Elm$Annotation$named, _List_Nil, "Msg")), interact.bu({
@@ -9517,144 +9860,6 @@ but that's impossible!  Or Elm Codegen's s typechecker is off.`)));
       return { $: 0, a, b };
     });
     var $author$project$Interactive$field = $author$project$Interactive$Field;
-    var $stil4m$elm_syntax$Elm$Syntax$Expression$RecordAccess = F2(function(a, b) {
-      return { $: 20, a, b };
-    });
-    var $mdgriffith$elm_codegen$Internal$Compiler$AttemptingGetOnTypeNameNotAnAlias = function(a) {
-      return { $: 9, a };
-    };
-    var $mdgriffith$elm_codegen$Internal$Compiler$AttemptingToGetOnIncorrectType = function(a) {
-      return { $: 8, a };
-    };
-    var $mdgriffith$elm_codegen$Internal$Compiler$getFieldFromList = F2(function(selector, fields) {
-      getFieldFromList:
-        while (true) {
-          if (!fields.b) {
-            return $elm$core$Maybe$Nothing;
-          } else {
-            var _v1 = fields.a;
-            var _v2 = _v1.b;
-            var _v3 = _v2.a;
-            var fieldname = _v3.b;
-            var _v4 = _v2.b;
-            var contents = _v4.b;
-            var remain = fields.b;
-            if (_Utils_eq(fieldname, selector)) {
-              return $elm$core$Maybe$Just(contents);
-            } else {
-              var $temp$selector = selector, $temp$fields = remain;
-              selector = $temp$selector;
-              fields = $temp$fields;
-              continue getFieldFromList;
-            }
-          }
-        }
-    });
-    var $mdgriffith$elm_codegen$Internal$Compiler$inferRecordField = F2(function(index, _v0) {
-      var nameOfRecord = _v0.fn;
-      var fieldName = _v0.dz;
-      var fieldType = $stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$GenericType($mdgriffith$elm_codegen$Internal$Format$formatValue(_Utils_ap(fieldName, $mdgriffith$elm_codegen$Internal$Index$indexToString(index))));
-      return $elm$core$Result$Ok({
-        ib: $mdgriffith$elm_codegen$Internal$Compiler$emptyAliases,
-        e: A3($mdgriffith$elm_codegen$Internal$Compiler$addInference, nameOfRecord, A2($stil4m$elm_syntax$Elm$Syntax$TypeAnnotation$GenericRecord, $mdgriffith$elm_codegen$Internal$Compiler$nodify(nameOfRecord), $mdgriffith$elm_codegen$Internal$Compiler$nodify(_List_fromArray([
-          $mdgriffith$elm_codegen$Internal$Compiler$nodify(_Utils_Tuple2($mdgriffith$elm_codegen$Internal$Compiler$nodify(fieldName), $mdgriffith$elm_codegen$Internal$Compiler$nodify(fieldType)))
-        ]))), $elm$core$Dict$empty),
-        hG: fieldType
-      });
-    });
-    var $mdgriffith$elm_codegen$Internal$Compiler$resolveField = F5(function(index, type_, aliases, inferences, fieldName) {
-      resolveField:
-        while (true) {
-          if ($mdgriffith$elm_codegen$Internal$Index$typecheck(index)) {
-            switch (type_.$) {
-              case 4:
-                var fields = type_.a;
-                var _v1 = A2($mdgriffith$elm_codegen$Internal$Compiler$getFieldFromList, fieldName, fields);
-                if (!_v1.$) {
-                  var ann = _v1.a;
-                  return $elm$core$Result$Ok({ ib: aliases, e: inferences, hG: ann });
-                } else {
-                  return $elm$core$Result$Err(_List_fromArray([
-                    $mdgriffith$elm_codegen$Internal$Compiler$CouldNotFindField({
-                      iE: A2($elm$core$List$map, A2($elm$core$Basics$composeR, $mdgriffith$elm_codegen$Internal$Compiler$denode, A2($elm$core$Basics$composeR, $elm$core$Tuple$first, $mdgriffith$elm_codegen$Internal$Compiler$denode)), fields),
-                      ar: fieldName
-                    })
-                  ]));
-                }
-              case 5:
-                var _v2 = type_.b;
-                var fields = _v2.b;
-                var _v3 = A2($mdgriffith$elm_codegen$Internal$Compiler$getFieldFromList, fieldName, fields);
-                if (!_v3.$) {
-                  var ann = _v3.a;
-                  return $elm$core$Result$Ok({ ib: aliases, e: inferences, hG: ann });
-                } else {
-                  return $elm$core$Result$Err(_List_fromArray([
-                    $mdgriffith$elm_codegen$Internal$Compiler$CouldNotFindField({
-                      iE: A2($elm$core$List$map, A2($elm$core$Basics$composeR, $mdgriffith$elm_codegen$Internal$Compiler$denode, A2($elm$core$Basics$composeR, $elm$core$Tuple$first, $mdgriffith$elm_codegen$Internal$Compiler$denode)), fields),
-                      ar: fieldName
-                    })
-                  ]));
-                }
-              case 0:
-                var nameOfRecord = type_.a;
-                return A2($mdgriffith$elm_codegen$Internal$Compiler$inferRecordField, index, { dz: fieldName, fn: nameOfRecord });
-              case 1:
-                var nodedModAndName = type_.a;
-                var _v4 = A2($mdgriffith$elm_codegen$Internal$Compiler$getAlias, nodedModAndName, aliases);
-                if (_v4.$ === 1) {
-                  return $elm$core$Result$Err(_List_fromArray([
-                    $mdgriffith$elm_codegen$Internal$Compiler$AttemptingGetOnTypeNameNotAnAlias({ ar: fieldName, fy: type_ })
-                  ]));
-                } else {
-                  var aliased = _v4.a;
-                  var $temp$index = index, $temp$type_ = aliased.hf, $temp$aliases = aliases, $temp$inferences = inferences, $temp$fieldName = fieldName;
-                  index = $temp$index;
-                  type_ = $temp$type_;
-                  aliases = $temp$aliases;
-                  inferences = $temp$inferences;
-                  fieldName = $temp$fieldName;
-                  continue resolveField;
-                }
-              case 3:
-                return $elm$core$Result$Err(_List_fromArray([
-                  $mdgriffith$elm_codegen$Internal$Compiler$AttemptingToGetOnIncorrectType({ ar: fieldName, fy: type_ })
-                ]));
-              case 2:
-                return $elm$core$Result$Err(_List_fromArray([
-                  $mdgriffith$elm_codegen$Internal$Compiler$AttemptingToGetOnIncorrectType({ ar: fieldName, fy: type_ })
-                ]));
-              default:
-                return $elm$core$Result$Err(_List_fromArray([
-                  $mdgriffith$elm_codegen$Internal$Compiler$AttemptingToGetOnIncorrectType({ ar: fieldName, fy: type_ })
-                ]));
-            }
-          } else {
-            return $elm$core$Result$Err(_List_Nil);
-          }
-        }
-    });
-    var $mdgriffith$elm_codegen$Elm$get = F2(function(unformattedFieldName, recordExpression) {
-      return function(index) {
-        var fieldName = $mdgriffith$elm_codegen$Internal$Format$formatValue(unformattedFieldName);
-        var _v0 = A2($mdgriffith$elm_codegen$Internal$Compiler$toExpressionDetails, index, recordExpression);
-        var expr = _v0.b;
-        return {
-          bM: function() {
-            var _v1 = expr.bM;
-            if (!_v1.$) {
-              var recordAnn = _v1.a;
-              return A5($mdgriffith$elm_codegen$Internal$Compiler$resolveField, index, recordAnn.hG, recordAnn.ib, recordAnn.e, fieldName);
-            } else {
-              var otherwise = _v1;
-              return otherwise;
-            }
-          }(),
-          iH: A2($stil4m$elm_syntax$Elm$Syntax$Expression$RecordAccess, $mdgriffith$elm_codegen$Internal$Compiler$nodify(expr.iH), $mdgriffith$elm_codegen$Internal$Compiler$nodify(fieldName)),
-          c: expr.c
-        };
-      };
-    });
     var $author$project$Example$Interactive$Build$getVal = F3(function(nameBase, options, context) {
       var arg = nameBase;
       return {

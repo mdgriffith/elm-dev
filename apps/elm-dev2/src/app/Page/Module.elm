@@ -13,6 +13,7 @@ import App.Stores
 import App.View
 import App.View.Region
 import Broadcast
+import Data.Controls
 import Data.ProjectStatus as ProjectStatus
 import Docs.Ref
 import Docs.Ref.Get
@@ -23,9 +24,11 @@ import Html
 import Html.Attributes as Attr
 import Listen exposing (Listen)
 import Listen.DevServer
+import Store.Interactive
 import Store.Modules
 import Store.Projects
 import String
+import Ui.Interactive.Controls as InteractiveControls
 import Ui.Module
 import Ui.Nav.Top
 import WebComponents.Playground
@@ -42,6 +45,7 @@ type alias Model =
 type Msg
     = TypeClicked String
     | DevServerReceived Listen.DevServer.Event
+    | InteractiveChanged { filepath : String, key : String, value : Data.Controls.Value }
 
 
 page : App.Page.Page App.Stores.Stores App.Page.Id.Module_Params Msg Model
@@ -127,6 +131,14 @@ update stores msg model =
                 _ ->
                     ( model, Effect.none )
 
+        InteractiveChanged { filepath, key, value } ->
+            ( model
+            , Effect.broadcast
+                (Broadcast.InteractivePropertyUpdated
+                    { filepath = filepath, key = key, value = value }
+                )
+            )
+
 
 subscriptions : App.Stores.Stores -> Model -> Listen Msg
 subscriptions shared model =
@@ -182,6 +194,20 @@ view viewId shared model =
                                     , elmSource = first.elmSource
                                     , filePath = first.path
                                     }
+                                , case Store.Interactive.get first.path shared.interactive of
+                                    Just controls ->
+                                        InteractiveControls.view
+                                            (\path v ->
+                                                InteractiveChanged
+                                                    { filepath = first.path
+                                                    , key = path
+                                                    , value = v
+                                                    }
+                                            )
+                                            controls
+
+                                    Nothing ->
+                                        Html.text ""
                                 ]
 
                         _ ->

@@ -90,7 +90,7 @@ subscriptions stores model =
                 Broadcast.RefPinned ref ->
                     Just (RefAdded ref)
 
-                Broadcast.ProjectSelected shortId ->
+                _ ->
                     Nothing
         )
 

@@ -139,4 +139,4 @@ writeGroupCustomizable target src hiddenSrc = do
 
 -- Version.  Iterate when we change the templates
 version :: String
-version = "e5b1a7d8d68281cf"
+version = "d23d2ba8e5d3ae6d"

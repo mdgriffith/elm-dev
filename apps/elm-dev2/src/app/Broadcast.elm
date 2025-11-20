@@ -22,9 +22,12 @@ And to listen for this message, in your subscriptions, you'd have
 
 -}
 
+import Data.Controls
 import Docs.Ref
 
 
 type Msg
     = RefPinned Docs.Ref.Ref
     | ProjectSelected Int
+    | InteractivePropertyUpdated { filepath : String, key : String, value : Data.Controls.Value }
+

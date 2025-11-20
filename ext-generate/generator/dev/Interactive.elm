@@ -5,7 +5,7 @@ module Interactive exposing
     , log
     , Input(..), bool, string, int, float
     , fromType
-    , details, maybe, portFile
+    , details, maybe
     )
 
 {-|
@@ -28,9 +28,6 @@ import Elm
 import Elm.Annotation
 import Elm.Arg
 import Elm.Case
-import Elm.Declare
-import Elm.Docs
-import Elm.Op
 import Elm.Type
 import Gen.Browser
 import Gen.Html
@@ -212,6 +209,16 @@ appTypes =
 
 generateSingle : List String -> Interactive -> Elm.File
 generateSingle moduleName interact =
+    let
+        moduleId =
+            String.join "" moduleName
+
+        portInName =
+            "propertyUpdated" ++ moduleId
+
+        portOutName =
+            "controlsUpdated" ++ moduleId
+    in
     GenApp.element moduleName
         { init =
             \flags ->
@@ -224,70 +231,50 @@ generateSingle moduleName interact =
                             interact.fields
                         )
                     )
-                    (sendControlsUpdated interact.fields)
+                    (sendControlsUpdated portOutName interact.fields)
         , model = fieldsToAnnotation interact.fields
         , messageHandlers =
-            [ { name = "Updated"
-              , data = [ fieldsToAnnotation interact.fields ]
-              , updateBranch =
-                    \model ->
-                        Elm.Case.branch
-                            (Elm.Arg.customType "Updated" Tuple.pair
-                                |> Elm.Arg.item (Elm.Arg.var "name")
-                                |> Elm.Arg.item (Elm.Arg.var "jsonValue")
-                            )
-                            (\( name, jsonValue ) ->
-                                Elm.Case.string name
-                                    { cases =
-                                        List.map
-                                            (\(Field fieldName info) ->
-                                                ( fieldName
-                                                , Elm.Case.result
-                                                    (decode info.input jsonValue)
-                                                    { ok =
-                                                        ( "val"
-                                                        , \decodedValue ->
-                                                            Elm.tuple
-                                                                (model
-                                                                    |> Elm.updateRecord
-                                                                        [ ( fieldName, decodedValue )
-                                                                        ]
-                                                                )
-                                                                Gen.Platform.Cmd.none
-                                                        )
-                                                    , err =
-                                                        ( "err"
-                                                        , \error ->
-                                                            Elm.tuple
-                                                                model
-                                                                Gen.Platform.Cmd.none
-                                                        )
-                                                    }
-                                                )
-                                            )
-                                            interact.fields
-                                    , otherwise =
-                                        Elm.tuple
-                                            model
-                                            Gen.Platform.Cmd.none
-                                    }
-                            )
-              }
-            , { name = "UnknownProperty"
-              , data = [ fieldsToAnnotation interact.fields ]
-              , updateBranch =
-                    \model ->
-                        Elm.Case.branch
-                            (Elm.Arg.customType "UnknownProperty" identity
-                                |> Elm.Arg.item (Elm.Arg.varWith "name" Elm.Annotation.string)
-                            )
-                            (\name ->
-                                Elm.tuple
-                                    model
-                                    Gen.Platform.Cmd.none
-                            )
-              }
-            ]
+            List.map
+                (\(Field fieldName info) ->
+                    let
+                        variantName =
+                            "Property" ++ capitalize fieldName ++ "Updated"
+                    in
+                    { name = variantName
+                    , data = [ inputToAnnotation info.input ]
+                    , updateBranch =
+                        \model ->
+                            Elm.Case.branch
+                                (Elm.Arg.customType variantName identity
+                                    |> Elm.Arg.item (Elm.Arg.varWith "value" (inputToAnnotation info.input))
+                                )
+                                (\value ->
+                                    Elm.tuple
+                                        (model
+                                            |> Elm.updateRecord
+                                                [ ( fieldName, value )
+                                                ]
+                                        )
+                                        Gen.Platform.Cmd.none
+                                )
+                    }
+                )
+                interact.fields
+                ++ [ { name = "UnknownProperty"
+                     , data = [ Elm.Annotation.string ]
+                     , updateBranch =
+                        \model ->
+                            Elm.Case.branch
+                                (Elm.Arg.customType "UnknownProperty" identity
+                                    |> Elm.Arg.item (Elm.Arg.varWith "name" Elm.Annotation.string)
+                                )
+                                (\_ ->
+                                    Elm.tuple
+                                        model
+                                        Gen.Platform.Cmd.none
+                                )
+                     }
+                   ]
         , view =
             \model ->
                 interact.view
@@ -317,21 +304,62 @@ generateSingle moduleName interact =
         , subscriptions =
             \_ ->
                 Elm.apply
-                    (Elm.value
-                        { importFrom = [ "Ports" ]
-                        , name = "propertyUpdated"
-                        , annotation = Nothing
-                        }
-                    )
-                    [ Elm.fn2
-                        (Elm.Arg.varWith "key" Elm.Annotation.string)
-                        (Elm.Arg.varWith "value" Gen.Json.Encode.annotation_.value)
-                        (\key value ->
-                            Elm.apply (Elm.val "PropertyUpdated") [ key, value ]
+                    (Elm.value { importFrom = [], name = portInName, annotation = Nothing })
+                    [ Elm.fn
+                        (Elm.Arg.varWith "payload"
+                            (Elm.Annotation.record
+                                [ ( "name", Elm.Annotation.string )
+                                , ( "value", Gen.Json.Encode.annotation_.value )
+                                ]
+                            )
+                        )
+                        (\payload ->
+                            Elm.Case.string (Elm.get "name" payload)
+                                { cases =
+                                    List.map
+                                        (\(Field fieldName info) ->
+                                            let
+                                                variantName =
+                                                    "Property" ++ capitalize fieldName ++ "Updated"
+                                            in
+                                            ( fieldName
+                                            , Elm.Case.result
+                                                (decode info.input (Elm.get "value" payload))
+                                                { ok =
+                                                    ( "val"
+                                                    , \decodedValue ->
+                                                        Elm.apply (Elm.val variantName) [ decodedValue ]
+                                                    )
+                                                , err =
+                                                    ( "err"
+                                                    , \_ ->
+                                                        Elm.apply (Elm.val "UnknownProperty") [ Elm.get "name" payload ]
+                                                    )
+                                                }
+                                            )
+                                        )
+                                        interact.fields
+                                , otherwise =
+                                    Elm.apply (Elm.val "UnknownProperty") [ Elm.get "name" payload ]
+                                }
                         )
                     ]
+                    |> Elm.withType
+                        (Elm.Annotation.namedWith []
+                            "Sub"
+                            [ Elm.Annotation.named [] "Msg"
+                            ]
+                        )
         , declarations =
-            []
+            [ Elm.portIncoming portInName
+                [ Elm.Annotation.record
+                    [ ( "name", Elm.Annotation.string )
+                    , ( "value", Gen.Json.Encode.annotation_.value )
+                    ]
+                ]
+            , Elm.portOutgoing portOutName
+                Gen.Json.Encode.annotation_.value
+            ]
         }
 
 
@@ -365,31 +393,10 @@ toDecoderHelper input =
 {--PORTS --}
 
 
-{-| This file is shared between all interactive examples.
--}
-portFile : Elm.File
-portFile =
-    Elm.file [ "Ports" ]
-        [ -- We've updated a property, send the new value to the outside
-          Elm.portIncoming "propertyUpdated"
-            [ Elm.Annotation.string
-            , Gen.Json.Encode.annotation_.value
-            ]
-        , -- These are what controls we need to drive the UI
-          Elm.portOutgoing "controlsUpdated"
-            Gen.Json.Encode.annotation_.value
-        ]
-
-
-sendControlsUpdated : List Field -> Elm.Expression
-sendControlsUpdated fields =
+sendControlsUpdated : String -> List Field -> Elm.Expression
+sendControlsUpdated portName fields =
     Elm.apply
-        (Elm.value
-            { importFrom = [ "Ports" ]
-            , name = "controlsUpdated"
-            , annotation = Nothing
-            }
-        )
+        (Elm.value { importFrom = [], name = portName, annotation = Nothing })
         [ encodeControls fields ]
 
 
@@ -411,12 +418,31 @@ encodeControls fields =
                         [ keyValue "name" (Gen.Json.Encode.string name)
                         , keyValue "type" (Gen.Json.Encode.string (inputToString info.input))
                         , keyValue "required" (Gen.Json.Encode.bool (isRequired info.input))
-                        , keyValue "default" info.init
+                        , keyValue "default" (encodeDefault info.input info.init)
                         ]
                     )
             )
             fields
         )
+
+
+encodeDefault : Input -> Elm.Expression -> Elm.Expression
+encodeDefault input expr =
+    case input of
+        InputString ->
+            Gen.Json.Encode.call_.string expr
+
+        InputBool ->
+            Gen.Json.Encode.call_.bool expr
+
+        InputInt ->
+            Gen.Json.Encode.call_.int expr
+
+        InputFloat ->
+            Gen.Json.Encode.call_.float expr
+
+        InputMaybe inner ->
+            encodeDefault inner expr
 
 
 inputToString : Input -> String
@@ -769,3 +795,4 @@ capitalize str =
             String.dropLeft 1 str
     in
     String.toUpper top ++ remain
+

@@ -5,16 +5,17 @@ import Elm.Annotation
 import Elm.Arg
 import Elm.Case
 import Gen.Browser
+import Gen.Json.Decode
 import Gen.Platform.Cmd
 import Gen.Platform.Sub
 
 
 msgType =
-    Elm.Annotation.var "Msg"
+    Elm.Annotation.named [] "Msg"
 
 
 modelType =
-    Elm.Annotation.var "Model"
+    Elm.Annotation.named [] "Model"
 
 
 updateTupleType =
@@ -42,7 +43,13 @@ element :
 element modName app =
     Elm.file modName
         ([ Elm.declaration "main" appMain
-         , Elm.declaration "init" (Elm.fn (Elm.Arg.var "flags") app.init)
+         , Elm.declaration "init"
+            (Elm.fn (Elm.Arg.varWith "flags" Gen.Json.Decode.annotation_.value)
+                (\flags ->
+                    app.init flags
+                        |> Elm.withType updateTupleType
+                )
+            )
          , Elm.alias "Model" app.model
          , Elm.customType "Msg"
             (List.map
@@ -68,7 +75,8 @@ element modName app =
                 )
             )
          , Elm.declaration "view" (Elm.fn (Elm.Arg.varWith "model" modelType) app.view)
-         , Elm.declaration "subscriptions" (Elm.fn (Elm.Arg.varWith "model" modelType) app.subscriptions)
+         , Elm.declaration "subscriptions"
+            (Elm.fn (Elm.Arg.varWith "model" modelType) app.subscriptions)
          ]
             ++ app.declarations
         )
@@ -83,7 +91,7 @@ appMain =
                 , annotation =
                     Just
                         (Elm.Annotation.function
-                            [ Elm.Annotation.var "flags"
+                            [ Gen.Json.Decode.annotation_.value
                             ]
                             updateTupleType
                         )
@@ -107,3 +115,4 @@ appMain =
         , ( "subscriptions", Elm.val "subscriptions" )
         ]
         |> Gen.Browser.call_.element
+
