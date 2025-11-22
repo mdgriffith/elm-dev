@@ -134,7 +134,7 @@ defaultServerCapabilities = ServerCapabilities
       ],
     serverCapabilitiesDiagnosticProvider = Just $ JSON.object
       [ "interFileDependencies" .= True,
-        "workspaceDiagnostics" .= False
+        "workspaceDiagnostics" .= True
       ],
     serverCapabilitiesWorkspaceSymbolProvider = Nothing,
     serverCapabilitiesWorkspace = Nothing,
@@ -493,6 +493,8 @@ handlePrepareTypeHierarchy _state typeHierarchyParams = do
 handleDiagnostic :: Live.State -> DocumentDiagnosticParams -> IO (Either String JSON.Value)
 handleDiagnostic state diagnosticParams = do
   let uri = textDocumentIdentifierUri (documentDiagnosticParamsTextDocument diagnosticParams)
+
+  Ext.Log.log Ext.Log.LSP $ "handleDiagnostic: URI: " ++ Text.unpack uri
   
   -- Get project caches from state and run compilation
   case uriToFilePath uri of
@@ -871,6 +873,18 @@ serve state _emit connId req@(JSONRPC.Request _ reqId method params) = do
     "textDocument/diagnostic" -> 
       handleLSPRequest reqId params "diagnostic" (handleDiagnostic state)
 
+    -- Workspace Diagnostic Provider: Provide diagnostics across the entire workspace
+    "workspace/diagnostic" -> do
+      case params of
+        Just p -> do
+          Ext.Log.log Ext.Log.LSP $
+            "workspace/diagnostic params: "
+              ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
+        Nothing -> do
+          Ext.Log.log Ext.Log.LSP "workspace/diagnostic params: (none)"
+      report <- buildWorkspaceDiagnosticReport state
+      return $ success reqId report
+
     -- Inlay Hint Provider: Show inline type hints and parameter names
     -- Provides inline hints like type annotations and parameter names without modifying the source
     -- https://code.visualstudio.com/api/language-extensions/programmatic-language-features#inlay-hints
@@ -956,6 +970,8 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
               _ <- handleDidChange state changeParams
               -- Emit code lens refresh; diagnostics are provided via pull (DocumentDiagnostic)
               send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
+              -- Ask client to refresh workspace diagnostics (pull model)
+              send (JSONRPC.OutboundRequest "workspace/diagnostic/refresh" Nothing)
               send (logMessage LogMessageTypeLog "Document changed")
               return ()
             JSON.Error err -> do
@@ -984,6 +1000,8 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
               _ <- handleDidSave state saveParams
               -- Emit code lens refresh; diagnostics are provided via pull (DocumentDiagnostic)
               send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
+              -- Ask client to refresh workspace diagnostics (pull model)
+              send (JSONRPC.OutboundRequest "workspace/diagnostic/refresh" Nothing)
               send (logMessage LogMessageTypeInfo "Saved document")
               return ()
             JSON.Error err -> do
@@ -1014,3 +1032,35 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
 
 
 
+
+-- Build a Workspace Diagnostic Report aggregating diagnostics per file across all projects
+buildWorkspaceDiagnosticReport :: Live.State -> IO JSON.Value
+buildWorkspaceDiagnosticReport state = do
+  let (Client.State _ mProjects _ _ _ _ _) = state
+  projects <- Control.Concurrent.STM.readTVarIO mProjects
+  itemsPerProject <- mapM (workspaceItemsForProject state) projects
+  let allItems = concat itemsPerProject
+  pure (JSON.object [ "items" .= allItems ])
+
+-- Build workspace diagnostic entries for a single project
+workspaceItemsForProject :: Live.State -> Client.ProjectCache -> IO [JSON.Value]
+workspaceItemsForProject state pc@(Client.ProjectCache proj _ _ _ _) = do
+  diagsMap <- Helpers.getProjectDiagnosticsByFile state pc
+  Ext.Log.log Ext.Log.LSP $ "WORKSPACE DIAGNOSTICS MAP SIZE: " ++ show (Map.size diagsMap)
+  mapM
+    (\(filePath, fileErrs) -> do
+        -- (_loc, warns) <- Helpers.getWarningsForFile state filePath
+        -- let warnDiags = concatMap Helpers.warningToUnusedDiagnostic warns
+        -- let diags = fileErrs ++ warnDiags
+        Ext.Log.log Ext.Log.LSP $ "FILE ERRORS: " ++ show (length fileErrs) ++ " " ++ filePath 
+        let uri = 
+              let stripLeadingSlashes = dropWhile (== '/')
+              in Text.pack ("file:///" ++ stripLeadingSlashes filePath)
+        pure $ JSON.object
+          [ "uri" .= uri
+          , "version" .= JSON.Null
+          , "kind" .= ("full" :: Text)
+          , "items" .= fileErrs
+          ]
+    )
+    (Map.toList diagsMap)

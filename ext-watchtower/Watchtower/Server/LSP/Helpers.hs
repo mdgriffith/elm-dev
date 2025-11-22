@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Server.LSP.Helpers (getDiagnosticsForProject, getWarningsForFile, warningToUnusedDiagnostic, warningToCodeLens, findAllReferences, findDefinition, showHover) where
+module Watchtower.Server.LSP.Helpers (getDiagnosticsForProject, getProjectDiagnosticsByFile, getWarningsForFile, warningToUnusedDiagnostic, warningToCodeLens, findAllReferences, findDefinition, showHover) where
 
 import Data.Aeson
 import qualified Watchtower.Live.Client
@@ -49,14 +49,30 @@ getDiagnosticsForProject state projectCache maybeFilePath = do
   case currentResult of
     Watchtower.Live.Client.Success _ -> return []
     Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
-      Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Reactor), EXTRACTING DIAGNOSTICS"
-      return $ extractDiagnosticsFromReactor maybeFilePath exitReactor
+      -- Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Reactor), EXTRACTING DIAGNOSTICS"
+      let diagnostics = extractDiagnosticsFromReactor maybeFilePath exitReactor
+      Ext.Log.log Ext.Log.LSP $ "DIAGNOSTICS Extracted: " ++ show diagnostics
+      return diagnostics
     Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
       Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Generation)"
       return []
     Watchtower.Live.Client.NotCompiled -> do
       Ext.Log.log Ext.Log.LSP "COMPILE RESULT NOT COMPILED YET"
       return []
+
+-- | Aggregate diagnostics for a whole project grouped by file path.
+-- Returns a map from absolute file path to all diagnostics for that file.
+getProjectDiagnosticsByFile :: Watchtower.Live.Client.State -> Watchtower.Live.Client.ProjectCache -> IO (Map.Map FilePath [Diagnostic])
+getProjectDiagnosticsByFile _state projectCache = do
+  currentResult <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult projectCache)
+  case currentResult of
+    Watchtower.Live.Client.Success _ -> pure Map.empty
+    Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) ->
+      pure (extractDiagnosticsFromReactorByFile exitReactor)
+    Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) ->
+      pure Map.empty
+    Watchtower.Live.Client.NotCompiled ->
+      pure Map.empty
 
 
 
@@ -68,6 +84,15 @@ extractDiagnosticsFromReactor maybeFilePathFilter reactor =
       concatMap (moduleErrorsToDiagnostics maybeFilePathFilter) (firstModule : otherModules)
     _ -> []  -- Other reactor errors are not module-specific
 
+-- | Extract diagnostics from Reactor errors grouped by file path
+extractDiagnosticsFromReactorByFile :: Reporting.Exit.Reactor -> Map.Map FilePath [Diagnostic]
+extractDiagnosticsFromReactorByFile reactor =
+  case reactor of
+    Reporting.Exit.ReactorBadBuild (Reporting.Exit.BuildBadModules _root firstModule otherModules) ->
+      let pairs = map moduleErrorsToDiagnosticsByFile (firstModule : otherModules)
+      in Map.fromListWith (++) pairs
+    _ -> Map.empty
+
 
 -- | Convert a module's errors to diagnostics if it matches the target file
 moduleErrorsToDiagnostics :: Maybe FilePath -> Reporting.Error.Module -> [Diagnostic]
@@ -78,6 +103,13 @@ moduleErrorsToDiagnostics targetFilePath (Reporting.Error.Module _name absoluteP
       if System.FilePath.normalise absolutePath == System.FilePath.normalise target
         then errorToDiagnostics (Reporting.Render.Code.toSource source) errors
         else []
+
+-- | Convert a module's errors to a (filePath, diagnostics) pair
+moduleErrorsToDiagnosticsByFile :: Reporting.Error.Module -> (FilePath, [Diagnostic])
+moduleErrorsToDiagnosticsByFile (Reporting.Error.Module _name absolutePath _time source errors) =
+  ( absolutePath
+  , errorToDiagnostics (Reporting.Render.Code.toSource source) errors
+  )
 
 
 -- | Convert Elm errors to LSP diagnostics
@@ -275,7 +307,9 @@ findAllReferences state uri filePath lspPos includeDecl = do
  
 
 filePathToUri :: FilePath -> Text
-filePathToUri fp = Text.pack ("file://" ++ fp)
+filePathToUri fp =
+  let stripLeadingSlashes = dropWhile (== '/')
+  in Text.pack ("file:///" ++ stripLeadingSlashes fp)
 
 
 
@@ -315,8 +349,6 @@ findDefinition state uri filePath lspPos = do
                                     case Watchtower.AST.Definition.findTopLevelDefRegion canMod name of
                                         Nothing -> pure Nothing
                                         Just reg -> pure (Just (Location { locationUri = uri, locationRange = regionToRange reg }))
-                                Watchtower.AST.Lookup.FoundVarForeign home name _ ->
-                                    resolveForeignDefinition state home name
                                 Watchtower.AST.Lookup.FoundVarForeign home name _ ->
                                     resolveForeignDefinition state home name
                                 Watchtower.AST.Lookup.FoundVarOperator _sym home real _ ->
