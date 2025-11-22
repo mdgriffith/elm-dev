@@ -4,7 +4,6 @@ module Data.Controls exposing
     , InputValue(..)
     , NumberDetails
     , OneOfDetails
-    , Path
     , SelectedItem
     , Value(..)
     , decode
@@ -18,18 +17,18 @@ import Json.Decode as Decode
 import Json.Encode as Encode
 
 
-type alias Path =
+type alias Key =
     String
 
 
 type alias Controls =
-    { data : Dict Path Input
+    { data : Dict Key Input
     }
 
 
 type alias Input =
     { name : String
-    , path : Path
+    , key : String
     , required : Bool
     , input : InputValue
     }
@@ -170,27 +169,60 @@ encodeSelectedItem item =
 decode : Decode.Decoder Controls
 decode =
     Decode.map Controls
-        (Decode.field "data" (Decode.dict decodeInput))
+        (Decode.dict decodeInput)
 
 
 decodeInput : Decode.Decoder Input
 decodeInput =
     Decode.map4 Input
         (Decode.field "name" Decode.string)
-        (Decode.field "path" Decode.string)
+        (Decode.field "name" Decode.string)
         (Decode.field "required" Decode.bool)
-        (Decode.field "input" decodeInputValue)
+        decodeInputValue
 
 
 decodeInputValue : Decode.Decoder InputValue
 decodeInputValue =
-    Decode.oneOf
-        [ Decode.map Str Decode.string
-        , Decode.map OneOf (Decode.field "oneOf" decodeOneOfDetails)
-        , Decode.map ManyOf (Decode.field "manyOf" (Decode.list decodeSelectedItem))
-        , Decode.map Boolean Decode.bool
-        , Decode.map Number (Decode.field "number" decodeNumberDetails)
-        ]
+    Decode.field "type" Decode.string
+        |> Decode.andThen
+            (\inputType ->
+                Decode.field "default" <|
+                    case inputType of
+                        "string" ->
+                            Decode.map Str Decode.string
+
+                        "bool" ->
+                            Decode.map Boolean Decode.bool
+
+                        "float" ->
+                            Decode.map
+                                (\f ->
+                                    Number
+                                        { min = Nothing
+                                        , max = Nothing
+                                        , step = Nothing
+                                        , integer = False
+                                        , value = Just f
+                                        }
+                                )
+                                Decode.float
+
+                        "int" ->
+                            Decode.map
+                                (\i ->
+                                    Number
+                                        { min = Nothing
+                                        , max = Nothing
+                                        , step = Nothing
+                                        , integer = False
+                                        , value = Just (toFloat i)
+                                        }
+                                )
+                                Decode.int
+
+                        _ ->
+                            Decode.fail ("Unknown input type: " ++ inputType)
+            )
 
 
 decodeOneOfDetails : Decode.Decoder OneOfDetails
@@ -222,11 +254,11 @@ decodeNumberDetails =
 
 
 setValueForPath : String -> Value -> Controls -> Controls
-setValueForPath path value controls =
+setValueForPath key value controls =
     let
         updateInput : Input -> Input
         updateInput input =
-            if input.path /= path then
+            if input.key /= key then
                 input
 
             else

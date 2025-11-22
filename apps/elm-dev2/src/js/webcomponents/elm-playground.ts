@@ -27,8 +27,6 @@ export default function include() {
                 this._projectRoot = this.getAttribute("project-root");
                 this._filePath = this.getAttribute("filepath");
 
-                console.log("MOUNTING ELM");
-                console.log(this._elmSource);
                 void this._compileAndMount();
             }
 
@@ -62,7 +60,6 @@ export default function include() {
                     container.style.cssText = "width: 100%; height: 100%;";
                     this.appendChild(container);
 
-                    console.log("INTERACTIVE", this._projectRoot, this._filePath);
                     // Compile source via dev server (POST body = elm source)
                     const url = new URL(`${this._baseurl}/dev/interactive/compile`);
                     url.searchParams.set("dir", this._projectRoot);
@@ -146,21 +143,31 @@ export default function include() {
                 if (!this._app || !this._filePath) return;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const mainApp: any = (window as any).__elmDevMain;
+                console.log("MAIN APP", mainApp);
                 if (!mainApp || !mainApp.ports) return;
 
                 // Child -> Main: subscribe to all child's controlsUpdated_* and forward with filepath
                 if (mainApp.ports.onControlsUpdated && typeof mainApp.ports.onControlsUpdated.send === "function") {
                     const ports = (this._app.ports ?? {}) as Record<string, any>;
-                    for (const name of Object.keys(ports).filter((k) => k.startsWith("controlsUpdated_") && typeof ports[k]?.subscribe === "function")) {
-                        const portObj = ports[name];
+                    for (const name of Object.keys(ports).filter((k) => k.startsWith("controlsUpdated") && typeof ports[k]?.subscribe === "function")) {
+                        console.log(
+                            "CONTROLS UPDATED",
+                            name,
+                            ports[name]
+                        )
+
                         const forwardToMain = (controls: any) => {
+                            console.log(
+                                "FORWARD TO MAIN",
+                                controls
+                            )
                             try {
                                 mainApp.ports.onControlsUpdated.send({ filepath: this._filePath, controls });
                             } catch (e) {
                                 console.error("Failed to send onControlsUpdated to main app", e);
                             }
                         };
-                        portObj.subscribe(forwardToMain);
+                        ports[name].subscribe(forwardToMain);
                         this._childOutgoingUnsubs.push(forwardToMain);
                     }
                 }
@@ -170,7 +177,7 @@ export default function include() {
                     try {
                         if (!msg || msg.filepath !== this._filePath) return;
                         const ports = (this._app.ports ?? {}) as Record<string, any>;
-                        for (const name of Object.keys(ports).filter((k) => k.startsWith("propertyUpdated_") && typeof ports[k]?.send === "function")) {
+                        for (const name of Object.keys(ports).filter((k) => k.startsWith("propertyUpdated") && typeof ports[k]?.send === "function")) {
                             const childIn = ports[name];
                             if (childIn && typeof childIn.send === "function") {
                                 childIn.send({ name: msg.key, value: msg.value });

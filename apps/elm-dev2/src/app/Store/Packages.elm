@@ -150,7 +150,8 @@ requestMissingForProject project model =
     let
         deps : List ProjectStatus.PackageInfo
         deps =
-            project.dependencies.direct ++ project.testDependencies.direct
+            ProjectStatus.toDeps project
+                |> .direct
 
         missing : List ProjectStatus.PackageInfo
         missing =

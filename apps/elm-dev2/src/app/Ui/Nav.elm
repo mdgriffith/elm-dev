@@ -57,7 +57,7 @@ view options =
                     |> List.map (.name >> viewModuleName)
                 )
             , viewSection "Packages"
-                (List.map viewPackageInfo options.project.dependencies.direct)
+                (List.map viewPackageInfo (Data.ProjectStatus.toDeps options.project |> .direct))
             ]
         ]
 

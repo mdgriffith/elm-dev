@@ -15,6 +15,7 @@ import App.View.Region
 import Broadcast
 import Data.Controls
 import Data.ProjectStatus as ProjectStatus
+import Dict
 import Docs.Ref
 import Docs.Ref.Get
 import Effect exposing (Effect)
@@ -176,25 +177,35 @@ view viewId shared model =
             , let
                 maybeRoot =
                     Maybe.map .projectRoot maybeProject
+
+                _ =
+                    Debug.log "VIEWING CONTROLS" (Dict.keys shared.interactive.controlsByFile)
               in
               case ( maybeRoot, shared.devServer.base ) of
                 ( Just root, Just baseUrl ) ->
                     case model.interactiveExamples of
                         Just (first :: _) ->
                             Html.div
-                                [ Attr.style "margin-top" "16px"
-                                , Attr.style "height" "480px"
-                                , Attr.style "border" "1px solid #e5e7eb"
-                                , Attr.style "border-radius" "8px"
-                                , Attr.style "overflow" "hidden"
-                                ]
-                                [ WebComponents.Playground.playground
-                                    { baseUrl = baseUrl
-                                    , projectRoot = root
-                                    , elmSource = first.elmSource
-                                    , filePath = first.path
-                                    }
-                                , case Store.Interactive.get first.path shared.interactive of
+                                []
+                                [ Html.div
+                                    [ Attr.style "height" "500px"
+                                    , Attr.style "width" "100%"
+                                    , Attr.style "border" "1px solid #e5e7eb"
+                                    , Attr.style "border-radius" "8px"
+                                    , Attr.style "overflow" "auto"
+                                    , Attr.style "display" "flex"
+                                    , Attr.style "flex-direction" "column"
+                                    , Attr.style "align-items" "center"
+                                    , Attr.style "justify-content" "center"
+                                    ]
+                                    [ WebComponents.Playground.playground
+                                        { baseUrl = baseUrl
+                                        , projectRoot = root
+                                        , elmSource = first.elmSource
+                                        , filePath = first.path
+                                        }
+                                    ]
+                                , case Debug.log "FOUND CONTROLS" <| Store.Interactive.get (Debug.log "first.path" first.path) shared.interactive of
                                     Just controls ->
                                         InteractiveControls.view
                                             (\path v ->

@@ -92,13 +92,12 @@ build modul targeting =
                                 Ui.column
                                     [ Ui.width Ui.fill
                                     , Ui.height Ui.fill
+                                    , Gen.Html.Attributes.style "align-items" "center"
+                                    , Gen.Html.Attributes.style "justify-content" "center"
                                     ]
                                     [ Elm.ifThen opts.codeOrOutput
                                         (example.rendered.drivenByModel
                                             |> runner.view opts
-                                            |> Ui.el
-                                                [ Ui.width Ui.fill
-                                                ]
                                         )
                                         (Gen.Html.call_.text
                                             example.example.drivenByModel
@@ -321,3 +320,4 @@ viewWrapper result exp =
     --     Elm.Type.Record fields maybeExtensible ->
     --         Ui.text ""
     exp
+

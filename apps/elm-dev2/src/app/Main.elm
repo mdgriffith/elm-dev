@@ -25,11 +25,6 @@ import Url
 import WebComponents.Elm
 
 
-
--- test =
---     True
-
-
 type alias Model =
     { urlNotFound : Bool
     }
@@ -129,10 +124,10 @@ update stores msg model =
             ( model, Effect.none )
 
         DevServerReceived event ->
-            let
-                _ =
-                    Debug.log "RECVD:DevServer" event
-            in
+            -- let
+            --     _ =
+            --         Debug.log "RECVD:DevServer" event
+            -- in
             case event of
                 Listen.DevServer.ServerStatusUpdated server ->
                     let

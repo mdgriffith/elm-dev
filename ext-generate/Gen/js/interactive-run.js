@@ -13493,11 +13493,11 @@ example: ` + $author$project$Example$Interactive$getErrorString(err2))));
             bu: function(opts) {
               return A2($author$project$Ui$column, _List_fromArray([
                 $author$project$Ui$width($author$project$Ui$fill),
-                $author$project$Ui$height($author$project$Ui$fill)
+                $author$project$Ui$height($author$project$Ui$fill),
+                A2($author$project$Gen$Html$Attributes$style, "align-items", "center"),
+                A2($author$project$Gen$Html$Attributes$style, "justify-content", "center")
               ]), _List_fromArray([
-                A3($mdgriffith$elm_codegen$Elm$ifThen, opts.io, A2($author$project$Ui$el, _List_fromArray([
-                  $author$project$Ui$width($author$project$Ui$fill)
-                ]), A2(runner.bu, opts, example.bc.c0)), A2($author$project$Ui$el, _List_Nil, $author$project$Gen$Html$call_.jy(example.df.c0)))
+                A3($mdgriffith$elm_codegen$Elm$ifThen, opts.io, A2(runner.bu, opts, example.bc.c0), A2($author$project$Ui$el, _List_Nil, $author$project$Gen$Html$call_.jy(example.df.c0)))
               ]));
             }
           });

@@ -1,10 +1,9 @@
-port module Ui.Interactive.Controls exposing
-    ( listen
-    , propertyUpdated
-    , view
-    )
+port module Ui.Interactive.Controls exposing (listen, propertyUpdated, view)
 
 {-| Interactive controls UI and ports (listen/send).
+
+@docs listen, propertyUpdated, view
+
 -}
 
 import Data.Controls as Controls
@@ -31,11 +30,24 @@ listen toMsg =
                 (\filepath controls -> toMsg { filepath = filepath, controls = controls })
                 (Decode.field "filepath" Decode.string)
                 (Decode.field "controls" Controls.decode)
+
+        decodeValue value =
+            let
+                _ =
+                    Debug.log "decodeValue" (Encode.encode 4 value)
+
+                result =
+                    Decode.decodeValue decoder value
+
+                _ =
+                    Debug.log "decodeValue result" result
+            in
+            result
     in
     Listen.OnFromJs
         { portName = "onControlsUpdated"
         , subscription =
-            onControlsUpdated (Decode.decodeValue decoder)
+            onControlsUpdated decodeValue
         }
 
 
@@ -68,7 +80,7 @@ view onChange controls =
     controls.data
         |> Dict.values
         |> List.map (viewInput onChange)
-        |> Html.div [ Attr.style "display" "flex", Attr.style "flexDirection" "column", Attr.style "gap" "8px" ]
+        |> Html.div [ Attr.id "controls", Attr.style "display" "flex", Attr.style "flexDirection" "column", Attr.style "gap" "8px" ]
 
 
 viewInput :
@@ -83,7 +95,7 @@ viewInput onChange input =
                 , Html.input
                     [ Attr.type_ "text"
                     , Attr.value str
-                    , Events.onInput (\s -> onChange input.path (Controls.StringValue s))
+                    , Events.onInput (\s -> onChange input.key (Controls.StringValue s))
                     ]
                     []
                 ]
@@ -93,7 +105,7 @@ viewInput onChange input =
                 [ Html.input
                     [ Attr.type_ "checkbox"
                     , Attr.checked bool
-                    , Events.onCheck (\b -> onChange input.path (Controls.BoolValue b))
+                    , Events.onCheck (\b -> onChange input.key (Controls.BoolValue b))
                     ]
                     []
                 , Html.text (" " ++ input.name)
@@ -113,10 +125,10 @@ viewInput onChange input =
                         (\s ->
                             case String.toFloat s of
                                 Just f ->
-                                    onChange input.path (Controls.FloatValue f)
+                                    onChange input.key (Controls.FloatValue f)
 
                                 Nothing ->
-                                    onChange input.path (Controls.FloatValue 0)
+                                    onChange input.key (Controls.FloatValue 0)
                         )
                     ]
                     []
@@ -126,7 +138,7 @@ viewInput onChange input =
             Html.div []
                 [ Html.label [] [ Html.text input.name ]
                 , Html.select
-                    [ Events.onInput (\s -> onChange input.path (Controls.StringValue s))
+                    [ Events.onInput (\s -> onChange input.key (Controls.StringValue s))
                     ]
                     (details.options
                         |> List.map
@@ -151,7 +163,7 @@ viewInput onChange input =
                                     , Attr.checked it.selected
                                     , Events.onCheck
                                         (\_ ->
-                                            onChange input.path (Controls.StringValue it.value)
+                                            onChange input.key (Controls.StringValue it.value)
                                         )
                                     ]
                                     []

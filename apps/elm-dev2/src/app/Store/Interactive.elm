@@ -14,7 +14,7 @@ import Data.Controls as Controls
 import Dict
 import Effect
 import Listen
-import Ui.Interactive.Controls as ControlsPorts
+import Ui.Interactive.Controls
 
 
 type alias FilePath =
@@ -51,10 +51,11 @@ store =
             \msg model ->
                 case msg of
                     ControlsUpdated filepath controls ->
-                        ( { model
-                            | controlsByFile =
-                                Dict.insert filepath controls model.controlsByFile
-                          }
+                        ( Debug.log "ControlsUpdated"
+                            { model
+                                | controlsByFile =
+                                    Dict.insert filepath controls model.controlsByFile
+                            }
                         , Effect.none
                         )
 
@@ -68,13 +69,14 @@ store =
                                     Just controls ->
                                         Dict.insert filepath (Controls.setValueForPath key value controls) model.controlsByFile
                         in
-                        ( { model | controlsByFile = updatedDict }
-                        , ControlsPorts.propertyUpdated { filepath = filepath, key = key, value = value }
+                        ( Debug.log "PropertyUpdated"
+                            { model | controlsByFile = updatedDict }
+                        , Ui.Interactive.Controls.propertyUpdated { filepath = filepath, key = key, value = value }
                         )
         , subscriptions =
             \_ ->
                 Listen.batch
-                    [ ControlsPorts.listen (\{ filepath, controls } -> ControlsUpdated filepath controls)
+                    [ Ui.Interactive.Controls.listen (\{ filepath, controls } -> ControlsUpdated filepath controls)
                     , Listen.onBroadcast
                         (\msg ->
                             case msg of
