@@ -13,6 +13,7 @@ import System.FilePath ((</>))
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import qualified System.Process
+import qualified Ext.Log
 
 -- | Load a file at compile time
 generatorJs :: BS.ByteString
@@ -44,4 +45,4 @@ run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
 
 -- Dynamically adjusted by build.sh to make sure haskell doesn't bamboozle us.
 version :: String
-version = "d23d2ba8e5d3ae6d"
+version = "72d9ffce76f2c9e9"

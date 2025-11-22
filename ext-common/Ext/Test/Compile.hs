@@ -7,9 +7,13 @@ import qualified BackgroundWriter
 import qualified Control.Concurrent.MVar as MVar
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
+import qualified Data.Maybe as Maybe
 import qualified Data.NonEmptyList as NE
+import           Control.Applicative ((<|>))
+import qualified Data.Set as Set
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
+import qualified Elm.Package as Pkg
 import qualified Elm.Outline as Outline
 import qualified Elm.Version as V
 import qualified Elm.Constraint as Con
@@ -117,10 +121,107 @@ writeTestElmJson testRoot (Outline.AppOutline _ srcDirs depsDirect depsIndirect 
   let newSrcDirs = case newSrcDirsList of
         [] -> error "No source directories found in elm.json"
         (d:ds) -> NE.List d ds
-  let mergedDirect = Map.union depsDirect testDirect
-  let mergedIndirect = Map.union depsIndirect testIndirect
-  let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs mergedDirect mergedIndirect Map.empty Map.empty)
-  Outline.write testRoot newOutline
+  let randomPkg = Pkg.toName Pkg.elm "random"
+  -- Build constraints from existing pinned versions and ask the solver to include json/random.
+  let allPinned = Map.unions [depsDirect, depsIndirect, testDirect, testIndirect]
+  let baseConstraints = Map.map Con.exactly allPinned
+  let constraintsWithRequired =
+        Map.insert randomPkg Con.anything $
+        Map.insert Pkg.json Con.anything baseConstraints
+  envR <- Solver.initEnv
+  case envR of
+    Left _regProblem -> do
+      -- Fallback: keep original deps layout (still includes json requirement check elsewhere)
+      let mergedDirect0 = Map.union depsDirect testDirect
+      let mergedIndirect = Map.union depsIndirect testIndirect
+      let jsonVersion =
+            Maybe.fromMaybe (V.Version 1 1 3)
+              ( Map.lookup Pkg.json mergedDirect0
+                <|> Map.lookup Pkg.json mergedIndirect
+              )
+      let randomVersion =
+            Maybe.fromMaybe V.one
+              ( Map.lookup randomPkg mergedDirect0
+                <|> Map.lookup randomPkg mergedIndirect
+              )
+      let mergedDirect =
+            Map.insert Pkg.json jsonVersion
+            (Map.insert randomPkg randomVersion mergedDirect0)
+      let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs mergedDirect mergedIndirect Map.empty Map.empty)
+      Outline.write testRoot newOutline
+    Right (Solver.Env cache _ connection registry) -> do
+      verifyR <- Solver.verify cache connection registry constraintsWithRequired
+      case verifyR of
+        Solver.Ok detailsMap -> do
+          let solutionVersions = Map.map (\(Solver.Details v _) -> v) detailsMap
+          -- Put test dependencies into normal dependencies for the test elm.json
+          let directNames =
+                Set.unions
+                  [ Set.fromList (Map.keys depsDirect)
+                  , Set.fromList (Map.keys testDirect)
+                  , Set.fromList [Pkg.json, randomPkg]
+                  ]
+          let newDirect = Map.filterWithKey (\k _ -> Set.member k directNames) solutionVersions
+          let newIndirect = Map.difference solutionVersions newDirect
+          let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs newDirect newIndirect Map.empty Map.empty)
+          Outline.write testRoot newOutline
+        Solver.NoSolution -> do
+          -- Fallback to previous approach if solver cannot find a solution
+          let mergedDirect0 = Map.union depsDirect testDirect
+          let mergedIndirect = Map.union depsIndirect testIndirect
+          let jsonVersion =
+                Maybe.fromMaybe (V.Version 1 1 3)
+                  ( Map.lookup Pkg.json mergedDirect0
+                    <|> Map.lookup Pkg.json mergedIndirect
+                  )
+          let randomVersion =
+                Maybe.fromMaybe V.one
+                  ( Map.lookup randomPkg mergedDirect0
+                    <|> Map.lookup randomPkg mergedIndirect
+                  )
+          let mergedDirect =
+                Map.insert Pkg.json jsonVersion
+                (Map.insert randomPkg randomVersion mergedDirect0)
+          let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs mergedDirect mergedIndirect Map.empty Map.empty)
+          Outline.write testRoot newOutline
+        Solver.NoOfflineSolution -> do
+          -- Same fallback as above
+          let mergedDirect0 = Map.union depsDirect testDirect
+          let mergedIndirect = Map.union depsIndirect testIndirect
+          let jsonVersion =
+                Maybe.fromMaybe (V.Version 1 1 3)
+                  ( Map.lookup Pkg.json mergedDirect0
+                    <|> Map.lookup Pkg.json mergedIndirect
+                  )
+          let randomVersion =
+                Maybe.fromMaybe V.one
+                  ( Map.lookup randomPkg mergedDirect0
+                    <|> Map.lookup randomPkg mergedIndirect
+                  )
+          let mergedDirect =
+                Map.insert Pkg.json jsonVersion
+                (Map.insert randomPkg randomVersion mergedDirect0)
+          let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs mergedDirect mergedIndirect Map.empty Map.empty)
+          Outline.write testRoot newOutline
+        Solver.Err _exit -> do
+          -- Same fallback as above
+          let mergedDirect0 = Map.union depsDirect testDirect
+          let mergedIndirect = Map.union depsIndirect testIndirect
+          let jsonVersion =
+                Maybe.fromMaybe (V.Version 1 1 3)
+                  ( Map.lookup Pkg.json mergedDirect0
+                    <|> Map.lookup Pkg.json mergedIndirect
+                  )
+          let randomVersion =
+                Maybe.fromMaybe V.one
+                  ( Map.lookup randomPkg mergedDirect0
+                    <|> Map.lookup randomPkg mergedIndirect
+                  )
+          let mergedDirect =
+                Map.insert Pkg.json jsonVersion
+                (Map.insert randomPkg randomVersion mergedDirect0)
+          let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs mergedDirect mergedIndirect Map.empty Map.empty)
+          Outline.write testRoot newOutline
 
 
 -- Convert a package outline to an application outline with pinned dependency versions

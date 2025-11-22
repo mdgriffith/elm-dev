@@ -46,7 +46,6 @@ runNode root = do
   BackgroundWriter.withScope $ \scope -> do
     Ext.CompileMode.setModeMemory
     testFiles <- Discover.discoverTestFiles root
-    Ext.Log.log Ext.Log.Test ("Found " <> show testFiles)
     case testFiles of
       [] -> pure (Left "Need at least one file")
       (top:rest) -> do
@@ -55,7 +54,6 @@ runNode root = do
           Left err -> pure (Left (Exit.toString (Exit.reactorToReport err)))
           Right ifaces -> do
             tests <- Introspect.findTests ifaces
-            Ext.Log.log Ext.Log.Test ("Tests " <> show tests)
             _ <- Generate.writeAggregator root tests
             let genDir = Generate.generatedDir root
             Dir.createDirectoryIfMissing True genDir
@@ -77,6 +75,7 @@ runNode root = do
                 let compiledStr = UTF8.toString compiledJs
                 let finalJsStr = replaceOnce "/* {{COMPILED_ELM}} */" compiledStr templateStr
                 let inputJson = makeInputJson 0 100 testIds
+                
                 execResult <- Javascript.run (UTF8.fromString finalJsStr) (UTF8.fromString inputJson)
                 case execResult of
                   Left e -> pure (Left e)

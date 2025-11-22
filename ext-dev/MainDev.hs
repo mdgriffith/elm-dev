@@ -525,7 +525,9 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
   where
     parseFlags = CommandParser.noFlag
     runCmd _ _ =  Ext.Log.withAllBut [Ext.Log.Performance] $ do
-      Ext.CompileMode.setModeMemory
+      -- Ext.Log.setMode Ext.Log.StdOut
+      -- Ext.CompileMode.setModeMemory
+      -- Ext.Log.log Ext.Log.Misc "Running test command"
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
         Nothing -> IO.hPutStrLn IO.stderr "Could not find project root"
