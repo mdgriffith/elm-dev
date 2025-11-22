@@ -1040,10 +1040,11 @@ buildWorkspaceDiagnosticReport state = do
   projects <- Control.Concurrent.STM.readTVarIO mProjects
   itemsPerProject <- mapM (workspaceItemsForProject state) projects
   let allItems = concat itemsPerProject
-  pure (JSON.object [ "items" .= allItems ])
+  let report = WorkspaceDiagnostics { workspaceDiagnosticsItems = allItems }
+  pure (JSON.toJSON report)
 
 -- Build workspace diagnostic entries for a single project
-workspaceItemsForProject :: Live.State -> Client.ProjectCache -> IO [JSON.Value]
+workspaceItemsForProject :: Live.State -> Client.ProjectCache -> IO [WorkspaceDocumentDiagnostics]
 workspaceItemsForProject state pc@(Client.ProjectCache proj _ _ _ _) = do
   diagsMap <- Helpers.getProjectDiagnosticsByFile state pc
   Ext.Log.log Ext.Log.LSP $ "WORKSPACE DIAGNOSTICS MAP SIZE: " ++ show (Map.size diagsMap)
@@ -1053,14 +1054,11 @@ workspaceItemsForProject state pc@(Client.ProjectCache proj _ _ _ _) = do
         -- let warnDiags = concatMap Helpers.warningToUnusedDiagnostic warns
         -- let diags = fileErrs ++ warnDiags
         Ext.Log.log Ext.Log.LSP $ "FILE ERRORS: " ++ show (length fileErrs) ++ " " ++ filePath 
-        let uri = 
-              let stripLeadingSlashes = dropWhile (== '/')
-              in Text.pack ("file:///" ++ stripLeadingSlashes filePath)
-        pure $ JSON.object
-          [ "uri" .= uri
-          , "version" .= JSON.Null
-          , "kind" .= ("full" :: Text)
-          , "items" .= fileErrs
-          ]
+        pure $ WorkspaceDocumentDiagnostics
+          { workspaceDocumentDiagnosticsUri = fromFilePath filePath
+          , workspaceDocumentDiagnosticsVersion = Nothing
+          , workspaceDocumentDiagnosticsKind = ("full" :: Text)
+          , workspaceDocumentDiagnosticsItems = fileErrs
+          }
     )
     (Map.toList diagsMap)

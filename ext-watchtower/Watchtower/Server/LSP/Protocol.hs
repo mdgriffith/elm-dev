@@ -604,6 +604,45 @@ data CodeLensParams = CodeLensParams
   }
   deriving stock (Show, Eq, Generic)
 
+-- | URI newtype to represent document URIs
+newtype Uri = Uri { unUri :: Text }
+  deriving stock (Show, Eq, Generic)
+
+-- | Construct a file:// URI from an absolute or relative file path
+fromFilePath :: FilePath -> Uri
+fromFilePath filePath =
+  let stripLeadingSlashes = dropWhile (== '/')
+  in Uri (Text.pack ("file:///" ++ stripLeadingSlashes filePath))
+
+-- | Convert a URI back to a file system path
+toFilePath :: Uri -> FilePath
+toFilePath (Uri t) =
+  let raw = t
+  in case Text.stripPrefix "file:///" raw of
+       Just rest -> '/' : Text.unpack rest
+       Nothing ->
+         case Text.stripPrefix "file://" raw of
+           Just rest ->
+             let s = Text.unpack rest
+             in if not (null s) && head s == '/' then s else '/' : s
+           Nothing ->
+             Text.unpack raw
+
+-- | Workspace document diagnostics item
+data WorkspaceDocumentDiagnostics = WorkspaceDocumentDiagnostics
+  { workspaceDocumentDiagnosticsUri :: Uri,
+    workspaceDocumentDiagnosticsVersion :: Maybe Int,
+    workspaceDocumentDiagnosticsKind :: Text,
+    workspaceDocumentDiagnosticsItems :: [Diagnostic]
+  }
+  deriving stock (Show, Eq, Generic)
+
+-- | Workspace diagnostics report
+data WorkspaceDiagnostics = WorkspaceDiagnostics
+  { workspaceDiagnosticsItems :: [WorkspaceDocumentDiagnostics]
+  }
+  deriving stock (Show, Eq, Generic)
+
 
 -- * JSON Instances
 
@@ -613,6 +652,13 @@ instance JSON.ToJSON DiagnosticSeverity where
 
 instance JSON.FromJSON DiagnosticSeverity where
   parseJSON v = DiagnosticSeverity <$> JSON.parseJSON v
+
+instance JSON.ToJSON Uri where
+  toJSON (Uri t) = JSON.String t
+
+instance JSON.FromJSON Uri where
+  parseJSON (JSON.String t) = pure (Uri t)
+  parseJSON _ = fail "Invalid URI (expected string)"
 
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "position"} ''Position)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "range"} ''Range)
@@ -664,6 +710,8 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "selectionRangeParams", omitNothingFields = True} ''SelectionRangeParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "selectionRange", omitNothingFields = True} ''SelectionRange)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "didChangeVisibleRangesParams"} ''DidChangeVisibleRangesParams)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceDocumentDiagnostics", omitNothingFields = True} ''WorkspaceDocumentDiagnostics)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceDiagnostics"} ''WorkspaceDiagnostics)
 
 
 
