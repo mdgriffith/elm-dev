@@ -483,9 +483,10 @@ main = do
       -- Gen.Commands.addTheme,
       Gen.Commands.customize,
       
-      testCommand,
+      
       testInitCommand,
       testInstallCommand,
+      testCommand,
       devServeCommand,
       devStartCommand,
       devStopCommand,
@@ -571,15 +572,14 @@ testInstallCommand = CommandParser.command ["test","install"] "Install test dep"
   where
     parseArgs = CommandParser.parseArg (CommandParser.arg "author/project")
     parseFlags = CommandParser.noFlag
-    runCmd pkgStr _ = do
-      Ext.CompileMode.setModeMemory
+    runCmd pkgStr _ = do      
       case parsePkgName pkgStr of
         Nothing -> IO.hPutStrLn IO.stderr "Invalid package name. Expected author/project"
         Just pkg -> do
           result <- Ext.Test.Install.installTestDependency pkg
           case result of
             Left _ -> IO.hPutStrLn IO.stderr "Failed to install test dependency"
-            Right _ -> pure ()
+            Right _ -> IO.hPutStrLn IO.stdout (Terminal.Colors.yellow pkgStr ++ " has been installed as a test dependency!")
 
 -- Helper: parse "author/project" into Pkg.Name
 parsePkgName :: String -> Maybe Pkg.Name
