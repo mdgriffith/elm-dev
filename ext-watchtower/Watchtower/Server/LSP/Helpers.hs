@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Server.LSP.Helpers (getDiagnosticsForProject, getProjectDiagnosticsByFile, getWarningsForFile, warningToUnusedDiagnostic, warningToCodeLens, findAllReferences, findDefinition, showHover) where
+module Watchtower.Server.LSP.Helpers (getDiagnosticsForProject, getProjectDiagnosticsByFile, getUnchangedProjectDiagnosticsByFile, getWarningsForFile, warningToUnusedDiagnostic, warningToCodeLens, findAllReferences, findDefinition, showHover) where
 
 import Data.Aeson
 import qualified Watchtower.Live.Client
@@ -73,6 +73,24 @@ getProjectDiagnosticsByFile _state projectCache = do
       pure Map.empty
     Watchtower.Live.Client.NotCompiled ->
       pure Map.empty
+
+
+-- | Build 'unchanged' workspace diagnostic entries for files with current diagnostics
+getUnchangedProjectDiagnosticsByFile :: Watchtower.Live.Client.State -> Watchtower.Live.Client.ProjectCache -> IO [WorkspaceDocumentDiagnosticsUnchanged]
+getUnchangedProjectDiagnosticsByFile state projectCache = do
+  diags <- getProjectDiagnosticsByFile state projectCache
+  pure
+    ( map
+        ( \(path, _errs) ->
+            WorkspaceDocumentDiagnosticsUnchanged
+              { workspaceDocumentDiagnosticsUnchangedUri = fromFilePath path,
+                workspaceDocumentDiagnosticsUnchangedVersion = Nothing,
+                workspaceDocumentDiagnosticsUnchangedKind = ("unchanged" :: Text)
+              }
+        )
+        (Map.toList diags)
+    )
+
 
 
 
@@ -525,7 +543,7 @@ getForeignValueDocs state currentFilePath home valueName = do
         -- Module from a dependency package: read from packages cache
         Elm.ModuleName.Canonical pkg moduleName -> do
           let mPackages = case state of
-                Watchtower.Live.Client.State _ _ _ mpkgs _ _ _ -> mpkgs
+                Watchtower.Live.Client.State _ _ _ mpkgs _ _ _ _ -> mpkgs
           packagesMap <- Control.Concurrent.STM.readTVarIO mPackages
           case Map.lookup pkg packagesMap of
             Just (Watchtower.Live.Client.PackageInfo { Watchtower.Live.Client.packageModules = mods }) -> do

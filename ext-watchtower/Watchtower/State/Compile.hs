@@ -27,7 +27,7 @@ import qualified Watchtower.Server.DevWS as DevWS
 
 
 compile :: Client.State -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compile state@(Client.State _ _ mFileInfo mPackages _ _ _ ) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
+compile state@(Client.State _ _ mFileInfo mPackages _ _ _ _) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run projectRoot
@@ -98,7 +98,7 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ ) projCache@(Client.Pr
 --   Compilation is performed synchronously here so the caller can rely on
 --   fresh results when this function returns.
 compileRelevantProjects :: Client.State -> [FilePath] -> IO ()
-compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ ) elmFiles = do
+compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = do
   if elmFiles == []
     then pure ()
     else do

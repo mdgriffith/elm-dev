@@ -37,7 +37,7 @@ listKnownProjectsText projects =
 -- - If 'Nothing' and exactly one project is known, select it.
 -- - Otherwise, return an ambiguous error including known projects.
 resolveProject :: Maybe Int -> Client.State -> IO (Either Text Client.ProjectCache)
-resolveProject mProjectId (Client.State _ mProjects _ _ _ _ _) = do
+resolveProject mProjectId (Client.State _ mProjects _ _ _ _ _ _) = do
   projects <- STM.readTVarIO mProjects
   if List.null projects
     then pure (Left "No projects registered")
@@ -62,7 +62,7 @@ resolveProject mProjectId (Client.State _ mProjects _ _ _ _ _) = do
 -- | Resolve using per-connection session focus when projectId is omitted.
 -- If session focus is unset, set and return the first project if available.
 resolveProjectFromSession :: Maybe Int -> JSONRPC.ConnectionId -> Client.State -> IO (Either Text Client.ProjectCache)
-resolveProjectFromSession mProjectId connId st@(Client.State _ mProjects _ _ _ _ mEditorsOpen) = do
+resolveProjectFromSession mProjectId connId st@(Client.State _ mProjects _ _ _ _ mEditorsOpen _) = do
   case mProjectId of
     Just _ -> resolveProject mProjectId st
     Nothing -> do

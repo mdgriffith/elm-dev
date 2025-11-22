@@ -33,7 +33,7 @@ import qualified Reporting.Warning as Warning
 -- |
 -- Generally called once when the server starts, this will recompile all discovered projects in State
 compileAll :: Client.State -> IO ()
-compileAll state@(Client.State _ mProjects _ _ _ _ _) = do
+compileAll state@(Client.State _ mProjects _ _ _ _ _ _) = do
   Ext.Log.log Ext.Log.Live "🛫 Recompile everything"
   trackedForkIO $
     track "recompile all projects" $ do
@@ -52,7 +52,7 @@ compileProject state proj@(Client.ProjectCache (Ext.Dev.Project.Project elmJsonR
 --
 -- Generally when a file change has been saved, or the user has changed what their looking at in the editor.
 recompile :: Client.State -> [String] -> IO ()
-recompile state@(Client.State mClients mProjects _ _ _ _ _) allChangedFiles = do
+recompile state@(Client.State mClients mProjects _ _ _ _ _ _) allChangedFiles = do
   let changedElmFiles = List.filter (\filepath -> ".elm" `List.isSuffixOf` filepath) allChangedFiles
   if (changedElmFiles /= [])
     then do
@@ -99,7 +99,7 @@ recompileProject state (_, _, proj@(Client.ProjectCache (Ext.Dev.Project.Project
 recompileFile :: Client.State -> (String, [String], Client.ProjectCache) -> IO ()
 recompileFile state (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot _ entrypoints _srcDirs _shortId) docsInfo _ mCompileResult _)) =
   do
-    let (Client.State mClients _ _ _ _ _ _) = state
+    let (Client.State mClients _ _ _ _ _ _ _) = state
     let entry = NonEmpty.List top remain
     eitherResult <-
       Ext.CompileProxy.compile
@@ -123,18 +123,11 @@ recompileFile state (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.P
       _ -> pure ()
 
     -- Send compilation status
-    case newResult of
-      Client.Success _ -> do
-        status <- Client.getStatus projCache state
-        Client.broadcast
-          mClients
-          ( Client.ElmStatus [ status ] )
-      Client.Error _ -> do
-        status <- Client.getStatus projCache state
-        Client.broadcast
-          mClients
-          ( Client.ElmStatus [ status ] )
-
+    status <- Client.getStatus projCache state
+    Client.broadcast
+      mClients
+      ( Client.ElmStatus [ status ] )
+     
 sendInfo :: STM.TVar [Client.Client] -> (String, [String], Client.ProjectCache) -> IO ()
 sendInfo mClients (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project elmJsonRoot projectRoot entrypoints _srcDirs _shortId) docsInfo _ _ _)) = do
   (Ext.Dev.Info warnings docs) <- Ext.Dev.info elmJsonRoot top

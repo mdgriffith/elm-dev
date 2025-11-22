@@ -637,6 +637,14 @@ data WorkspaceDocumentDiagnostics = WorkspaceDocumentDiagnostics
   }
   deriving stock (Show, Eq, Generic)
 
+-- | Workspace document diagnostics item for unchanged reports (no items field)
+data WorkspaceDocumentDiagnosticsUnchanged = WorkspaceDocumentDiagnosticsUnchanged
+  { workspaceDocumentDiagnosticsUnchangedUri :: Uri,
+    workspaceDocumentDiagnosticsUnchangedVersion :: Maybe Int,
+    workspaceDocumentDiagnosticsUnchangedKind :: Text
+  }
+  deriving stock (Show, Eq, Generic)
+
 -- | Workspace diagnostics report
 data WorkspaceDiagnostics = WorkspaceDiagnostics
   { workspaceDiagnosticsItems :: [WorkspaceDocumentDiagnostics]
@@ -711,6 +719,7 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "selectionRange", omitNothingFields = True} ''SelectionRange)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "didChangeVisibleRangesParams"} ''DidChangeVisibleRangesParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceDocumentDiagnostics", omitNothingFields = True} ''WorkspaceDocumentDiagnostics)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceDocumentDiagnosticsUnchanged", omitNothingFields = True} ''WorkspaceDocumentDiagnosticsUnchanged)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceDiagnostics"} ''WorkspaceDiagnostics)
 
 

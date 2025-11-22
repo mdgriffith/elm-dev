@@ -428,7 +428,7 @@ toolProjectSet = MCP.Tool
       case getIntArg args "projectId" of
         Nothing -> pure (errTxt "Missing projectId")
         Just pid -> do
-          let (Client.State _ mProjects _ _ _ _ _) = state
+          let (Client.State _ mProjects _ _ _ _ _ _) = state
           projects <- Control.Concurrent.STM.readTVarIO mProjects
           case filter (\(Client.ProjectCache proj _ _ _ _) -> Ext.Dev.Project._shortId proj == pid) projects of
             (Client.ProjectCache _proj _ _ _ _ : _) -> do
@@ -489,7 +489,7 @@ resourceOverview =
           case projectFound of
             Left msg -> do
               -- Build project list for frontmatter even when no project is selected
-              let (Client.State _ mProjects _ _ _ _ _) = state
+              let (Client.State _ mProjects _ _ _ _ _ _) = state
               projects <- Control.Concurrent.STM.readTVarIO mProjects
               mFocused <- Client.getFocusedProjectId state connId
 
@@ -563,7 +563,7 @@ resourceOverview =
                                  else []
 
               -- Build project list for frontmatter
-              let (Client.State _ mProjects _ _ _ _ _) = state
+              let (Client.State _ mProjects _ _ _ _ _ _) = state
               projects <- Control.Concurrent.STM.readTVarIO mProjects
               mFocused <- Client.getFocusedProjectId state connId
               items <- mapM
@@ -980,7 +980,7 @@ resourceProjectList =
       , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
       , MCP.read = \req state _emit connId -> do
-          let (Client.State _ mProjects _ _ _ _ _) = state
+          let (Client.State _ mProjects _ _ _ _ _ _) = state
           projects <- Control.Concurrent.STM.readTVarIO mProjects
           mFocused <- Client.getFocusedProjectId state connId
 

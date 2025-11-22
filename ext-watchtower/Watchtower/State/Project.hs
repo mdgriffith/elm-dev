@@ -60,7 +60,7 @@ This means
 
 -}
 upsertVirtual :: Client.State -> CompileHelpers.Flags -> FilePath -> FilePath -> IO (Maybe Client.ProjectCache)
-upsertVirtual state@(Client.State mClients mProjects _ _ _ _ _) flags root entrypoint = do
+upsertVirtual state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint = do
   elmJsonResult <- insertVirtualElmJson root
   case elmJsonResult of
     Left err -> do
@@ -143,7 +143,7 @@ data UpsertError
   deriving (Show)
  
 upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO (Either UpsertError Client.ProjectCache)
-upsert state@(Client.State mClients mProjects _ _ _ _ _) flags root entrypoints = do
+upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoints = do
   normalizedEntrypoints <- normalizeEntrypoints root entrypoints
 
   eOutline <- Exception.try (Elm.Outline.read root)
