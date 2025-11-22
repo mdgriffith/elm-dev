@@ -4,6 +4,10 @@ module Data.ProjectStatus exposing (..)
 
 import Data.Editor as Editor
 import Dict
+import Elm.Constraint
+import Elm.Package
+import Elm.Project
+import Elm.Version
 import Json.Decode as Decode
 
 
@@ -35,10 +39,78 @@ type alias Project =
     , entrypoints : List String
     , status : Status
     , docs : DocsOverview
-    , dependencies : Deps
-    , testDependencies : Deps
+    , project : Elm.Project.Project
     , modules : List ModuleInfo
     }
+
+
+toDeps : Project -> Deps
+toDeps project =
+    case project.project of
+        Elm.Project.Application app ->
+            { direct = exactToPackageInfo app.depsDirect
+            , indirect = exactToPackageInfo app.depsIndirect
+            }
+
+        Elm.Project.Package pkg ->
+            { direct = constraintToPackageInfo pkg.deps
+            , indirect = []
+            }
+
+
+constraintToPackageInfo : Elm.Project.Deps Elm.Constraint.Constraint -> List PackageInfo
+constraintToPackageInfo deps =
+    List.map
+        (\( name, constraint ) ->
+            PackageInfo
+                (Elm.Package.toString name)
+                (constraintToTopVersion constraint)
+        )
+        deps
+
+
+constraintToTopVersion : Elm.Constraint.Constraint -> String
+constraintToTopVersion constraint =
+    firstVersionLike (Elm.Constraint.toString constraint)
+
+
+firstVersionLike : String -> String
+firstVersionLike str =
+    let
+        collect acc remaining =
+            case remaining of
+                [] ->
+                    String.fromList (List.reverse acc)
+
+                c :: cs ->
+                    if Char.isDigit c || c == '.' then
+                        collect (c :: acc) cs
+
+                    else
+                        String.fromList (List.reverse acc)
+
+        find remaining =
+            case remaining of
+                [] ->
+                    ""
+
+                c :: cs ->
+                    if Char.isDigit c then
+                        collect [ c ] cs
+
+                    else
+                        find cs
+    in
+    find (String.toList str)
+
+
+exactToPackageInfo : Elm.Project.Deps Elm.Version.Version -> List PackageInfo
+exactToPackageInfo deps =
+    List.map
+        (\( name, version ) ->
+            PackageInfo (Elm.Package.toString name) (Elm.Version.toString version)
+        )
+        deps
 
 
 type alias ModuleInfo =
@@ -184,8 +256,8 @@ andMap argDec funcDec =
 decodeProject : Decode.Decoder Project
 decodeProject =
     Decode.succeed
-        (\shortId root name projectRoot entrypoints status docs allDeps modules ->
-            Project shortId root name projectRoot entrypoints status docs allDeps.dependencies allDeps.testDependencies modules
+        (\shortId root name projectRoot entrypoints status docs elmJson modules ->
+            Project shortId root name projectRoot entrypoints status docs elmJson modules
         )
         |> andMap (Decode.field "shortId" Decode.int)
         |> andMap (Decode.field "root" Decode.string)
@@ -200,13 +272,13 @@ decodeProject =
         |> andMap
             (Decode.field "elmJson" Decode.string
                 |> Decode.andThen
-                    (\str ->
-                        case Decode.decodeString decodeElmJsonFile str of
-                            Ok parsed ->
-                                Decode.succeed parsed
+                    (\elmJson ->
+                        case Decode.decodeString Elm.Project.decoder elmJson of
+                            Ok project ->
+                                Decode.succeed project
 
-                            Err _ ->
-                                Decode.fail "Failed to decode elm.json"
+                            Err error ->
+                                Decode.fail (Decode.errorToString error)
                     )
             )
         |> andMap (Decode.field "modules" (Decode.list decodeModuleInfo))
