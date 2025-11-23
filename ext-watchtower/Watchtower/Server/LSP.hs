@@ -1117,14 +1117,35 @@ buildWorkspaceDiagnosticReport state connId = do
 -- Build workspace diagnostic entries for a single project; also return URIs included
 workspaceItemsForProject :: Live.State -> Bool -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
 workspaceItemsForProject state unchangedMode pc@(Client.ProjectCache proj _ _ _ _) = do
+  -- Compiler diagnostics grouped by file
   diagsMap <- Helpers.getProjectDiagnosticsByFile state pc
-  let uris =
-        map (\(filePath, _) -> fromFilePath filePath) (Map.toList diagsMap)
+  -- Determine which files in this project are currently open
+  let (Client.State _ _ _ _ _ _ mEditorsOpen _) = state
+  editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
+  let openFilesInProject =
+        case editorsOpen of
+          EditorsOpen.EditorsOpen m ->
+            filter (\p -> Ext.Dev.Project.contains p proj) (Map.keys m)
+  -- For open files, compute unused-value diagnostics (imports/variables) only
+  openUnusedPairs <-
+    mapM
+      ( \p -> do
+          (_loc, warns) <- Helpers.getWarningsForFile state p
+          let unusedDiags = concatMap Helpers.warningToUnusedDiagnostic warns
+          pure (p, unusedDiags)
+      )
+      openFilesInProject
+  let openUnusedMap =
+        Map.fromList (filter (\(_p, ds) -> not (null ds)) openUnusedPairs)
+  -- Union of files that have errors and files that have unused warnings (open only)
+  let errorFiles = Map.keys diagsMap
+  let allFiles = Data.List.nub (errorFiles ++ Map.keys openUnusedMap)
+  let uris = map fromFilePath allFiles
   if unchangedMode
     then do
       let items =
             map
-              (\(filePath, _errs) ->
+              (\filePath ->
                  JSON.toJSON
                    WorkspaceDocumentDiagnosticsUnchanged
                      { workspaceDocumentDiagnosticsUnchangedUri = fromFilePath filePath
@@ -1132,19 +1153,21 @@ workspaceItemsForProject state unchangedMode pc@(Client.ProjectCache proj _ _ _ 
                      , workspaceDocumentDiagnosticsUnchangedKind = ("unchanged" :: Text)
                      }
               )
-              (Map.toList diagsMap)
+              allFiles
       pure (items, uris)
     else do
       let items =
             map
-              (\(filePath, fileErrs) ->
-                 JSON.toJSON
-                   WorkspaceDocumentDiagnostics
-                     { workspaceDocumentDiagnosticsUri = fromFilePath filePath
-                     , workspaceDocumentDiagnosticsVersion = Nothing
-                     , workspaceDocumentDiagnosticsKind = ("full" :: Text)
-                     , workspaceDocumentDiagnosticsItems = fileErrs
-                     }
+              (\filePath ->
+                 let fileErrs = Map.findWithDefault [] filePath diagsMap
+                     unusedWarns = Map.findWithDefault [] filePath openUnusedMap
+                  in JSON.toJSON
+                       WorkspaceDocumentDiagnostics
+                         { workspaceDocumentDiagnosticsUri = fromFilePath filePath
+                         , workspaceDocumentDiagnosticsVersion = Nothing
+                         , workspaceDocumentDiagnosticsKind = ("full" :: Text)
+                         , workspaceDocumentDiagnosticsItems = (fileErrs ++ unusedWarns)
+                         }
               )
-              (Map.toList diagsMap)
+              allFiles
       pure (items, uris)

@@ -82,22 +82,22 @@ artifactCache = unsafePerformIO $ newMVar Nothing
 bustArtifactsCache = modifyMVar_ artifactCache (\_ -> pure Nothing)
 
 
-fromPathsMemoryCached :: Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem (Artifacts, Map.Map FilePath Client.FileInfo))
+fromPathsMemoryCached :: Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts, Map.Map FilePath Client.FileInfo)
 fromPathsMemoryCached _packages flags style root details paths = do
   artifaceCacheM <- readMVar artifactCache
   case artifaceCacheM of
     Just artifacts -> do
       debug "🎯 artifacts cache hit"
-      pure $ Right (artifacts, Map.empty)
+      pure (Right artifacts, Map.empty)
     Nothing -> do
       debug "❌ artifacts cache miss"
       modifyMVar artifactCache (\_ -> do
           artifactsR <- fromPathsMemoryCached_ flags style root details paths
           case artifactsR of
-            Right (artifacts, fileInfoByPath) -> do
-              pure (Just artifacts, Right (artifacts, fileInfoByPath))
-            _ ->
-              pure (Nothing, artifactsR)
+            (Right (artifacts, fileInfoByPath)) -> do
+              pure (Just artifacts, (Right artifacts, fileInfoByPath))
+            (Left err) ->
+              pure (Nothing, (Left err, Map.empty))
         )
 
 

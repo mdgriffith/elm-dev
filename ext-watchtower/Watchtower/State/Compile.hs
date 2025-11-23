@@ -35,34 +35,25 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ _) projCache@(Client.P
       Right () -> do
         let filesToCompile = NE.append files entrypoints
         -- Then run compilation, passing the optional packages TVar for caching package docs/readme
-        compilationResult <- CompileProxy.compile elmJsonRoot entrypoints flags (Just mPackages)
+        (eitherCompiled, fileInfoByPath) <- CompileProxy.compile elmJsonRoot entrypoints flags (Just mPackages)
 
         -- Update the compilation result TVar
-        let newResult = case compilationResult of
-              Right (result, _fileInfoByPath) -> Client.Success result
+        let newResult = case eitherCompiled of
+              Right result -> Client.Success result
               Left exit -> Client.Error (Client.ReactorError exit)
         STM.atomically $ STM.writeTVar mCompileResult newResult
 
-        -- Merge fileInfoByPath into State.fileInfo
-        case compilationResult of
-          Right (_result, fileInfoByPath) -> do
-            STM.atomically $ do
-              current <- STM.readTVar mFileInfo
-              let merged = Map.foldlWithKey'
-                             (\acc path info -> Map.insert path info acc)
-                             current
-                             fileInfoByPath
-              STM.writeTVar mFileInfo merged
-            -- packages TVar is now populated during compile pipeline (MemoryCached flow)
-          Left _ -> do
-            -- On compile failure, remove all FileInfo entries that belong to this project
-            STM.atomically $ do
-              current <- STM.readTVar mFileInfo
-              let filtered = Map.filterWithKey (\path _ -> not (Ext.Dev.Project.contains path proj)) current
-              STM.writeTVar mFileInfo filtered
+        -- Merge fileInfoByPath into State.fileInfo (always merge whatever we got)
+        STM.atomically $ do
+          current <- STM.readTVar mFileInfo
+          let merged = Map.foldlWithKey'
+                         (\acc path info -> Map.insert path info acc)
+                         current
+                         fileInfoByPath
+          STM.writeTVar mFileInfo merged
 
-        case compilationResult of
-          Right (result, _) -> do
+        case eitherCompiled of
+          Right result -> do
             -- Broadcast success to Dev websocket clients
             case result of
               CompileHelpers.CompiledJs jsBuilder ->

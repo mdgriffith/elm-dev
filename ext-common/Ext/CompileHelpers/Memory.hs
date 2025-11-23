@@ -53,19 +53,31 @@ debug =
 --       )
 
 
--- Returns compilation result plus maps of absolute file paths to warnings and docs
-compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo))
+-- Returns (either compile result or reactor error, and the per-file info map).
+compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo)
 compile root paths flags@(CompileHelpers.Flags mode output) packagesVar = do
     Dir.withCurrentDirectory root $
-      BW.withScope $ \scope ->
-        Task.run $ do
-          Task.io $ Ext.MemoryCached.Details.bustDetailsCache
-          Task.io $ Ext.MemoryCached.Build.bustArtifactsCache
-          let compilationFlags = CompileHelpers.compilationModsFromFlags mode
-          details <- Task.eio Exit.ReactorBadDetails $ Ext.MemoryCached.Details.load Reporting.silent scope root packagesVar
-          (artifacts, fileInfoByPath) <- Task.eio Exit.ReactorBadBuild $ Ext.MemoryCached.Build.fromPathsMemoryCached packagesVar compilationFlags Reporting.silent root details paths
-          compiled <- CompileHelpers.generate root details mode artifacts output
-          pure (compiled, fileInfoByPath)
+      BW.withScope $ \scope -> do
+        -- Bust caches explicitly
+        Ext.MemoryCached.Details.bustDetailsCache
+        Ext.MemoryCached.Build.bustArtifactsCache
+        let compilationFlags = CompileHelpers.compilationModsFromFlags mode
+        -- Load details (IO Either)
+        detailsEither <- Ext.MemoryCached.Details.load Reporting.silent scope root packagesVar
+        case detailsEither of
+          Left detailsErr ->
+            pure (Left (Exit.ReactorBadDetails detailsErr), Map.empty)
+          Right details -> do
+            -- Build artifacts while collecting per-file info, even on failure
+            (eitherArtifacts, fileInfoByPath) <- Ext.MemoryCached.Build.fromPathsMemoryCached packagesVar compilationFlags Reporting.silent root details paths
+            case eitherArtifacts of
+              Left buildProblem ->
+                pure (Left (Exit.ReactorBadBuild buildProblem), fileInfoByPath)
+              Right artifacts -> do
+                compiledEither <- Task.run $ CompileHelpers.generate root details mode artifacts output
+                case compiledEither of
+                  Left reactorErr -> pure (Left reactorErr, fileInfoByPath)
+                  Right compiled -> pure (Right compiled, fileInfoByPath)
 
 
 {-# NOINLINE artifactsCache #-}

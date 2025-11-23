@@ -368,11 +368,11 @@ interactiveCompileHandler state = do
                       CompileHelpers.Flags
                         CompileHelpers.Dev
                         (CompileHelpers.OutputTo CompileHelpers.Js)
-                result <- Ext.CompileProxy.compile virtualRoot (NE.List absoluteElmPath []) flags (Just (Client.packages state))
-                case result of
+                (eitherCompiled, _fileInfoByPath) <- Ext.CompileProxy.compile virtualRoot (NE.List absoluteElmPath []) flags (Just (Client.packages state))
+                case eitherCompiled of
                   Left exit ->
                     pure (Left (Reporting.Exit.toAnsiString (Reporting.Exit.reactorToReport exit)))
-                  Right (compiled, _fileInfoByPath) ->
+                  Right compiled ->
                     case compiled of
                       CompileHelpers.CompiledJs jsBuilder ->
                         pure (Right jsBuilder)

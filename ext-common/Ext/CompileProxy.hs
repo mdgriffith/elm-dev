@@ -187,15 +187,15 @@ compile ::
   NE.List FilePath ->
   CompileHelpers.Flags ->
   Maybe (STM.TVar (Map.Map Pkg.Name Watchtower.Live.Client.PackageInfo)) ->
-  IO (Either Exit.Reactor (CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo))
+  IO (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo)
 compile root paths flags packagesVar =
   modeRunner
     "compile"
     ( do
         r <- Ext.CompileHelpers.Disk.compile root paths flags
         case r of
-          Left e -> pure (Left e)
-          Right result -> pure (Right (result, Map.empty))
+          Left e -> pure (Left e, Map.empty)
+          Right result -> pure (Right result, Map.empty)
     )
     (Ext.CompileHelpers.Memory.compile root paths flags packagesVar)
 
