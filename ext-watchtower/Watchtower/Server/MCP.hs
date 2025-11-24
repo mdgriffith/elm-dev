@@ -530,7 +530,7 @@ resourceOverview =
                   body :: Text
                   body = Text.intercalate "\n" frontmatter
               pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
-            Right pc@(Client.ProjectCache proj _ _ mCompileResult mTestResults) -> do
+            Right pc@(Client.ProjectCache proj _ _ mCompileResult mTest) -> do
               -- ensure we have an up-to-date compile result
               _ <- Watchtower.State.Compile.compile state pc []
               currentResult <- Control.Concurrent.STM.readTVarIO mCompileResult
@@ -545,9 +545,9 @@ resourceOverview =
                       _ -> ("error", [])
 
               -- Test summary (if any)
-              mTests <- Control.Concurrent.STM.readTVarIO mTestResults
+              mTests <- Control.Concurrent.STM.readTVarIO mTest
               let testYaml :: [Text]
-                  testYaml = case mTests of
+                  testYaml = case mTests >>= Client.testResults of
                     Nothing -> []
                     Just (Client.TestResults total passed failed _failures) ->
                       [ "tests:"
@@ -944,9 +944,9 @@ resourceTestStatus =
                 Left msg -> do
                   let val = JSON.object [ "error" .= msg ]
                   pure (MCP.ReadResourceResponse [ MCP.json req val ])
-                Right (Client.ProjectCache proj _ _ _ mResults) -> do
-                  m <- Control.Concurrent.STM.readTVarIO mResults
-                  case m of
+                Right (Client.ProjectCache proj _ _ _ mTest) -> do
+                  m <- Control.Concurrent.STM.readTVarIO mTest
+                  case m >>= Client.testResults of
                     Nothing -> do
                       let val = JSON.object
                                 [ "error" .= ("no test results" :: Text)

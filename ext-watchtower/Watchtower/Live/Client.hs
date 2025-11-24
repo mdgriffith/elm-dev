@@ -9,6 +9,8 @@ module Watchtower.Live.Client
     WorkspaceDiagnosticsSnapshot (..),
     PackageInfo (..),
     PackageModule (..),
+    TestInfo (..),
+    TestCompilationResult (..),
     Urls (..),
     FileInfo (..),
     ProjectCache (..),
@@ -144,7 +146,7 @@ data ProjectCache = ProjectCache
     docsInfo :: Gen.Config.DocsConfig,
     flags :: Ext.CompileHelpers.Generic.Flags,
     compileResult :: STM.TVar CompilationResult,
-    testResults :: STM.TVar (Maybe TestResults)
+    test :: STM.TVar (Maybe TestInfo)
   }
 
 data CompilationResult =
@@ -942,6 +944,18 @@ data TestResults = TestResults
   , _passed :: Int
   , _failed :: Int
   , _failures :: [String]
+  }
+
+-- Expanded test tracking persisted on each project
+data TestCompilationResult
+  = TestSuccess
+  | TestError Reporting.Exit.Reactor
+
+data TestInfo = TestInfo
+  { testSuites :: [(ModuleName.Raw, Name.Name)]
+  , testFiles :: [FilePath]
+  , testResults :: Maybe TestResults
+  , testCompilation :: Maybe TestCompilationResult
   }
 
 encodeTestResults :: FilePath -> TestResults -> Json.Encode.Value

@@ -23,6 +23,8 @@ import qualified System.Directory as Dir (withCurrentDirectory)
 import qualified Watchtower.Live.Client as Client
 import qualified Reporting.Warning as Warning
 import qualified Watchtower.Server.DevWS as DevWS
+import qualified Ext.Test.Compile as TestCompile
+import qualified System.FilePath as FP
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
 
@@ -115,7 +117,34 @@ compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = 
       any (\p -> Ext.Dev.Project.contains p proj) paths
 
     compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO ()
-    compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _ _) = do
+    compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _ mTestVar) = do
       let projectFiles = List.filter (\p -> Ext.Dev.Project.contains p proj) paths
       _ <- compile state projCache projectFiles
+      -- If this project has tests, compile them using previously discovered test files
+      compileTests state projCache
       pure ()
+
+-- | Compile tests for a project if test files have been discovered.
+compileTests :: Client.State -> Client.ProjectCache -> IO ()
+compileTests _state (Client.ProjectCache proj _ _ _ mTestVar) = do
+  currentTest <- STM.readTVarIO mTestVar
+  case currentTest of
+    Nothing -> pure ()
+    Just ti -> do
+      let files = Client.testFiles ti
+      case files of
+        [] -> pure ()
+        (x:xs) -> do
+          let root = Ext.Dev.Project.getRoot proj
+          let ne = NE.List x xs
+          compiledR <- TestCompile.compileRunner root ne
+          STM.atomically $ do
+            cur <- STM.readTVar mTestVar
+            case cur of
+              Nothing -> pure ()
+              Just info ->
+                case compiledR of
+                  Left reactorErr ->
+                    STM.writeTVar mTestVar (Just info { Client.testCompilation = Just (Client.TestError reactorErr) })
+                  Right _ ->
+                    STM.writeTVar mTestVar (Just info { Client.testCompilation = Just Client.TestSuccess })

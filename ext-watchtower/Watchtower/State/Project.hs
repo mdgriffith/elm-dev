@@ -35,7 +35,7 @@ entrypointsIncluded provided existing =
 updateProjectIfNecessary :: Client.ProjectCache -> CompileHelpers.Flags -> NE.List FilePath -> Maybe Client.ProjectCache
 updateProjectIfNecessary existingProjectCache newFlags providedEntrypoints =
   case existingProjectCache of
-    Client.ProjectCache proj docsInfo0 oldFlags mCompileResult mTestResults ->
+    Client.ProjectCache proj docsInfo0 oldFlags mCompileResult mTest ->
       let Ext.Dev.Project.Project root0 projectRoot0 existingEntrypoints srcDirs0 shortId0 = proj
       in if oldFlags == newFlags && entrypointsIncluded providedEntrypoints existingEntrypoints
            then Nothing
@@ -45,7 +45,7 @@ updateProjectIfNecessary existingProjectCache newFlags providedEntrypoints =
                  extras = List.filter (\p -> not (List.elem p existingList)) providedList
                  combinedEntrypoints = NE.append extras existingEntrypoints
                  updatedProj = Ext.Dev.Project.Project root0 projectRoot0 combinedEntrypoints srcDirs0 shortId0
-             in Just (Client.ProjectCache updatedProj docsInfo0 newFlags mCompileResult mTestResults)
+             in Just (Client.ProjectCache updatedProj docsInfo0 newFlags mCompileResult mTest)
 
 {-
 This is for creating a virtual project.
@@ -78,8 +78,8 @@ upsertVirtual state@(Client.State mClients mProjects _ _ _ _ _ _) flags root ent
       -- Preserve a stable shortId for virtual projects by reusing an existing id if present, otherwise 0 (will be set on upsert)
       let newProject = Ext.Dev.Project.Project virtualRoot virtualRoot (NE.List entrypoint []) srcDirs 0
       mCompileResult <- STM.newTVarIO Client.NotCompiled
-      mTestResults <- STM.newTVarIO Nothing
-      let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults
+      mTest <- STM.newTVarIO Nothing
+      let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTest
       pure (Just newProjectCache)
 
 insertVirtualElmJson :: FilePath -> IO (Either String FilePath)
@@ -187,8 +187,8 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
                              _  -> (maximum existingIds) + 1
               let newProject = Ext.Dev.Project.Project root root normalizedEntrypoints srcDirs nextId 
               mCompileResult <- STM.newTVarIO Client.NotCompiled
-              mTestResults <- STM.newTVarIO Nothing
-              let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTestResults
+              mTest <- STM.newTVarIO Nothing
+              let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTest
 
               (isNew, project) <- STM.atomically $ do
                 existingProjects' <- STM.readTVar mProjects
