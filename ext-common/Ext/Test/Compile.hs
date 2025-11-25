@@ -1,6 +1,8 @@
 module Ext.Test.Compile
   ( compileForDiscovery
   , compileRunner
+  , compile
+  , regenerateTestElmJson
   ) where
 
 import qualified BackgroundWriter
@@ -11,6 +13,7 @@ import qualified Data.Maybe as Maybe
 import qualified Data.NonEmptyList as NE
 import           Control.Applicative ((<|>))
 import qualified Data.Set as Set
+import qualified Ext.FileProxy as File
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
@@ -28,80 +31,94 @@ import qualified Deps.Solver as Solver
 import qualified Ext.Test.Generate as Generate
 
 
+-- Ensure a test elm.json exists under root/elm-stuff/elm-dev-test based on project's elm.json.
+-- Uses FileProxy-backed IO via Outline.read/write underneath.
+generateTestJsonIfNone :: FilePath -> IO (Either Exit.Reactor ())
+generateTestJsonIfNone root = do
+  let testRoot = Generate.generatedDir root
+  Dir.createDirectoryIfMissing True testRoot
+  let testElmJsonPath = testRoot </> "elm.json"
+  exists <- File.exists testElmJsonPath
+  if exists
+    then pure (Right ())
+    else regenerateTestElmJson root
+
+-- Always (re)generate the test elm.json under root/elm-stuff/elm-dev-test from project's elm.json at root.
+regenerateTestElmJson :: FilePath -> IO (Either Exit.Reactor ())
+regenerateTestElmJson root = do
+  let testRoot = Generate.generatedDir root
+  Dir.createDirectoryIfMissing True testRoot
+  outlineR <- Outline.read root
+  case outlineR of
+    Left outlineErr ->
+      pure (Left (Exit.ReactorBadDetails (Exit.DetailsBadOutline outlineErr)))
+    Right outline -> do
+      case outline of
+        Outline.Pkg pkgOutline -> do
+          appOutlineR <- pkgOutlineToAppOutline pkgOutline
+          case appOutlineR of
+            Left details -> pure (Left (Exit.ReactorBadDetails details))
+            Right appOutline -> do
+              writeTestElmJson testRoot appOutline
+              pure (Right ())
+        Outline.App appOutline -> do
+          writeTestElmJson testRoot appOutline
+          pure (Right ())
+
+
 compileForDiscovery :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor (Map.Map ModuleName.Raw I.Interface))
 compileForDiscovery root entrypoints = do
   BackgroundWriter.withScope $ \scope -> do
     let testRoot = Generate.generatedDir root
-    Dir.createDirectoryIfMissing True testRoot
-    outlineR <- Outline.read root
-    case outlineR of
-      Left outlineErr -> pure (Left (Exit.ReactorBadDetails (Exit.DetailsBadOutline outlineErr)))
-      Right outline -> do
-        case outline of
-          Outline.Pkg pkgOutline -> do
-            appOutlineR <- pkgOutlineToAppOutline pkgOutline
-            case appOutlineR of
-              Left details -> pure (Left (Exit.ReactorBadDetails details))
-              Right appOutline -> do
-                writeTestElmJson testRoot appOutline
-                Dir.withCurrentDirectory testRoot $ do
-                  let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput
-                  let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
-                  (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
-                  case eitherCompiled of
-                    Left err -> pure (Left err)
-                    Right _compiled -> do
-                      ifacesR <- CompileProxy.allInterfaces testRoot rewrittenEntrypoints
-                      case ifacesR of
-                        Left err -> pure (Left err)
-                        Right ifaces -> pure (Right ifaces)
-          Outline.App appOutline -> do
-            writeTestElmJson testRoot appOutline
-            Dir.withCurrentDirectory testRoot $ do
-              let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput
-              let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
-              (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
-              case eitherCompiled of
+    genR <- generateTestJsonIfNone root
+    case genR of
+      Left err -> pure (Left err)
+      Right () -> do
+        Dir.withCurrentDirectory testRoot $ do
+          let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput
+          let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
+          (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
+          case eitherCompiled of
+            Left err -> pure (Left err)
+            Right _compiled -> do
+              ifacesR <- CompileProxy.allInterfaces testRoot rewrittenEntrypoints
+              case ifacesR of
                 Left err -> pure (Left err)
-                Right _compiled -> do
-                  ifacesR <- CompileProxy.allInterfaces testRoot rewrittenEntrypoints
-                  case ifacesR of
-                    Left err -> pure (Left err)
-                    Right ifaces -> pure (Right ifaces)
+                Right ifaces -> pure (Right ifaces)
+
+-- For getting compilation status quickly
+compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())
+compile root entrypoints = do
+  BackgroundWriter.withScope $ \scope -> do
+    let testRoot = Generate.generatedDir root
+    genR <- generateTestJsonIfNone root
+    case genR of
+      Left err -> pure (Left err)
+      Right () -> do
+        Dir.withCurrentDirectory testRoot $ do
+          let flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.NoOutput)
+          let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
+          (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
+          case eitherCompiled of
+            Left err -> pure (Left err)
+            Right _ -> pure (Right ())
 
 
 compileRunner :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor CompileHelpers.CompilationResult)
 compileRunner root entrypoints = do
   BackgroundWriter.withScope $ \scope -> do
-    let testRoot = root </> "elm-stuff" </> "elm-dev-test"
-    Dir.createDirectoryIfMissing True testRoot
-    outlineR <- Outline.read root
-    case outlineR of
-      Left outlineErr -> pure (Left (Exit.ReactorBadDetails (Exit.DetailsBadOutline outlineErr)))
-      Right outline -> do
-        case outline of
-          Outline.Pkg pkgOutline -> do
-            appOutlineR <- pkgOutlineToAppOutline pkgOutline
-            case appOutlineR of
-              Left details -> pure (Left (Exit.ReactorBadDetails details))
-              Right appOutline -> do
-                writeTestElmJson testRoot appOutline
-                Dir.withCurrentDirectory testRoot $ do
-                  let flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.OutputTo CompileHelpers.Js)
-                  let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
-                  (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
-                  case eitherCompiled of
-                    Left err -> pure (Left err)
-                    Right result -> pure (Right result)
-          Outline.App appOutline -> do
-            writeTestElmJson testRoot appOutline
-            Dir.withCurrentDirectory testRoot $ do
-              let flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.OutputTo CompileHelpers.Js)
-              let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
-              (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
-              case eitherCompiled of
-                Left err -> pure (Left err)
-                Right result -> pure (Right result)
+    let testRoot = Generate.generatedDir root
+    genR <- generateTestJsonIfNone root
+    case genR of
+      Left err -> pure (Left err)
+      Right () -> do
+        Dir.withCurrentDirectory testRoot $ do
+          let flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.OutputTo CompileHelpers.Js)
+          let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
+          (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
+          case eitherCompiled of
+            Left err -> pure (Left err)
+            Right result -> pure (Right result)
 
 
 

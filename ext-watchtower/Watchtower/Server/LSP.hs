@@ -60,6 +60,7 @@ import qualified Ext.CompileHelpers.Generic
 import qualified Control.Concurrent.STM
 import qualified Ext.Log
 import qualified Ext.Reporting.Error
+import System.FilePath ((</>))
 import qualified Elm.ModuleName
 import qualified Elm.Package
 import qualified Elm.Docs
@@ -75,6 +76,7 @@ import qualified Watchtower.Server.LSP.Helpers as Helpers
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.DevWS
+import qualified Ext.Test.Compile as TestCompile
 
 
 
@@ -315,6 +317,12 @@ handleDidSave state saveParams = do
   case uriToFilePath uri of
     Nothing -> return $ Right JSON.Null
     Just filePath -> do
+      -- If the project's elm.json changed and was saved, regenerate the cached test elm.json
+      if System.FilePath.takeFileName filePath == "elm.json"
+        then do
+          _ <- TestCompile.regenerateTestElmJson (System.FilePath.takeDirectory filePath)
+          pure ()
+        else pure ()
       -- Mark workspace diagnostics as out-of-date for all connections on (re)compile trigger
       let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) = state
       Control.Concurrent.STM.atomically $ do

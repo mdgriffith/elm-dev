@@ -24,6 +24,7 @@ import qualified Watchtower.Live.Client as Client
 import qualified Reporting.Warning as Warning
 import qualified Watchtower.Server.DevWS as DevWS
 import qualified Ext.Test.Compile as TestCompile
+import qualified Ext.Log
 import qualified System.FilePath as FP
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
@@ -98,7 +99,9 @@ compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = 
       projects <- STM.readTVarIO mProjects
       let relevant = List.filter (projectTouchesAny elmFiles) projects
       case relevant of
-        [] -> pure ()
+        [] -> do 
+          Ext.Log.log Ext.Log.Live "No relevant projects to compile"
+          pure ()
         _ ->
           Ext.Common.track "compile relevant projects" $ do
             counter <- STM.newTVarIO (List.length relevant)
@@ -118,7 +121,9 @@ compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = 
 
     compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO ()
     compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _ mTestVar) = do
+      
       let projectFiles = List.filter (\p -> Ext.Dev.Project.contains p proj) paths
+      Ext.Log.log Ext.Log.Live ("Compiling project: " ++ show projectFiles)
       _ <- compile state projCache projectFiles
       -- If this project has tests, compile them using previously discovered test files
       compileTests state projCache
@@ -136,8 +141,7 @@ compileTests _state (Client.ProjectCache proj _ _ _ mTestVar) = do
         [] -> pure ()
         (x:xs) -> do
           let root = Ext.Dev.Project.getRoot proj
-          let ne = NE.List x xs
-          compiledR <- TestCompile.compileRunner root ne
+          compiledR <- TestCompile.compile root (NE.List x xs)
           STM.atomically $ do
             cur <- STM.readTVar mTestVar
             case cur of
@@ -146,5 +150,5 @@ compileTests _state (Client.ProjectCache proj _ _ _ mTestVar) = do
                 case compiledR of
                   Left reactorErr ->
                     STM.writeTVar mTestVar (Just info { Client.testCompilation = Just (Client.TestError reactorErr) })
-                  Right _ ->
+                  Right () ->
                     STM.writeTVar mTestVar (Just info { Client.testCompilation = Just Client.TestSuccess })
