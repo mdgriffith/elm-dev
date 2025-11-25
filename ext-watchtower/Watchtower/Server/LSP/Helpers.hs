@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Server.LSP.Helpers (getDiagnosticsForProject, getProjectDiagnosticsByFile, getUnchangedProjectDiagnosticsByFile, getWarningsForFile, warningToUnusedDiagnostic, warningToCodeLens, findAllReferences, findDefinition, showHover) where
+module Watchtower.Server.LSP.Helpers (getDiagnosticsForProject, getProjectDiagnosticsByFile, getUnchangedProjectDiagnosticsByFile, getDiagnosticsFromTestReactorByFile, getWarningsForFile, warningToUnusedDiagnostic, warningToCodeLens, findAllReferences, findDefinition, showHover) where
 
 import Data.Aeson
 import qualified Watchtower.Live.Client
@@ -42,23 +42,29 @@ import Watchtower.Server.LSP.Protocol
 
 getDiagnosticsForProject :: Watchtower.Live.Client.State -> Watchtower.Live.Client.ProjectCache -> Maybe FilePath -> IO [Diagnostic]
 getDiagnosticsForProject state projectCache maybeFilePath = do
-  
   currentResult <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult projectCache)
+  testInfo      <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.test projectCache)
   Ext.Log.log Ext.Log.LSP $ "READ COMPILE RESULT for " ++ Watchtower.Live.Client.getProjectRoot projectCache
 
-  case currentResult of
-    Watchtower.Live.Client.Success _ -> return []
-    Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
-      -- Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Reactor), EXTRACTING DIAGNOSTICS"
-      let diagnostics = extractDiagnosticsFromReactor maybeFilePath exitReactor
-      Ext.Log.log Ext.Log.LSP $ "DIAGNOSTICS Extracted: " ++ show diagnostics
-      return diagnostics
-    Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
-      Ext.Log.log Ext.Log.LSP "COMPILE RESULT ERROR (Generation)"
-      return []
-    Watchtower.Live.Client.NotCompiled -> do
-      Ext.Log.log Ext.Log.LSP "COMPILE RESULT NOT COMPILED YET"
-      return []
+  -- Project diagnostics
+  projectDiags <-
+    case currentResult of
+      Watchtower.Live.Client.Success _ -> pure []
+      Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
+        pure (extractDiagnosticsFromReactor maybeFilePath exitReactor)
+      Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
+        pure []
+      Watchtower.Live.Client.NotCompiled -> do
+        pure []
+
+  -- Test diagnostics (if present)
+  let testDiags =
+        case testInfo of
+          Just (Watchtower.Live.Client.TestInfo _ _ _ (Just (Watchtower.Live.Client.TestError reactorErr))) ->
+            extractDiagnosticsFromReactor maybeFilePath reactorErr
+          _ -> []
+
+  pure (projectDiags ++ testDiags)
 
 -- | Aggregate diagnostics for a whole project grouped by file path.
 -- Returns a map from absolute file path to all diagnostics for that file.
@@ -110,6 +116,11 @@ extractDiagnosticsFromReactorByFile reactor =
       let pairs = map moduleErrorsToDiagnosticsByFile (firstModule : otherModules)
       in Map.fromListWith (++) pairs
     _ -> Map.empty
+
+-- | Public wrapper to obtain diagnostics grouped by file from a test compile reactor error.
+getDiagnosticsFromTestReactorByFile :: Reporting.Exit.Reactor -> Map.Map FilePath [Diagnostic]
+getDiagnosticsFromTestReactorByFile =
+  extractDiagnosticsFromReactorByFile
 
 
 -- | Convert a module's errors to diagnostics if it matches the target file

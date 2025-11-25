@@ -30,7 +30,7 @@ import qualified System.FilePath as FP
 
 
 compile :: Client.State -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compile state@(Client.State _ _ mFileInfo mPackages _ _ _ _) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
+compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequested) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run projectRoot
@@ -54,6 +54,19 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ _) projCache@(Client.P
                          current
                          fileInfoByPath
           STM.writeTVar mFileInfo merged
+
+        -- Mark workspace diagnostics snapshots as out-of-date after compile result and file info updates
+        STM.atomically $ do
+          cur <- STM.readTVar mWorkspaceDiagsRequested
+          let updated =
+                Map.map
+                  (\s -> Client.WorkspaceDiagnosticsSnapshot
+                    { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
+                    , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                    }
+                  )
+                  cur
+          STM.writeTVar mWorkspaceDiagsRequested updated
 
         case eitherCompiled of
           Right result -> do
@@ -84,6 +97,18 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ _) projCache@(Client.P
         let clientErr = Client.GenerationError err
         let errJson = Client.encodeCompilationResult (Client.Error clientErr)
         DevWS.broadcastCompilationError state errJson
+        -- Mark workspace diagnostics snapshots as out-of-date on generation error
+        STM.atomically $ do
+          cur <- STM.readTVar mWorkspaceDiagsRequested
+          let updated =
+                Map.map
+                  (\s -> Client.WorkspaceDiagnosticsSnapshot
+                    { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
+                    , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                    }
+                  )
+                  cur
+          STM.writeTVar mWorkspaceDiagsRequested updated
         pure $ Left clientErr
 
 
@@ -131,7 +156,7 @@ compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = 
 
 -- | Compile tests for a project if test files have been discovered.
 compileTests :: Client.State -> Client.ProjectCache -> IO ()
-compileTests _state (Client.ProjectCache proj _ _ _ mTestVar) = do
+compileTests state@(Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) (Client.ProjectCache proj _ _ _ mTestVar) = do
   currentTest <- STM.readTVarIO mTestVar
   case currentTest of
     Nothing -> pure ()
@@ -152,3 +177,15 @@ compileTests _state (Client.ProjectCache proj _ _ _ mTestVar) = do
                     STM.writeTVar mTestVar (Just info { Client.testCompilation = Just (Client.TestError reactorErr) })
                   Right () ->
                     STM.writeTVar mTestVar (Just info { Client.testCompilation = Just Client.TestSuccess })
+          -- Mark workspace diagnostics snapshots as out-of-date when test compilation changes
+          STM.atomically $ do
+            cur <- STM.readTVar mWorkspaceDiagsRequested
+            let updated =
+                  Map.map
+                    (\s -> Client.WorkspaceDiagnosticsSnapshot
+                      { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
+                      , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                      }
+                    )
+                    cur
+            STM.writeTVar mWorkspaceDiagsRequested updated

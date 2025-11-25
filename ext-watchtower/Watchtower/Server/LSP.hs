@@ -212,19 +212,6 @@ handleDidOpen state openParams = do
       Control.Concurrent.STM.atomically $ do
         editors <- Control.Concurrent.STM.readTVar mEditorsOpen
         Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedOpen filePath editors)
-      -- Mark workspace diagnostics as out-of-date for all connections on (re)compile trigger
-      let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) = state
-      Control.Concurrent.STM.atomically $ do
-        cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
-        let updated =
-              Map.map
-                (\s -> Client.WorkspaceDiagnosticsSnapshot
-                  { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
-                  , Client.workspaceDiagnosticsSnapshotOutOfDate = True
-                  }
-                )
-                cur
-        Control.Concurrent.STM.writeTVar mWorkspaceDiagsRequested updated
       Watchtower.Server.DevWS.broadcastServiceStatus state
       -- Recompile relevant projects for this file
       Watchtower.State.Compile.compileRelevantProjects state [filePath]
@@ -252,19 +239,6 @@ handleDidChange state changeParams = do
         Left (Ext.FileCache.InvalidEdit err) -> 
           return $ Left $ "Invalid edit: " ++ err
         Right () -> do
-            -- Mark workspace diagnostics as out-of-date for all connections on (re)compile trigger
-            let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) = state
-            Control.Concurrent.STM.atomically $ do
-              cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
-              let updated =
-                    Map.map
-                      (\s -> Client.WorkspaceDiagnosticsSnapshot
-                        { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
-                        , Client.workspaceDiagnosticsSnapshotOutOfDate = True
-                        }
-                      )
-                      cur
-              Control.Concurrent.STM.writeTVar mWorkspaceDiagsRequested updated
             Watchtower.State.Compile.compileRelevantProjects state [filePath]
             return $ Right JSON.Null
 
@@ -323,19 +297,6 @@ handleDidSave state saveParams = do
           _ <- TestCompile.regenerateTestElmJson (System.FilePath.takeDirectory filePath)
           pure ()
         else pure ()
-      -- Mark workspace diagnostics as out-of-date for all connections on (re)compile trigger
-      let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) = state
-      Control.Concurrent.STM.atomically $ do
-        cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
-        let updated =
-              Map.map
-                (\s -> Client.WorkspaceDiagnosticsSnapshot
-                  { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
-                  , Client.workspaceDiagnosticsSnapshotOutOfDate = True
-                  }
-                )
-                cur
-        Control.Concurrent.STM.writeTVar mWorkspaceDiagsRequested updated
       Watchtower.State.Compile.compileRelevantProjects state [filePath]
       return $ Right JSON.Null
 
@@ -1089,7 +1050,7 @@ buildWorkspaceDiagnosticReport state connId = do
         case maybeSnap of
           Just snap -> Client.workspaceDiagnosticsSnapshotFiles snap
           Nothing -> []
-  itemsAndUrisPerProject <- mapM (workspaceItemsForProject state unchangedMode) projects
+  itemsAndUrisPerProject <- mapM (workspaceItemsForProject connId prevUris state unchangedMode) projects
   let (itemsLists, uriLists) = unzip itemsAndUrisPerProject
   let currentUris = Data.List.nub (concat uriLists)
   -- Build clearing entries for URIs that previously had diagnostics but no longer do
@@ -1123,10 +1084,19 @@ buildWorkspaceDiagnosticReport state connId = do
   pure (JSON.object [ "items" .= JSON.toJSON allItems ])
 
 -- Build workspace diagnostic entries for a single project; also return URIs included
-workspaceItemsForProject :: Live.State -> Bool -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
-workspaceItemsForProject state unchangedMode pc@(Client.ProjectCache proj _ _ _ _) = do
-  -- Compiler diagnostics grouped by file
-  diagsMap <- Helpers.getProjectDiagnosticsByFile state pc
+workspaceItemsForProject :: JSONRPC.ConnectionId -> [Uri] -> Live.State -> Bool -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
+workspaceItemsForProject connId prevUris state unchangedMode projectCache@(Client.ProjectCache proj _ _ _ mTest) = do
+  -- Compiler diagnostics grouped by file (project)
+  projectDiagsMap <- Helpers.getProjectDiagnosticsByFile state projectCache
+  -- Test diagnostics grouped by file (if a test reactor error exists)
+  testDiagsMap <- do
+    mTi <- Control.Concurrent.STM.readTVarIO mTest
+    case mTi of
+      Just (Client.TestInfo _ _ _ (Just (Client.TestError reactorErr))) ->
+        pure (Helpers.getDiagnosticsFromTestReactorByFile reactorErr)
+      _ -> pure Map.empty
+
+  let diagsMap = Map.unionWith (++) projectDiagsMap testDiagsMap
   -- Determine which files in this project are currently open
   let (Client.State _ _ _ _ _ _ mEditorsOpen _) = state
   editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
@@ -1151,17 +1121,41 @@ workspaceItemsForProject state unchangedMode pc@(Client.ProjectCache proj _ _ _ 
   let uris = map fromFilePath allFiles
   if unchangedMode
     then do
-      let items =
+      -- Send 'unchanged' entries for previously reported URIs, and 'full' entries for newly seen URIs
+      let pairs = zip allFiles uris
+          isPrev u = u `elem` prevUris
+          (prevPairs, newPairs) =
+            foldr
+              (\p@(_fp,u) (ps, ns) -> if isPrev u then (p:ps, ns) else (ps, p:ns))
+              ([], [])
+              pairs
+          unchangedItems =
             map
-              (\filePath ->
+              (\(_fp,u) ->
                  JSON.toJSON
                    WorkspaceDocumentDiagnosticsUnchanged
-                     { workspaceDocumentDiagnosticsUnchangedUri = fromFilePath filePath
+                     { workspaceDocumentDiagnosticsUnchangedUri = u
                      , workspaceDocumentDiagnosticsUnchangedVersion = Nothing
                      , workspaceDocumentDiagnosticsUnchangedKind = ("unchanged" :: Text)
                      }
               )
-              allFiles
+              prevPairs
+          fullItemsForNew =
+            map
+              (\(filePath,u) ->
+                 let fileErrs = Map.findWithDefault [] filePath diagsMap
+                     unusedWarns = Map.findWithDefault [] filePath openUnusedMap
+                  in JSON.toJSON
+                       WorkspaceDocumentDiagnostics
+                         { workspaceDocumentDiagnosticsUri = u
+                         , workspaceDocumentDiagnosticsVersion = Nothing
+                         , workspaceDocumentDiagnosticsKind = ("full" :: Text)
+                         , workspaceDocumentDiagnosticsItems = (fileErrs ++ unusedWarns)
+                         }
+              )
+              newPairs
+          items = unchangedItems ++ fullItemsForNew
+      
       pure (items, uris)
     else do
       let items =
