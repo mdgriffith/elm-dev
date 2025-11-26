@@ -67,6 +67,7 @@ import qualified Watchtower.Server.MCP.Docs as DocsRender
 import qualified Data.Text as T
 import qualified Watchtower.Server.MCP.Guides as Guides
 import qualified Watchtower.State.Compile
+import qualified Watchtower.State.Discover
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.LSP.Helpers as Helpers
 import qualified Watchtower.Server.DevWS
@@ -92,7 +93,7 @@ availableTools =
   , toolAddTheme
   , toolTestInit
   , toolTestRun
-  , toolProjectSet
+  , toolProjectSelect
   ]
 
 -- helpers
@@ -148,8 +149,7 @@ schemaProject :: JSON.Value
 schemaProject =
   JSON.object
     [ "type" .= ("object" :: Text)
-    , "properties" .= JSON.object
-        [ projectIdSchema ]
+    , "properties" .= JSON.object []
     , "required" .= ([] :: [Text])
     ]
 
@@ -162,7 +162,7 @@ schemaProjectPlus extras =
                         , "description" .= (desc :: Text)
                         ]) extras
     fields :: [(Key.Key, JSON.Value)]
-    fields = projectIdSchema : extraPairs
+    fields = extraPairs
     requiredFields :: [Text]
     requiredFields = fmap fst extras
   in
@@ -218,8 +218,7 @@ toolCompile = MCP.Tool
   , MCP.toolInputSchema = schemaProject
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args state _emit connId -> do
-      let mPid = getIntArg args "projectId"
-      selection <- ProjectLookup.resolveProjectFromSession mPid connId state
+      selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
       case selection of
         Left msg -> pure (errTxt msg)
         Right projCache -> do
@@ -249,9 +248,7 @@ toolInstall = MCP.Tool
       case requireStringArg "package" args of
         Left e -> pure (errTxt (Text.pack e))
         Right pkg -> do
-          let mPid = getIntArg args "projectId"
-          
-          selection <- ProjectLookup.resolveProjectFromSession mPid connId state
+          selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
           case selection of
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -272,9 +269,7 @@ toolAddPage = MCP.Tool
       case requireStringArg "url" args of
         Left e -> pure (errTxt (Text.pack e))
         Right url -> do
-          let mPid = getIntArg args "projectId"
-          
-          selection <- ProjectLookup.resolveProjectFromSession mPid connId state
+          selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
           case selection of
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -302,8 +297,7 @@ toolAddStore = MCP.Tool
       case requireStringArg "module" args of
         Left e -> pure (errTxt (Text.pack e))
         Right modul -> do
-          let mPid = getIntArg args "projectId"
-          selection <- ProjectLookup.resolveProjectFromSession mPid connId state
+          selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
           case selection of
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -325,9 +319,7 @@ toolAddEffect = MCP.Tool
       case requireStringArg "module" args of
         Left e -> pure (errTxt (Text.pack e))
         Right modul -> do
-          let mPid = getIntArg args "projectId"
-          
-          selection <- ProjectLookup.resolveProjectFromSession mPid connId state
+          selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
           case selection of
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -350,8 +342,7 @@ toolAddListener = MCP.Tool
       case requireStringArg "module" args of
         Left e -> pure (errTxt (Text.pack e))
         Right modul -> do
-          let mPid = getIntArg args "projectId"
-          selection <- ProjectLookup.resolveProjectFromSession mPid connId state
+          selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
           case selection of
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -370,8 +361,7 @@ toolAddTheme = MCP.Tool
   , MCP.toolInputSchema = schemaProject
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args state _emit connId -> do
-      let mPid = getIntArg args "projectId"
-      selection <- ProjectLookup.resolveProjectFromSession mPid connId state
+      selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
       case selection of
         Left msg -> pure (errTxt msg)
         Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -394,8 +384,7 @@ toolTestInit = MCP.Tool
   , MCP.toolInputSchema = schemaProject
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args state _emit connId -> do
-      let mPid = getIntArg args "projectId"
-      selection <- ProjectLookup.resolveProjectFromSession mPid connId state
+      selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
       case selection of
         Left msg -> pure (errTxt msg)
         Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -415,8 +404,7 @@ toolTestRun = MCP.Tool
   , MCP.toolInputSchema = schemaProject
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args state _emit connId -> do
-      let mPid = getIntArg args "projectId"
-      selection <- ProjectLookup.resolveProjectFromSession mPid connId state
+      selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
       case selection of
         Left msg -> pure (errTxt msg)
         Right (Client.ProjectCache proj _ _ _ _) -> do
@@ -431,30 +419,89 @@ toolTestRun = MCP.Tool
   }
 
 
--- set current project
-toolProjectSet :: MCP.Tool
-toolProjectSet = MCP.Tool
-  { MCP.toolName = "project_set"
-  , MCP.toolDescription = "Set the current project for this connection."
-  , MCP.toolInputSchema = JSON.object [ "type" .= ("object" :: Text), "properties" .= JSON.object [ "projectId" .= JSON.object [ "type" .= ("integer" :: Text) ] ], "required" .= (["projectId"] :: [Text]) ]
+-- select current project by root (discover if needed)
+toolProjectSelect :: MCP.Tool
+toolProjectSelect = MCP.Tool
+  { MCP.toolName = "project_select"
+  , MCP.toolDescription = "Select the current project for this connection by root directory."
+  , MCP.toolInputSchema =
+      JSON.object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= JSON.object
+            [ "root" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Absolute path to the project root" :: Text)
+                ]
+            ]
+        , "required" .= (["root"] :: [Text])
+        ]
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args state _emit connId -> do
-      case getIntArg args "projectId" of
-        Nothing -> pure (errTxt "Missing projectId")
-        Just pid -> do
+      case requireStringArg "root" args of
+        Left e -> pure (errTxt (Text.pack e))
+        Right rootDir -> do
+          canonicalRoot <- Dir.canonicalizePath rootDir
           let (Client.State _ mProjects _ _ _ _ _ _) = state
-          projects <- Control.Concurrent.STM.readTVarIO mProjects
-          case filter (\(Client.ProjectCache proj _ _ _ _) -> Ext.Dev.Project._shortId proj == pid) projects of
-            (Client.ProjectCache _proj _ _ _ _ : _) -> do
+          let findByRoot projs =
+                filter
+                  (\(Client.ProjectCache proj _ _ _ _) ->
+                      Ext.Dev.Project.getRoot proj == canonicalRoot
+                  )
+                  projs
+          projects0 <- Control.Concurrent.STM.readTVarIO mProjects
+          case findByRoot projects0 of
+            (Client.ProjectCache proj _ _ mCr _ : _) -> do
+              let pid = Ext.Dev.Project._shortId proj
               okSet <- Client.setFocusedProjectId state connId pid
               if okSet
                 then do
                   Watchtower.Server.DevWS.broadcastServiceStatus state
-                  pure (ok (Text.pack ("Focused project set to " ++ show pid)))
-                else pure (errTxt "Project id not found")
+                  currentResult <- Control.Concurrent.STM.readTVarIO mCr
+                  let (compStatus :: Text, compMsg :: Maybe Text) =
+                        case currentResult of
+                          Client.Success _ -> ("ok", Nothing)
+                          Client.NotCompiled -> ("compiling", Nothing)
+                          Client.Error (Client.GenerationError errMsg) -> ("generationError", Just (Text.pack errMsg))
+                          Client.Error (Client.ReactorError reactor) ->
+                            case reactor of
+                              Exit.ReactorBadBuild _ -> ("errors", Nothing)
+                              _ -> ("error", Nothing)
+                  let linesOut =
+                        [ Text.concat ["Focused project set to root: ", Text.pack canonicalRoot]
+                        , Text.concat ["Compilation status: ", compStatus]
+                        ] ++ maybe [] (\m -> ["Message: " <> m]) compMsg
+                  pure (ok (Text.intercalate "\n" linesOut))
+                else pure (errTxt "Unable to set focused project")
             _ -> do
-              let known = ProjectLookup.listKnownProjectsText projects
-              pure (errTxt (Text.concat ["Project id not found: ", Text.pack (show pid), "\nKnown projects:\n", known]))
+              -- Not found, try discovery at this root
+              Watchtower.State.Discover.discover state canonicalRoot
+              projects1 <- Control.Concurrent.STM.readTVarIO mProjects
+              case findByRoot projects1 of
+                (Client.ProjectCache proj _ _ mCr _ : _) -> do
+                  let pid = Ext.Dev.Project._shortId proj
+                  okSet <- Client.setFocusedProjectId state connId pid
+                  if okSet
+                    then do
+                      Watchtower.Server.DevWS.broadcastServiceStatus state
+                      currentResult <- Control.Concurrent.STM.readTVarIO mCr
+                      let (compStatus :: Text, compMsg :: Maybe Text) =
+                            case currentResult of
+                              Client.Success _ -> ("ok", Nothing)
+                              Client.NotCompiled -> ("compiling", Nothing)
+                              Client.Error (Client.GenerationError errMsg) -> ("generationError", Just (Text.pack errMsg))
+                              Client.Error (Client.ReactorError reactor) ->
+                                case reactor of
+                                  Exit.ReactorBadBuild _ -> ("errors", Nothing)
+                                  _ -> ("error", Nothing)
+                      let linesOut =
+                            [ Text.concat ["Focused project set to root: ", Text.pack canonicalRoot]
+                            , Text.concat ["Compilation status: ", compStatus]
+                            ] ++ maybe [] (\m -> ["Message: " <> m]) compMsg
+                      pure (ok (Text.intercalate "\n" linesOut))
+                    else pure (errTxt "Unable to set focused project")
+                _ -> do
+                  let known = ProjectLookup.listKnownProjectsText projects1
+                  pure (errTxt (Text.concat ["No Elm project found at root: ", Text.pack canonicalRoot, "\nKnown projects:\n", known]))
   }
 
 -- url -> Elm module name
@@ -964,7 +1011,7 @@ resourceTestStatus =
                     Nothing -> do
                       let val = JSON.object
                                 [ "error" .= ("no test results" :: Text)
-                                , "hint" .= ("Run the test_run tool for this projectId" :: Text)
+                                , "hint" .= ("Run the test_run tool" :: Text)
                                 ]
                       pure (MCP.ReadResourceResponse [ MCP.json req val ])
                     Just (Client.TestResults total passed failed failures) -> do
@@ -1033,7 +1080,7 @@ resourceProjectList =
                     items
                 ++ ["```\n"]
               footer :: Text
-              footer = "Use the `project_set` tool with the project id to select a project."
+              footer = "Use the `project_select` tool with the project root path to select a project."
               body :: Text
               body = Text.intercalate "\n" ([header] ++ note) <> Text.concat yamlBlock <> "\n" <> footer
           pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
