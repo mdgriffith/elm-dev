@@ -83,8 +83,8 @@ Information from the URL template is passed to the `Page` on `init`.
 >        "Post": "/posts/*",
 >        "about": {"url": "/about", "redirectFrom": ["/abourt"] },
 >    }
->}
->```
+> }
+> ```
 
 
 
@@ -186,4 +186,5 @@ Listen.onBoardcast
 ```
 
 This is the main way you can communicate to your `Stores` or `Main` from anywhere in your app.
+
 

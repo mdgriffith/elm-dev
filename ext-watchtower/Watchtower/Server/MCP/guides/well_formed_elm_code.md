@@ -6,6 +6,14 @@
   - Keep call sites explicit and searchable. Avoid `as` and `exposing` unless there’s a strong reason.
   - Rare exceptions: infix ops from `Parser`.
 
+### Import aliases
+
+If you *do* import using an alias, the import alais must be capitalized.  Like
+
+```elm
+import Html.Attributes as Attr
+```
+
 ### Msg naming conventions
 
 `Msg`s should be named with a `{Domain Noun}{Domain Action}{Past tense Event}` format.
@@ -107,3 +115,10 @@ References
 - Richard Feldman — Making Impossible States Impossible (talk)
 - Alexis King — Parse, don’t validate (essay)
 - Elm Patterns — Parse, don’t validate (Elm‑focused overview)
+
+
+## Testing
+
+Tests live in the `tests` directory.  Any file taht exposes a value of type `Test` will automatically be discovered when we run a testing tool like `elm-dev test` or `elm-test`.You don't need to write a file to gather and reexpose tests.  The test runner can discover any test that is exposed.
+
+Sometimes helpers are needed for writing tests.  It's recommended to put those in a common module such as `tests/Test/Setup.elm` or `tests/Test/Setup/*.elm`.

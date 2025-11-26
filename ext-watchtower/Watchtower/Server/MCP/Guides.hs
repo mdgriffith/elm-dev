@@ -1,7 +1,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Watchtower.Server.MCP.Guides
-  ( architectureMd
+  ( architectureElmDevAppMd
+  , architectureElmPackageMd
+  , architectureElmAppMd
   , wellFormedElmCodeMd
   ) where
 
@@ -13,14 +15,28 @@ import qualified Data.FileEmbed as FileEmbed
 import System.FilePath ((</>))
 
 
--- | Embed the architecture guide markdown at compile time
-architectureRaw :: BS.ByteString
-architectureRaw = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-watchtower" </> "Watchtower" </> "Server" </> "MCP" </> "guides" </> "architecture.md")) )
 
+
+
+-- | Embed variant guides
+architectureElmDevAppRaw :: BS.ByteString
+architectureElmDevAppRaw = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-watchtower" </> "Watchtower" </> "Server" </> "MCP" </> "guides" </> "architecture-elm-dev-app.md")) )
+
+architectureElmPackageRaw :: BS.ByteString
+architectureElmPackageRaw = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-watchtower" </> "Watchtower" </> "Server" </> "MCP" </> "guides" </> "architecture-elm-package.md")) )
+
+architectureElmAppRaw :: BS.ByteString
+architectureElmAppRaw = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-watchtower" </> "Watchtower" </> "Server" </> "MCP" </> "guides" </> "architecture-elm-app.md")) )
 
 -- | Decoded markdown text for use in MCP responses
-architectureMd :: T.Text
-architectureMd = T.decodeUtf8 architectureRaw
+architectureElmDevAppMd :: T.Text
+architectureElmDevAppMd = T.decodeUtf8 architectureElmDevAppRaw
+
+architectureElmPackageMd :: T.Text
+architectureElmPackageMd = T.decodeUtf8 architectureElmPackageRaw
+
+architectureElmAppMd :: T.Text
+architectureElmAppMd = T.decodeUtf8 architectureElmAppRaw
 
 
 -- | Embed the well-formed Elm code guide markdown at compile time

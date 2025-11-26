@@ -79,6 +79,10 @@ import qualified Reporting.Render.Code as RenderCode
 import qualified Reporting.Error as Err
 import qualified Data.NonEmptyList as NE
 import qualified Reporting.Exit.Help as Help
+import qualified Elm.Outline as Elm.Outline
+import qualified Elm.Licenses as Licenses
+import qualified Elm.Version as V
+import qualified Elm.Constraint as Con
 
 
 availableTools :: [MCP.Tool]
@@ -174,40 +178,87 @@ schemaProjectPlus extras =
 
 toolScaffoldElmDevApp :: MCP.Tool
 toolScaffoldElmDevApp = MCP.Tool
-  { MCP.toolName = "scaffold_app"
-  , MCP.toolDescription = "Scaffold a new Elm app using the elm-dev architecture in the given directory."
+  { MCP.toolName = "generate_scaffold"
+  , MCP.toolDescription = "Generate a new Elm project scaffold in the given directory."
   , MCP.toolInputSchema =
       JSON.object
         [ "type" .= ("object" :: Text)
         , "properties" .= JSON.object
             [ rootDirSchema
+            , Key.fromText "project_type" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description" .= (Text.unlines
+                    [ "Required. Determines what to scaffold."
+                    , ""
+                    , "- app - An app is a user facing UI application."
+                    , "- Package - A package is a reusable set of modules that could be published to the elm package repository."
+                    ] :: Text)
+                , "enum" .= (["app","package"] :: [Text])
+                ]
             ]
-        , "required" .= (["dir"] :: [Text])
+        , "required" .= (["dir","project_type"] :: [Text])
         ]
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args _state _emit connId -> do
-      case requireStringArg "dir" args of
-        Left e -> pure (errTxt (Text.pack e))
-        Right dir -> do
-          -- Run generator init in target dir
-          r <- Exception.try (withDir dir (GenInit.run () ())) :: IO (Either SomeException ())
-          case r of
-            Left _ -> pure (errTxt "Failed to initialize project")
-            Right _ -> do
-             
-              let body =
-                    Text.unlines
-                      [ "Created a new Elm application using the elm-dev architecture."
-                      , ""
-                      , "Key files:"
-                      , "  - elm.dev.json"
-                      , "  - elm.json"
-                      , "  - README.md"
-                      , "  - src/app/Page/Home.elm"
-                      , ""
-                      , "Read `file://architecture` for an overview and guidance on how to work with this setup."
-                      ]
-              pure (ok body)
+      case (requireStringArg "dir" args, requireStringArg "project_type" args) of
+        (Left e, _) -> pure (errTxt (Text.pack e))
+        (_, Left e) -> pure (errTxt (Text.pack e))
+        (Right dir, Right projType) -> do
+          case projType of
+            "app" -> do
+              r <- Exception.try (withDir dir (GenInit.run () ())) :: IO (Either SomeException ())
+              case r of
+                Left _ -> pure (errTxt "Failed to initialize project")
+                Right _ -> do
+                  let body =
+                        Text.unlines
+                          [ "Created a new Elm application using the elm-dev architecture."
+                          , ""
+                          , "Key files:"
+                          , "  - elm.dev.json"
+                          , "  - elm.json"
+                          , "  - README.md"
+                          , "  - src/app/Page/Home.elm"
+                          , ""
+                          , "Read `file://architecture` for an overview and guidance on how to work with this setup."
+                          ]
+                  pure (ok body)
+            "package" -> do
+              r <- Exception.try (withDir dir $ do
+                      exists <- Dir.doesFileExist ("elm.json" :: FilePath)
+                      if exists
+                        then pure (Left ("elm.json already exists" :: Text))
+                        else do
+                          Dir.createDirectoryIfMissing True ("src" :: FilePath)
+                          let name = Pkg.dummyName
+                              summary = Elm.Outline.defaultSummary
+                              license = Licenses.bsd3
+                              version = V.one
+                              exposed = Elm.Outline.ExposedList []
+                              deps = Map.fromList [ (Pkg.core, Con.untilNextMajor (V.Version 1 0 5)) ]
+                              testDeps = Map.empty
+                              elmConstraint = Con.defaultElm
+                              outline = Elm.Outline.Pkg (Elm.Outline.PkgOutline name summary license version exposed deps testDeps elmConstraint)
+                          Elm.Outline.write "." outline
+                          pure (Right ())
+                    ) :: IO (Either SomeException (Either Text ()))
+              case r of
+                Left _ -> pure (errTxt "Failed to scaffold package")
+                Right (Left msg) -> pure (errTxt (Text.concat ["Cannot scaffold package: ", msg]))
+                Right (Right ()) -> do
+                  let body =
+                        Text.unlines
+                          [ "Created a new Elm package scaffold."
+                          , ""
+                          , "Key files:"
+                          , "  - elm.json"
+                          , "  - src/ (created)"
+                          , ""
+                          , "Read `file://architecture` for an overview and guidance on how to work with this setup."
+                          ]
+                  pure (ok body)
+            _ ->
+              pure (errTxt "Invalid project_type. Expected \"app\" or \"package\".")
   }
 
 -- compile
@@ -697,10 +748,18 @@ resourceArchitecture =
               let cfgPath = Ext.Dev.Project.getRoot proj </> "elm.dev.json"
               hasCfg <- Ext.FileProxy.exists cfgPath
               if hasCfg then
-                pure (MCP.ReadResourceResponse [ MCP.markdown req Guides.architectureMd ])
+                pure (MCP.ReadResourceResponse [ MCP.markdown req Guides.architectureElmDevAppMd ])
               else do
-                let msg = ("This is a standard Elm app using the Elm Architecture." :: Text)
-                pure (MCP.ReadResourceResponse [ MCP.markdown req msg ])
+                let root = Ext.Dev.Project.getRoot proj
+                outline <- Elm.Outline.read root
+                case outline of
+                  Right (Elm.Outline.Pkg _) ->
+                    pure (MCP.ReadResourceResponse [ MCP.markdown req Guides.architectureElmPackageMd ])
+                  Right (Elm.Outline.App _) ->
+                    pure (MCP.ReadResourceResponse [ MCP.markdown req Guides.architectureElmAppMd ])
+                  Left _ -> do
+                    let msg = ("This is a standard Elm app using the Elm Architecture." :: Text)
+                    pure (MCP.ReadResourceResponse [ MCP.markdown req msg ])
       }
 
 
