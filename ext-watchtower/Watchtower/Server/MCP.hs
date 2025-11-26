@@ -82,7 +82,7 @@ import qualified Reporting.Exit.Help as Help
 
 availableTools :: [MCP.Tool]
 availableTools =
-  [ toolInit
+  [ toolScaffoldElmDevApp
   , toolCompile
   , toolInstall
   , toolAddPage
@@ -172,10 +172,10 @@ schemaProjectPlus extras =
     , "required" .= requiredFields
     ]
 
-toolInit :: MCP.Tool
-toolInit = MCP.Tool
-  { MCP.toolName = "init"
-  , MCP.toolDescription = "Create a new Elm project (elm-dev prefab) in the given directory."
+toolScaffoldElmDevApp :: MCP.Tool
+toolScaffoldElmDevApp = MCP.Tool
+  { MCP.toolName = "scaffold_app"
+  , MCP.toolDescription = "Scaffold a new Elm app using the elm-dev architecture in the given directory."
   , MCP.toolInputSchema =
       JSON.object
         [ "type" .= ("object" :: Text)
@@ -193,7 +193,21 @@ toolInit = MCP.Tool
           r <- Exception.try (withDir dir (GenInit.run () ())) :: IO (Either SomeException ())
           case r of
             Left _ -> pure (errTxt "Failed to initialize project")
-            Right _ -> pure (ok "Initialized project")
+            Right _ -> do
+             
+              let body =
+                    Text.unlines
+                      [ "Created a new Elm application using the elm-dev architecture."
+                      , ""
+                      , "Key files:"
+                      , "  - elm.dev.json"
+                      , "  - elm.json"
+                      , "  - README.md"
+                      , "  - src/app/Page/Home.elm"
+                      , ""
+                      , "Read `file://architecture` for an overview and guidance on how to work with this setup."
+                      ]
+              pure (ok body)
   }
 
 -- compile
