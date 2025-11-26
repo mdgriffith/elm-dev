@@ -65,6 +65,9 @@ import qualified Elm.ModuleName
 import qualified Elm.Package
 import qualified Elm.Docs
 import qualified Json.String
+import qualified System.Directory as Dir
+import qualified System.FilePath as FP
+import Control.Monad (when)
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Watchtower.AST.Lookup
@@ -81,6 +84,26 @@ import qualified Ext.Test.Compile as TestCompile
 
 
 -- * Default Server Capabilities
+
+fileOpFilters :: JSON.Value
+fileOpFilters =
+  JSON.object
+    [ "filters"
+        .= ( [ JSON.object
+                 [ "scheme" .= ("file" :: Text)
+                 , "pattern" .= JSON.object [ "glob" .= ("**/*.elm" :: Text), "matches" .= ("file" :: Text) ]
+                 ]
+             , JSON.object
+                 [ "scheme" .= ("file" :: Text)
+                 , "pattern" .= JSON.object [ "glob" .= ("**/elm.json" :: Text), "matches" .= ("file" :: Text) ]
+                 ]
+             , JSON.object
+                 [ "scheme" .= ("file" :: Text)
+                 , "pattern" .= JSON.object [ "glob" .= ("**/elm.dev.json" :: Text), "matches" .= ("file" :: Text) ]
+                 ]
+             ] :: [JSON.Value]
+           )
+    ]
 
 defaultServerCapabilities :: ServerCapabilities
 defaultServerCapabilities = ServerCapabilities
@@ -139,14 +162,19 @@ defaultServerCapabilities = ServerCapabilities
         "workspaceDiagnostics" .= True
       ],
     serverCapabilitiesWorkspaceSymbolProvider = Nothing,
-    serverCapabilitiesWorkspace = Nothing,
+    serverCapabilitiesWorkspace = Just $ JSON.object
+      [ "fileOperations" .= JSON.object
+          [ "didCreate" .= fileOpFilters
+          , "didDelete" .= fileOpFilters
+          ]
+      ],
     serverCapabilitiesExperimental = Nothing
   }
 
 -- * Feature Implementations
 
-handleInitialize :: Live.State -> InitializeParams -> IO (Either String InitializeResult)
-handleInitialize state initParams = do
+handleInitialize :: Live.State -> JSONRPC.ConnectionId -> InitializeParams -> IO (Either String InitializeResult)
+handleInitialize state connId initParams = do
   -- Prefer workspace folders; otherwise fall back to rootPath or rootUri (converted from file:// URI)
   let folderRoots = case initializeParamsWorkspaceFolders initParams of
         Just folders ->
@@ -160,15 +188,57 @@ handleInitialize state initParams = do
   case folderRoots of
     r:rs -> do
       mapM_ (Discover.discover state) (r:rs)
+      let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) = state
+      Control.Concurrent.STM.atomically $ do
+        cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
+        let updated =
+              Map.insert
+                connId
+                (Client.LspSession
+                  { Client.workspaceDiagnosticsSnapshotFiles = []
+                  , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                  , Client.lspRoot = (r:rs)
+                  }
+                )
+                cur
+        Control.Concurrent.STM.writeTVar mWorkspaceDiagsRequested updated
     [] -> do
       case initializeParamsRootPath initParams of
         Just pathTxt -> do
           let root = Text.unpack pathTxt
           Discover.discover state root
+          let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) = state
+          Control.Concurrent.STM.atomically $ do
+            cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
+            let updated =
+                  Map.insert
+                    connId
+                    (Client.LspSession
+                      { Client.workspaceDiagnosticsSnapshotFiles = []
+                      , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                      , Client.lspRoot = [root]
+                      }
+                    )
+                    cur
+            Control.Concurrent.STM.writeTVar mWorkspaceDiagsRequested updated
         Nothing ->
           case initializeParamsRootUri initParams >>= uriToFilePath of
             Just root -> do
               Discover.discover state root
+              let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) = state
+              Control.Concurrent.STM.atomically $ do
+                cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
+                let updated =
+                      Map.insert
+                        connId
+                        (Client.LspSession
+                          { Client.workspaceDiagnosticsSnapshotFiles = []
+                          , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                          , Client.lspRoot = [root]
+                          }
+                        )
+                        cur
+                Control.Concurrent.STM.writeTVar mWorkspaceDiagsRequested updated
             Nothing -> do
               -- Log that no usable root was provided
               Ext.Log.log Ext.Log.LSP "LSP Initialize: No root path provided"
@@ -765,6 +835,48 @@ handleSelectionRange _state selectionRangeParams = do
             }
         }
 
+-- Helpers for workspace file operations
+
+isWatchedFile :: FilePath -> Bool
+isWatchedFile path =
+  let base = FP.takeFileName path
+  in FP.takeExtension path == ".elm" || base == "elm.json" || base == "elm.dev.json"
+
+handleDidCreateFiles :: Live.State -> JSONRPC.ConnectionId -> DidCreateFilesParams -> IO ()
+handleDidCreateFiles state connId (DidCreateFilesParams files) = do
+  mapM_
+    (\(FileOpItem uri) ->
+       case uriToFilePath uri of
+         Nothing -> pure ()
+         Just path ->
+           when (isWatchedFile path) $ do
+             projectResult <- Watchtower.Live.Client.getExistingProject path state
+             case projectResult of
+               Right _ -> pure ()
+               Left _ -> do
+                 let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) = state
+                 sessions <- Control.Concurrent.STM.readTVarIO mWorkspaceDiagsRequested
+                 let roots =
+                       case Map.lookup connId sessions of
+                         Just snap -> Client.lspRoot snap
+                         Nothing -> []
+                 mapM_ (Discover.discover state) roots
+    )
+    files
+
+handleDidDeleteFiles :: DidDeleteFilesParams -> IO ()
+handleDidDeleteFiles (DidDeleteFilesParams files) = do
+  mapM_
+    (\(FileOpItem uri) ->
+       case uriToFilePath uri of
+         Nothing -> pure ()
+         Just path -> do
+           Ext.FileCache.remove path
+           isDir <- Dir.doesDirectoryExist path
+           when isDir (Ext.FileCache.removeDir path)
+    )
+    files
+
 handleDidChangeVisibleRanges :: Live.State -> DidChangeVisibleRangesParams -> IO ()
 handleDidChangeVisibleRanges _state visibleRangesParams = do
   -- Handle document visible ranges change notification
@@ -796,7 +908,7 @@ serve state _emit connId req@(JSONRPC.Request _ reqId method params) = do
     -- Lifecycle
     "initialize" -> 
       handleLSPRequest reqId params "initialize" (\p -> do
-        res <- handleInitialize state p
+        res <- handleInitialize state connId p
         case res of
           Right _ -> do
             -- Inform the client the server is ready
@@ -1027,6 +1139,24 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
               Ext.Log.log Ext.Log.LSP $ "Failed to parse didChangeVisibleRanges params: " ++ err
         Nothing -> do
           Ext.Log.log Ext.Log.LSP "didChangeVisibleRanges notification missing parameters"
+    
+    "workspace/didCreateFiles" -> do
+      case params of
+        Just p ->
+          case JSON.fromJSON p of
+            JSON.Success createParams -> handleDidCreateFiles state connId createParams
+            JSON.Error err -> Ext.Log.log Ext.Log.LSP $ "Failed to parse didCreateFiles params: " ++ err
+        Nothing ->
+          Ext.Log.log Ext.Log.LSP "didCreateFiles notification missing parameters"
+
+    "workspace/didDeleteFiles" -> do
+      case params of
+        Just p ->
+          case JSON.fromJSON p of
+            JSON.Success deleteParams -> handleDidDeleteFiles deleteParams
+            JSON.Error err -> Ext.Log.log Ext.Log.LSP $ "Failed to parse didDeleteFiles params: " ++ err
+        Nothing ->
+          Ext.Log.log Ext.Log.LSP "didDeleteFiles notification missing parameters"
       
     _ -> do
       Ext.Log.log Ext.Log.LSP $ "LSP: Unhandled notification: " ++ T.unpack method
@@ -1074,9 +1204,13 @@ buildWorkspaceDiagnosticReport state connId = do
     let updated =
           Map.insert
             connId
-            (Client.WorkspaceDiagnosticsSnapshot
+            (Client.LspSession
               { Client.workspaceDiagnosticsSnapshotFiles = currentUris
               , Client.workspaceDiagnosticsSnapshotOutOfDate = False
+              , Client.lspRoot =
+                  case maybeSnap of
+                    Just snap -> Client.lspRoot snap
+                    Nothing -> []
               }
             )
             cur

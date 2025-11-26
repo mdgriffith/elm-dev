@@ -595,6 +595,26 @@ data DidChangeVisibleRangesParams = DidChangeVisibleRangesParams
   }
   deriving stock (Show, Eq, Generic)
 
+-- * Workspace File Operations
+
+-- | LSP file operation item (used by workspace/didCreateFiles and didDeleteFiles)
+data FileOpItem = FileOpItem
+  { fileOpItemUri :: Text
+  }
+  deriving stock (Show, Eq, Generic)
+
+-- | Parameters for workspace/didCreateFiles
+data DidCreateFilesParams = DidCreateFilesParams
+  { didCreateFilesParamsFiles :: [FileOpItem]
+  }
+  deriving stock (Show, Eq, Generic)
+
+-- | Parameters for workspace/didDeleteFiles
+data DidDeleteFilesParams = DidDeleteFilesParams
+  { didDeleteFilesParamsFiles :: [FileOpItem]
+  }
+  deriving stock (Show, Eq, Generic)
+
 
 -- | Code lens request parameters
 data CodeLensParams = CodeLensParams
@@ -721,6 +741,9 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceDocumentDiagnostics", omitNothingFields = True} ''WorkspaceDocumentDiagnostics)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceDocumentDiagnosticsUnchanged", omitNothingFields = True} ''WorkspaceDocumentDiagnosticsUnchanged)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceDiagnostics"} ''WorkspaceDiagnostics)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "fileOpItem"} ''FileOpItem)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "didCreateFilesParams"} ''DidCreateFilesParams)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "didDeleteFilesParams"} ''DidDeleteFilesParams)
 
 
 

@@ -60,9 +60,10 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequest
           cur <- STM.readTVar mWorkspaceDiagsRequested
           let updated =
                 Map.map
-                  (\s -> Client.WorkspaceDiagnosticsSnapshot
+                  (\s -> Client.LspSession
                     { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
                     , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                    , Client.lspRoot = Client.lspRoot s
                     }
                   )
                   cur
@@ -102,9 +103,10 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequest
           cur <- STM.readTVar mWorkspaceDiagsRequested
           let updated =
                 Map.map
-                  (\s -> Client.WorkspaceDiagnosticsSnapshot
+                  (\s -> Client.LspSession
                     { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
                     , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                    , Client.lspRoot = Client.lspRoot s
                     }
                   )
                   cur
@@ -182,9 +184,10 @@ compileTests state@(Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) (Client
             cur <- STM.readTVar mWorkspaceDiagsRequested
             let updated =
                   Map.map
-                    (\s -> Client.WorkspaceDiagnosticsSnapshot
+                    (\s -> Client.LspSession
                       { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
                       , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                      , Client.lspRoot = Client.lspRoot s
                       }
                     )
                     cur

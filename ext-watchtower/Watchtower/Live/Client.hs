@@ -6,7 +6,7 @@ module Watchtower.Live.Client
     ClientId,
     ProjectRoot,
     State (..),
-    WorkspaceDiagnosticsSnapshot (..),
+    LspSession (..),
     PackageInfo (..),
     PackageModule (..),
     TestInfo (..),
@@ -111,9 +111,10 @@ import Watchtower.Server.LSP.Protocol (Uri)
 
 -- Tracks which URIs a connection last received diagnostics for,
 -- and whether that snapshot is out-of-date due to a recompile trigger.
-data WorkspaceDiagnosticsSnapshot = WorkspaceDiagnosticsSnapshot
+data LspSession = LspSession
   { workspaceDiagnosticsSnapshotFiles :: [Uri]
   , workspaceDiagnosticsSnapshotOutOfDate :: Bool
+  , lspRoot :: [FilePath]
   }
 
 
@@ -138,7 +139,7 @@ data State = State
     -- LSP connections that have fetched the current workspace diagnostics snapshot,
     -- tracking which document URIs had diagnostics reported to that connection,
     -- and whether that snapshot is out-of-date after a (re)compile trigger.
-    workspaceDiagnosticsRequested :: STM.TVar (Map.Map T.Text WorkspaceDiagnosticsSnapshot)
+    workspaceDiagnosticsRequested :: STM.TVar (Map.Map T.Text LspSession)
   }
 
 data ProjectCache = ProjectCache
