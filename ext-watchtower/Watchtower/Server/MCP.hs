@@ -51,7 +51,6 @@ import qualified Gen.Generate
 import qualified Gen.Templates as Templates
 import GHC.Generics
 import qualified Stuff
-import qualified System.Directory as Dir
 import System.FilePath ((</>))
 import qualified System.Process as Process
 import qualified Data.Map as Map
@@ -83,6 +82,8 @@ import qualified Elm.Outline as Elm.Outline
 import qualified Elm.Licenses as Licenses
 import qualified Elm.Version as V
 import qualified Elm.Constraint as Con
+import qualified Ext.Dev.Package
+import qualified System.Directory as Dir
 
 
 availableTools :: [MCP.Tool]
@@ -914,8 +915,45 @@ resourcePackageDocs =
                   pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
                   case Map.lookup pkgName pkgs of
                     Nothing -> do
-                      let body = "Package not found: " <> author <> "/" <> project
-                      pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
+                      -- Try to resolve a usable version: currently used in focused project, or latest from registry
+                      maybeRoot <- do
+                        resolved <- ProjectLookup.resolveProjectFromSession Nothing connId state
+                        case resolved of
+                          Right (Client.ProjectCache proj _ _ _ _) ->
+                            pure (Just (Ext.Dev.Project.getRoot proj))
+                          Left _ ->
+                            pure Nothing
+
+                      mVersion <- case maybeRoot of
+                        Nothing ->
+                          Ext.Dev.Package.getPackageNewestPackageVersionFromRegistry pkgName
+                        Just rootDir -> do
+                          fromOutline <- Ext.Dev.Package.getElmJsonVersion rootDir pkgName
+                          case fromOutline of
+                            Just v -> pure (Just v)
+                            Nothing -> Ext.Dev.Package.getPackageNewestPackageVersionFromRegistry pkgName
+                      case mVersion of
+                        Nothing -> do
+                          let body = "Package not found in cache or registry: " <> author <> "/" <> project
+                          pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
+                        Just vsn -> do
+                          docsResult <- Ext.Dev.Package.getDocs pkgName vsn
+                          case docsResult of
+                            Left _err -> do
+                              let body = "Failed to fetch docs for: " <> author <> "/" <> project
+                              pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
+                            Right docsMap -> do
+                              -- Insert into in-memory package cache
+                              let mods = Map.map (\m -> Client.PackageModule { Client.packageModuleDocs = m }) docsMap
+                                  pkgInfo = Client.PackageInfo { Client.name = pkgName, Client.readme = Nothing, Client.packageModules = mods }
+                              Control.Concurrent.STM.atomically $ do
+                                cur <- Control.Concurrent.STM.readTVar (Client.packages state)
+                                Control.Concurrent.STM.writeTVar (Client.packages state) (Map.insert pkgName pkgInfo cur)
+                              -- Render docs now that it's cached
+                              let modulesDocs = [ Client.packageModuleDocs pm | pm <- Map.elems mods ]
+                                  readme = Nothing
+                                  body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack (Pkg.toChars pkgName)) Nothing) readme modulesDocs
+                              pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
 
                     Just (Client.PackageInfo { Client.readme = r, Client.packageModules = mods }) -> do
                       let modulesDocs = [ Client.packageModuleDocs pm | pm <- Map.elems mods ]
