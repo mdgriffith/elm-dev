@@ -238,6 +238,7 @@ Executable elm-dev
         Ext.Test.Install
         Ext.Test.Result
         Ext.Test.Result.Report
+        Ext.Install
 
         -- 
         Ext.MemoryCached.BackgroundWriter

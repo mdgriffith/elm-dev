@@ -42,9 +42,10 @@ args :: CommandParser.ArgParser ()
 args =
   CommandParser.noArg
 
--- INIT COMMAND
-run :: () -> () -> IO ()
-run () () = do
+
+-- | Initialize a new Elm Dev app in the given directory
+run :: FilePath -> IO ()
+run dir = do
 
   -- Create elm.dev.json
   let defaultConfig =
@@ -57,25 +58,24 @@ run () () = do
             Config.configGraphQL = Nothing,
             Config.configDocs = Nothing
           }
-  BS.writeFile "elm.dev.json" (Aeson.encodePretty defaultConfig)
+  BS.writeFile (dir </> "elm.dev.json") (Aeson.encodePretty defaultConfig)
 
   -- Create README.md
-  TIO.writeFile "README.md" defaultReadme
+  TIO.writeFile (dir </> "README.md") defaultReadme
 
   -- Create elm.json
-  initResult <- initElmJson
+  initResult <- initElmJson dir
 
-  Gen.Templates.writeGroupCustomizable Gen.Templates.Loader.Customizable "./src/app" "./elm-stuff/generated"
-  Gen.Templates.writeGroup Gen.Templates.Loader.ToHidden "./elm-stuff/generated"
-  Gen.Templates.writeGroup Gen.Templates.Loader.ToSrc "./src/app"
-  Gen.Templates.writeGroup Gen.Templates.Loader.ToJs "./src"
-  Gen.Templates.writeGroup Gen.Templates.Loader.ToRoot "."
+  Gen.Templates.writeGroupCustomizable Gen.Templates.Loader.Customizable (dir </> "src/app") (dir </> "elm-stuff/generated")
+  Gen.Templates.writeGroup Gen.Templates.Loader.ToHidden (dir </> "elm-stuff/generated")
+  Gen.Templates.writeGroup Gen.Templates.Loader.ToSrc (dir </> "src/app")
+  Gen.Templates.writeGroup Gen.Templates.Loader.ToJs (dir </> "src")
+  Gen.Templates.writeGroup Gen.Templates.Loader.ToRoot dir
 
   -- Create Page/Home.elm
-  Gen.Templates.write "Page" "./src/app" "Home"
+  Gen.Templates.write "Page" (dir </> "src/app") "Home"
   
-  cwd <- Dir.getCurrentDirectory
-  Gen.Generate.run cwd
+  Gen.Generate.run dir
 
   putStrLn "I've generated a new Elm project for you using the Elm Dev codegen!\n\nCheckout the README.md to get started!"
 
@@ -186,8 +186,8 @@ Testing:
 ```
 |]
 
-initElmJson :: IO (Either Exit.Init ())
-initElmJson =
+initElmJson :: FilePath -> IO (Either Exit.Init ())
+initElmJson dir =
   do
     eitherEnv <- Solver.initEnv
     case eitherEnv of
@@ -208,8 +208,8 @@ initElmJson =
                   directs = Map.intersection solution defaultPackages
                   indirects = Map.difference solution defaultPackages
                in do
-                    Dir.createDirectoryIfMissing True "src"
-                    Outline.write "." $
+                    Dir.createDirectoryIfMissing True (dir </> "src")
+                    Outline.write dir $
                       Outline.App $
                         Outline.AppOutline
                           V.compiler

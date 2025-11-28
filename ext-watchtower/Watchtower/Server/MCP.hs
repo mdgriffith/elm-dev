@@ -29,7 +29,7 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.TH
 import qualified Data.ByteString.Lazy as LBS
-import Data.Char (toUpper)
+import Data.Char (toUpper, toLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding
@@ -82,13 +82,21 @@ import qualified Elm.Outline as Elm.Outline
 import qualified Elm.Licenses as Licenses
 import qualified Elm.Version as V
 import qualified Elm.Constraint as Con
+import qualified Json.String as Json
+import qualified Json.Encode as JE
+import qualified Deps.Solver as Deps.Solver
 import qualified Ext.Dev.Package
 import qualified System.Directory as Dir
+import qualified Data.Vector
+import qualified Data.ByteString.Builder as BB
+import qualified Data.ByteString as BS
+import qualified Ext.Install
 
 
 availableTools :: [MCP.Tool]
 availableTools =
-  [ toolScaffoldElmDevApp
+  [ toolScaffoldElmApp
+  , toolScaffoldElmPackage
   , toolCompile
   , toolInstall
   , toolAddPage
@@ -177,89 +185,128 @@ schemaProjectPlus extras =
     , "required" .= requiredFields
     ]
 
-toolScaffoldElmDevApp :: MCP.Tool
-toolScaffoldElmDevApp = MCP.Tool
-  { MCP.toolName = "generate_scaffold"
-  , MCP.toolDescription = "Generate a new Elm project scaffold in the given directory."
+-- scaffold app
+toolScaffoldElmApp :: MCP.Tool
+toolScaffoldElmApp = MCP.Tool
+  { MCP.toolName = "generate_scaffold_app"
+  , MCP.toolDescription = "Generate a new Elm application scaffold in the given directory."
   , MCP.toolInputSchema =
       JSON.object
         [ "type" .= ("object" :: Text)
         , "properties" .= JSON.object
             [ rootDirSchema
-            , Key.fromText "project_type" .= JSON.object
-                [ "type" .= ("string" :: Text)
-                , "description" .= (Text.unlines
-                    [ "Required. Determines what to scaffold."
-                    , ""
-                    , "- app - An app is a user facing UI application."
-                    , "- Package - A package is a reusable set of modules that could be published to the elm package repository."
-                    ] :: Text)
-                , "enum" .= (["app","package"] :: [Text])
-                ]
             ]
-        , "required" .= (["dir","project_type"] :: [Text])
+        , "required" .= (["dir"] :: [Text])
         ]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args _state _emit connId -> do
-      case (requireStringArg "dir" args, requireStringArg "project_type" args) of
+  , MCP.call = \args state _emit _connId -> do
+      case requireStringArg "dir" args of
+        Left e -> pure (errTxt (Text.pack e))
+        Right dir -> do
+          r <- Exception.try (GenInit.run dir) :: IO (Either SomeException ())
+          case r of
+            Left _ -> pure (errTxt "Failed to initialize project")
+            Right _ -> do
+              canonicalRoot <- Dir.canonicalizePath dir
+              Watchtower.State.Discover.discover state canonicalRoot
+              let body =
+                    Text.unlines
+                      [ "Created a new Elm application using the elm-dev architecture."
+                      , ""
+                      , "Key files:"
+                      , "  - elm.dev.json"
+                      , "  - elm.json"
+                      , "  - README.md"
+                      , "  - src/app/Page/Home.elm"
+                      , ""
+                      , "Read `file://architecture` for an overview and guidance on how to work with this setup."
+                      ]
+              pure (ok body)
+  }
+
+-- scaffold package
+toolScaffoldElmPackage :: MCP.Tool
+toolScaffoldElmPackage = MCP.Tool
+  { MCP.toolName = "generate_scaffold_package"
+  , MCP.toolDescription = "Generate a new Elm package scaffold in the given directory."
+  , MCP.toolInputSchema =
+      JSON.object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= JSON.object
+            [ rootDirSchema
+            , Key.fromText "name" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Capitalized namespace this package is built around (e.g. Markdown)" :: Text)
+                ]
+            , Key.fromText "description" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Optional description to populate the elm.json summary field" :: Text)
+                ]
+            ]
+        , "required" .= (["dir","name"] :: [Text])
+        ]
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state _emit _connId -> do
+      let mDesc = getStringArg args "description"
+      case (requireStringArg "dir" args, requireStringArg "name" args) of
         (Left e, _) -> pure (errTxt (Text.pack e))
         (_, Left e) -> pure (errTxt (Text.pack e))
-        (Right dir, Right projType) -> do
-          case projType of
-            "app" -> do
-              r <- Exception.try (withDir dir (GenInit.run () ())) :: IO (Either SomeException ())
-              case r of
-                Left _ -> pure (errTxt "Failed to initialize project")
-                Right _ -> do
-                  let body =
-                        Text.unlines
-                          [ "Created a new Elm application using the elm-dev architecture."
-                          , ""
-                          , "Key files:"
-                          , "  - elm.dev.json"
-                          , "  - elm.json"
-                          , "  - README.md"
-                          , "  - src/app/Page/Home.elm"
-                          , ""
-                          , "Read `file://architecture` for an overview and guidance on how to work with this setup."
-                          ]
-                  pure (ok body)
-            "package" -> do
-              r <- Exception.try (withDir dir $ do
-                      exists <- Dir.doesFileExist ("elm.json" :: FilePath)
-                      if exists
-                        then pure (Left ("elm.json already exists" :: Text))
-                        else do
-                          Dir.createDirectoryIfMissing True ("src" :: FilePath)
-                          let name = Pkg.dummyName
-                              summary = Elm.Outline.defaultSummary
-                              license = Licenses.bsd3
-                              version = V.one
-                              exposed = Elm.Outline.ExposedList []
-                              deps = Map.fromList [ (Pkg.core, Con.untilNextMajor (V.Version 1 0 5)) ]
-                              testDeps = Map.empty
-                              elmConstraint = Con.defaultElm
-                              outline = Elm.Outline.Pkg (Elm.Outline.PkgOutline name summary license version exposed deps testDeps elmConstraint)
-                          Elm.Outline.write "." outline
-                          pure (Right ())
-                    ) :: IO (Either SomeException (Either Text ()))
-              case r of
-                Left _ -> pure (errTxt "Failed to scaffold package")
-                Right (Left msg) -> pure (errTxt (Text.concat ["Cannot scaffold package: ", msg]))
-                Right (Right ()) -> do
-                  let body =
-                        Text.unlines
-                          [ "Created a new Elm package scaffold."
-                          , ""
-                          , "Key files:"
-                          , "  - elm.json"
-                          , "  - src/ (created)"
-                          , ""
-                          , "Read `file://architecture` for an overview and guidance on how to work with this setup."
-                          ]
-                  pure (ok body)
-            _ ->
-              pure (errTxt "Invalid project_type. Expected \"app\" or \"package\".")
+        (Right dir, Right nameStr) -> do
+          r <- Exception.try (withDir dir $ do
+                  exists <- Dir.doesFileExist ("elm.json" :: FilePath)
+                  if exists
+                    then pure (Left ("elm.json already exists" :: Text))
+                    else do
+                      Dir.createDirectoryIfMissing True ("src" :: FilePath)
+                      -- Write placeholder module
+                      let moduleName = nameStr
+                      let placeholderSummary = maybe ("A new Elm package for " ++ moduleName) id mDesc
+                      let moduleContent =
+                            Text.unlines
+                              [ "module " <> Text.pack moduleName <> " exposing (..)"
+                              , ""
+                              , "{-| " <> Text.pack placeholderSummary <> " -}"
+                              , ""
+                              , "-- Replace with real API"
+                              , ""
+                              , "example : String"
+                              , "example ="
+                              , "    \"Hello from " <> Text.pack moduleName <> "\""
+                              ]
+                      writeFile ("src" </> moduleName <> ".elm") (Text.unpack moduleContent)
+                      -- Create elm.json for package
+                      let Pkg.Name author _ = Pkg.dummyName
+                      let projectPart = "elm-" ++ map toLower moduleName
+                      let pkgName = Pkg.toName author projectPart
+                      let summary = maybe Elm.Outline.defaultSummary Json.fromChars mDesc
+                      let license = Licenses.bsd3
+                      let version = V.one
+                      let exposed = Elm.Outline.ExposedList [ Name.fromChars moduleName ]
+                      let deps = Map.fromList [ (Pkg.core, Con.untilNextMajor (V.Version 1 0 5)) ]
+                      let testDeps = Map.empty
+                      let elmConstraint = Con.defaultElm
+                      let outline = Elm.Outline.Pkg (Elm.Outline.PkgOutline pkgName summary license version exposed deps testDeps elmConstraint)
+                      -- Write elm.json; ensure it hits disk even in memory mode
+                      let builder = JE.encode (Elm.Outline.encode outline) <> BB.char7 '\n'
+                      Ext.FileProxy.writeUtf8AllTheWayToDisk (dir </> "elm.json") (LBS.toStrict (BB.toLazyByteString builder))
+                      pure (Right ())
+                ) :: IO (Either SomeException (Either Text ()))
+          case r of
+            Left _ -> pure (errTxt "Failed to scaffold package")
+            Right (Left msg) -> pure (errTxt (Text.concat ["Cannot scaffold package: ", msg]))
+            Right (Right ()) -> do
+              canonicalRoot <- Dir.canonicalizePath dir
+              Watchtower.State.Discover.discover state canonicalRoot
+              let body =
+                    Text.unlines
+                      [ "Created a new Elm package scaffold."
+                      , ""
+                      , "Key files:"
+                      , "  - elm.json"
+                      , "  - src/" <> Text.pack nameStr <> ".elm"
+                      , "Read `file://architecture` for an overview and guidance on how to work with this setup."
+                      ]
+              pure (ok body)
   }
 
 -- compile
@@ -305,9 +352,16 @@ toolInstall = MCP.Tool
             Left msg -> pure (errTxt msg)
             Right (Client.ProjectCache proj _ _ _ _) -> do
               let dir = Ext.Dev.Project.getRoot proj
-              (code, out, errOut) <- withDir dir (Process.readProcessWithExitCode "elm" ["install", pkg, "--yes"] "")
-              let body = if null out then errOut else out
-              pure (ok (Text.pack body))
+              withDir dir $ do
+                case parsePkgName (Text.pack pkg) of
+                  Nothing ->
+                    pure (errTxt "Invalid package name. Expected author/project")
+                  Just pkgName -> do
+                    result <- Ext.Install.installDependency pkgName
+                    case result of
+                      Left _ -> pure (errTxt "Failed to install package")
+                      Right Ext.Install.AlreadyInstalled -> pure (ok "Already installed")
+                      Right Ext.Install.SuccessfullyInstalled -> pure (ok "Installed successfully")
   }
 
 -- add_page
@@ -475,7 +529,7 @@ toolTestRun = MCP.Tool
 toolProjectSelect :: MCP.Tool
 toolProjectSelect = MCP.Tool
   { MCP.toolName = "project_select"
-  , MCP.toolDescription = "Select the current project for this connection by root directory."
+  , MCP.toolDescription = "Rarely needed. Select the current project for this connection by root directory. Most tools auto-select a project; only call this when multiple projects exist and automatic selection is not what you want."
   , MCP.toolInputSchema =
       JSON.object
         [ "type" .= ("object" :: Text)
@@ -494,15 +548,9 @@ toolProjectSelect = MCP.Tool
         Right rootDir -> do
           canonicalRoot <- Dir.canonicalizePath rootDir
           let (Client.State _ mProjects _ _ _ _ _ _) = state
-          let findByRoot projs =
-                filter
-                  (\(Client.ProjectCache proj _ _ _ _) ->
-                      Ext.Dev.Project.getRoot proj == canonicalRoot
-                  )
-                  projs
           projects0 <- Control.Concurrent.STM.readTVarIO mProjects
-          case findByRoot projects0 of
-            (Client.ProjectCache proj _ _ mCr _ : _) -> do
+          case Client.findByRoot canonicalRoot projects0 of
+            Just (Client.ProjectCache proj _ _ mCr _) -> do
               let pid = Ext.Dev.Project._shortId proj
               okSet <- Client.setFocusedProjectId state connId pid
               if okSet
@@ -524,12 +572,12 @@ toolProjectSelect = MCP.Tool
                         ] ++ maybe [] (\m -> ["Message: " <> m]) compMsg
                   pure (ok (Text.intercalate "\n" linesOut))
                 else pure (errTxt "Unable to set focused project")
-            _ -> do
+            Nothing -> do
               -- Not found, try discovery at this root
               Watchtower.State.Discover.discover state canonicalRoot
               projects1 <- Control.Concurrent.STM.readTVarIO mProjects
-              case findByRoot projects1 of
-                (Client.ProjectCache proj _ _ mCr _ : _) -> do
+              case Client.findByRoot canonicalRoot projects1 of
+                Just (Client.ProjectCache proj _ _ mCr _) -> do
                   let pid = Ext.Dev.Project._shortId proj
                   okSet <- Client.setFocusedProjectId state connId pid
                   if okSet
@@ -551,7 +599,7 @@ toolProjectSelect = MCP.Tool
                             ] ++ maybe [] (\m -> ["Message: " <> m]) compMsg
                       pure (ok (Text.intercalate "\n" linesOut))
                     else pure (errTxt "Unable to set focused project")
-                _ -> do
+                Nothing -> do
                   let known = ProjectLookup.listKnownProjectsText projects1
                   pure (errTxt (Text.concat ["No Elm project found at root: ", Text.pack canonicalRoot, "\nKnown projects:\n", known]))
   }
@@ -735,7 +783,7 @@ resourceArchitecture =
   let pat = Uri.pattern "file" [Uri.s "architecture"] []
   in MCP.Resource
       { MCP.resourceUri = pat
-      , MCP.resourceName = "Elm Dev Project Architecture"
+      , MCP.resourceName = "Elm Project Architecture"
       , MCP.resourceDescription = Just "Describes how this specific Elm project is structured (important information for understanding the project)"
       , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceAssistant] MCP.High Nothing)
@@ -1177,7 +1225,7 @@ resourceProjectList =
                     items
                 ++ ["```\n"]
               footer :: Text
-              footer = "Use the `project_select` tool with the project root path to select a project."
+              footer = "Selection is automatic in most cases. Use `project_select` only when there are multiple projects and you need to switch focus explicitly."
               body :: Text
               body = Text.intercalate "\n" ([header] ++ note) <> Text.concat yamlBlock <> "\n" <> footer
           pure (MCP.ReadResourceResponse [ MCP.markdown req body ])

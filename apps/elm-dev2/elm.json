@@ -16,6 +16,7 @@
             "elm/html": "1.0.0",
             "elm/http": "2.0.0",
             "elm/json": "1.1.3",
+            "elm/parser": "1.1.0",
             "elm/project-metadata-utils": "1.0.2",
             "elm/random": "1.0.0",
             "elm/time": "1.0.0",
@@ -25,7 +26,6 @@
             "mdgriffith/elm-bezier": "1.0.0"
         },
         "indirect": {
-            "elm/parser": "1.1.0",
             "elm/regex": "1.0.0",
             "rtfeldman/elm-hex": "1.0.0"
         }

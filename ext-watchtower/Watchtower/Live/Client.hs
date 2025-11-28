@@ -29,6 +29,7 @@ module Watchtower.Live.Client
     getFileInfo,
     getAllFileInfos,
     getExistingProject,
+    findByRoot,
     Outgoing (..),
     encodeOutgoing,
     outgoingToLog,
@@ -439,6 +440,12 @@ getExistingProject path (State _ mProjects _ _ _ _ _ _) = do
 matchingProject :: ProjectCache -> ProjectCache -> Bool
 matchingProject (ProjectCache one _ _ _ _) (ProjectCache two _ _ _ _) =
   Ext.Dev.Project.equal one two
+
+-- | Find a project cache by its root directory.
+-- There can only be one project per root.
+findByRoot :: FilePath -> [ProjectCache] -> Maybe ProjectCache
+findByRoot root =
+  List.find (\(ProjectCache proj _ _ _ _) -> Ext.Dev.Project.getRoot proj == root)
 
 getAllStatuses :: State -> IO [ProjectStatus]
 getAllStatuses state@(State _ mProjects _ _ _ _ _ _) =

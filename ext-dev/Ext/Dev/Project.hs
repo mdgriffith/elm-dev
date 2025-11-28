@@ -7,6 +7,7 @@ module Ext.Dev.Project
     lookupModulePath,
     lookupModuleName,
     getRoot,
+    findByRoot,
     contains,
     discover,
     decodeProject,
@@ -142,6 +143,11 @@ getRoot (Project root _ _ _ _) =
 contains :: FilePath -> Project -> Bool
 contains path (Project root _ _ _ _) =
   root `List.isPrefixOf` path
+
+-- | Find a project by its root. There can only be one project per root.
+findByRoot :: FilePath -> [Project] -> Maybe Project
+findByRoot root =
+  List.find (\p -> getRoot p == root)
 
 {- Recursively find files named elm.json.
 

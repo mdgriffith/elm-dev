@@ -46,6 +46,8 @@ import qualified Watchtower.Live as Live
 import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.MCP.Uri as Uri
+import Data.Time.Clock (getCurrentTime, diffUTCTime)
+import qualified Control.Concurrent.STM as STM
 
 -- * MCP Core Types
 
@@ -440,7 +442,22 @@ serve tools resources prompts state emit connId req@(JSONRPC.Request _ reqId met
               case [t | t <- tools, toolName t == toolName' ] of
                 (tool' : _) -> do
                   let args = maybe mempty (\argsVal -> case argsVal of JSON.Object obj -> obj; _ -> mempty) (callToolArguments callReq)
+                  -- concise logging: start
+                  let argsTxt =
+                        case callToolArguments callReq of
+                          Just v -> Data.Text.Encoding.decodeUtf8 (LBS.toStrict (JSON.encode v))
+                          Nothing -> "null"
+                  Ext.Log.log Ext.Log.Misc ("MCP tool start: " ++ Text.unpack toolName' ++ " args=" ++ Text.unpack argsTxt)
+                  tStart <- getCurrentTime
                   response <- call tool' args state emit connId
+                  tEnd <- getCurrentTime
+                  let durationMs :: Integer
+                      durationMs = round (realToFrac (diffUTCTime tEnd tStart) * 1000 :: Double)
+                  let outcome =
+                        case response of
+                          ToolCallResponse chunks ->
+                            if any isErrorChunk chunks then "error" else "ok"
+                  Ext.Log.log Ext.Log.Misc ("MCP tool done: " ++ Text.unpack toolName' ++ " outcome=" ++ outcome ++ " duration_ms=" ++ show durationMs)
                   return $ success reqId (JSON.toJSON response)
                 [] -> do
                   let response = ToolCallResponse [ToolResponseError Nothing ("Unknown tool: " <> toolName')]

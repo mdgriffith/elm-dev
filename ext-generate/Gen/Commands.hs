@@ -57,7 +57,10 @@ initialize =
     Nothing
     Gen.Commands.Init.args
     Gen.Commands.Init.flags
-    Gen.Commands.Init.run
+    (\_ _ -> do
+      cwd <- Dir.getCurrentDirectory
+      Gen.Commands.Init.run cwd
+    )
 
 addGroup :: Maybe String
 addGroup = Just "Add to your Elm app"
