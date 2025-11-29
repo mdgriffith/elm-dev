@@ -5,6 +5,10 @@
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 const os = require('os');
 
+// Silence dev-mode warnings from compiled Elm during tests
+const __originalWarn = console.warn;
+console.warn = function () {};
+
 /* {{COMPILED_ELM}} */
 
 function parseInputFromStdin() {
