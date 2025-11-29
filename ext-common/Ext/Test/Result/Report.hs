@@ -3,6 +3,7 @@
 module Ext.Test.Result.Report
   ( renderReports
   , renderReport
+  , renderReportsWithDuration
   , printReports
   ) where
 
@@ -20,9 +21,31 @@ printReports reports =
 
 renderReports :: [R.Report] -> String
 renderReports reports =
-  let header = renderHeader reports
-      body = Data.List.intercalate "\n\n" (fmap renderReport reports)
-  in header ++ "\n\n" ++ body
+  renderReportsWithDuration True Nothing reports
+
+-- Render with an optional duration (in milliseconds) and a color toggle.
+-- When any test has failed, we show only the failures in the body; otherwise, we show just the summary.
+renderReportsWithDuration :: Bool -> Maybe Int -> [R.Report] -> String
+renderReportsWithDuration useColors maybeDuration reports =
+  let fns = if useColors then defaultColorFns else plainColorFns
+      allResults = concatMap (concatMap R.testRunResult . R.reportRuns) reports
+      anyFailed = any isFail allResults
+      header = renderHeaderWith fns maybeDuration reports
+      body =
+        if anyFailed
+          then
+            let onlyFailures r =
+                  let runsFiltered =
+                        [ run { R.testRunResult = filter isFail (R.testRunResult run) }
+                        | run <- R.reportRuns r
+                        , any isFail (R.testRunResult run)
+                        ]
+                  in r { R.reportRuns = runsFiltered }
+                nonEmpty r = not (null (R.reportRuns r))
+                failingReports = filter nonEmpty (fmap onlyFailures reports)
+            in Data.List.intercalate "\n\n" (fmap (renderReportWith fns) failingReports)
+          else ""
+  in if null body then header else header ++ "\n\n" ++ body
 
 
 renderReport :: R.Report -> String
@@ -31,6 +54,12 @@ renderReport R.Report{..} =
       items = fmap (\R.TestRun{..} -> (testRunLabel, testRunResult)) reportRuns
   in renderGroup (header, items)
 
+-- Color-parameterized rendering
+renderReportWith :: ColorFns -> R.Report -> String
+renderReportWith fns R.Report{..} =
+  let header = reportId ++ onlySuffixWith fns reportIsOnly
+      items = fmap (\R.TestRun{..} -> (testRunLabel, testRunResult)) reportRuns
+  in renderGroupWith fns (header, items)
 
 -- Internal helpers
 
@@ -53,6 +82,16 @@ renderGroup (groupLabel, items) =
       children = renderChildren 2 nonSelfs
   in headerLine ++ selfLine ++ (if null children then "" else "\n" ++ children)
 
+renderGroupWith :: ColorFns -> (String, [([String], [R.TestResult])]) -> String
+renderGroupWith fns (groupLabel, items) =
+  let (selfs, nonSelfs) = foldr (\(p, rs) (ss, ns) -> if null p then (rs:ss, ns) else (ss, (p, rs):ns)) ([], []) items
+      headerLine = bold' fns groupLabel
+      selfLine =
+        if null selfs then ""
+        else let (statusStr, colorFn) = summarizeStatusWith fns (concat selfs)
+             in "\n" ++ indent 2 (groupLabel ++ " . " ++ colorFn statusStr)
+      children = renderChildrenWith fns 2 nonSelfs
+  in headerLine ++ selfLine ++ (if null children then "" else "\n" ++ children)
 
 -- Render children of a group by their first segment. For each first-segment key:
 -- - If there are entries with empty tail (i.e., exactly the key), render a leaf line named by the key.
@@ -66,6 +105,10 @@ renderChildren headerIndent items =
       renderKeyGroup' = renderKeyGroup headerIndent
   in Data.List.intercalate "\n" (map renderKeyGroup' (Data.List.sortOn fst groups))
 
+renderChildrenWith :: ColorFns -> Int -> [([String], [R.TestResult])] -> String
+renderChildrenWith fns headerIndent items =
+  let groups = groupByFirstSegment items
+  in Data.List.intercalate "\n" (map (renderKeyGroupWith fns headerIndent) (Data.List.sortOn fst groups))
 
 -- Group items by their first label segment, keeping the remaining tail with results.
 -- Example: ( ["A","B"], rs ) contributes to key "A" with child ( ["B"], rs ).
@@ -146,6 +189,11 @@ renderLeafLine leafIndent maxLeafLen (name, rs) =
       dots = replicate (max 1 (maxLeafLen - length name + 1)) '.'
   in indent leafIndent (name ++ " " ++ dots ++ " " ++ colorFn statusStr)
 
+renderLeafLineWith :: ColorFns -> Int -> Int -> (String, [R.TestResult]) -> String
+renderLeafLineWith fns leafIndent maxLeafLen (name, rs) =
+  let (statusStr, colorFn) = summarizeStatusWith fns rs
+      dots = replicate (max 1 (maxLeafLen - length name + 1)) '.'
+  in indent leafIndent (name ++ " " ++ dots ++ " " ++ colorFn statusStr)
 
 -- Render all leaves, sorted by name, or an empty string if none.
 renderLeavesBlock :: Int -> [(String, [R.TestResult])] -> String
@@ -155,6 +203,12 @@ renderLeavesBlock leafIndent mergedLeaves =
     let maxLeafLen = computeMaxLeafNameLength mergedLeaves
     in Data.List.intercalate "\n" (map (renderLeafLine leafIndent maxLeafLen) (Data.List.sortOn fst mergedLeaves))
 
+renderLeavesBlockWith :: ColorFns -> Int -> [(String, [R.TestResult])] -> String
+renderLeavesBlockWith fns leafIndent mergedLeaves =
+  if null mergedLeaves then ""
+  else
+    let maxLeafLen = computeMaxLeafNameLength mergedLeaves
+    in Data.List.intercalate "\n" (map (renderLeafLineWith fns leafIndent maxLeafLen) (Data.List.sortOn fst mergedLeaves))
 
 -- Render nested subtrees under their sub-headers for groups that still have children.
 renderSubtreesBlock :: Int -> [(String, [([String], [R.TestResult])])] -> String
@@ -178,6 +232,27 @@ renderSubtreesBlock headerIndent branchWithChildren =
                 in subHeader ++ (if null below then "" else "\n" ++ Data.List.intercalate "\n" below)
            else renderSelfLineForKey (headerIndent + 2) n onlySelfRs
 
+renderSubtreesBlockWith :: ColorFns -> Int -> [(String, [([String], [R.TestResult])])] -> String
+renderSubtreesBlockWith fns headerIndent branchWithChildren =
+  if null branchWithChildren then ""
+  else Data.List.intercalate "\n" (map renderOne (Data.List.sortOn fst branchWithChildren))
+  where
+    renderOne (n, ch) =
+      let (leavesChild, branchesChild) = splitLeavesAndBranches ch
+          branchGroupsChild = groupBranchesByNextSegment branchesChild
+          (branchOnlySelfChild, branchWithChildrenChild0) = partitionBranchGroupsByChildren branchGroupsChild
+          (redundantAsLeafChild, branchWithChildrenChild) = collapseRedundantSingleLeafBranches branchWithChildrenChild0
+          mergedLeavesChild = mergeLeaves leavesChild branchOnlySelfChild redundantAsLeafChild
+          hasChildrenBlocksChild = not (null mergedLeavesChild) || not (null branchWithChildrenChild)
+          onlySelfRs = [ rs | (p, rs) <- ch, null p ]
+      in if hasChildrenBlocksChild
+           then let subHeader = indent (headerIndent + 2) n
+                    leavesBlockChild = renderLeavesBlockWith fns (headerIndent + 4) mergedLeavesChild
+                    subtreeBlockChild = renderSubtreesBlockWith fns (headerIndent + 2) branchWithChildrenChild
+                    below = filter (not . null) [leavesBlockChild, subtreeBlockChild]
+                in subHeader ++ (if null below then "" else "\n" ++ Data.List.intercalate "\n" below)
+           else renderSelfLineForKeyWith fns (headerIndent + 2) n onlySelfRs
+
 
 -- If there are self results at this key (exact label), render a summary line named by the key.
 renderSelfLineForKey :: Int -> String -> [[R.TestResult]] -> String
@@ -186,6 +261,11 @@ renderSelfLineForKey leafIndent key selfLeaves =
   else let (statusStr, colorFn) = summarizeStatus (concat selfLeaves)
        in indent leafIndent (key ++ " . " ++ colorFn statusStr)
 
+renderSelfLineForKeyWith :: ColorFns -> Int -> String -> [[R.TestResult]] -> String
+renderSelfLineForKeyWith fns leafIndent key selfLeaves =
+  if null selfLeaves then ""
+  else let (statusStr, colorFn) = summarizeStatusWith fns (concat selfLeaves)
+       in indent leafIndent (key ++ " . " ++ colorFn statusStr)
 
 -- Render a single first-segment group (key and its children) using the helpers above.
 renderKeyGroup :: Int -> (String, [([String], [R.TestResult])]) -> String
@@ -206,6 +286,24 @@ renderKeyGroup headerIndent (key, children) =
                 else filter (not . null) [selfLine]
   in Data.List.intercalate "\n" parts
 
+renderKeyGroupWith :: ColorFns -> Int -> (String, [([String], [R.TestResult])]) -> String
+renderKeyGroupWith fns headerIndent (key, children) =
+  let headerLine = indent headerIndent key
+      selfLeaves = [ rs | ([], rs) <- children ]
+      (leaves, branches) = splitLeavesAndBranches children
+      branchGroups = groupBranchesByNextSegment branches
+      (branchOnlySelf, branchWithChildren0) = partitionBranchGroupsByChildren branchGroups
+      (redundantAsLeaf, branchWithChildren) = collapseRedundantSingleLeafBranches branchWithChildren0
+      mergedLeaves = mergeLeaves leaves branchOnlySelf redundantAsLeaf
+      leavesBlock = renderLeavesBlockWith fns (headerIndent + 2) mergedLeaves
+      subtree = renderSubtreesBlockWith fns headerIndent branchWithChildren
+      selfLine = renderSelfLineForKeyWith fns (headerIndent + 2) key selfLeaves
+      hasChildrenBlocks = not (null subtree) || not (null leavesBlock)
+      parts = if hasChildrenBlocks
+                then filter (not . null) [headerLine, subtree, leavesBlock, selfLine]
+                else filter (not . null) [selfLine]
+  in Data.List.intercalate "\n" parts
+
 
 summarizeStatus :: [R.TestResult] -> (String, String -> String)
 summarizeStatus results =
@@ -213,6 +311,11 @@ summarizeStatus results =
   else if any isSkip results then ("Skip", yellow)
   else ("Pass", green)
 
+summarizeStatusWith :: ColorFns -> [R.TestResult] -> (String, String -> String)
+summarizeStatusWith fns results =
+  if any isFail results then ("Fail", red' fns)
+  else if any isSkip results then ("Skip", yellow' fns)
+  else ("Pass", green' fns)
 
 groupRunsByHeadLabel :: [R.TestRun] -> [(String, [([String], [R.TestResult])])]
 groupRunsByHeadLabel runs =
@@ -242,6 +345,20 @@ renderResult n result =
           detail = renderReason (n + 2) failureReason
       in header ++ "\n" ++ msg ++ (if null detail then "" else "\n" ++ detail)
 
+renderResultWith :: ColorFns -> Int -> R.TestResult -> String
+renderResultWith fns n result =
+  case result of
+    R.Passed -> indent n (green' fns "✔ Passed")
+    R.Skipped -> indent n (yellow' fns "⊝ Skipped")
+    R.Failed{..} ->
+      let header = indent n (red' fns "✖ Failed" ++
+                              (case failureGiven of
+                                 Just g  -> dim' fns ("  (given " ++ showQuoted g ++ ")")
+                                 Nothing -> "")
+                             )
+          msg = indent (n + 2) (bold' fns failureMessage)
+          detail = renderReasonWith fns (n + 2) failureReason
+      in header ++ "\n" ++ msg ++ (if null detail then "" else "\n" ++ detail)
 
 renderReason :: Int -> R.Reason -> String
 renderReason n reason =
@@ -268,23 +385,88 @@ renderReason n reason =
       (if null collectionExtra then "" else "\n" ++ indent n (cyan "Extra:")   ++ formatStringList (n + 2) collectionExtra) ++
       (if null collectionMissing then "" else "\n" ++ indent n (cyan "Missing:") ++ formatStringList (n + 2) collectionMissing)
 
+renderReasonWith :: ColorFns -> Int -> R.Reason -> String
+renderReasonWith fns n reason =
+  case reason of
+    R.Custom -> indent n (dim' fns "Reason: custom")
+    R.TODO -> indent n (yellow' fns "TODO")
+    R.Invalid s -> indent n (red' fns ("Invalid: " ++ s))
+    R.Equality{..} ->
+      indent n (cyan' fns "Expected:" ) ++ "\n" ++
+      indent (n + 2) (green' fns equalityExpected) ++ "\n" ++
+      indent n (cyan' fns "Actual:") ++ "\n" ++
+      indent (n + 2) (red' fns equalityActual)
+    R.Comparison{..} ->
+      indent n (cyan' fns "First:" ) ++ "\n" ++
+      indent (n + 2) (green' fns comparisonFirst) ++ "\n" ++
+      indent n (cyan' fns "Second:") ++ "\n" ++
+      indent (n + 2) (red' fns comparisonSecond)
+    R.ListDiff{..} ->
+      indent n (cyan' fns "Expected list:") ++ formatStringList (n + 2) listDiffExpected ++
+      indent n (cyan' fns "Actual list:")   ++ formatStringList (n + 2) listDiffActual
+    R.CollectionDiff{..} ->
+      indent n (cyan' fns "Expected:") ++ "\n" ++ indent (n + 2) (green' fns collectionExpected) ++ "\n" ++
+      indent n (cyan' fns "Actual:"  ) ++ "\n" ++ indent (n + 2) (red' fns collectionActual) ++
+      (if null collectionExtra then "" else "\n" ++ indent n (cyan' fns "Extra:")   ++ formatStringList (n + 2) collectionExtra) ++
+      (if null collectionMissing then "" else "\n" ++ indent n (cyan' fns "Missing:") ++ formatStringList (n + 2) collectionMissing)
 
-renderHeader :: [R.Report] -> String
-renderHeader reports =
+renderHeader :: Maybe Int -> [R.Report] -> String
+renderHeader maybeDuration reports =
   let allResults = concatMap (concatMap R.testRunResult . R.reportRuns) reports
       total = length allResults
       passed = length (filter isPass allResults)
       failed = length (filter isFail allResults)
       skipped = length (filter isSkip allResults)
-      onlyAny = or (fmap R.reportIsOnly reports)
-      summaryParts =
-        [ bold ("Summary: " ++ (if onlyAny then cyan "(only) " else ""))
-        , green (show passed ++ " passed")
-        , red (show failed ++ " failed")
-        , yellow (show skipped ++ " skipped")
-        , dim ("(" ++ show total ++ " total)")
-        ]
-  in Data.List.intercalate "  " summaryParts
+      _onlyAny = or (fmap R.reportIsOnly reports)
+      statusLine =
+        if failed > 0
+          then bold (red "TEST RUN FAILED")
+          else bold (green "TEST RUN PASSED")
+      durationPart =
+        case maybeDuration of
+          Nothing -> []
+          Just ms -> [ "Duration: " ++ show ms ++ " ms" ]
+      skippedPart =
+        if skipped > 0 then [ "Skipped:  " ++ show skipped ] else []
+      passedPart = [ "Passed:   " ++ show passed ]
+      failedPart = [ "Failed:   " ++ show failed ]
+      linesOut =
+        [ ""
+        , statusLine
+        , ""
+        ] ++
+        (durationPart ++ passedPart ++ failedPart ++ skippedPart)
+      _unusedTotal = total
+  in Data.List.intercalate "\n" linesOut
+
+renderHeaderWith :: ColorFns -> Maybe Int -> [R.Report] -> String
+renderHeaderWith fns maybeDuration reports =
+  let allResults = concatMap (concatMap R.testRunResult . R.reportRuns) reports
+      total = length allResults
+      passed = length (filter isPass allResults)
+      failed = length (filter isFail allResults)
+      skipped = length (filter isSkip allResults)
+      _onlyAny = or (fmap R.reportIsOnly reports)
+      statusLine =
+        if failed > 0
+          then bold' fns (red' fns "TEST RUN FAILED")
+          else bold' fns (green' fns "TEST RUN PASSED")
+      durationPart =
+        case maybeDuration of
+          Nothing -> []
+          Just ms -> [ "Duration: " ++ show ms ++ " ms" ]
+      skippedPart =
+        if skipped > 0 then [ "Skipped:  " ++ show skipped ] else []
+      passedPart = [ "Passed:   " ++ show passed ]
+      failedPart = [ "Failed:   " ++ show failed ]
+      linesOut =
+        [ ""
+        , statusLine
+        , ""
+        ] ++
+        (durationPart ++ passedPart ++ failedPart ++ skippedPart)
+      _unusedTotal = total
+  in Data.List.intercalate "\n" linesOut
 
 
 isPass :: R.TestResult -> Bool
@@ -307,8 +489,11 @@ formatStringList n items =
 onlySuffix :: Bool -> String
 onlySuffix isOnly = if isOnly then " " ++ dim ("(" ++ cyan "only" ++ ")") else ""
 
+onlySuffixWith :: ColorFns -> Bool -> String
+onlySuffixWith fns isOnly = if isOnly then " " ++ dim' fns ("(" ++ cyan' fns "only" ++ ")") else ""
 
 -- Pretty helpers
+
 
 indent :: Int -> String -> String
 indent n str = replicate n ' ' ++ str
@@ -338,3 +523,40 @@ yellow s = "\ESC[33m" ++ s ++ "\ESC[0m"
 
 cyan :: String -> String
 cyan s = "\ESC[36m" ++ s ++ "\ESC[0m"
+
+-- Color parameterization
+data ColorFns =
+  ColorFns
+    { boldF :: String -> String
+    , dimF :: String -> String
+    , redF :: String -> String
+    , greenF :: String -> String
+    , yellowF :: String -> String
+    , cyanF :: String -> String
+    }
+
+defaultColorFns :: ColorFns
+defaultColorFns =
+  ColorFns { boldF = bold, dimF = dim, redF = red, greenF = green, yellowF = yellow, cyanF = cyan }
+
+plainColorFns :: ColorFns
+plainColorFns =
+  ColorFns { boldF = id, dimF = id, redF = id, greenF = id, yellowF = id, cyanF = id }
+
+bold' :: ColorFns -> String -> String
+bold' fns = boldF fns
+
+dim' :: ColorFns -> String -> String
+dim' fns = dimF fns
+
+red' :: ColorFns -> String -> String
+red' fns = redF fns
+
+green' :: ColorFns -> String -> String
+green' fns = greenF fns
+
+yellow' :: ColorFns -> String -> String
+yellow' fns = yellowF fns
+
+cyan' :: ColorFns -> String -> String
+cyan' fns = cyanF fns

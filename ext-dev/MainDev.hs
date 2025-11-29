@@ -80,6 +80,7 @@ import qualified Network.Socket as Net
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay)
 import qualified Control.Exception as Exception
 import qualified Text.Read as Read
+import qualified System.CPUTime as CPUTime
 
 
 parseModuleList :: String -> Maybe (NE.List Elm.ModuleName.Raw)
@@ -533,12 +534,17 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
       case maybeRoot of
         Nothing -> IO.hPutStrLn IO.stderr "Could not find project root"
         Just root -> do
+          startPs <- CPUTime.getCPUTime
           result <- Ext.Test.Runner.run Nothing root
           case result of
             Left e -> case e of
               Ext.Test.Runner.TimedOut waited -> IO.hPutStrLn IO.stderr ("Timed out running tests after " <> show waited <> "s")
               Ext.Test.Runner.RunFailed msg -> IO.hPutStrLn IO.stderr msg
-            Right runResults -> Ext.Test.Result.Report.printReports runResults
+            Right runResults -> do
+              endPs <- CPUTime.getCPUTime
+              let durationMs :: Int
+                  durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
+              putStrLn (Ext.Test.Result.Report.renderReportsWithDuration True (Just durationMs) runResults)
 
 
 -- elm-dev test init

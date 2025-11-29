@@ -31,4 +31,4 @@ exampleElm = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-common" </> "E
 
 
 version :: Int
-version = 15
+version = 16

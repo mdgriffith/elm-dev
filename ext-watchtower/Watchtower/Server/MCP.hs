@@ -43,6 +43,7 @@ import qualified Ext.FileProxy
 import qualified Ext.Dev.Project
 import qualified Ext.Test.Install as TestInstall
 import qualified Ext.Test.Result.Report as TestReport
+import qualified System.CPUTime as CPUTime
 import qualified Ext.Test.Runner as TestRunner
 import qualified Ext.Reporting.Error
 import qualified Gen.Commands.Init as GenInit
@@ -248,6 +249,8 @@ toolScaffoldElmApp = MCP.Tool
                       ]
               pure (ok body)
   }
+
+-- (no-op placeholder; colors are controlled at render-time)
 
 -- unused warnings (as a tool)
 toolUnused :: MCP.Tool
@@ -674,6 +677,7 @@ toolTestRun = MCP.Tool
                   Just (JSON.Number n) -> (Scientific.toBoundedInteger n :: Maybe Int)
                   _ -> Nothing
           let timeoutSeconds = maybe 10 id mTimeoutSeconds
+          startPs <- CPUTime.getCPUTime
           result <- TestRunner.run (Just timeoutSeconds) dir
           case result of
             Left e -> case e of
@@ -682,7 +686,10 @@ toolTestRun = MCP.Tool
               TestRunner.RunFailed msg ->
                 pure (errTxt (Text.pack msg))
             Right reports -> do
-              let rendered = TestReport.renderReports reports
+              endPs <- CPUTime.getCPUTime
+              let durationMs :: Int
+                  durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
+              let rendered = TestReport.renderReportsWithDuration False (Just durationMs) reports
               pure (ok (Text.pack rendered))
   }
 
