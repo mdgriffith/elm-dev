@@ -76,12 +76,14 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Code as RenderCode
 import qualified Reporting.Error as Err
+import qualified Reporting.Warning as Warning
 import qualified Data.NonEmptyList as NE
 import qualified Reporting.Exit.Help as Help
 import qualified Elm.Outline as Elm.Outline
 import qualified Elm.Licenses as Licenses
 import qualified Elm.Version as V
 import qualified Elm.Constraint as Con
+import qualified Reporting.Annotation as Ann
 import qualified Json.String as Json
 import qualified Json.Encode as JE
 import qualified Deps.Solver as Deps.Solver
@@ -91,6 +93,9 @@ import qualified Data.Vector
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString as BS
 import qualified Ext.Install
+import qualified Watchtower.Server.LSP.Protocol as LSPProtocol
+import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 
 
 availableTools :: [MCP.Tool]
@@ -98,13 +103,14 @@ availableTools =
   [ toolScaffoldElmApp
   , toolScaffoldElmPackage
   , toolCompile
+  , toolUnused
   , toolInstall
   , toolAddPage
   , toolAddStore
   , toolAddEffect
   , toolAddListener
   , toolAddTheme
-  , toolTestInit
+  , toolTestInstall
   , toolTestRun
   , toolProjectSelect
   ]
@@ -199,7 +205,7 @@ toolScaffoldElmApp = MCP.Tool
         , "required" .= (["dir"] :: [Text])
         ]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit _connId -> do
+  , MCP.call = \args state _emit connId -> do
       case requireStringArg "dir" args of
         Left e -> pure (errTxt (Text.pack e))
         Right dir -> do
@@ -207,8 +213,22 @@ toolScaffoldElmApp = MCP.Tool
           case r of
             Left _ -> pure (errTxt "Failed to initialize project")
             Right _ -> do
+              -- Ensure elm-explorations/test is available in test-dependencies
+              _ <- withDir dir $ do
+                let testPkg = Pkg.toName (Utf8.fromChars "elm-explorations") "test"
+                _ <- TestInstall.installTestDependency testPkg
+                pure ()
               canonicalRoot <- Dir.canonicalizePath dir
               Watchtower.State.Discover.discover state canonicalRoot
+              -- Select the newly created project for this connection, if discover found it
+              let (Client.State _ mProjects _ _ _ _ _ _) = state
+              projects1 <- Control.Concurrent.STM.readTVarIO mProjects
+              case Client.findByRoot canonicalRoot projects1 of
+                Just (Client.ProjectCache proj _ _ _ _) -> do
+                  let pid = Ext.Dev.Project._shortId proj
+                  _ <- Client.setFocusedProjectId state connId pid
+                  Watchtower.Server.DevWS.broadcastServiceStatus state
+                Nothing -> pure ()
               let body =
                     Text.unlines
                       [ "Created a new Elm application using the elm-dev architecture."
@@ -219,9 +239,59 @@ toolScaffoldElmApp = MCP.Tool
                       , "  - README.md"
                       , "  - src/app/Page/Home.elm"
                       , ""
+                      , "The project is now selected for this session."
+                      , Text.concat ["Root: ", Text.pack canonicalRoot]
+                      , "No need to call project_select; you can use other tools now."
+                      , ""
                       , "Read `file://architecture` for an overview and guidance on how to work with this setup."
                       ]
               pure (ok body)
+  }
+
+-- unused warnings (as a tool)
+toolUnused :: MCP.Tool
+toolUnused = MCP.Tool
+  { MCP.toolName = "unused"
+  , MCP.toolDescription = "List unused warnings for the project or for a specific file."
+  , MCP.toolInputSchema =
+      JSON.object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= JSON.object
+            [ Key.fromText "file" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Absolute path to a file to filter warnings (optional)" :: Text)
+                ]
+            ]
+        , "required" .= ([] :: [Text])
+        ]
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state _emit connId -> do
+      selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
+      case selection of
+        Left msg -> pure (errTxt msg)
+        Right pc@(Client.ProjectCache proj _ _ _ _) -> do
+          _ <- Watchtower.State.Compile.compile state pc []
+          case getStringArg args "file" of
+            Just filePath -> do
+              (_loc, warns) <- Helpers.getWarningsForFile state filePath
+              let (unusedImports, unusedValues) = partitionUnused warns
+              let body = renderUnusedMarkdown [(filePath, unusedImports, unusedValues)]
+              pure (MCP.ToolCallResponse [MCP.ToolResponseText Nothing body])
+            Nothing -> do
+              allInfos <- Client.getAllFileInfos state
+              let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.contains p proj) (Map.toList allInfos)
+              perFile <- mapM
+                          (\p -> do
+                              (_loc, warns) <- Helpers.getWarningsForFile state p
+                              let (uimps, uvals) = partitionUnused warns
+                              pure (p, uimps, uvals)
+                          )
+                          projectFiles
+              let nonEmpty = filter (\(_, imps, vals) -> not (null imps) || not (null vals)) perFile
+              let body = if null nonEmpty
+                           then "No unused warnings."
+                           else renderUnusedMarkdown nonEmpty
+              pure (MCP.ToolCallResponse [MCP.ToolResponseText Nothing body])
   }
 
 -- scaffold package
@@ -246,7 +316,7 @@ toolScaffoldElmPackage = MCP.Tool
         , "required" .= (["dir","name"] :: [Text])
         ]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit _connId -> do
+  , MCP.call = \args state _emit connId -> do
       let mDesc = getStringArg args "description"
       case (requireStringArg "dir" args, requireStringArg "name" args) of
         (Left e, _) -> pure (errTxt (Text.pack e))
@@ -289,6 +359,9 @@ toolScaffoldElmPackage = MCP.Tool
                       -- Write elm.json; ensure it hits disk even in memory mode
                       let builder = JE.encode (Elm.Outline.encode outline) <> BB.char7 '\n'
                       Ext.FileProxy.writeUtf8AllTheWayToDisk (dir </> "elm.json") (LBS.toStrict (BB.toLazyByteString builder))
+                      -- Ensure elm-explorations/test is available in test-dependencies
+                      let testPkg = Pkg.toName (Utf8.fromChars "elm-explorations") "test"
+                      _ <- TestInstall.installTestDependency testPkg
                       pure (Right ())
                 ) :: IO (Either SomeException (Either Text ()))
           case r of
@@ -297,6 +370,15 @@ toolScaffoldElmPackage = MCP.Tool
             Right (Right ()) -> do
               canonicalRoot <- Dir.canonicalizePath dir
               Watchtower.State.Discover.discover state canonicalRoot
+              -- Select the newly created project for this connection, if discover found it
+              let (Client.State _ mProjects _ _ _ _ _ _) = state
+              projects1 <- Control.Concurrent.STM.readTVarIO mProjects
+              case Client.findByRoot canonicalRoot projects1 of
+                Just (Client.ProjectCache proj _ _ _ _) -> do
+                  let pid = Ext.Dev.Project._shortId proj
+                  _ <- Client.setFocusedProjectId state connId pid
+                  Watchtower.Server.DevWS.broadcastServiceStatus state
+                Nothing -> pure ()
               let body =
                     Text.unlines
                       [ "Created a new Elm package scaffold."
@@ -304,6 +386,10 @@ toolScaffoldElmPackage = MCP.Tool
                       , "Key files:"
                       , "  - elm.json"
                       , "  - src/" <> Text.pack nameStr <> ".elm"
+                      , ""
+                      , "The project is now selected for this session."
+                      , Text.concat ["Root: ", Text.pack canonicalRoot]
+                      , "No need to call project_select; you can use other tools now."
                       , "Read `file://architecture` for an overview and guidance on how to work with this setup."
                       ]
               pure (ok body)
@@ -360,8 +446,26 @@ toolInstall = MCP.Tool
                     result <- Ext.Install.installDependency pkgName
                     case result of
                       Left _ -> pure (errTxt "Failed to install package")
-                      Right Ext.Install.AlreadyInstalled -> pure (ok "Already installed")
-                      Right Ext.Install.SuccessfullyInstalled -> pure (ok "Installed successfully")
+                      Right Ext.Install.AlreadyInstalled -> do
+                        let docsUriElm = Text.concat ["elm://docs/package/", Text.pack (Pkg.toUrl pkgName)]
+                        let linkInfoElm =
+                              MCP.ResourceLinkInfo
+                                { MCP.resourceLinkUri = docsUriElm
+                                , MCP.resourceLinkName = Text.concat [Text.pack (Pkg.toChars pkgName), " docs"]
+                                , MCP.resourceLinkDescription = Just "Open package docs rendered by server"
+                                , MCP.resourceLinkMimeType = Nothing
+                                }
+                        pure (MCP.ToolCallResponse [MCP.ToolResponseText Nothing "Already installed", MCP.ToolResponseResourceLink Nothing linkInfoElm])
+                      Right Ext.Install.SuccessfullyInstalled -> do
+                        let docsUriElm = Text.concat ["elm://docs/package/", Text.pack (Pkg.toUrl pkgName)]
+                        let linkInfoElm =
+                              MCP.ResourceLinkInfo
+                                { MCP.resourceLinkUri = docsUriElm
+                                , MCP.resourceLinkName = Text.concat [Text.pack (Pkg.toChars pkgName), " docs"]
+                                , MCP.resourceLinkDescription = Just "Open package docs rendered by server"
+                                , MCP.resourceLinkMimeType = Nothing
+                                }
+                        pure (MCP.ToolCallResponse [MCP.ToolResponseText Nothing "Installed successfully", MCP.ToolResponseResourceLink Nothing linkInfoElm])
   }
 
 -- add_page
@@ -482,32 +586,73 @@ toolAddTheme = MCP.Tool
                 pure (ok "Added theme")
   }
 
--- test_init
-toolTestInit :: MCP.Tool
-toolTestInit = MCP.Tool
-  { MCP.toolName = "test_init"
-  , MCP.toolDescription = "Install elm-explorations/test and scaffold tests directory."
-  , MCP.toolInputSchema = schemaProject
+-- test_install
+toolTestInstall :: MCP.Tool
+toolTestInstall = MCP.Tool
+  { MCP.toolName = "test_install"
+  , MCP.toolDescription = "Install an Elm test dependency (author/project) into test-dependencies."
+  , MCP.toolInputSchema = schemaProjectPlus [("package", "Elm package name, e.g. elm-explorations/test")]
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args state _emit connId -> do
-      selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
-      case selection of
-        Left msg -> pure (errTxt msg)
-        Right (Client.ProjectCache proj _ _ _ _) -> do
-          let dir = Ext.Dev.Project.getRoot proj
-          withDir dir $ do
-            let pkg = Pkg.toName (Utf8.fromChars "elm-explorations") "test"
-            _ <- TestInstall.installTestDependency pkg
-            Dir.createDirectoryIfMissing True ("tests" :: FilePath)
-            pure (ok "Initialized tests")
+      case requireStringArg "package" args of
+        Left e -> pure (errTxt (Text.pack e))
+        Right pkgStr -> do
+          selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
+          case selection of
+            Left msg -> pure (errTxt msg)
+            Right (Client.ProjectCache proj _ _ _ _) -> do
+              let dir = Ext.Dev.Project.getRoot proj
+              withDir dir $ do
+                case parsePkgName (Text.pack pkgStr) of
+                  Nothing ->
+                    pure (errTxt "Invalid package name. Expected author/project")
+                  Just pkgName -> do
+                    result <- TestInstall.installTestDependency pkgName
+                    case result of
+                      Left _ ->
+                        pure (errTxt "Failed to install test dependency")
+                      Right TestInstall.AlreadyInstalled -> do
+                        let docsUriElm = Text.concat ["elm://docs/package/", Text.pack (Pkg.toUrl pkgName)]
+                        let linkInfoElm =
+                              MCP.ResourceLinkInfo
+                                { MCP.resourceLinkUri = docsUriElm
+                                , MCP.resourceLinkName = Text.concat [Text.pack (Pkg.toChars pkgName), " docs"]
+                                , MCP.resourceLinkDescription = Just "Open package docs rendered by server"
+                                , MCP.resourceLinkMimeType = Nothing
+                                }
+                        pure (MCP.ToolCallResponse [ MCP.ToolResponseText Nothing "Already installed"
+                                                   , MCP.ToolResponseResourceLink Nothing linkInfoElm
+                                                   ])
+                      Right TestInstall.SuccessfullyInstalled -> do
+                        let docsUriElm = Text.concat ["elm://docs/package/", Text.pack (Pkg.toUrl pkgName)]
+                        let linkInfoElm =
+                              MCP.ResourceLinkInfo
+                                { MCP.resourceLinkUri = docsUriElm
+                                , MCP.resourceLinkName = Text.concat [Text.pack (Pkg.toChars pkgName), " docs"]
+                                , MCP.resourceLinkDescription = Just "Open package docs rendered by server"
+                                , MCP.resourceLinkMimeType = Nothing
+                                }
+                        pure (MCP.ToolCallResponse [ MCP.ToolResponseText Nothing "Installed successfully"
+                                                   , MCP.ToolResponseResourceLink Nothing linkInfoElm
+                                                   ])
   }
 
--- test_run
+-- 
 toolTestRun :: MCP.Tool
 toolTestRun = MCP.Tool
   { MCP.toolName = "test_run"
   , MCP.toolDescription = "Discover, compile, and run Elm tests."
-  , MCP.toolInputSchema = schemaProject
+  , MCP.toolInputSchema =
+      JSON.object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= JSON.object
+            [ "timeoutSeconds" .= JSON.object
+                [ "type" .= ("integer" :: Text)
+                , "description" .= ("Optional max seconds to wait for tests (default 10)" :: Text)
+                ]
+            ]
+        , "required" .= ([] :: [Text])
+        ]
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args state _emit connId -> do
       selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
@@ -515,13 +660,21 @@ toolTestRun = MCP.Tool
         Left msg -> pure (errTxt msg)
         Right (Client.ProjectCache proj _ _ _ _) -> do
           let dir = Ext.Dev.Project.getRoot proj
-          withDir dir $ do
-            r <- TestRunner.run "."
-            case r of
-              Left msg -> pure (errTxt (Text.pack msg))
-              Right reports -> do
-                let rendered = TestReport.renderReports reports
-                pure (ok (Text.pack rendered))
+          let mTimeoutSeconds =
+                case KeyMap.lookup "timeoutSeconds" args of
+                  Just (JSON.Number n) -> (Scientific.toBoundedInteger n :: Maybe Int)
+                  _ -> Nothing
+          let timeoutSeconds = maybe 10 id mTimeoutSeconds
+          result <- TestRunner.run (Just timeoutSeconds) dir
+          case result of
+            Left e -> case e of
+              TestRunner.TimedOut waited ->
+                pure (errTxt (Text.pack ("Timed out running tests after " ++ show waited ++ "s")))
+              TestRunner.RunFailed msg ->
+                pure (errTxt (Text.pack msg))
+            Right reports -> do
+              let rendered = TestReport.renderReports reports
+              pure (ok (Text.pack rendered))
   }
 
 
@@ -625,7 +778,7 @@ availableResources =
   , resourceProjectList
   , resourceArchitecture
   , resourceWellFormedElmCode
-  , resourceDiagnostics
+  -- , resourceDiagnostics
   , resourceFileDocs
   , resourceModuleGraph
   , resourcePackageDocs
@@ -795,7 +948,7 @@ resourceArchitecture =
               pure (MCP.ReadResourceResponse [ MCP.markdown req msg ])
             Right (Client.ProjectCache proj _ _ _ _) -> do
               let cfgPath = Ext.Dev.Project.getRoot proj </> "elm.dev.json"
-              hasCfg <- Ext.FileProxy.exists cfgPath
+              hasCfg <- Dir.doesFileExist cfgPath
               if hasCfg then
                 pure (MCP.ReadResourceResponse [ MCP.markdown req Guides.architectureElmDevAppMd ])
               else do
@@ -849,7 +1002,7 @@ resourceDiagnostics =
       { MCP.resourceUri = pat
       , MCP.resourceName = "Elm Diagnostics"
       , MCP.resourceDescription = Just "Project or file diagnostics. Examples: elm://diagnostics, elm://diagnostics?file=/abs/path/File.elm"
-      , MCP.resourceMimeType = Just "application/json"
+      , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Medium Nothing)
       , MCP.read = \req state _emit connId -> do
           case Uri.match pat (MCP.readResourceUri req) of
@@ -859,35 +1012,23 @@ resourceDiagnostics =
               projectFound <- ProjectLookup.resolveProjectFromSession Nothing connId state
               case projectFound of
                 Left msg -> do
-                  let val = JSON.object [ "error" .= msg ]
-                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                  let body = Text.concat ["Error: ", msg]
+                  pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
                 Right pc@(Client.ProjectCache proj _ _ _ _) -> do
                   _ <- Watchtower.State.Compile.compile state pc []
                   case mFile of
                     Just fileTxt -> do
                       let filePath = Text.unpack fileTxt
-                      diagErrors <- Helpers.getDiagnosticsForProject state pc (Just filePath)
-                      (_loc, warns) <- Helpers.getWarningsForFile state filePath
-                      let warnDiags = concatMap Helpers.warningToUnusedDiagnostic warns
-                      let items = diagErrors ++ warnDiags
-                      let val = JSON.object [ "kind" .= ("file" :: Text)
-                                            , "file" .= fileTxt
-                                            , "items" .= items
-                                            ]
-                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                      diags <- Helpers.getDiagnosticsForProject state pc (Just filePath)
+                      let body = renderDiagnosticsForFile (Text.unpack fileTxt) diags
+                      pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
                     Nothing -> do
-                      allInfos <- Client.getAllFileInfos state
-                      diagErrors <- Helpers.getDiagnosticsForProject state pc Nothing
-                      let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.contains p proj) (Map.toList allInfos)
-                      warnDiagLists <- mapM (\p -> do { (_loc, warns) <- Helpers.getWarningsForFile state p; pure (concatMap Helpers.warningToUnusedDiagnostic warns) }) projectFiles
-                      let items = diagErrors ++ concat warnDiagLists
-                      let val = JSON.object [ "kind" .= ("project" :: Text)
-                                            , "items" .= items
-                                            ]
-                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
+                      byFile <- Helpers.getProjectDiagnosticsByFile state pc
+                      let body = renderDiagnosticsProject byFile
+                      pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
             Nothing -> do
-              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
-              pure (MCP.ReadResourceResponse [ MCP.json req val ])
+              let body = "Bad URI: expected elm://diagnostics or elm://diagnostics?file=/abs/path/File.elm"
+              pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
       }
 
 
@@ -1243,6 +1384,74 @@ serve state emitter connId req = do
   MCP.serve availableTools availableResources availablePrompts state emitter connId req
 
 -- Docs helpers
+
+
+-- Formatting helpers for diagnostics and unused warnings
+
+renderDiagnosticsForFile :: FilePath -> [LSPProtocol.Diagnostic] -> Text
+renderDiagnosticsForFile filePath diags =
+  let header = Text.concat ["### Diagnostics for ", Text.pack filePath]
+      bodyLines =
+        if null diags then
+          ["No diagnostics."]
+        else
+          map formatDiag diags
+  in Text.intercalate "\n" (header : "" : bodyLines)
+
+formatDiag :: LSPProtocol.Diagnostic -> Text
+formatDiag d =
+  let start = LSPProtocol.rangeStart (LSPProtocol.diagnosticRange d)
+      line = 1 + LSPProtocol.positionLine start
+      col  = 1 + LSPProtocol.positionCharacter start
+      msg  = LSPProtocol.diagnosticMessage d
+  in Text.concat ["- ", Text.pack (show line), ":", Text.pack (show col), " - ", msg]
+
+renderDiagnosticsProject :: Map.Map FilePath [LSPProtocol.Diagnostic] -> Text
+renderDiagnosticsProject byFile =
+  let nonEmpty = filter (not . null . snd) (Map.toList byFile)
+  in if null nonEmpty
+       then "No diagnostics."
+       else
+         let sections = map (\(fp, ds) -> renderDiagnosticsForFile fp ds) nonEmpty
+         in Text.intercalate "\n\n" sections
+
+partitionUnused :: [Warning.Warning] -> ([Text], [(Int, Text)])
+partitionUnused warns =
+  let step w (importsAcc, valuesAcc) =
+        case w of
+          Warning.UnusedImport region moduleName ->
+            ( Text.pack (Name.toChars moduleName) : importsAcc
+            , valuesAcc
+            )
+          Warning.UnusedVariable region _context name ->
+            let (Ann.Region (Ann.Position row _col) _end) = region
+            in ( importsAcc
+               , (fromIntegral row, Text.pack (Name.toChars name)) : valuesAcc
+               )
+          _ -> (importsAcc, valuesAcc)
+      (importsRaw, valuesRaw) = foldr step ([], []) warns
+      imports = List.sort (List.nub importsRaw)
+      values  = List.sortOn fst valuesRaw
+  in (imports, values)
+
+renderUnusedMarkdown :: [(FilePath, [Text], [(Int, Text)])] -> Text
+renderUnusedMarkdown items =
+  let sections = map renderOne items
+  in Text.intercalate "\n\n" sections
+  where
+    renderOne (fp, imports, values) =
+      let header = Text.concat ["### ", Text.pack fp]
+          importsBlock =
+            if null imports then []
+            else
+              [ "**Unused imports**"
+              ] ++ map (\m -> Text.concat ["- ", m]) imports
+          valuesBlock =
+            if null values then []
+            else
+              [ "**Unused values**"
+              ] ++ map (\(line, name) -> Text.concat ["- ", Text.pack (show line), " | ", name]) values
+      in Text.intercalate "\n" (header : "" : importsBlock ++ (if null importsBlock || null valuesBlock then [] else [""]) ++ valuesBlock)
 
 
 parsePkgName :: Text -> Maybe Pkg.Name
