@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Ext.Test.Runner
-  ( run
+  ( RunError(..)
+  , run
   ) where
 
 import qualified Control.Concurrent.MVar as MVar
@@ -29,15 +30,36 @@ import qualified Gen.Javascript as Javascript
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified System.CPUTime as CPUTime
 import qualified Ext.Test.Result
+import qualified System.Timeout as Timeout
 
 
--- | Same as 'run' but decodes the raw JSON stdout into Elm-mirrored Haskell types.
-run :: FilePath -> IO (Either String [Ext.Test.Result.Report])
-run root = do
-  r <- runNode root
-  case r of
-    Left e -> pure (Left e)
-    Right s -> pure (Ext.Test.Result.decodeReportsString s)
+-- | Failure cases for running tests
+data RunError
+  = RunFailed String
+  | TimedOut Int -- ^ seconds waited
+
+-- | Run tests. If a timeout (in seconds) is provided, enforce it; otherwise run without a timeout.
+run :: Maybe Int -> FilePath -> IO (Either RunError [Ext.Test.Result.Report])
+run mSeconds root = do
+  case mSeconds of
+    Nothing -> do
+      r <- runNode root
+      case r of
+        Left e -> pure (Left (RunFailed e))
+        Right s -> case Ext.Test.Result.decodeReportsString s of
+          Left e -> pure (Left (RunFailed e))
+          Right reports -> pure (Right reports)
+    Just seconds -> do
+      timed <- Timeout.timeout (seconds * 1000000) (runNode root)
+      case timed of
+        Nothing ->
+          pure (Left (TimedOut seconds))
+        Just (Left e) ->
+          pure (Left (RunFailed e))
+        Just (Right s) ->
+          case Ext.Test.Result.decodeReportsString s of
+            Left e -> pure (Left (RunFailed e))
+            Right reports -> pure (Right reports)
 
 
 -- | Orchestrates discovery, aggregator generation, compilation. Returns JSON test result as a String.
@@ -47,7 +69,7 @@ runNode root = do
     Ext.CompileMode.setModeMemory
     testFiles <- Discover.discoverTestFiles root
     case testFiles of
-      [] -> pure (Left "Need at least one file")
+      [] -> pure (Left $ "No .elm files found in " ++ (root FP.</> "tests"))
       (top:rest) -> do
         discoveryR <- TestCompile.compileForDiscovery root (NE.List top rest)
         case discoveryR of
@@ -80,7 +102,6 @@ runNode root = do
                 case execResult of
                   Left e -> pure (Left e)
                   Right out -> pure (Right out)
-
 
 
 
@@ -120,6 +141,11 @@ makeInputJson seed runs ids =
       idsJson = "[" ++ List.intercalate "," (map quote ids) ++ "]"
   in
   "{\"flags\":{\"seed\":" ++ show seed ++ ",\"runs\":" ++ show runs ++ "},\"tests\":" ++ idsJson ++ "}"
+
+
+ 
+ 
+ 
 
 
  
