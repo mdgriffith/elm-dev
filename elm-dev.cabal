@@ -295,6 +295,7 @@ Executable elm-dev
         Watchtower.State.Compile
         Watchtower.State.Discover
         Watchtower.State.Project
+        Watchtower.State.Versions
         
 
         -- elm-dev

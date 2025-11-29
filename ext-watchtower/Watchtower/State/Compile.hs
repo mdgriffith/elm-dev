@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.State.Compile (compile, compileRelevantProjects) where
+module Watchtower.State.Compile (compile, compileRelevantProjects, updateVfsFromFs) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -19,13 +19,16 @@ import qualified Gen.Generate
 import Json.Encode ((==>))
 import qualified Json.Encode as Json
 import qualified Reporting.Exit as Exit
-import qualified System.Directory as Dir (withCurrentDirectory)
+import qualified System.Directory as Dir (withCurrentDirectory, doesFileExist, getDirectoryContents, doesDirectoryExist)
 import qualified Watchtower.Live.Client as Client
 import qualified Reporting.Warning as Warning
 import qualified Watchtower.Server.DevWS as DevWS
 import qualified Ext.Test.Compile as TestCompile
 import qualified Ext.Log
 import qualified System.FilePath as FP
+import qualified Ext.FileCache
+import qualified Watchtower.State.Versions as Versions
+import qualified Control.Monad as Monad
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
 
@@ -112,6 +115,42 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequest
                   cur
           STM.writeTVar mWorkspaceDiagsRequested updated
         pure $ Left clientErr
+
+-- | Recursively gather Elm source files under a directory.
+listElmFilesRecursive :: FilePath -> IO [FilePath]
+listElmFilesRecursive dir = do
+  isDir <- Dir.doesDirectoryExist dir
+  if not isDir
+    then pure []
+    else do
+      contents <- Dir.getDirectoryContents dir
+      let paths = map (dir FP.</>) (filter (\p -> p /= "." && p /= "..") contents)
+      files <- Monad.filterM Dir.doesFileExist paths
+      dirs <- Monad.filterM Dir.doesDirectoryExist paths
+      let elmFiles = filter (\p -> FP.takeExtension p == ".elm") files
+      nested <- Monad.mapM listElmFilesRecursive dirs
+      pure (elmFiles ++ List.concat nested)
+
+-- | Update the virtual file system cache from the real filesystem for a project.
+--   This is very lightweight: it enumerates Elm source files under srcDirs plus key config files,
+--   and upserts any changed files into Ext.FileCache. Returns True if any files changed.
+updateVfsFromFs :: Ext.Dev.Project.Project -> IO Bool
+updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
+  elmFilesNested <- Monad.mapM listElmFilesRecursive srcDirs
+  let elmFiles = List.concat elmFilesNested
+  let configFiles =
+        [ projectRoot FP.</> "elm.json"
+        , projectRoot FP.</> "elm.dev.json"
+        ]
+  existingConfigs <- Monad.filterM Dir.doesFileExist configFiles
+  let files = elmFiles ++ existingConfigs
+  changed <- Ext.FileCache.handleIfChanged files (\changedPaths -> pure changedPaths)
+  case changed of
+    [] -> pure False
+    _  -> do
+      -- bump filesystem version when anything changed
+      _ <- Versions.bumpFsVersion projectRoot
+      pure True
 
 
 -- | Compile any projects that are relevant to the given file paths.

@@ -67,6 +67,7 @@ import qualified Data.Text as T
 import qualified Watchtower.Server.MCP.Guides as Guides
 import qualified Watchtower.State.Compile
 import qualified Watchtower.State.Discover
+import qualified Watchtower.State.Versions as Versions
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.LSP.Helpers as Helpers
 import qualified Watchtower.Server.DevWS
@@ -407,7 +408,15 @@ toolCompile = MCP.Tool
       case selection of
         Left msg -> pure (errTxt msg)
         Right projCache -> do
+          -- Ensure VFS is updated from disk and bump fs version if needed
+          let (Client.ProjectCache proj _ _ _ _) = projCache
+          _ <- Watchtower.State.Compile.updateVfsFromFs proj
+          -- Perform compile
           compileResult <- Watchtower.State.Compile.compile state projCache []
+          -- Mark compiled version = current fs version snapshot, regardless of success or error
+          let projectRoot = Ext.Dev.Project.getRoot proj
+          cur <- Versions.readVersions projectRoot
+          Versions.setCompileVersionTo projectRoot (Versions.fsVersion cur)
           case compileResult of
             Left clientErr -> do
               -- Render errors as terminal-style text, like `elm make`
@@ -845,8 +854,14 @@ resourceOverview =
                   body = Text.intercalate "\n" frontmatter
               pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
             Right pc@(Client.ProjectCache proj _ _ mCompileResult mTest) -> do
-              -- ensure we have an up-to-date compile result
-              _ <- Watchtower.State.Compile.compile state pc []
+              -- For MCP: ensure VFS is fresh, then compile only if versions indicate staleness
+              _ <- Watchtower.State.Compile.updateVfsFromFs proj
+              let projectRoot = Ext.Dev.Project.getRoot proj
+              vers <- Versions.readVersions projectRoot
+              when (Versions.compileVersion vers < Versions.fsVersion vers) $ do
+                _ <- Watchtower.State.Compile.compile state pc []
+                cur <- Versions.readVersions projectRoot
+                Versions.setCompileVersionTo projectRoot (Versions.fsVersion cur)
               currentResult <- Control.Concurrent.STM.readTVarIO mCompileResult
 
               -- Determine compilation status text (for YAML)
