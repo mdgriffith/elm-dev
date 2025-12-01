@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.State.Compile (compile, compileRelevantProjects, updateVfsFromFs) where
+module Watchtower.State.Compile (compile, compileRelevantProjects, updateVfsFromFs, compileTests) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -29,6 +29,7 @@ import qualified System.FilePath as FP
 import qualified Ext.FileCache
 import qualified Watchtower.State.Versions as Versions
 import qualified Control.Monad as Monad
+import qualified Ext.Test.Discover
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
 
@@ -138,12 +139,14 @@ updateVfsFromFs :: Ext.Dev.Project.Project -> IO Bool
 updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
   elmFilesNested <- Monad.mapM listElmFilesRecursive srcDirs
   let elmFiles = List.concat elmFilesNested
+  -- Include test files under projectRoot/tests as part of VFS verification
+  testFiles <- Ext.Test.Discover.discoverTestFiles projectRoot
   let configFiles =
         [ projectRoot FP.</> "elm.json"
         , projectRoot FP.</> "elm.dev.json"
         ]
   existingConfigs <- Monad.filterM Dir.doesFileExist configFiles
-  let files = elmFiles ++ existingConfigs
+  let files = elmFiles ++ testFiles ++ existingConfigs
   changed <- Ext.FileCache.handleIfChanged files (\changedPaths -> pure changedPaths)
   case changed of
     [] -> pure False

@@ -416,6 +416,8 @@ toolCompile = MCP.Tool
           _ <- Watchtower.State.Compile.updateVfsFromFs proj
           -- Perform compile
           compileResult <- Watchtower.State.Compile.compile state projCache []
+          -- Also compile tests regardless of main compile result
+          _ <- Watchtower.State.Compile.compileTests state projCache
           -- Mark compiled version = current fs version snapshot, regardless of success or error
           let projectRoot = Ext.Dev.Project.getRoot proj
           cur <- Versions.readVersions projectRoot
@@ -672,6 +674,8 @@ toolTestRun = MCP.Tool
         Left msg -> pure (errTxt msg)
         Right (Client.ProjectCache proj _ _ _ _) -> do
           let dir = Ext.Dev.Project.getRoot proj
+          -- Ensure VFS is updated from disk so tests see latest changes
+          _ <- Watchtower.State.Compile.updateVfsFromFs proj
           let mTimeoutSeconds =
                 case KeyMap.lookup "timeoutSeconds" args of
                   Just (JSON.Number n) -> (Scientific.toBoundedInteger n :: Maybe Int)
