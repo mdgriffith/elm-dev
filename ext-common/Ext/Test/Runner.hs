@@ -1,6 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Ext.Test.Runner
   ( RunError(..)
+  , TestSummary(..)
+  , TestInfo(..)
+  , RunSuccess(..)
   , run
   ) where
 
@@ -31,6 +34,7 @@ import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified System.CPUTime as CPUTime
 import qualified Ext.Test.Result
 import qualified System.Timeout as Timeout
+-- NOTE: Keep this module independent of Watchtower to avoid cycles.
 
 
 -- | Failure cases for running tests
@@ -38,17 +42,62 @@ data RunError
   = RunFailed String
   | TimedOut Int -- ^ seconds waited
 
+data TestSummary = TestSummary
+  { summaryTotal :: Int
+  , summaryPassed :: Int
+  , summaryFailed :: Int
+  , summaryFailures :: [String]
+  }
+
+data TestInfo = TestInfo
+  { tiSuites :: [(ModuleName.Raw, Name.Name)]
+  , tiFiles :: [FilePath]
+  , tiSummary :: TestSummary
+  }
+
+data RunSuccess = RunSuccess
+  { info :: TestInfo
+  , reports :: [Ext.Test.Result.Report]
+  }
+
 -- | Run tests. If a timeout (in seconds) is provided, enforce it; otherwise run without a timeout.
-run :: Maybe Int -> FilePath -> IO (Either RunError [Ext.Test.Result.Report])
+run :: Maybe Int -> FilePath -> IO (Either RunError RunSuccess)
 run mSeconds root = do
   case mSeconds of
     Nothing -> do
       r <- runNode root
       case r of
         Left e -> pure (Left (RunFailed e))
-        Right s -> case Ext.Test.Result.decodeReportsString s of
-          Left e -> pure (Left (RunFailed e))
-          Right reports -> pure (Right reports)
+        Right (out, tests, testFiles) ->
+          case Ext.Test.Result.decodeReportsString out of
+            Left e -> pure (Left (RunFailed e))
+            Right reports -> do
+              let allResults = concatMap (concatMap Ext.Test.Result.testRunResult . Ext.Test.Result.reportRuns) reports
+              let total = length allResults
+              let passed = length [ () | res <- allResults, case res of { Ext.Test.Result.Passed -> True; _ -> False } ]
+              let failed = length [ () | res <- allResults, case res of { Ext.Test.Result.Failed{} -> True; _ -> False } ]
+              let failures' =
+                    concatMap
+                      (\rep ->
+                         concatMap
+                           (\run ->
+                              let labelPath = List.intercalate " › " (Ext.Test.Result.testRunLabel run)
+                              in [ labelPath ++ " - " ++ msg
+                                 | res <- Ext.Test.Result.testRunResult run
+                                 , case res of { Ext.Test.Result.Failed{} -> True; _ -> False }
+                                 , let msg = case res of { Ext.Test.Result.Failed{ Ext.Test.Result.failureMessage = m } -> m; _ -> "" }
+                                 ]
+                           )
+                           (Ext.Test.Result.reportRuns rep)
+                      )
+                      reports
+              let summary = TestSummary total passed failed failures'
+              let info = TestInfo
+                           { tiSuites = tests
+                           , tiFiles = testFiles
+                           , tiSummary = summary
+                           }
+              pure (Right (RunSuccess info reports))
     Just seconds -> do
       timed <- Timeout.timeout (seconds * 1000000) (runNode root)
       case timed of
@@ -56,14 +105,41 @@ run mSeconds root = do
           pure (Left (TimedOut seconds))
         Just (Left e) ->
           pure (Left (RunFailed e))
-        Just (Right s) ->
-          case Ext.Test.Result.decodeReportsString s of
+        Just (Right (out, tests, testFiles)) ->
+          case Ext.Test.Result.decodeReportsString out of
             Left e -> pure (Left (RunFailed e))
-            Right reports -> pure (Right reports)
+            Right reports -> do
+              let allResults = concatMap (concatMap Ext.Test.Result.testRunResult . Ext.Test.Result.reportRuns) reports
+              let total = length allResults
+              let passed = length [ () | res <- allResults, case res of { Ext.Test.Result.Passed -> True; _ -> False } ]
+              let failed = length [ () | res <- allResults, case res of { Ext.Test.Result.Failed{} -> True; _ -> False } ]
+              let failures =
+                    concatMap
+                      (\rep ->
+                         concatMap
+                           (\run ->
+                              let labelPath = List.intercalate " › " (Ext.Test.Result.testRunLabel run)
+                              in [ labelPath ++ " - " ++ msg
+                                 | res <- Ext.Test.Result.testRunResult run
+                                 , case res of { Ext.Test.Result.Failed{} -> True; _ -> False }
+                                 , let msg = case res of { Ext.Test.Result.Failed{ Ext.Test.Result.failureMessage = m } -> m; _ -> "" }
+                                 ]
+                           )
+                           (Ext.Test.Result.reportRuns rep)
+                      )
+                      reports
+              let summary = TestSummary total passed failed failures
+              let info = TestInfo
+                           { tiSuites = tests
+                           , tiFiles = testFiles
+                           , tiSummary = summary
+                           }
+              pure (Right (RunSuccess info reports))
 
 
--- | Orchestrates discovery, aggregator generation, compilation. Returns JSON test result as a String.
-runNode :: FilePath -> IO (Either String String)
+-- | Orchestrates discovery, aggregator generation, compilation.
+-- Returns (JSON test result string, discovered tests, discovered test files).
+runNode :: FilePath -> IO (Either String (String, [(ModuleName.Raw, Name.Name)], [FilePath]))
 runNode root = do
   BackgroundWriter.withScope $ \scope -> do
     Ext.CompileMode.setModeMemory
@@ -101,7 +177,7 @@ runNode root = do
                 execResult <- Javascript.run (UTF8.fromString finalJsStr) (UTF8.fromString inputJson)
                 case execResult of
                   Left e -> pure (Left e)
-                  Right out -> pure (Right out)
+                  Right out -> pure (Right (out, tests, testFiles))
 
 
 

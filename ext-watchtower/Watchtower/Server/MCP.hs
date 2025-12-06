@@ -662,7 +662,7 @@ toolTestRun = MCP.Tool
         , "properties" .= JSON.object
             [ "timeoutSeconds" .= JSON.object
                 [ "type" .= ("integer" :: Text)
-                , "description" .= ("Optional max seconds to wait for tests (default 10)" :: Text)
+                , "description" .= ("Optional max seconds to wait for tests (default 10s)" :: Text)
                 ]
             ]
         , "required" .= ([] :: [Text])
@@ -672,7 +672,7 @@ toolTestRun = MCP.Tool
       selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
       case selection of
         Left msg -> pure (errTxt msg)
-        Right (Client.ProjectCache proj _ _ _ _) -> do
+        Right (Client.ProjectCache proj _ _ _ mTestVar) -> do
           let dir = Ext.Dev.Project.getRoot proj
           -- Ensure VFS is updated from disk so tests see latest changes
           _ <- Watchtower.State.Compile.updateVfsFromFs proj
@@ -689,10 +689,25 @@ toolTestRun = MCP.Tool
                 pure (errTxt (Text.pack ("Timed out running tests after " ++ show waited ++ "s")))
               TestRunner.RunFailed msg ->
                 pure (errTxt (Text.pack msg))
-            Right reports -> do
+            Right (TestRunner.RunSuccess info reports) -> do
               endPs <- CPUTime.getCPUTime
               let durationMs :: Int
                   durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
+              -- Persist provided TestInfo from runner
+              let summary = case info of
+                               _ -> let s = TestRunner.tiSummary info in s
+                  total = TestRunner.summaryTotal summary
+                  passed = TestRunner.summaryPassed summary
+                  failed = TestRunner.summaryFailed summary
+                  failures = TestRunner.summaryFailures summary
+                  tr = Client.TestResults total passed failed failures
+                  clientInfo = Client.TestInfo
+                                 { Client.testSuites = TestRunner.tiSuites info
+                                 , Client.testFiles = TestRunner.tiFiles info
+                                 , Client.testResults = Just tr
+                                 , Client.testCompilation = Just Client.TestSuccess
+                                 }
+              Control.Concurrent.STM.atomically $ Control.Concurrent.STM.writeTVar mTestVar (Just clientInfo)
               let rendered = TestReport.renderReportsWithDuration False (Just durationMs) reports
               pure (ok (Text.pack rendered))
   }
@@ -804,7 +819,6 @@ availableResources =
   , resourcePackageDocs
   , resourceModuleDocs
   , resourceValueDocs
-  , resourceTestStatus
   ]
 
 -- Toplevel resource values with inline readers
@@ -1300,47 +1314,6 @@ resourceValueDocs =
               pure (MCP.ReadResourceResponse [ MCP.markdown req msg ])
       }
 
-resourceTestStatus :: MCP.Resource
-resourceTestStatus =
-  let pat = Uri.pattern "elm" [Uri.s "tests/status"] []
-  in MCP.Resource
-      { MCP.resourceUri = pat
-      , MCP.resourceName = "Test Status"
-      , MCP.resourceDescription = Just "Status of tests for the current project (elm://tests/status)"
-      , MCP.resourceMimeType = Just "application/json"
-      , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.Low Nothing)
-      , MCP.read = \req state _emit connId -> do
-          case Uri.match pat (MCP.readResourceUri req) of
-            Just (Uri.PatternMatch _pathVals _queryParams) -> do
-              projectFound <- ProjectLookup.resolveProjectFromSession Nothing connId state
-              case projectFound of
-                Left msg -> do
-                  let val = JSON.object [ "error" .= msg ]
-                  pure (MCP.ReadResourceResponse [ MCP.json req val ])
-                Right (Client.ProjectCache proj _ _ _ mTest) -> do
-                  m <- Control.Concurrent.STM.readTVarIO mTest
-                  case m >>= Client.testResults of
-                    Nothing -> do
-                      let val = JSON.object
-                                [ "error" .= ("no test results" :: Text)
-                                , "hint" .= ("Run the test_run tool" :: Text)
-                                ]
-                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
-                    Just (Client.TestResults total passed failed failures) -> do
-                      let val = JSON.object
-                                [ "kind"   .= ("tests" :: Text)
-                                , "projectId" .= Ext.Dev.Project._shortId proj
-                                , "root"   .= Ext.Dev.Project.getRoot proj
-                                , "total"  .= total
-                                , "passed" .= passed
-                                , "failed" .= failed
-                                , "failures" .= failures
-                                ]
-                      pure (MCP.ReadResourceResponse [ MCP.json req val ])
-            Nothing -> do
-              let val = JSON.object [ "error" .= ("bad uri" :: Text) ]
-              pure (MCP.ReadResourceResponse [ MCP.json req val ])
-      }
 
 -- List known projects as a markdown resource with embedded YAML
 resourceProjectList :: MCP.Resource

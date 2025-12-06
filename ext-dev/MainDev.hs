@@ -544,7 +544,7 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
               endPs <- CPUTime.getCPUTime
               let durationMs :: Int
                   durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
-              putStrLn (Ext.Test.Result.Report.renderReportsWithDuration True (Just durationMs) runResults)
+              putStrLn (Ext.Test.Result.Report.renderReportsWithDuration True (Just durationMs) (Ext.Test.Runner.reports runResults))
 
 
 -- elm-dev test init
