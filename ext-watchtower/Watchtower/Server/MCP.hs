@@ -664,6 +664,16 @@ toolTestRun = MCP.Tool
                 [ "type" .= ("integer" :: Text)
                 , "description" .= ("Optional max seconds to wait for tests (default 10s)" :: Text)
                 ]
+            , "glob" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description"
+                    .= ( "Optional glob to filter which tests run. "
+                       <> "Matches against fully-qualified test IDs like \"Module.value\". "
+                       <> "Supports '*' (zero or more chars) and '?' (exactly one char). "
+                       <> "Examples: \"My.Module.*\", \"Tests.*.foo\", \"*Bar\"."
+                       :: Text
+                       )
+                ]
             ]
         , "required" .= ([] :: [Text])
         ]
@@ -680,9 +690,14 @@ toolTestRun = MCP.Tool
                 case KeyMap.lookup "timeoutSeconds" args of
                   Just (JSON.Number n) -> (Scientific.toBoundedInteger n :: Maybe Int)
                   _ -> Nothing
+          let mGlobString =
+                case KeyMap.lookup "glob" args of
+                  Just (JSON.String t) -> Just (Text.unpack t)
+                  _ -> Nothing
+          let mGlobs = fmap (\g -> [g]) mGlobString
           let timeoutSeconds = maybe 10 id mTimeoutSeconds
           startPs <- CPUTime.getCPUTime
-          result <- TestRunner.run (Just timeoutSeconds) dir
+          result <- TestRunner.run (Just timeoutSeconds) mGlobs dir
           case result of
             Left e -> case e of
               TestRunner.TimedOut waited ->

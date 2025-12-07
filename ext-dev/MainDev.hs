@@ -535,7 +535,7 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
         Nothing -> IO.hPutStrLn IO.stderr "Could not find project root"
         Just root -> do
           startPs <- CPUTime.getCPUTime
-          result <- Ext.Test.Runner.run Nothing root
+          result <- Ext.Test.Runner.run Nothing Nothing root
           case result of
             Left e -> case e of
               Ext.Test.Runner.TimedOut waited -> IO.hPutStrLn IO.stderr ("Timed out running tests after " <> show waited <> "s")

@@ -4,6 +4,7 @@ module Ext.Test.Runner
   , TestSummary(..)
   , TestInfo(..)
   , RunSuccess(..)
+  , matchesAnyGlob
   , run
   ) where
 
@@ -61,11 +62,13 @@ data RunSuccess = RunSuccess
   }
 
 -- | Run tests. If a timeout (in seconds) is provided, enforce it; otherwise run without a timeout.
-run :: Maybe Int -> FilePath -> IO (Either RunError RunSuccess)
-run mSeconds root = do
+-- Optionally filter which tests run using glob patterns matched against
+-- fully-qualified test IDs like \"Module.Submodule.testName\".
+run :: Maybe Int -> Maybe [String] -> FilePath -> IO (Either RunError RunSuccess)
+run mSeconds mGlobs root = do
   case mSeconds of
     Nothing -> do
-      r <- runNode root
+      r <- runNode mGlobs root
       case r of
         Left e -> pure (Left (RunFailed e))
         Right (out, tests, testFiles) ->
@@ -99,7 +102,7 @@ run mSeconds root = do
                            }
               pure (Right (RunSuccess info reports))
     Just seconds -> do
-      timed <- Timeout.timeout (seconds * 1000000) (runNode root)
+      timed <- Timeout.timeout (seconds * 1000000) (runNode mGlobs root)
       case timed of
         Nothing ->
           pure (Left (TimedOut seconds))
@@ -137,10 +140,9 @@ run mSeconds root = do
               pure (Right (RunSuccess info reports))
 
 
--- | Orchestrates discovery, aggregator generation, compilation.
 -- Returns (JSON test result string, discovered tests, discovered test files).
-runNode :: FilePath -> IO (Either String (String, [(ModuleName.Raw, Name.Name)], [FilePath]))
-runNode root = do
+runNode :: Maybe [String] -> FilePath -> IO (Either String (String, [(ModuleName.Raw, Name.Name)], [FilePath]))
+runNode mGlobs root = do
   BackgroundWriter.withScope $ \scope -> do
     Ext.CompileMode.setModeMemory
     testFiles <- Discover.discoverTestFiles root
@@ -151,7 +153,12 @@ runNode root = do
         case discoveryR of
           Left err -> pure (Left (Exit.toString (Exit.reactorToReport err)))
           Right ifaces -> do
-            tests <- Introspect.findTests ifaces
+            testsAll <- Introspect.findTests ifaces
+            let toId (modName, valName) = ModuleName.toChars modName ++ "." ++ Name.toChars valName
+            let tests =
+                  case mGlobs of
+                    Nothing -> testsAll
+                    Just globs -> filter (\t -> matchesAnyGlob globs (toId t)) testsAll
             _ <- Generate.writeAggregator root tests
             let genDir = Generate.generatedDir root
             Dir.createDirectoryIfMissing True genDir
@@ -162,7 +169,7 @@ runNode root = do
               Left err -> pure (Left (Exit.toString (Exit.reactorToReport err)))
               Right compiled -> do
                 -- Build list of test IDs
-                let testIds = fmap (\(modName, valName) -> ModuleName.toChars modName ++ "." ++ Name.toChars valName) tests
+                let testIds = fmap toId tests
                 -- Extract JS bytes from compilation result
                 compiledJs <- case compiled of
                   CompileHelpers.CompiledJs builder -> pure (BL.toStrict (BB.toLazyByteString builder))
@@ -179,6 +186,39 @@ runNode root = do
                   Left e -> pure (Left e)
                   Right out -> pure (Right (out, tests, testFiles))
 
+-- | Check whether a target string matches any of the provided glob patterns.
+--
+-- Patterns support:
+--   - '*' matching zero or more characters
+--   - '?' matching exactly one character
+--
+-- Examples:
+--
+-- >>> matchesAnyGlob [\"My.Module.*\"] \"My.Module.tests\"
+-- True
+--
+-- >>> matchesAnyGlob [\"My.Module.*\"] \"Other.Module.tests\"
+-- False
+--
+-- >>> matchesAnyGlob [\"Tests.*.foo\", \"*Bar\"] \"Tests.One.foo\"
+-- True
+--
+-- >>> matchesAnyGlob [\"*\"] \"Anything.Goes\"
+-- True
+--
+-- >>> matchesAnyGlob [] \"Anything.Goes\"
+-- False
+matchesAnyGlob :: [String] -> String -> Bool
+matchesAnyGlob globs target = any (\g -> globMatch g target) globs
+
+-- Internal: glob matching for '*' and '?'
+globMatch :: String -> String -> Bool
+globMatch [] [] = True
+globMatch [] (_:_) = False
+globMatch ('*':ps) s = globMatch ps s || (not (null s) && globMatch ('*':ps) (tail s))
+globMatch ('?':ps) (_:s) = globMatch ps s
+globMatch (p:ps) (c:cs) = p == c && globMatch ps cs
+globMatch _ _ = False
 
 
 -- | Replace first occurrence of a substring with a replacement
