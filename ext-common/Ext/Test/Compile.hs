@@ -38,7 +38,7 @@ generateTestJsonIfNone root = do
   let testRoot = Generate.generatedDir root
   Dir.createDirectoryIfMissing True testRoot
   let testElmJsonPath = testRoot </> "elm.json"
-  exists <- File.exists testElmJsonPath
+  exists <- Dir.doesFileExist testElmJsonPath
   if exists
     then pure (Right ())
     else regenerateTestElmJson root
