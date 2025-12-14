@@ -151,6 +151,8 @@ updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
   case changed of
     [] -> pure False
     _  -> do
+      -- Log each changed file
+      Monad.mapM_ (\path -> Ext.Log.log Ext.Log.FileWatch ("File updated: " ++ path)) changed
       -- bump filesystem version when anything changed
       _ <- Versions.bumpFsVersion projectRoot
       pure True

@@ -18,8 +18,6 @@ type ValueName = Name.Name
 
 findTests :: Map.Map ModuleName I.Interface -> IO [(ModuleName, ValueName)]
 findTests ifaceByModule = do
-  -- Map.foldrWithKey collect [] ifaceByModule
-  Ext.Log.log Ext.Log.Test ("Found " <> show ifaceByModule)
   pure (Map.foldrWithKey collect [] ifaceByModule)
   where
     collect modName iface acc =

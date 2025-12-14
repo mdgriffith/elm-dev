@@ -128,7 +128,6 @@ run root = do
         else do
           return $ Right ()
     ConfigNotFound -> do
-      putStrLn "elm.dev.json not found, skipping generation"
       return (Right ())
     ConfigParseError err -> do
       putStrLn err
