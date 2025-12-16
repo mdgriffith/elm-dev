@@ -731,7 +731,11 @@ interactiveOutput _liveState cwd filepath = do
       let docsProject = Json.Encode.object [("project", docsJson), ("viewers", Json.Encode.array [])]
       let flags = Json.Encode.object [("flags", docsProject)]
       let input = LBS.toStrict (Builder.toLazyByteString (Json.Encode.encodeUgly flags))
-      Gen.Javascript.run Gen.Javascript.interactiveJs input
+      result <- Gen.Javascript.run Gen.Javascript.interactiveJs input
+      case result of
+        Left Gen.Javascript.ThreadKilled -> pure (Left "Evaluation timed out")
+        Left (Gen.Javascript.Other msg) -> pure (Left msg)
+        Right output -> pure (Right output)
 
 -- Return docs.json content (as Aeson Value) for a single module/file
 moduleDocs :: Live.State -> FilePath -> FilePath -> IO JSON.Value

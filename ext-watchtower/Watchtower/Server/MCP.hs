@@ -45,6 +45,7 @@ import qualified Ext.Test.Install as TestInstall
 import qualified Ext.Test.Result.Report as TestReport
 import qualified System.CPUTime as CPUTime
 import qualified Ext.Test.Runner as TestRunner
+import qualified Gen.Javascript
 import qualified Ext.Reporting.Error
 import qualified Gen.Commands.Init as GenInit
 import qualified Gen.Config as Config
@@ -73,6 +74,7 @@ import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.LSP.Helpers as Helpers
 import qualified Watchtower.Server.DevWS
 import qualified Ext.Encode
+import qualified Ext.Log
 import qualified Elm.Details
 import qualified Elm.ModuleName as ModuleName
 import qualified Reporting.Exit as Exit
@@ -684,8 +686,7 @@ toolTestRun = MCP.Tool
         Left msg -> pure (errTxt msg)
         Right (Client.ProjectCache proj _ _ _ mTestVar) -> do
           let dir = Ext.Dev.Project.getRoot proj
-          -- Ensure VFS is updated from disk so tests see latest changes
-          _ <- Watchtower.State.Compile.updateVfsFromFs proj
+          Ext.Log.log Ext.Log.Test ("Running tests in project: " ++ dir)
           let mTimeoutSeconds =
                 case KeyMap.lookup "timeoutSeconds" args of
                   Just (JSON.Number n) -> (Scientific.toBoundedInteger n :: Maybe Int)
@@ -700,17 +701,18 @@ toolTestRun = MCP.Tool
           result <- TestRunner.run (Just timeoutSeconds) mGlobs dir
           case result of
             Left e -> case e of
-              TestRunner.TimedOut waited ->
-                pure (errTxt (Text.pack ("Timed out running tests after " ++ show waited ++ "s")))
+              TestRunner.TimedOut _ -> do
+                let timeoutMs = timeoutSeconds * 1000
+                pure (errTxt (Text.pack ("Tests timed out after " ++ show timeoutMs ++ "ms")))
               TestRunner.RunFailed msg ->
                 pure (errTxt (Text.pack msg))
             Right (TestRunner.RunSuccess info reports) -> do
               endPs <- CPUTime.getCPUTime
               let durationMs :: Int
                   durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
-              -- Persist provided TestInfo from runner
-              let summary = case info of
-                               _ -> let s = TestRunner.tiSummary info in s
+              let rendered = TestReport.renderReportsWithDuration False (Just durationMs) reports
+              -- Update test var with info from the test run
+              let summary = TestRunner.tiSummary info
                   total = TestRunner.summaryTotal summary
                   passed = TestRunner.summaryPassed summary
                   failed = TestRunner.summaryFailed summary
@@ -723,7 +725,7 @@ toolTestRun = MCP.Tool
                                  , Client.testCompilation = Just Client.TestSuccess
                                  }
               Control.Concurrent.STM.atomically $ Control.Concurrent.STM.writeTVar mTestVar (Just clientInfo)
-              let rendered = TestReport.renderReportsWithDuration False (Just durationMs) reports
+              Ext.Log.log Ext.Log.Test rendered
               pure (ok (Text.pack rendered))
   }
 

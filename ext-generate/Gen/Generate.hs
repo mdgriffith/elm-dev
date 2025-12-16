@@ -146,7 +146,8 @@ generate runConfig = do
 
   result <- Javascript.run Javascript.generatorJs (BS.toStrict (Aeson.encodePretty jsInput))
   case result of
-    Left err -> return $ Left err
+    Left Javascript.ThreadKilled -> return $ Left "Generation timed out"
+    Left (Javascript.Other msg)  -> return $ Left msg
     Right output -> do
       case eitherDecodeStrict (Text.encodeUtf8 (Text.pack output)) of
         Left err -> return $ Left err

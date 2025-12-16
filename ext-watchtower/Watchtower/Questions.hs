@@ -392,7 +392,10 @@ ask state question =
           putStrLn "Running Interactive "
           result <- Gen.Javascript.run Gen.Javascript.interactiveJs (BS.toStrict (Data.ByteString.Builder.toLazyByteString (Json.Encode.encodeUgly flags)))
           case result of
-            Left err -> pure (Json.Encode.encodeUgly (Json.Encode.chars err))
+            Left Gen.Javascript.ThreadKilled ->
+              pure (Json.Encode.encodeUgly (Json.Encode.chars "Evaluation timed out"))
+            Left (Gen.Javascript.Other msg) ->
+              pure (Json.Encode.encodeUgly (Json.Encode.chars msg))
             Right output -> do
               case Data.Aeson.eitherDecodeStrict (Data.Text.Encoding.encodeUtf8 (Data.Text.pack output)) of
                 Left err -> pure (Json.Encode.encodeUgly (Json.Encode.chars err))

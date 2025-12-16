@@ -70,7 +70,9 @@ run mSeconds mGlobs root = do
     Nothing -> do
       r <- runNode mGlobs root
       case r of
-        Left e -> pure (Left (RunFailed e))
+        Left e -> case e of
+          Javascript.ThreadKilled -> pure (Left (TimedOut 0)) -- No timeout specified, but thread was killed
+          Javascript.Other msg -> pure (Left (RunFailed msg))
         Right (out, tests, testFiles) ->
           case Ext.Test.Result.decodeReportsString out of
             Left e -> pure (Left (RunFailed e))
@@ -79,35 +81,42 @@ run mSeconds mGlobs root = do
               let total = length allResults
               let passed = length [ () | res <- allResults, case res of { Ext.Test.Result.Passed -> True; _ -> False } ]
               let failed = length [ () | res <- allResults, case res of { Ext.Test.Result.Failed{} -> True; _ -> False } ]
-              let failures' =
-                    concatMap
-                      (\rep ->
-                         concatMap
-                           (\run ->
-                              let labelPath = List.intercalate " › " (Ext.Test.Result.testRunLabel run)
-                              in [ labelPath ++ " - " ++ msg
-                                 | res <- Ext.Test.Result.testRunResult run
-                                 , case res of { Ext.Test.Result.Failed{} -> True; _ -> False }
-                                 , let msg = case res of { Ext.Test.Result.Failed{ Ext.Test.Result.failureMessage = m } -> m; _ -> "" }
-                                 ]
-                           )
-                           (Ext.Test.Result.reportRuns rep)
-                      )
-                      reports
-              let summary = TestSummary total passed failed failures'
-              let info = TestInfo
-                           { tiSuites = tests
-                           , tiFiles = testFiles
-                           , tiSummary = summary
-                           }
-              pure (Right (RunSuccess info reports))
+              -- Check for empty test results
+              if total == 0 && not (null tests)
+                then pure (Left (RunFailed "No test results returned (tests may have timed out or failed to execute)"))
+                else do
+                  let failures' =
+                        concatMap
+                          (\rep ->
+                             concatMap
+                               (\run ->
+                                  let labelPath = List.intercalate " › " (Ext.Test.Result.testRunLabel run)
+                                  in [ labelPath ++ " - " ++ msg
+                                     | res <- Ext.Test.Result.testRunResult run
+                                     , case res of { Ext.Test.Result.Failed{} -> True; _ -> False }
+                                     , let msg = case res of { Ext.Test.Result.Failed{ Ext.Test.Result.failureMessage = m } -> m; _ -> "" }
+                                     ]
+                               )
+                               (Ext.Test.Result.reportRuns rep)
+                          )
+                          reports
+                  let summary = TestSummary total passed failed failures'
+                  let info = TestInfo
+                               { tiSuites = tests
+                               , tiFiles = testFiles
+                               , tiSummary = summary
+                               }
+                  pure (Right (RunSuccess info reports))
     Just seconds -> do
       timed <- Timeout.timeout (seconds * 1000000) (runNode mGlobs root)
       case timed of
         Nothing ->
           pure (Left (TimedOut seconds))
-        Just (Left e) ->
-          pure (Left (RunFailed e))
+        Just (Left e) -> case e of
+          Javascript.ThreadKilled ->
+            pure (Left (TimedOut seconds))
+          Javascript.Other msg ->
+            pure (Left (RunFailed msg))
         Just (Right (out, tests, testFiles)) ->
           case Ext.Test.Result.decodeReportsString out of
             Left e -> pure (Left (RunFailed e))
@@ -116,42 +125,46 @@ run mSeconds mGlobs root = do
               let total = length allResults
               let passed = length [ () | res <- allResults, case res of { Ext.Test.Result.Passed -> True; _ -> False } ]
               let failed = length [ () | res <- allResults, case res of { Ext.Test.Result.Failed{} -> True; _ -> False } ]
-              let failures =
-                    concatMap
-                      (\rep ->
-                         concatMap
-                           (\run ->
-                              let labelPath = List.intercalate " › " (Ext.Test.Result.testRunLabel run)
-                              in [ labelPath ++ " - " ++ msg
-                                 | res <- Ext.Test.Result.testRunResult run
-                                 , case res of { Ext.Test.Result.Failed{} -> True; _ -> False }
-                                 , let msg = case res of { Ext.Test.Result.Failed{ Ext.Test.Result.failureMessage = m } -> m; _ -> "" }
-                                 ]
-                           )
-                           (Ext.Test.Result.reportRuns rep)
-                      )
-                      reports
-              let summary = TestSummary total passed failed failures
-              let info = TestInfo
-                           { tiSuites = tests
-                           , tiFiles = testFiles
-                           , tiSummary = summary
-                           }
-              pure (Right (RunSuccess info reports))
+              -- Check for empty test results
+              if total == 0 && not (null tests)
+                then pure (Left (RunFailed "No test results returned (tests may have timed out or failed to execute)"))
+                else do
+                  let failures =
+                        concatMap
+                          (\rep ->
+                             concatMap
+                               (\run ->
+                                  let labelPath = List.intercalate " › " (Ext.Test.Result.testRunLabel run)
+                                  in [ labelPath ++ " - " ++ msg
+                                     | res <- Ext.Test.Result.testRunResult run
+                                     , case res of { Ext.Test.Result.Failed{} -> True; _ -> False }
+                                     , let msg = case res of { Ext.Test.Result.Failed{ Ext.Test.Result.failureMessage = m } -> m; _ -> "" }
+                                     ]
+                               )
+                               (Ext.Test.Result.reportRuns rep)
+                          )
+                          reports
+                  let summary = TestSummary total passed failed failures
+                  let info = TestInfo
+                               { tiSuites = tests
+                               , tiFiles = testFiles
+                               , tiSummary = summary
+                               }
+                  pure (Right (RunSuccess info reports))
 
 
 -- Returns (JSON test result string, discovered tests, discovered test files).
-runNode :: Maybe [String] -> FilePath -> IO (Either String (String, [(ModuleName.Raw, Name.Name)], [FilePath]))
+runNode :: Maybe [String] -> FilePath -> IO (Either Javascript.RunError (String, [(ModuleName.Raw, Name.Name)], [FilePath]))
 runNode mGlobs root = do
   BackgroundWriter.withScope $ \scope -> do
     Ext.CompileMode.setModeMemory
     testFiles <- Discover.discoverTestFiles root
     case testFiles of
-      [] -> pure (Left $ "No .elm files found in " ++ (root FP.</> "tests"))
+      [] -> pure (Left $ Javascript.Other $ "No .elm files found in " ++ (root FP.</> "tests"))
       (top:rest) -> do
         discoveryR <- TestCompile.compileForDiscovery root (NE.List top rest)
         case discoveryR of
-          Left err -> pure (Left (Exit.toString (Exit.reactorToReport err)))
+          Left err -> pure (Left (Javascript.Other (Exit.toString (Exit.reactorToReport err))))
           Right ifaces -> do
             testsAll <- Introspect.findTests ifaces
             let toId (modName, valName) = ModuleName.toChars modName ++ "." ++ Name.toChars valName
@@ -159,32 +172,43 @@ runNode mGlobs root = do
                   case mGlobs of
                     Nothing -> testsAll
                     Just globs -> filter (\t -> matchesAnyGlob globs (toId t)) testsAll
-            _ <- Generate.writeAggregator root tests
-            let genDir = Generate.generatedDir root
-            Dir.createDirectoryIfMissing True genDir
-            let runnerPath = genDir `FP.combine` "Runner.elm"
-            BS.writeFile runnerPath Templates.runnerElm
-            compiledR <- TestCompile.compileRunner root (NE.List runnerPath [])
-            case compiledR of
-              Left err -> pure (Left (Exit.toString (Exit.reactorToReport err)))
-              Right compiled -> do
-                -- Build list of test IDs
-                let testIds = fmap toId tests
-                -- Extract JS bytes from compilation result
-                compiledJs <- case compiled of
-                  CompileHelpers.CompiledJs builder -> pure (BL.toStrict (BB.toLazyByteString builder))
-                  CompileHelpers.CompiledHtml _ -> pure ""
-                  CompileHelpers.CompiledSkippedOutput -> pure ""
-                -- Embed compiled JS into node runner template
-                let templateStr = UTF8.toString Templates.nodeRunnerJs
-                let compiledStr = UTF8.toString compiledJs
-                let finalJsStr = replaceOnce "/* {{COMPILED_ELM}} */" compiledStr templateStr
-                let inputJson = makeInputJson 0 100 testIds
-                
-                execResult <- Javascript.run (UTF8.fromString finalJsStr) (UTF8.fromString inputJson)
-                case execResult of
-                  Left e -> pure (Left e)
-                  Right out -> pure (Right (out, tests, testFiles))
+
+            -- Check if no tests found
+            case tests of
+              [] -> do
+                let errorMsg = case mGlobs of
+                      Just [single] -> "No tests matching glob pattern: " ++ single
+                      Just globs -> "No tests matching glob patterns: " ++ List.intercalate ", " globs
+                      Nothing -> "No tests found"
+                pure (Left $ Javascript.Other errorMsg)
+              _ -> do
+                Ext.Log.log Ext.Log.Test ("Found " <> show tests)
+                _ <- Generate.writeAggregator root tests
+                let genDir = Generate.generatedDir root
+                Dir.createDirectoryIfMissing True genDir
+                let runnerPath = genDir `FP.combine` "Runner.elm"
+                BS.writeFile runnerPath Templates.runnerElm
+                compiledR <- TestCompile.compileRunner root (NE.List runnerPath [])
+                case compiledR of
+                  Left err -> pure (Left (Javascript.Other (Exit.toString (Exit.reactorToReport err))))
+                  Right compiled -> do
+                    -- Build list of test IDs
+                    let testIds = fmap toId tests
+                    -- Extract JS bytes from compilation result
+                    compiledJs <- case compiled of
+                      CompileHelpers.CompiledJs builder -> pure (BL.toStrict (BB.toLazyByteString builder))
+                      CompileHelpers.CompiledHtml _ -> pure ""
+                      CompileHelpers.CompiledSkippedOutput -> pure ""
+                    -- Embed compiled JS into node runner template
+                    let templateStr = UTF8.toString Templates.nodeRunnerJs
+                    let compiledStr = UTF8.toString compiledJs
+                    let finalJsStr = replaceOnce "/* {{COMPILED_ELM}} */" compiledStr templateStr
+                    let inputJson = makeInputJson 0 100 testIds
+                    
+                    execResult <- Javascript.run (UTF8.fromString finalJsStr) (UTF8.fromString inputJson)
+                    case execResult of
+                      Left e -> pure (Left e)
+                      Right out -> pure (Right (out, tests, testFiles))
 
 -- | Check whether a target string matches any of the provided glob patterns.
 --
