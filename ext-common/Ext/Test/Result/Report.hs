@@ -446,7 +446,7 @@ renderResultWith fns n result =
 renderReason :: Int -> R.Reason -> String
 renderReason n reason =
   case reason of
-    R.Custom -> indent n (dim "Reason: custom")
+    R.Custom desc -> indent n (dim desc)
     R.TODO -> indent n (yellow "TODO")
     R.Invalid s -> indent n (red ("Invalid: " ++ s))
     R.Equality{..} ->
@@ -471,7 +471,7 @@ renderReason n reason =
 renderReasonWith :: ColorFns -> Int -> R.Reason -> String
 renderReasonWith fns n reason =
   case reason of
-    R.Custom -> indent n (dim' fns "Reason: custom")
+    R.Custom desc -> indent n (dim' fns ("Reason: " ++ (if null desc then "custom" else desc)))
     R.TODO -> indent n (yellow' fns "TODO")
     R.Invalid s -> indent n (red' fns ("Invalid: " ++ s))
     R.Equality{..} ->

@@ -13,7 +13,7 @@ module Ext.Test.Result
 
 import qualified Data.Aeson
 import qualified Data.Aeson.Types
-import           Data.Aeson ((.:), (.:?), withObject)
+import           Data.Aeson ((.:), (.:?), withObject, (.!=))
 import qualified Data.ByteString
 import qualified Data.ByteString.Lazy
 import qualified Data.ByteString.UTF8
@@ -48,7 +48,7 @@ data TestResult
 
 
 data Reason
-  = Custom
+  = Custom String
   | Equality { equalityExpected :: String, equalityActual :: String }
   | Comparison { comparisonFirst :: String, comparisonSecond :: String }
   | TODO
@@ -85,10 +85,15 @@ instance Data.Aeson.FromJSON TestResult where
     case status of
       "pass" -> pure Passed
       "skip" -> pure Skipped
-      "fail" -> Failed
-        <$> o .:? "given"
-        <*> o .:  "message"
-        <*> o .:  "reason"
+      "fail" -> do
+        given <- o .:? "given"
+        message <- o .: "message"
+        reason <- o .: "reason"
+        -- If reason is Custom, replace it with Custom message
+        let finalReason = case reason of
+              Custom _ -> Custom message
+              _ -> reason
+        pure (Failed given message finalReason)
       _ -> fail ("Unknown test result status: " <> status)
 
 
@@ -97,7 +102,7 @@ instance Data.Aeson.FromJSON Reason where
     withObject "Reason" (\o -> do
             typ <- (o .: "type" :: Data.Aeson.Types.Parser String)
             case typ of
-              "Custom" -> pure Custom
+              "Custom" -> pure (Custom "")
               "TODO" -> pure TODO
               "Invalid" -> Invalid <$> o .: "data"
               "Equality" -> Equality <$> o .: "expected" <*> o .: "actual"
@@ -108,12 +113,7 @@ instance Data.Aeson.FromJSON Reason where
          ) v
 
 
-parseReasonString :: String -> Data.Aeson.Types.Parser Reason
-parseReasonString s =
-  case s of
-    "Custom" -> pure Custom
-    "Marked as TODO" -> pure TODO
-    _ -> pure (Invalid s)
+
 
 
 
