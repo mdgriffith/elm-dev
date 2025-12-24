@@ -35,6 +35,8 @@ import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified System.CPUTime as CPUTime
 import qualified Ext.Test.Result
 import qualified System.Timeout as Timeout
+import qualified System.Random as Random
+import System.Random (getStdRandom, random)
 -- NOTE: Keep this module independent of Watchtower to avoid cycles.
 
 
@@ -59,16 +61,27 @@ data TestInfo = TestInfo
 data RunSuccess = RunSuccess
   { info :: TestInfo
   , reports :: [Ext.Test.Result.Report]
+  , seed :: Int
+  , fuzz :: Int
   }
 
 -- | Run tests. If a timeout (in seconds) is provided, enforce it; otherwise run without a timeout.
 -- Optionally filter which tests run using glob patterns matched against
 -- fully-qualified test IDs like \"Module.Submodule.testName\".
-run :: Maybe Int -> Maybe [String] -> FilePath -> IO (Either RunError RunSuccess)
-run mSeconds mGlobs root = do
+-- Optionally provide seed and fuzz (runs) values; if not provided, seed is randomly generated and fuzz defaults to 100.
+run :: Maybe Int -> Maybe [String] -> Maybe Int -> Maybe Int -> FilePath -> IO (Either RunError RunSuccess)
+run mSeconds mGlobs mSeed mFuzz root = do
+  -- Generate seed if not provided
+  actualSeed <- case mSeed of
+    Just s -> pure s
+    Nothing -> do
+      s <- getStdRandom random
+      pure (abs s)
+  -- Use fuzz value or default to 100
+  let actualFuzz = maybe 100 id mFuzz
   case mSeconds of
     Nothing -> do
-      r <- runNode mGlobs root
+      r <- runNode mGlobs actualSeed actualFuzz root
       case r of
         Left e -> case e of
           Javascript.ThreadKilled -> pure (Left (TimedOut 0)) -- No timeout specified, but thread was killed
@@ -106,9 +119,9 @@ run mSeconds mGlobs root = do
                                , tiFiles = testFiles
                                , tiSummary = summary
                                }
-                  pure (Right (RunSuccess info reports))
+                  pure (Right (RunSuccess info reports actualSeed actualFuzz))
     Just seconds -> do
-      timed <- Timeout.timeout (seconds * 1000000) (runNode mGlobs root)
+      timed <- Timeout.timeout (seconds * 1000000) (runNode mGlobs actualSeed actualFuzz root)
       case timed of
         Nothing ->
           pure (Left (TimedOut seconds))
@@ -150,12 +163,12 @@ run mSeconds mGlobs root = do
                                , tiFiles = testFiles
                                , tiSummary = summary
                                }
-                  pure (Right (RunSuccess info reports))
+                  pure (Right (RunSuccess info reports actualSeed actualFuzz))
 
 
 -- Returns (JSON test result string, discovered tests, discovered test files).
-runNode :: Maybe [String] -> FilePath -> IO (Either Javascript.RunError (String, [(ModuleName.Raw, Name.Name)], [FilePath]))
-runNode mGlobs root = do
+runNode :: Maybe [String] -> Int -> Int -> FilePath -> IO (Either Javascript.RunError (String, [(ModuleName.Raw, Name.Name)], [FilePath]))
+runNode mGlobs seed runs root = do
   BackgroundWriter.withScope $ \scope -> do
     Ext.CompileMode.setModeMemory
     testFiles <- Discover.discoverTestFiles root
@@ -203,7 +216,7 @@ runNode mGlobs root = do
                     let templateStr = UTF8.toString Templates.nodeRunnerJs
                     let compiledStr = UTF8.toString compiledJs
                     let finalJsStr = replaceOnce "/* {{COMPILED_ELM}} */" compiledStr templateStr
-                    let inputJson = makeInputJson 0 100 testIds
+                    let inputJson = makeInputJson seed runs testIds
                     
                     execResult <- Javascript.run (UTF8.fromString finalJsStr) (UTF8.fromString inputJson)
                     case execResult of

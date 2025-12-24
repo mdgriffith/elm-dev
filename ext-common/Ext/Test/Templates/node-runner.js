@@ -7,7 +7,7 @@ const os = require('os');
 
 // Silence dev-mode warnings from compiled Elm during tests
 const __originalWarn = console.warn;
-console.warn = function () {};
+console.warn = function () { };
 
 /* {{COMPILED_ELM}} */
 
@@ -59,7 +59,7 @@ function validateInput(raw) {
         }
     }
     if (!Number.isFinite(flags.seed) || !Number.isInteger(flags.seed) || flags.seed < 0) {
-        throw new Error('flags.seed must be a non-negative integer');
+        throw new Error('seed must be a non-negative integer');
     }
     if (!Number.isFinite(flags.runs) || !Number.isInteger(flags.runs) || flags.runs < 1) {
         throw new Error('flags.runs must be a positive integer');

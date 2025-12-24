@@ -676,6 +676,14 @@ toolTestRun = MCP.Tool
                        :: Text
                        )
                 ]
+            , "seed" .= JSON.object
+                [ "type" .= ("integer" :: Text)
+                , "description" .= ("Optional random seed for fuzz tests" :: Text)
+                ]
+            , "fuzz" .= JSON.object
+                [ "type" .= ("integer" :: Text)
+                , "description" .= ("Optional number of fuzz runs per test (default 100)" :: Text)
+                ]
             ]
         , "required" .= ([] :: [Text])
         ]
@@ -696,9 +704,17 @@ toolTestRun = MCP.Tool
                   Just (JSON.String t) -> Just (Text.unpack t)
                   _ -> Nothing
           let mGlobs = fmap (\g -> [g]) mGlobString
+          let mSeed =
+                case KeyMap.lookup "seed" args of
+                  Just (JSON.Number n) -> (Scientific.toBoundedInteger n :: Maybe Int)
+                  _ -> Nothing
+          let mFuzz =
+                case KeyMap.lookup "fuzz" args of
+                  Just (JSON.Number n) -> (Scientific.toBoundedInteger n :: Maybe Int)
+                  _ -> Nothing
           let timeoutSeconds = maybe 10 id mTimeoutSeconds
           startPs <- CPUTime.getCPUTime
-          result <- TestRunner.run (Just timeoutSeconds) mGlobs dir
+          result <- TestRunner.run (Just timeoutSeconds) mGlobs mSeed mFuzz dir
           case result of
             Left e -> case e of
               TestRunner.TimedOut _ -> do
@@ -706,11 +722,11 @@ toolTestRun = MCP.Tool
                 pure (errTxt (Text.pack ("Tests timed out after " ++ show timeoutMs ++ "ms")))
               TestRunner.RunFailed msg ->
                 pure (errTxt (Text.pack msg))
-            Right (TestRunner.RunSuccess info reports) -> do
+            Right (TestRunner.RunSuccess info reports seed fuzz) -> do
               endPs <- CPUTime.getCPUTime
               let durationMs :: Int
                   durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
-              let rendered = TestReport.renderReportsWithDuration False (Just durationMs) reports
+              let rendered = TestReport.renderReportsWithDuration False (Just durationMs) (Just seed) (Just fuzz) reports
               -- Update test var with info from the test run
               let summary = TestRunner.tiSummary info
                   total = TestRunner.summaryTotal summary

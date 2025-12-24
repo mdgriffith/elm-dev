@@ -525,8 +525,10 @@ installCommand = CommandParser.command ["install"] "Install a package" Nothing p
 testCommand :: CommandParser.Command
 testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tests" testGroup CommandParser.noArg parseFlags runCmd
   where
-    parseFlags = CommandParser.noFlag
-    runCmd _ _ =  Ext.Log.withAllBut [Ext.Log.Performance] $ do
+    seedFlag = CommandParser.flagWithArg "seed" "Random seed for fuzz tests" (Text.Read.readMaybe)
+    fuzzFlag = CommandParser.flagWithArg "fuzz" "Number of fuzz runs per test" (Text.Read.readMaybe)
+    parseFlags = CommandParser.parseFlag2 seedFlag fuzzFlag
+    runCmd _ (maybeSeed, maybeFuzz) =  Ext.Log.withAllBut [Ext.Log.Performance] $ do
       -- Ext.Log.setMode Ext.Log.StdOut
       -- Ext.CompileMode.setModeMemory
       -- Ext.Log.log Ext.Log.Misc "Running test command"
@@ -535,7 +537,7 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
         Nothing -> IO.hPutStrLn IO.stderr "Could not find project root"
         Just root -> do
           startPs <- CPUTime.getCPUTime
-          result <- Ext.Test.Runner.run Nothing Nothing root
+          result <- Ext.Test.Runner.run Nothing Nothing maybeSeed maybeFuzz root
           case result of
             Left e -> case e of
               Ext.Test.Runner.TimedOut waited -> IO.hPutStrLn IO.stderr ("Timed out running tests after " <> show waited <> "s")
@@ -544,7 +546,7 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
               endPs <- CPUTime.getCPUTime
               let durationMs :: Int
                   durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
-              putStrLn (Ext.Test.Result.Report.renderReportsWithDuration True (Just durationMs) (Ext.Test.Runner.reports runResults))
+              putStrLn (Ext.Test.Result.Report.renderReportsWithDuration True (Just durationMs) (Just (Ext.Test.Runner.seed runResults)) (Just (Ext.Test.Runner.fuzz runResults)) (Ext.Test.Runner.reports runResults))
 
 
 -- elm-dev test init

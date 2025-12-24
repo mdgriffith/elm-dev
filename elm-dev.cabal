@@ -389,6 +389,7 @@ Executable elm-dev
         parsec,
         temporary,
         process,
+        random,
         raw-strings-qq,
         scientific,
         SHA,

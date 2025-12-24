@@ -21,16 +21,16 @@ printReports reports =
 
 renderReports :: [R.Report] -> String
 renderReports reports =
-  renderReportsWithDuration True Nothing reports
+  renderReportsWithDuration True Nothing Nothing Nothing reports
 
--- Render with an optional duration (in milliseconds) and a color toggle.
+-- Render with an optional duration (in milliseconds), seed, fuzz, and a color toggle.
 -- When any test has failed, we show only the failures in the body; otherwise, we show just the summary.
-renderReportsWithDuration :: Bool -> Maybe Int -> [R.Report] -> String
-renderReportsWithDuration useColors maybeDuration reports =
+renderReportsWithDuration :: Bool -> Maybe Int -> Maybe Int -> Maybe Int -> [R.Report] -> String
+renderReportsWithDuration useColors maybeDuration maybeSeed maybeFuzz reports =
   let fns = if useColors then defaultColorFns else plainColorFns
       allResults = concatMap (concatMap R.testRunResult . R.reportRuns) reports
       anyFailed = any isFail allResults
-      summary = renderHeaderWith fns maybeDuration reports
+      summary = renderHeaderWith fns maybeDuration maybeSeed maybeFuzz reports
       body =
         if anyFailed
           then
@@ -509,8 +509,8 @@ renderHeader maybeDuration reports =
       _unusedTotal = total
   in Data.List.intercalate "\n" linesOut
 
-renderHeaderWith :: ColorFns -> Maybe Int -> [R.Report] -> String
-renderHeaderWith fns maybeDuration reports =
+renderHeaderWith :: ColorFns -> Maybe Int -> Maybe Int -> Maybe Int -> [R.Report] -> String
+renderHeaderWith fns maybeDuration maybeSeed maybeFuzz reports =
   let allResults = concatMap (concatMap R.testRunResult . R.reportRuns) reports
       total = length allResults
       passed = length (filter isPass allResults)
@@ -529,7 +529,14 @@ renderHeaderWith fns maybeDuration reports =
         if skipped > 0 then [ "Skipped:  " ++ show skipped ] else []
       passedPart = [ "Passed:   " ++ show passed ]
       failedPart = [ "Failed:   " ++ show failed ]
+      reproductionPart =
+        case (maybeSeed, maybeFuzz) of
+          (Just seed, Just fuzz) ->
+            [ "Running " ++ show total ++ " tests. To reproduce these results, run: elm-test --fuzz " ++ show fuzz ++ " --seed " ++ show seed ]
+          _ -> []
       linesOut =
+        reproductionPart ++
+        (if not (null reproductionPart) then [ "" ] else []) ++
         [ ""
         , statusLine
         , ""
