@@ -30,7 +30,7 @@ renderReportsWithDuration useColors maybeDuration reports =
   let fns = if useColors then defaultColorFns else plainColorFns
       allResults = concatMap (concatMap R.testRunResult . R.reportRuns) reports
       anyFailed = any isFail allResults
-      header = renderHeaderWith fns maybeDuration reports
+      summary = renderHeaderWith fns maybeDuration reports
       body =
         if anyFailed
           then
@@ -45,7 +45,7 @@ renderReportsWithDuration useColors maybeDuration reports =
                 failingReports = filter nonEmpty (fmap onlyFailures reports)
             in Data.List.intercalate "\n\n" (fmap (renderReportWith fns) failingReports)
           else ""
-  in if null body then header else header ++ "\n\n" ++ body
+  in if null body then summary else body ++ "\n\n" ++ summary
 
 
 renderReport :: R.Report -> String
@@ -59,7 +59,77 @@ renderReportWith :: ColorFns -> R.Report -> String
 renderReportWith fns R.Report{..} =
   let header = reportId ++ onlySuffixWith fns reportIsOnly
       items = fmap (\R.TestRun{..} -> (testRunLabel, testRunResult)) reportRuns
-  in renderGroupWith fns (header, items)
+      -- Check if we should render failures with details
+      allResults = concatMap snd items
+      hasFailures = any isFail allResults
+  in if hasFailures
+       then renderFailuresWithPath fns header items
+       else renderGroupWith fns (header, items)
+
+-- Render failures with their full paths and details
+renderFailuresWithPath :: ColorFns -> String -> [([String], [R.TestResult])] -> String
+renderFailuresWithPath fns reportHeader items =
+  let -- Extract base name from report header (e.g., "Header.suite" -> "Header")
+      baseHeader = case Data.List.elemIndex '.' reportHeader of
+        Just idx -> take idx reportHeader
+        Nothing -> reportHeader
+      failures = concatMap (\(labels, results) ->
+                              [ (labels, result) | result <- results, isFail result ]
+                           ) items
+      renderFailure (labels, R.Failed{..}) =
+        let -- Build path: report header, then all label segments except last
+            (pathSegments, testName) = case labels of
+              [] -> ([baseHeader], "(no label)")
+              [single] -> ([baseHeader], single)
+              multiple -> (baseHeader : init multiple, last multiple)
+            pathLines = map (\label -> dim' fns ("↓ " ++ label)) pathSegments
+            failureHeader = red' fns ("✗ " ++ testName)
+            failureDetails = renderFailureDetails fns failureMessage failureReason
+        in Data.List.intercalate "\n" (pathLines ++ [failureHeader, ""] ++ [failureDetails])
+      renderFailure _ = "" -- Should not happen due to filter
+  in Data.List.intercalate "\n\n\n" (map renderFailure failures)
+
+-- Render failure details in a format similar to elm-test
+renderFailureDetails :: ColorFns -> String -> R.Reason -> String
+renderFailureDetails fns message reason =
+  case reason of
+    R.ListDiff{..} ->
+      let expectedStr = "[" ++ Data.List.intercalate ", " (map showQuoted listDiffExpected) ++ "]"
+          actualStr = "[" ++ Data.List.intercalate ", " (map showQuoted listDiffActual) ++ "]"
+      in indent 4 ("Expected " ++ expectedStr ++ ", got: " ++ actualStr)
+    R.Equality{..} ->
+      -- Format as list with single element: ["value"]
+      -- Check if the string is already formatted as a list, otherwise format it
+      let formatValue s = 
+            if not (null s) && head s == '[' && not (null s) && last s == ']'
+              then s  -- Already formatted as a list
+              else "[" ++ showQuoted s ++ "]"  -- Format as list with quoted string
+          expectedLine = indent 4 (formatValue equalityExpected)
+          separator = indent 4 "╷"
+          messageLine = indent 4 ("│ " ++ message)
+          actualLine = indent 4 "╵"
+          actualValue = indent 4 (formatValue equalityActual)
+      in expectedLine ++ "\n" ++ separator ++ "\n" ++ messageLine ++ "\n" ++ actualLine ++ "\n" ++ actualValue
+    R.Comparison{..} ->
+      let firstLine = indent 4 (showQuoted comparisonFirst)
+          separator = indent 4 "╷"
+          messageLine = indent 4 ("│ " ++ message)
+          secondLine = indent 4 "╵"
+          secondValue = indent 4 (showQuoted comparisonSecond)
+      in firstLine ++ "\n" ++ separator ++ "\n" ++ messageLine ++ "\n" ++ secondLine ++ "\n" ++ secondValue
+    R.CollectionDiff{..} ->
+      let expectedLine = indent 4 ("Expected: " ++ showQuoted collectionExpected)
+          actualLine = indent 4 ("Actual: " ++ showQuoted collectionActual)
+          extraLines = if null collectionExtra
+                       then ""
+                       else "\n" ++ indent 4 ("Extra: " ++ Data.List.intercalate ", " (map showQuoted collectionExtra))
+          missingLines = if null collectionMissing
+                         then ""
+                         else "\n" ++ indent 4 ("Missing: " ++ Data.List.intercalate ", " (map showQuoted collectionMissing))
+      in expectedLine ++ "\n" ++ actualLine ++ extraLines ++ missingLines
+    _ ->
+      -- For other reason types, use the existing renderReasonWith format
+      renderReasonWith fns 4 reason
 
 -- Internal helpers
 
@@ -449,7 +519,7 @@ renderHeaderWith fns maybeDuration reports =
       _onlyAny = or (fmap R.reportIsOnly reports)
       statusLine =
         if failed > 0
-          then bold' fns (red' fns "TEST RUN FAILED")
+          then bold' fns (underline' fns (red' fns "TEST RUN FAILED"))
           else bold' fns (green' fns "TEST RUN PASSED")
       durationPart =
         case maybeDuration of
@@ -524,6 +594,9 @@ yellow s = "\ESC[33m" ++ s ++ "\ESC[0m"
 cyan :: String -> String
 cyan s = "\ESC[36m" ++ s ++ "\ESC[0m"
 
+underline :: String -> String
+underline s = "\ESC[4m" ++ s ++ "\ESC[0m"
+
 -- Color parameterization
 data ColorFns =
   ColorFns
@@ -533,15 +606,16 @@ data ColorFns =
     , greenF :: String -> String
     , yellowF :: String -> String
     , cyanF :: String -> String
+    , underlineF :: String -> String
     }
 
 defaultColorFns :: ColorFns
 defaultColorFns =
-  ColorFns { boldF = bold, dimF = dim, redF = red, greenF = green, yellowF = yellow, cyanF = cyan }
+  ColorFns { boldF = bold, dimF = dim, redF = red, greenF = green, yellowF = yellow, cyanF = cyan, underlineF = underline }
 
 plainColorFns :: ColorFns
 plainColorFns =
-  ColorFns { boldF = id, dimF = id, redF = id, greenF = id, yellowF = id, cyanF = id }
+  ColorFns { boldF = id, dimF = id, redF = id, greenF = id, yellowF = id, cyanF = id, underlineF = id }
 
 bold' :: ColorFns -> String -> String
 bold' fns = boldF fns
@@ -560,3 +634,6 @@ yellow' fns = yellowF fns
 
 cyan' :: ColorFns -> String -> String
 cyan' fns = cyanF fns
+
+underline' :: ColorFns -> String -> String
+underline' fns = underlineF fns
