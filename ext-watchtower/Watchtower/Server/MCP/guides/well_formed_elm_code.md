@@ -2,9 +2,14 @@
 
 ### General notes
 
-- **Prefer unaliased, non‑exposing imports**
+1. **Prefer unaliased, non‑exposing imports**
   - Keep call sites explicit and searchable. Avoid `as` and `exposing` unless there’s a strong reason.
   - Rare exceptions: infix ops from `Parser`.
+
+2. **Elm module naming**: Module names must match file paths exactly. `tests/Util/Common.elm` must be `module Util.Common`, not `module Test.Util.Common`.
+
+3. **Elm tuple limitations**: Elm only allows tuples with 2 or 3 items. For 4+ items, use records instead. Even for elements with 2 or 3 items, prefer using records instead of tuples if you can.
+
 
 ### Import aliases
 
