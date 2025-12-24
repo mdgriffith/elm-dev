@@ -99,6 +99,11 @@ atomicPutStrLn :: String -> IO ()
 atomicPutStrLn str =
   withMVar printLock (\_ -> hPutStr stdout (str <> "\n") >> hFlush stdout)
 
+
+atomicPutStr :: String -> IO ()
+atomicPutStr str =
+  withMVar printLock (\_ -> hPutStr stdout str >> hFlush stdout)
+
 {- Wrap an IO in basic runtime information
    Note: this is a very naive implementation and may not always work right,
    i.e. if the IO value is not fully evaluated

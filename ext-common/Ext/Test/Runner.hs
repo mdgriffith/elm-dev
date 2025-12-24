@@ -15,6 +15,7 @@ import qualified Data.NonEmptyList as NE
 import qualified Data.Name as Name
 import qualified BackgroundWriter
 import qualified Elm.ModuleName as ModuleName
+import qualified Ext.Common
 import qualified Ext.CompileMode
 import qualified Ext.Test.Discover as Discover
 import qualified Ext.Test.Introspect as Introspect
@@ -171,6 +172,7 @@ runNode :: Maybe [String] -> Int -> Int -> FilePath -> IO (Either Javascript.Run
 runNode mGlobs seed runs root = do
   BackgroundWriter.withScope $ \scope -> do
     Ext.CompileMode.setModeMemory
+    Ext.Common.atomicPutStr "> Compiling "
     testFiles <- Discover.discoverTestFiles root
     case testFiles of
       [] -> pure (Left $ Javascript.Other $ "No .elm files found in " ++ (root FP.</> "tests"))
@@ -218,6 +220,7 @@ runNode mGlobs seed runs root = do
                     let finalJsStr = replaceOnce "/* {{COMPILED_ELM}} */" compiledStr templateStr
                     let inputJson = makeInputJson seed runs testIds
                     
+                    Ext.Common.atomicPutStrLn "> Starting tests"
                     execResult <- Javascript.run (UTF8.fromString finalJsStr) (UTF8.fromString inputJson)
                     case execResult of
                       Left e -> pure (Left e)

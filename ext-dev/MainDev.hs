@@ -26,6 +26,7 @@ import qualified Elm.ModuleName
 import qualified Elm.Outline
 import qualified Elm.Package as Pkg
 import qualified Elm.Version
+import qualified ElmDevVersion
 import qualified Ext.Common
 import qualified Ext.CompileMode
 import qualified Ext.CompileProxy
@@ -434,7 +435,7 @@ formatCommandWithEllipsis cmd desc =
    in cmd ++ " " ++ dots ++ " " ++ desc
 
 version :: String
-version = "0.2.3"
+version = ElmDevVersion.version
 
 -- Main function
 main :: IO ()

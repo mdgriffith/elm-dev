@@ -300,6 +300,7 @@ Executable elm-dev
 
         -- elm-dev
         ElmDevElmVersion
+        ElmDevVersion
         Ext.Encode
         Ext.Dev
         Ext.Dev.Help
