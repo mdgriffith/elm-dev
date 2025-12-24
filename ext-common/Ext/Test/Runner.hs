@@ -80,91 +80,54 @@ run mSeconds mGlobs mSeed mFuzz root = do
       pure (abs s)
   -- Use fuzz value or default to 100
   let actualFuzz = maybe 100 id mFuzz
-  case mSeconds of
-    Nothing -> do
-      r <- runNode mGlobs actualSeed actualFuzz root
-      case r of
-        Left e -> case e of
-          Javascript.ThreadKilled -> pure (Left (TimedOut 0)) -- No timeout specified, but thread was killed
-          Javascript.Other msg -> pure (Left (RunFailed msg))
-        Right (out, tests, testFiles) ->
-          case Ext.Test.Result.decodeReportsString out of
-            Left e -> pure (Left (RunFailed e))
-            Right reports -> do
-              let allResults = concatMap (concatMap Ext.Test.Result.testRunResult . Ext.Test.Result.reportRuns) reports
-              let total = length allResults
-              let passed = length [ () | res <- allResults, case res of { Ext.Test.Result.Passed -> True; _ -> False } ]
-              let failed = length [ () | res <- allResults, case res of { Ext.Test.Result.Failed{} -> True; _ -> False } ]
-              -- Check for empty test results
-              if total == 0 && not (null tests)
-                then pure (Left (RunFailed "No test results returned (tests may have timed out or failed to execute)"))
-                else do
-                  let failures' =
-                        concatMap
-                          (\rep ->
-                             concatMap
-                               (\run ->
-                                  let labelPath = List.intercalate " › " (Ext.Test.Result.testRunLabel run)
-                                  in [ labelPath ++ " - " ++ msg
-                                     | res <- Ext.Test.Result.testRunResult run
-                                     , case res of { Ext.Test.Result.Failed{} -> True; _ -> False }
-                                     , let msg = case res of { Ext.Test.Result.Failed{ Ext.Test.Result.failureMessage = m } -> m; _ -> "" }
-                                     ]
-                               )
-                               (Ext.Test.Result.reportRuns rep)
-                          )
-                          reports
-                  let summary = TestSummary total passed failed failures'
-                  let info = TestInfo
-                               { tiSuites = tests
-                               , tiFiles = testFiles
-                               , tiSummary = summary
-                               }
-                  pure (Right (RunSuccess info reports actualSeed actualFuzz))
-    Just seconds -> do
-      timed <- Timeout.timeout (seconds * 1000000) (runNode mGlobs actualSeed actualFuzz root)
-      case timed of
-        Nothing ->
-          pure (Left (TimedOut seconds))
-        Just (Left e) -> case e of
-          Javascript.ThreadKilled ->
-            pure (Left (TimedOut seconds))
-          Javascript.Other msg ->
-            pure (Left (RunFailed msg))
-        Just (Right (out, tests, testFiles)) ->
-          case Ext.Test.Result.decodeReportsString out of
-            Left e -> pure (Left (RunFailed e))
-            Right reports -> do
-              let allResults = concatMap (concatMap Ext.Test.Result.testRunResult . Ext.Test.Result.reportRuns) reports
-              let total = length allResults
-              let passed = length [ () | res <- allResults, case res of { Ext.Test.Result.Passed -> True; _ -> False } ]
-              let failed = length [ () | res <- allResults, case res of { Ext.Test.Result.Failed{} -> True; _ -> False } ]
-              -- Check for empty test results
-              if total == 0 && not (null tests)
-                then pure (Left (RunFailed "No test results returned (tests may have timed out or failed to execute)"))
-                else do
-                  let failures =
-                        concatMap
-                          (\rep ->
-                             concatMap
-                               (\run ->
-                                  let labelPath = List.intercalate " › " (Ext.Test.Result.testRunLabel run)
-                                  in [ labelPath ++ " - " ++ msg
-                                     | res <- Ext.Test.Result.testRunResult run
-                                     , case res of { Ext.Test.Result.Failed{} -> True; _ -> False }
-                                     , let msg = case res of { Ext.Test.Result.Failed{ Ext.Test.Result.failureMessage = m } -> m; _ -> "" }
-                                     ]
-                               )
-                               (Ext.Test.Result.reportRuns rep)
-                          )
-                          reports
-                  let summary = TestSummary total passed failed failures
-                  let info = TestInfo
-                               { tiSuites = tests
-                               , tiFiles = testFiles
-                               , tiSummary = summary
-                               }
-                  pure (Right (RunSuccess info reports actualSeed actualFuzz))
+  -- Optionally apply timeout to runNode
+  let runWithTimeout root' = case mSeconds of
+        Nothing -> fmap Just (runNode mGlobs actualSeed actualFuzz root')
+        Just seconds -> Timeout.timeout (seconds * 1000000) (runNode mGlobs actualSeed actualFuzz root')
+  let timeoutSeconds = maybe 0 id mSeconds
+  r <- runWithTimeout root
+  case r of
+    Nothing ->
+      pure (Left (TimedOut timeoutSeconds))
+    Just (Left e) -> case e of
+      Javascript.ThreadKilled ->
+        pure (Left (TimedOut timeoutSeconds))
+      Javascript.Other msg ->
+        pure (Left (RunFailed msg))
+    Just (Right (out, tests, testFiles)) ->
+      case Ext.Test.Result.decodeReportsString out of
+        Left e -> pure (Left (RunFailed e))
+        Right reports -> do
+          let allResults = concatMap (concatMap Ext.Test.Result.testRunResult . Ext.Test.Result.reportRuns) reports
+          let total = length allResults
+          let passed = length [ () | res <- allResults, case res of { Ext.Test.Result.Passed -> True; _ -> False } ]
+          let failed = length [ () | res <- allResults, case res of { Ext.Test.Result.Failed{} -> True; _ -> False } ]
+          -- Check for empty test results
+          if total == 0 && not (null tests)
+            then pure (Left (RunFailed "No test results returned (tests may have timed out or failed to execute)"))
+            else do
+              let failures =
+                    concatMap
+                      (\rep ->
+                         concatMap
+                           (\run ->
+                              let labelPath = List.intercalate " › " (Ext.Test.Result.testRunLabel run)
+                              in [ labelPath ++ " - " ++ msg
+                                 | res <- Ext.Test.Result.testRunResult run
+                                 , case res of { Ext.Test.Result.Failed{} -> True; _ -> False }
+                                 , let msg = case res of { Ext.Test.Result.Failed{ Ext.Test.Result.failureMessage = m } -> m; _ -> "" }
+                                 ]
+                           )
+                           (Ext.Test.Result.reportRuns rep)
+                      )
+                      reports
+              let summary = TestSummary total passed failed failures
+              let info = TestInfo
+                           { tiSuites = tests
+                           , tiFiles = testFiles
+                           , tiSummary = summary
+                           }
+              pure (Right (RunSuccess info reports actualSeed actualFuzz))
 
 
 -- Returns (JSON test result string, discovered tests, discovered test files).
