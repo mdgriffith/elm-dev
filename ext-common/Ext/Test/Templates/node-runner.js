@@ -117,7 +117,12 @@ if (isMainThread) {
                                         tryAssign();
                                         break;
                                     case 'result':
-                                        reports.push(msg.report);
+                                        // Check if this report indicates the test was skipped because it's not a test
+                                        const report = msg.report;
+                                        if (!report.skippedBecauseNotATest) {
+                                            reports.push(report);
+                                        }
+                                        // Always continue to next test, whether we added the report or not
                                         tryAssign();
                                         break;
                                     case 'error':

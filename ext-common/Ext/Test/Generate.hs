@@ -39,7 +39,7 @@ renderAggregator pairs =
       importLines = map (\m -> "import " <> m) imports
       refs = map (\(moduleName,value) -> 
                     let name = ModuleName.toChars moduleName ++ "." ++ Name.toChars value in
-                    "(\"" ++ name ++ "\", " ++ name ++ ")"
+                    "(\"" ++ name ++ "\", check " ++ name ++ ")"
                   ) pairs
       body = case refs of
         [] -> "[]"
@@ -52,7 +52,18 @@ renderAggregator pairs =
         ++ importLines
         ++ [ ""
            , ""
-           , "tests : List (String, Test)"
+           , "{-| The implementation of this function will be replaced in the generated JS"
+           , "with a version that returns `Just value` if `value` is a `Test`, otherwise `Nothing`."
+           , ""
+           , "If you rename or change this function you also need to update the regex that looks for it."
+           , ""
+           , "-}"
+           , "check : a -> Maybe Test"
+           , "check ="
+           , "    Debug.todo \"This function needs to be replaced at runtime so that it can detect test values\""
+           , ""
+           , ""
+           , "tests : List (String, Maybe Test)"
            , "tests = " ++ body
            , ""
            ]

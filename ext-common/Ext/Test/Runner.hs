@@ -18,7 +18,7 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Ext.Common
 import qualified Ext.CompileMode
 import qualified Ext.Test.Discover as Discover
-import qualified Ext.Test.Introspect as Introspect
+import qualified Ext.Test.Parse as Parse
 import qualified Ext.Test.Generate as Generate
 import qualified Ext.Test.Compile as TestCompile
 import qualified Reporting
@@ -139,20 +139,34 @@ runNode mGlobs seed runs root = do
     testFiles <- Discover.discoverTestFiles root
     case testFiles of
       [] -> pure (Left $ Javascript.Other $ "No .elm files found in " ++ (root FP.</> "tests"))
-      (top:rest) -> do
-        discoveryR <- TestCompile.compileForDiscovery root (NE.List top rest)
-        case discoveryR of
-          Left err -> pure (Left (Javascript.Other (Exit.toString (Exit.reactorToReport err))))
-          Right ifaces -> do
-            testsAll <- Introspect.findTests ifaces
+      _ -> do
+        -- Parse all test files to find potential test values
+        parsedModules <- mapM (\filePath -> do
+          content <- BS.readFile filePath
+          case Parse.parseModule filePath content of
+            Left err -> pure (Left err)
+            Right parsed -> pure (Right (filePath, parsed))
+          ) testFiles
+        
+        -- Collect all parsing errors
+        let parseErrors = [err | Left err <- parsedModules]
+        if not (null parseErrors)
+          then pure (Left $ Javascript.Other $ "Failed to parse test files: " ++ List.intercalate "; " parseErrors)
+          else do
+            let parsed = [(fp, pm) | Right (fp, pm) <- parsedModules]
+            
+            -- Extract all potential test values from parsed modules
+            let allPotentialTests = concatMap (Parse.potentialTestValues . snd) parsed
+            
             let toId (modName, valName) = ModuleName.toChars modName ++ "." ++ Name.toChars valName
-            let tests =
-                  case mGlobs of
-                    Nothing -> testsAll
-                    Just globs -> filter (\t -> matchesAnyGlob globs (toId t)) testsAll
-
+            
+            -- Filter by globs if provided
+            let filteredTests = case mGlobs of
+                  Nothing -> allPotentialTests
+                  Just globs -> filter (\t -> matchesAnyGlob globs (toId t)) allPotentialTests
+            
             -- Check if no tests found
-            case tests of
+            case filteredTests of
               [] -> do
                 let errorMsg = case mGlobs of
                       Just [single] -> "No tests matching glob pattern: " ++ single
@@ -160,8 +174,8 @@ runNode mGlobs seed runs root = do
                       Nothing -> "No tests found"
                 pure (Left $ Javascript.Other errorMsg)
               _ -> do
-                Ext.Log.log Ext.Log.Test ("Found " <> show tests)
-                _ <- Generate.writeAggregator root tests
+                Ext.Log.log Ext.Log.Test ("Found " <> show filteredTests)
+                _ <- Generate.writeAggregator root filteredTests
                 let genDir = Generate.generatedDir root
                 Dir.createDirectoryIfMissing True genDir
                 let runnerPath = genDir `FP.combine` "Runner.elm"
@@ -171,23 +185,27 @@ runNode mGlobs seed runs root = do
                   Left err -> pure (Left (Javascript.Other (Exit.toString (Exit.reactorToReport err))))
                   Right compiled -> do
                     -- Build list of test IDs
-                    let testIds = fmap toId tests
+                    let testIds = fmap toId filteredTests
                     -- Extract JS bytes from compilation result
                     compiledJs <- case compiled of
                       CompileHelpers.CompiledJs builder -> pure (BL.toStrict (BB.toLazyByteString builder))
                       CompileHelpers.CompiledHtml _ -> pure ""
                       CompileHelpers.CompiledSkippedOutput -> pure ""
+                    
+                    -- Add symbol declaration and tag Test constructors
+                    let compiledStr = UTF8.toString compiledJs
+                    
                     -- Embed compiled JS into node runner template
                     let templateStr = UTF8.toString Templates.nodeRunnerJs
-                    let compiledStr = UTF8.toString compiledJs
                     let finalJsStr = replaceOnce "/* {{COMPILED_ELM}} */" compiledStr templateStr
                     let inputJson = makeInputJson seed runs testIds
+
                     
                     Ext.Common.atomicPutStrLn "> Starting tests"
                     execResult <- Javascript.run (UTF8.fromString finalJsStr) (UTF8.fromString inputJson)
                     case execResult of
                       Left e -> pure (Left e)
-                      Right out -> pure (Right (out, tests, testFiles))
+                      Right out -> pure (Right (out, filteredTests, testFiles))
 
 -- | Check whether a target string matches any of the provided glob patterns.
 --

@@ -47,51 +47,60 @@ type Msg
     = Run TestId
 
 
+type RunResult
+    = Error String
+    | Finished Report
+    | SkippedBecauseNotATest
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Run testId ->
             case run model testId of
-                Ok report ->
+                Finished report ->
                     ( model, sendReport report )
-                Err message ->
+                Error message ->
                     ( model, error message )
+                SkippedBecauseNotATest ->
+                    ( model, sendSkippedReport testId )
 
 
 
 
-run : Model -> TestId -> Result String Report
+run : Model -> TestId -> RunResult
 run flags testId =
     let
         maybeRunner =
             Everything.tests
-                |> List.filter (\(id, test) -> id == testId)
+                |> List.filterMap (\(id, maybeTest) -> if id == testId then maybeTest else Nothing)
                 |> List.head
        
     in
     case maybeRunner of
         Nothing ->
-            Err "Test not found"
+            -- Test ID not found or value is not a test - skip it
+            SkippedBecauseNotATest
             
-        Just (_, seededRunner) ->
+        Just seededRunner ->
             case Test.Runner.fromTest flags.runs (Random.initialSeed flags.seed) seededRunner of
-                Test.Runner.Invalid message -> Err message
+                Test.Runner.Invalid message -> Error message
                 Test.Runner.Plain runners ->
-                    Ok
+                    Finished
                         { id = testId
                         , runs = List.map runRunner runners
                         , isOnly = False
                         }
 
                 Test.Runner.Only runners ->
-                    Ok
+                    Finished
                         { id = testId
                         , runs = List.map runRunner runners
                         , isOnly = True
                         }
 
                 Test.Runner.Skipping runners ->
-                    Ok
+                    Finished
                         { id = testId
                         , runs =
                             runners 
@@ -240,7 +249,7 @@ port runTest : (TestId -> msg) -> Sub msg
 
 -- Outgoing
 port error : String -> Cmd msg
-port reportSent : { id : TestId, runs : Encode.Value, isOnly : Bool } -> Cmd msg
+port reportSent : { id : TestId, runs : Encode.Value, isOnly : Bool, skippedBecauseNotATest : Bool } -> Cmd msg
 
 
 sendReport : Report -> Cmd msg
@@ -249,4 +258,15 @@ sendReport { id, runs, isOnly } =
         { id = id
         , runs = Encode.list encodeTestRun runs
         , isOnly = isOnly
+        , skippedBecauseNotATest = False
+        }
+
+
+sendSkippedReport : TestId -> Cmd msg
+sendSkippedReport testId =
+    reportSent
+        { id = testId
+        , runs = Encode.list encodeTestRun []
+        , isOnly = False
+        , skippedBecauseNotATest = True
         }
