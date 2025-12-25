@@ -1,6 +1,5 @@
 module Ext.Test.Compile
-  ( compileForDiscovery
-  , compileRunner
+  ( compileRunner
   , compile
   , regenerateTestElmJson
   ) where
@@ -65,26 +64,6 @@ regenerateTestElmJson root = do
           writeTestElmJson testRoot appOutline
           pure (Right ())
 
-
-compileForDiscovery :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor (Map.Map ModuleName.Raw I.Interface))
-compileForDiscovery root entrypoints = do
-  BackgroundWriter.withScope $ \scope -> do
-    let testRoot = Generate.generatedDir root
-    genR <- generateTestJsonIfNone root
-    case genR of
-      Left err -> pure (Left err)
-      Right () -> do
-        Dir.withCurrentDirectory testRoot $ do
-          let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput
-          let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
-          (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
-          case eitherCompiled of
-            Left err -> pure (Left err)
-            Right _compiled -> do
-              ifacesR <- CompileProxy.allInterfaces testRoot rewrittenEntrypoints
-              case ifacesR of
-                Left err -> pure (Left err)
-                Right ifaces -> pure (Right ifaces)
 
 -- For getting compilation status quickly
 compile :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor ())

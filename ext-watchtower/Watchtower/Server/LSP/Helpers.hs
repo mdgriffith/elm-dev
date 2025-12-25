@@ -60,7 +60,7 @@ getDiagnosticsForProject state projectCache maybeFilePath = do
   -- Test diagnostics (if present)
   let testDiags =
         case testInfo of
-          Just (Watchtower.Live.Client.TestInfo _ _ _ (Just (Watchtower.Live.Client.TestError reactorErr))) ->
+          Just (Watchtower.Live.Client.TestInfo _ _ (Just (Watchtower.Live.Client.TestError reactorErr))) ->
             extractDiagnosticsFromReactor maybeFilePath reactorErr
           _ -> []
 

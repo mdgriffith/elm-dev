@@ -60,24 +60,11 @@ discoverTests _state (Client.ProjectCache proj _ _ _ mTestVar) = do
     [] -> do
       STM.atomically $ STM.writeTVar mTestVar Nothing
     (x:xs) -> do
-      let entrypoints = NE.List x xs
-      testIfacesR <- Ext.Test.Compile.compileForDiscovery rootDir entrypoints
-      case testIfacesR of
-        Left reactorErr -> do
-          STM.atomically $ STM.writeTVar mTestVar (Just (Client.TestInfo
-            { Client.testSuites = []
-            , Client.testFiles = testFiles
-            , Client.testResults = Nothing
-            , Client.testCompilation = Just (Client.TestError reactorErr)
-            }))
-        Right ifaces -> do
-          suites <- Ext.Test.Introspect.findTests ifaces
-          STM.atomically $ STM.writeTVar mTestVar (Just (Client.TestInfo
-            { Client.testSuites = suites
-            , Client.testFiles = testFiles
-            , Client.testResults = Nothing
-            , Client.testCompilation = Just Client.TestSuccess
-            }))
+      STM.atomically $ STM.writeTVar mTestVar (Just (Client.TestInfo
+        { Client.testFiles = testFiles
+        , Client.testResults = Nothing
+        , Client.testCompilation = Nothing
+        }))
 
 getProjectShorthand :: FilePath -> Ext.Dev.Project.Project -> FilePath
 getProjectShorthand root proj =

@@ -1226,7 +1226,7 @@ workspaceItemsForProject connId prevUris state unchangedMode projectCache@(Clien
   testDiagsMap <- do
     mTi <- Control.Concurrent.STM.readTVarIO mTest
     case mTi of
-      Just (Client.TestInfo _ _ _ (Just (Client.TestError reactorErr))) ->
+      Just (Client.TestInfo _ _ (Just (Client.TestError reactorErr))) ->
         pure (Helpers.getDiagnosticsFromTestReactorByFile reactorErr)
       _ -> pure Map.empty
 

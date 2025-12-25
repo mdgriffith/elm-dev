@@ -960,8 +960,7 @@ data TestCompilationResult
   | TestError Reporting.Exit.Reactor
 
 data TestInfo = TestInfo
-  { testSuites :: [(ModuleName.Raw, Name.Name)]
-  , testFiles :: [FilePath]
+  { testFiles :: [FilePath]
   , testResults :: Maybe TestResults
   , testCompilation :: Maybe TestCompilationResult
   }

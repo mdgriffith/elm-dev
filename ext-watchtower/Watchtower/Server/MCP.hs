@@ -735,8 +735,7 @@ toolTestRun = MCP.Tool
                   failures = TestRunner.summaryFailures summary
                   tr = Client.TestResults total passed failed failures
                   clientInfo = Client.TestInfo
-                                 { Client.testSuites = TestRunner.tiSuites info
-                                 , Client.testFiles = TestRunner.tiFiles info
+                                 { Client.testFiles = TestRunner.tiFiles info
                                  , Client.testResults = Just tr
                                  , Client.testCompilation = Just Client.TestSuccess
                                  }
