@@ -122,6 +122,20 @@ track label io = do
       sformat ("  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs % "\n") m m_ p p_ t t_
   pure res
 
+-- Like track, but always prints to stdout regardless of log level
+forceTrack label io = do
+  m <- getTime Monotonic
+  p <- getTime ProcessCPUTime
+  t <- getTime ThreadCPUTime
+  !res <- io
+  m_ <- getTime Monotonic
+  p_ <- getTime ProcessCPUTime
+  t_ <- getTime ThreadCPUTime
+  atomicPutStrLn $
+    T.unpack $
+      sformat ("⏱️:  " % label % ": " % timeSpecs % " " % timeSpecs % " " % timeSpecs) m m_ p p_ t t_
+  pure res
+
 track_ label io = do
   m <- getTime Monotonic
   p <- getTime ProcessCPUTime
