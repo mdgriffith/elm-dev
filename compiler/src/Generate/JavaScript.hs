@@ -27,6 +27,7 @@ import qualified Generate.JavaScript.Expression as Expr
 import qualified Generate.JavaScript.Functions as Functions
 import qualified Generate.JavaScript.Name as JsName
 import qualified Generate.Mode as Mode
+import qualified Modify.Javascript
 import qualified Reporting.Doc as D
 import qualified Reporting.Render.Type as RT
 import qualified Reporting.Render.Type.Localizer as L
@@ -186,16 +187,21 @@ addGlobal mode graph state@(State revKernels builders seen) global =
 
 
 addGlobalHelp :: Mode.Mode -> Graph -> Opt.Global -> State -> State
-addGlobalHelp mode graph global state =
+addGlobalHelp mode graph global@(Opt.Global home name) state =
   let
     addDeps deps someState =
       Set.foldl' (addGlobal mode graph) someState deps
   in
   case graph ! global of
     Opt.Define expr deps ->
-      addStmt (addDeps deps state) (
-        var global (Expr.generate mode expr)
-      )
+      -- Check if this function needs special JavaScript generation
+      case Modify.Javascript.modify home name global of
+        Just stmt ->
+          addStmt (addDeps deps state) stmt
+        Nothing ->
+          addStmt (addDeps deps state) (
+            var global (Expr.generate mode expr)
+          )
 
     Opt.DefineTailFunc argNames body deps ->
       addStmt (addDeps deps state) (
