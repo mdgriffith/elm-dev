@@ -19,3 +19,5 @@ playground
 bun.lock
 apps/proxy/target
 installers-elm-dev/npm/packages/**/elm-dev-proxy*
+logs/*.log
+!logs/.gitkeep

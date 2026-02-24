@@ -43,22 +43,23 @@ use std::env;
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-// Optional binary-safe logger; drive via code-level toggle for now
-const LOG_ENABLED: bool = false; // set to true to enable proxy I/O logging
-const LOG_PATH: &str = "/tmp/elm-dev-proxy.log"; // customize path if needed
+// Optional binary-safe logger.
+// Enable by setting ELM_DEV_PROXY_LOG=/absolute/path/to/logfile
 
 fn make_logger() -> Option<Arc<Mutex<std::fs::File>>> {
-    if !LOG_ENABLED {
-        return None;
+    let log_path = env::var("ELM_DEV_PROXY_LOG").ok()?;
+    if let Some(parent) = Path::new(&log_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
     }
     let file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(LOG_PATH)
+        .open(log_path)
         .ok()?;
     Some(Arc::new(Mutex::new(file)))
 }
@@ -144,19 +145,6 @@ fn memmem(hay: &[u8], needle: &[u8]) -> bool {
     hay.windows(needle.len()).any(|w| w == needle)
 }
 
-fn trim_trailing_newlines(bytes: &[u8]) -> &[u8] {
-    let mut end = bytes.len();
-    while end > 0 {
-        let b = bytes[end - 1];
-        if b == b'\n' || b == b'\r' {
-            end -= 1;
-        } else {
-            break;
-        }
-    }
-    &bytes[..end]
-}
-
 fn first_non_ws(bytes: &[u8]) -> Option<u8> {
     for &b in bytes {
         if !matches!(b, b' ' | b'\t' | b'\r' | b'\n') {
@@ -166,23 +154,46 @@ fn first_non_ws(bytes: &[u8]) -> Option<u8> {
     None
 }
 
-fn frame_if_needed(bytes: &[u8]) -> Vec<u8> {
-    // If already framed with Content-Length, pass through.
-    if looks_like_content_length_frame(bytes) {
-        return bytes.to_vec();
-    }
-    // If this chunk looks like a single JSON-RPC message line (starts with { or [), wrap it.
-    match first_non_ws(bytes) {
-        Some(b'{') | Some(b'[') => {
-            let payload = trim_trailing_newlines(bytes);
-            let len = payload.len();
-            let mut out = Vec::with_capacity(len + 64);
-            out.extend_from_slice(format!("Content-Length: {}\r\n\r\n", len).as_bytes());
-            out.extend_from_slice(payload);
-            out
+fn frame_payload(payload: &[u8]) -> Vec<u8> {
+    let len = payload.len();
+    let mut out = Vec::with_capacity(len + 64);
+    out.extend_from_slice(format!("Content-Length: {}\r\n\r\n", len).as_bytes());
+    out.extend_from_slice(payload);
+    out
+}
+
+fn drain_ndjson_frames(acc: &mut Vec<u8>, flush_remainder: bool) -> Vec<u8> {
+    let mut out = Vec::new();
+
+    loop {
+        let newline_pos = acc.iter().position(|&b| b == b'\n');
+        let Some(pos) = newline_pos else {
+            break;
+        };
+
+        let mut line = acc.drain(..=pos).collect::<Vec<u8>>();
+        while matches!(line.last(), Some(b'\n' | b'\r')) {
+            line.pop();
         }
-        _ => bytes.to_vec(),
+
+        if first_non_ws(&line).is_none() {
+            continue;
+        }
+
+        out.extend_from_slice(&frame_payload(&line));
     }
+
+    if flush_remainder && first_non_ws(acc).is_some() {
+        while matches!(acc.last(), Some(b'\n' | b'\r')) {
+            acc.pop();
+        }
+        if first_non_ws(acc).is_some() {
+            out.extend_from_slice(&frame_payload(acc));
+        }
+        acc.clear();
+    }
+
+    out
 }
 
 fn parse_content_length(headers: &[u8]) -> Option<usize> {
@@ -305,9 +316,22 @@ fn main() {
     thread::spawn(move || {
         let mut stdin = io::stdin();
         let mut buf = [0u8; 8192];
+        let mut ndjson_acc: Vec<u8> = Vec::new();
         loop {
             match stdin.read(&mut buf) {
-                Ok(0) => break,
+                Ok(0) => {
+                    let reframe = *reframe_mode_in.lock().unwrap() == Some(true);
+                    if reframe {
+                        let framed = drain_ndjson_frames(&mut ndjson_acc, true);
+                        if !framed.is_empty() {
+                            if let Err(_) = stream.write_all(&framed) {
+                                break;
+                            }
+                            let _ = stream.flush();
+                        }
+                    }
+                    break;
+                }
                 Ok(n) => {
                     log_bytes(&logger_in, "stdin->tcp", &buf[..n]);
                     // Decide reframe mode on first non-empty stdin chunk
@@ -328,10 +352,14 @@ fn main() {
                     let reframe = mode_guard.unwrap_or(false);
                     drop(mode_guard);
                     let framed = if reframe {
-                        frame_if_needed(&buf[..n])
+                        ndjson_acc.extend_from_slice(&buf[..n]);
+                        drain_ndjson_frames(&mut ndjson_acc, false)
                     } else {
                         (&buf[..n]).to_vec()
                     };
+                    if framed.is_empty() {
+                        continue;
+                    }
                     if let Err(_) = stream.write_all(&framed) {
                         break;
                     }
@@ -378,4 +406,64 @@ fn main() {
 
     // Exit immediately so no dangling proxies remain after server closes.
     std::process::exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decode_frames(mut bytes: Vec<u8>) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        while let Some(payload) = extract_framed_payload(&mut bytes) {
+            out.push(payload);
+        }
+        out
+    }
+
+    #[test]
+    fn ndjson_single_chunk_multiple_messages() {
+        let mut acc = Vec::new();
+        acc.extend_from_slice(
+            b"{\"method\":\"notifications/initialized\"}\n{\"method\":\"tools/list\",\"id\":1}\n",
+        );
+        let framed = drain_ndjson_frames(&mut acc, false);
+        let payloads = decode_frames(framed);
+        assert_eq!(payloads.len(), 2);
+        assert_eq!(payloads[0], b"{\"method\":\"notifications/initialized\"}");
+        assert_eq!(payloads[1], b"{\"method\":\"tools/list\",\"id\":1}");
+        assert!(acc.is_empty());
+    }
+
+    #[test]
+    fn ndjson_handles_partial_chunks() {
+        let mut acc = Vec::new();
+        let framed1 = {
+            acc.extend_from_slice(b"{\"method\":\"tools/");
+            drain_ndjson_frames(&mut acc, false)
+        };
+        assert!(framed1.is_empty());
+
+        let framed2 = {
+            acc.extend_from_slice(b"list\",\"id\":1}\n");
+            drain_ndjson_frames(&mut acc, false)
+        };
+        let payloads = decode_frames(framed2);
+        assert_eq!(
+            payloads,
+            vec![b"{\"method\":\"tools/list\",\"id\":1}".to_vec()]
+        );
+        assert!(acc.is_empty());
+    }
+
+    #[test]
+    fn ndjson_flushes_remainder_on_eof() {
+        let mut acc = b"{\"method\":\"tools/list\",\"id\":1}".to_vec();
+        let framed = drain_ndjson_frames(&mut acc, true);
+        let payloads = decode_frames(framed);
+        assert_eq!(
+            payloads,
+            vec![b"{\"method\":\"tools/list\",\"id\":1}".to_vec()]
+        );
+        assert!(acc.is_empty());
+    }
 }
