@@ -5,7 +5,7 @@ module Gen.Generate (run, ConfigResult (..), readConfigOrFail, readConfig, File 
 
 import Control.Monad (forM_, mapM_)
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson (FromJSON, ToJSON, eitherDecodeStrict, object, (.=))
+import Data.Aeson (FromJSON (..), ToJSON, eitherDecodeStrict, object, withObject, (.:?), (.=))
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -75,6 +75,27 @@ data GeneratedFiles = GeneratedFiles
 instance FromJSON GeneratedFiles
 
 instance ToJSON GeneratedFiles
+
+data GeneratorError = GeneratorError
+  { title :: String,
+    description :: String
+  }
+  deriving (Show, Generic)
+
+instance FromJSON GeneratorError
+
+data GeneratorSummary = GeneratorSummary
+  { generatedFiles :: Maybe [File],
+    errors :: Maybe [GeneratorError]
+  }
+  deriving (Show, Generic)
+
+instance FromJSON GeneratorSummary where
+  parseJSON =
+    withObject "GeneratorSummary" $ \obj ->
+      GeneratorSummary
+        <$> obj .:? "generated"
+        <*> obj .:? "errors"
 
 isOutOfDateByHash :: FilePath -> RunConfig.RunConfig -> IO (Text.Text, Bool)
 isOutOfDateByHash generationPath runConfig = do
@@ -151,7 +172,21 @@ generate runConfig = do
     Right output -> do
       case eitherDecodeStrict (Text.encodeUtf8 (Text.pack output)) of
         Left err -> return $ Left err
-        Right (GeneratedFiles files) -> return $ Right files
+        Right (GeneratorSummary (Just files) _) -> return $ Right files
+        Right (GeneratorSummary Nothing (Just errs)) ->
+          return $ Left (formatGeneratorErrors errs)
+        Right _ ->
+          return $ Left "Generator returned an unexpected response"
+
+formatGeneratorErrors :: [GeneratorError] -> String
+formatGeneratorErrors errs =
+  case errs of
+    [] -> "Generator failed without reporting any errors"
+    _ ->
+      "Generation failed:\n"
+        ++ unlines (map formatOne errs)
+  where
+    formatOne (GeneratorError t d) = "- " ++ t ++ ": " ++ d
 
 -- | Synchronize pages between filesystem and config
 syncPages :: Config.Config -> IO Config.Config

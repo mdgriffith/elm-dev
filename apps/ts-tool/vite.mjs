@@ -303,5 +303,3 @@ function guessElmModuleName(id) {
     }
     return moduleNameParts.reverse().join('.');
 }
-
-

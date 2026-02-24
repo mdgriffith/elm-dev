@@ -27,6 +27,7 @@ module CommandParser
     parseOptionalArg,
     parseArg2,
     parseArgList,
+    parseOptionalArgList,
     -- Common args
     elmModuleName,
   )
@@ -299,6 +300,26 @@ parseArgList arg =
           Right (value1, parsed1) -> do
             let (values, remaining) = parseOptionalArgs arg (parsedCommands parsed1)
             Right ((value1, values), parsed1 {parsedCommands = remaining})
+    )
+  where
+    parseOptionalArgs :: Arg arg -> [String] -> ([arg], [String])
+    parseOptionalArgs _ [] = ([], [])
+    parseOptionalArgs arg (value : rest) =
+      case argParse arg value of
+        Just v ->
+          let (vs, remaining) = parseOptionalArgs arg rest
+           in (v : vs, remaining)
+        Nothing -> ([], value : rest)
+
+
+-- | Parse zero or more arguments
+parseOptionalArgList :: Arg arg -> ArgParser [arg]
+parseOptionalArgList arg =
+  ArgParser
+    [listArgName arg]
+    ( \parsed ->
+        let (values, remaining) = parseOptionalArgs arg (parsedCommands parsed)
+         in Right (values, parsed {parsedCommands = remaining})
     )
   where
     parseOptionalArgs :: Arg arg -> [String] -> ([arg], [String])

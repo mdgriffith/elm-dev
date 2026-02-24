@@ -5,6 +5,7 @@ module Watchtower.Server.LSP.EditorsOpen
   , empty
   , fileMarkedOpen
   , fileMarkedClosed
+  , isFileOpen
   , isProjectOpen
   ) where
 
@@ -35,9 +36,14 @@ fileMarkedClosed path (EditorsOpen m) =
         then EditorsOpen (Map.delete path m)
         else EditorsOpen (Map.insert path (n - 1) m)
 
+isFileOpen :: FilePath -> EditorsOpen -> Bool
+isFileOpen path (EditorsOpen openFiles) =
+  case Map.lookup path openFiles of
+    Just n -> n > 0
+    Nothing -> False
+
 -- Is the given project considered open by any open file?
 isProjectOpen :: Ext.Dev.Project.Project -> EditorsOpen -> Bool
 isProjectOpen proj (EditorsOpen openFiles) =
   Data.Foldable.any (\p -> Ext.Dev.Project.contains p proj) (Map.keys openFiles)
-
 

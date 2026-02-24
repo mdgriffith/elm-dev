@@ -415,9 +415,16 @@ serve tools resources prompts state emit connId req@(JSONRPC.Request _ reqId met
   Ext.Log.log Ext.Log.Misc ("MCP method: " ++ Text.unpack method)
   case Text.unpack method of
     "initialize" -> do
+      let negotiatedProtocolVersion =
+            case params of
+              Just p ->
+                case JSON.fromJSON p of
+                  JSON.Success (initReq :: InitializeRequest) -> initProtocolVersion initReq
+                  JSON.Error _ -> "2025-06-18"
+              Nothing -> "2025-06-18"
       let initResponse =
             InitializeResponse
-              { responseProtocolVersion = "2025-06-18",
+              { responseProtocolVersion = negotiatedProtocolVersion,
                 responseCapabilities =
                   ServerCapabilities
                     { tools = Just $ JSON.object ["listChanged" .= True],

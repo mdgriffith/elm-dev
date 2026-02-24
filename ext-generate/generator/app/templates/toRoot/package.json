@@ -4,6 +4,7 @@
         "vite": "^7.2.0"
     },
     "name": "elm-project",
+    "type": "module",
     "peerDependencies": {
         "typescript": "^5.9.3"
     },

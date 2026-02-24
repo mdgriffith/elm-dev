@@ -445,6 +445,22 @@ data DocumentDiagnosticParams = DocumentDiagnosticParams
   }
   deriving stock (Show, Eq, Generic)
 
+-- | Previously known diagnostics result identifier for a URI.
+data PreviousResultId = PreviousResultId
+  { previousResultIdUri :: Uri,
+    previousResultIdValue :: Text
+  }
+  deriving stock (Show, Eq, Generic)
+
+-- | Workspace diagnostics request parameters.
+data WorkspaceDiagnosticParams = WorkspaceDiagnosticParams
+  { workspaceDiagnosticParamsWorkDoneToken :: Maybe JSON.Value,
+    workspaceDiagnosticParamsPartialResultToken :: Maybe JSON.Value,
+    workspaceDiagnosticParamsPreviousResultIds :: Maybe [PreviousResultId],
+    workspaceDiagnosticParamsIdentifier :: Maybe Text
+  }
+  deriving stock (Show, Eq, Generic)
+
 -- | Code lens resolve parameters (the original code lens to resolve)
 data CodeLensResolveParams = CodeLensResolveParams
   { codeLensResolveParamsRange :: Range,
@@ -653,6 +669,7 @@ data WorkspaceDocumentDiagnostics = WorkspaceDocumentDiagnostics
   { workspaceDocumentDiagnosticsUri :: Uri,
     workspaceDocumentDiagnosticsVersion :: Maybe Int,
     workspaceDocumentDiagnosticsKind :: Text,
+    workspaceDocumentDiagnosticsResultId :: Maybe Text,
     workspaceDocumentDiagnosticsItems :: [Diagnostic]
   }
   deriving stock (Show, Eq, Generic)
@@ -661,7 +678,8 @@ data WorkspaceDocumentDiagnostics = WorkspaceDocumentDiagnostics
 data WorkspaceDocumentDiagnosticsUnchanged = WorkspaceDocumentDiagnosticsUnchanged
   { workspaceDocumentDiagnosticsUnchangedUri :: Uri,
     workspaceDocumentDiagnosticsUnchangedVersion :: Maybe Int,
-    workspaceDocumentDiagnosticsUnchangedKind :: Text
+    workspaceDocumentDiagnosticsUnchangedKind :: Text,
+    workspaceDocumentDiagnosticsUnchangedResultId :: Maybe Text
   }
   deriving stock (Show, Eq, Generic)
 
@@ -723,6 +741,8 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "documentFormattingParams", omitNothingFields = True} ''DocumentFormattingParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "typeHierarchyPrepareParams", omitNothingFields = True} ''TypeHierarchyPrepareParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "documentDiagnosticParams", omitNothingFields = True} ''DocumentDiagnosticParams)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "previousResultId", omitNothingFields = True} ''PreviousResultId)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceDiagnosticParams", omitNothingFields = True} ''WorkspaceDiagnosticParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "codeLensResolveParams", omitNothingFields = True} ''CodeLensResolveParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "diagnostic", omitNothingFields = True} ''Diagnostic)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceEdit", omitNothingFields = True} ''WorkspaceEdit)
@@ -811,4 +831,3 @@ logMessage typ msg =
 showMessage :: LogMessageType -> Text -> JSONRPC.Outbound
 showMessage typ msg =
   JSONRPC.OutboundNotification (JSONRPC.Notification "2.0" "window/showMessage" (Just (JSON.object ["type" JSON..= typ, "message" JSON..= msg])))
-

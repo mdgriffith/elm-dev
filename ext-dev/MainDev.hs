@@ -19,7 +19,11 @@ import qualified Data.Map
 import qualified Data.Maybe
 import qualified Data.Name as Name
 import qualified Data.NonEmptyList as NE
+import qualified Data.Set as Set
+import qualified Data.Text as Text
+import qualified Data.Text.IO as TextIO
 import qualified Data.Utf8 as Utf8
+import qualified Data.Word as Word
 import qualified Elm.Details
 import qualified Elm.Docs as Docs
 import qualified Elm.ModuleName
@@ -82,6 +86,7 @@ import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay)
 import qualified Control.Exception as Exception
 import qualified Text.Read as Read
 import qualified System.CPUTime as CPUTime
+import qualified Watchtower.Server.MCP.Docs as DocsMarkdown
 
 
 parseModuleList :: String -> Maybe (NE.List Elm.ModuleName.Raw)
@@ -124,6 +129,488 @@ inspectGroup = Just "Inspection"
 
 devGroup :: Maybe String
 devGroup = Just "Development"
+
+docsGroup :: Maybe String
+docsGroup = Just "Documentation"
+
+data DocsInput
+  = DocsFromPackage Pkg.Name (Maybe Elm.Version.Version)
+  | DocsFromModules [String]
+  | DocsFromProjectAndDependencies
+
+data ModulePattern
+  = ExactModule Name.Name
+  | NamespaceModule String
+
+docsMarkdownCommand :: CommandParser.Command
+docsMarkdownCommand = CommandParser.command ["docs"] "Render docs as markdown" docsGroup parseArgs parseFlags runCmd
+  where
+    parseArgs = CommandParser.parseOptionalArgList (CommandParser.arg "package-or-module")
+    outputFlag = CommandParser.flagWithArg "output" "Output directory path" Just
+    parseFlags = CommandParser.parseFlag outputFlag
+    runCmd args maybeOutputDir =
+      case parseDocsInput args of
+        Left err ->
+          IO.hPutStrLn IO.stderr err
+
+        Right (DocsFromPackage packageName maybeVersion) -> do
+          generated <- renderPackageDocs packageName maybeVersion
+          case generated of
+            Left err ->
+              IO.hPutStrLn IO.stderr err
+
+            Right docsByModule ->
+              writeOrPrintDocs maybeOutputDir docsByModule
+
+        Right (DocsFromModules patterns) -> do
+          generated <- renderProjectDocs patterns
+          case generated of
+            Left err ->
+              IO.hPutStrLn IO.stderr err
+
+            Right docsByModule ->
+              writeOrPrintDocs maybeOutputDir docsByModule
+
+        Right DocsFromProjectAndDependencies -> do
+          generated <- renderProjectAndDependencyDocs
+          case generated of
+            Left err ->
+              IO.hPutStrLn IO.stderr err
+
+            Right (projectDocs, packageDocs) ->
+              case maybeOutputDir of
+                Nothing ->
+                  printProjectAndDependencyDocs projectDocs packageDocs
+
+                Just outputDir ->
+                  writeProjectAndDependencyDocs outputDir projectDocs packageDocs
+
+
+renderPackageDocs :: Pkg.Name -> Maybe Elm.Version.Version -> IO (Either String [(Name.Name, Text.Text)])
+renderPackageDocs packageName maybeVersion = do
+  resolvedVersion <- resolvePackageVersion packageName maybeVersion
+  case resolvedVersion of
+    Nothing ->
+      pure
+        ( Left
+            ( "Could not find a version for package "
+                ++ Pkg.toChars packageName
+                ++ "."
+            )
+        )
+
+    Just version -> do
+      docsResult <- Ext.Dev.Package.getDocs packageName version
+      case docsResult of
+        Left _ ->
+          pure
+            ( Left
+                ( "Could not load docs for "
+                    ++ Pkg.toChars packageName
+                    ++ "@"
+                    ++ Elm.Version.toChars version
+                    ++ "."
+                )
+            )
+
+        Right docs ->
+          pure
+            ( Right
+                (map (renderModuleEntryFromPackage packageName version) (Data.Map.toList docs))
+            )
+
+
+resolvePackageVersion :: Pkg.Name -> Maybe Elm.Version.Version -> IO (Maybe Elm.Version.Version)
+resolvePackageVersion _ (Just version) =
+  pure (Just version)
+
+resolvePackageVersion packageName Nothing = do
+  maybeRoot <- Stuff.findRoot
+  case maybeRoot of
+    Just root ->
+      Ext.Dev.Package.getCurrentlyUsedOrLatestVersion root packageName
+
+    Nothing ->
+      Ext.Dev.Package.getPackageNewestPackageVersionFromRegistry packageName
+
+
+renderProjectDocs :: [String] -> IO (Either String [(Name.Name, Text.Text)])
+renderProjectDocs patterns = do
+  maybeRoot <- Stuff.findRoot
+  case maybeRoot of
+    Nothing ->
+      pure (Left "Could not find elm.json file in this directory or any parent directories.")
+
+    Just root -> do
+      details <- Ext.CompileProxy.loadProject root
+      let availableModules = Data.Map.keys (Elm.Details._locals details)
+      case resolveModulePatterns patterns availableModules of
+        Left err ->
+          pure (Left err)
+
+        Right selectedModules -> do
+          renderProjectModules root details selectedModules
+
+
+renderProjectAndDependencyDocs :: IO (Either String ([(Name.Name, Text.Text)], [((Pkg.Name, Elm.Version.Version), [(Name.Name, Text.Text)])]))
+renderProjectAndDependencyDocs = do
+  maybeRoot <- Stuff.findRoot
+  case maybeRoot of
+    Nothing ->
+      pure (Left "Could not find elm.json file in this directory or any parent directories.")
+
+    Just root -> do
+      details <- Ext.CompileProxy.loadProject root
+
+      let localModules = Data.Map.keys (Elm.Details._locals details)
+      projectDocsResult <- renderProjectModules root details localModules
+
+      case projectDocsResult of
+        Left err ->
+          pure (Left err)
+
+        Right projectDocs -> do
+          packageVersions <- collectDependencyVersions root details
+          packagesRendered <- Monad.forM (Data.Map.toList packageVersions) $ \(packageName, version) -> do
+            docsResult <- Ext.Dev.Package.getDocs packageName version
+            case docsResult of
+              Left _ ->
+                pure
+                  ( Left
+                      ( "Could not load docs for dependency "
+                          ++ Pkg.toChars packageName
+                          ++ "@"
+                          ++ Elm.Version.toChars version
+                          ++ "."
+                      )
+                  )
+
+              Right docs ->
+                pure
+                  ( Right
+                      ( (packageName, version)
+                      , map (renderModuleEntryFromPackage packageName version) (Data.Map.toList docs)
+                      )
+                  )
+
+          pure
+            ( case sequence packagesRendered of
+                Left err -> Left err
+                Right packageDocs -> Right (projectDocs, packageDocs)
+            )
+
+
+renderProjectModules :: FilePath -> Elm.Details.Details -> [Name.Name] -> IO (Either String [(Name.Name, Text.Text)])
+renderProjectModules root details selectedModules = do
+  rendered <- Monad.forM selectedModules $ \moduleName -> do
+    case Ext.Dev.Project.lookupModulePath details moduleName of
+      Nothing ->
+        pure (Left ("Could not find module " ++ Name.toChars moduleName ++ "."))
+
+      Just modulePath -> do
+        maybeDocs <- Ext.Dev.docs root modulePath
+        case maybeDocs of
+          Nothing ->
+            pure (Left ("Could not generate docs for module " ++ Name.toChars moduleName ++ "."))
+
+          Just docsModule ->
+            pure (Right (renderModuleEntryFromProject root modulePath (moduleName, docsModule)))
+
+  pure
+    ( case sequence rendered of
+        Left err -> Left err
+        Right entries -> Right entries
+    )
+
+
+collectDependencyVersions :: FilePath -> Elm.Details.Details -> IO (Data.Map.Map Pkg.Name Elm.Version.Version)
+collectDependencyVersions root details =
+  case Elm.Details._outline details of
+    Elm.Details.ValidPkg _ _ exactDeps ->
+      pure exactDeps
+
+    Elm.Details.ValidApp _ -> do
+      outlineResult <- Elm.Outline.read root
+      case outlineResult of
+        Left _ ->
+          pure Data.Map.empty
+
+        Right (Elm.Outline.Pkg _) ->
+          pure Data.Map.empty
+
+        Right (Elm.Outline.App appOutline) ->
+          pure
+            ( Data.Map.unions
+                [ Elm.Outline._app_deps_direct appOutline
+                , Elm.Outline._app_deps_indirect appOutline
+                , Elm.Outline._app_test_direct appOutline
+                , Elm.Outline._app_test_indirect appOutline
+                ]
+            )
+
+
+writeOrPrintDocs :: Maybe FilePath -> [(Name.Name, Text.Text)] -> IO ()
+writeOrPrintDocs maybeOutputDir docsByModule =
+  case maybeOutputDir of
+    Nothing ->
+      printDocs docsByModule
+
+    Just outputDir ->
+      writeDocs outputDir docsByModule
+
+
+printDocs :: [(Name.Name, Text.Text)] -> IO ()
+printDocs docsByModule =
+  case docsByModule of
+    [] ->
+      pure ()
+
+    (firstEntry : remainingEntries) -> do
+      TextIO.putStr (snd firstEntry)
+      Monad.forM_ remainingEntries $ \(_, markdown) -> do
+        TextIO.putStr "\n\n---\n\n"
+        TextIO.putStr markdown
+
+
+writeDocs :: FilePath -> [(Name.Name, Text.Text)] -> IO ()
+writeDocs outputDir docsByModule = do
+  writeDocsFiles outputDir docsByModule
+
+  putStrLn
+    ( "Wrote "
+        ++ show (length docsByModule)
+        ++ " markdown file(s) to "
+        ++ outputDir
+        ++ "."
+    )
+
+
+writeDocsFiles :: FilePath -> [(Name.Name, Text.Text)] -> IO ()
+writeDocsFiles outputDir docsByModule = do
+  Monad.forM_ docsByModule $ \(moduleName, markdown) -> do
+    let outputPath = moduleNameToOutputPath outputDir moduleName
+    Dir.createDirectoryIfMissing True (Path.takeDirectory outputPath)
+    TextIO.writeFile outputPath markdown
+
+
+printProjectAndDependencyDocs :: [(Name.Name, Text.Text)] -> [((Pkg.Name, Elm.Version.Version), [(Name.Name, Text.Text)])] -> IO ()
+printProjectAndDependencyDocs projectDocs packageDocs = do
+  putStrLn "# Project Modules"
+  printDocs projectDocs
+
+  Monad.forM_ packageDocs $ \((packageName, version), docsByModule) -> do
+    putStrLn ""
+    putStrLn
+      ( "# Package "
+          ++ Pkg.toChars packageName
+          ++ "@"
+          ++ Elm.Version.toChars version
+      )
+    printDocs docsByModule
+
+
+writeProjectAndDependencyDocs :: FilePath -> [(Name.Name, Text.Text)] -> [((Pkg.Name, Elm.Version.Version), [(Name.Name, Text.Text)])] -> IO ()
+writeProjectAndDependencyDocs outputDir projectDocs packageDocs = do
+  let projectOutputDir = outputDir Path.</> "project"
+      packagesOutputDir = outputDir Path.</> "packages"
+
+  writeDocsFiles projectOutputDir projectDocs
+
+  Monad.forM_ packageDocs $ \((packageName, version), docsByModule) -> do
+    let packageRoot =
+          packagesOutputDir
+            Path.</> Pkg.toFilePath packageName
+            Path.</> Elm.Version.toChars version
+    writeDocsFiles packageRoot docsByModule
+
+  let packageCount = length packageDocs
+      packageModuleCount = sum (map (length . snd) packageDocs)
+
+  putStrLn
+    ( "Wrote docs for "
+        ++ show (length projectDocs)
+        ++ " project module(s) and "
+        ++ show packageModuleCount
+        ++ " dependency module(s) across "
+        ++ show packageCount
+        ++ " package(s) under "
+        ++ outputDir
+        ++ "."
+    )
+
+
+moduleNameToOutputPath :: FilePath -> Name.Name -> FilePath
+moduleNameToOutputPath outputDir moduleName =
+  let parts = splitOn '.' (Name.toChars moduleName)
+   in Path.joinPath (outputDir : parts) ++ ".md"
+
+
+resolveModulePatterns :: [String] -> [Name.Name] -> Either String [Name.Name]
+resolveModulePatterns rawPatterns availableModules = do
+  parsedPatterns <- Monad.mapM parseModulePattern rawPatterns
+  let moduleNames = map Name.toChars availableModules
+      availableSet = Set.fromList moduleNames
+
+  selections <- Monad.mapM (resolvePattern availableSet moduleNames) parsedPatterns
+  let deduped = dedupePreservingOrder (concat selections)
+
+  if null deduped
+    then Left "No matching modules were found in this project."
+    else Right (map Name.fromChars deduped)
+
+
+resolvePattern :: Set.Set String -> [String] -> ModulePattern -> Either String [String]
+resolvePattern availableSet moduleNames patternToResolve =
+  case patternToResolve of
+    ExactModule moduleName ->
+      let moduleChars = Name.toChars moduleName
+       in if Set.member moduleChars availableSet
+            then Right [moduleChars]
+            else Left ("Module not found in this project: " ++ moduleChars)
+
+    NamespaceModule namespacePrefix ->
+      let namespaceStart = namespacePrefix ++ "."
+          matches =
+            filter
+              (\candidate ->
+                 Data.List.isPrefixOf namespaceStart candidate
+                   && not (Data.List.isInfixOf "." (drop (length namespaceStart) candidate))
+              )
+              moduleNames
+       in if null matches
+            then Left ("No modules match pattern: " ++ namespacePrefix ++ ".*")
+            else Right matches
+
+
+dedupePreservingOrder :: [String] -> [String]
+dedupePreservingOrder names =
+  reverse (snd (foldl step (Set.empty, []) names))
+  where
+    step (seen, acc) name =
+      if Set.member name seen
+        then (seen, acc)
+        else (Set.insert name seen, name : acc)
+
+
+parseModulePattern :: String -> Either String ModulePattern
+parseModulePattern charsRaw =
+  let chars = trimWhitespace charsRaw
+   in case Text.stripSuffix ".*" (Text.pack chars) of
+        Just namespaceText ->
+          let namespace = Text.unpack namespaceText
+           in if isValidModuleNamespace namespace
+                then Right (NamespaceModule namespace)
+                else Left ("Invalid module wildcard pattern: " ++ chars)
+
+        Nothing ->
+          case parseElmModule chars of
+            Nothing -> Left ("Invalid module name: " ++ chars)
+            Just modul -> Right (ExactModule modul)
+
+
+isValidModuleNamespace :: String -> Bool
+isValidModuleNamespace chars =
+  case splitOn '.' chars of
+    [] ->
+      False
+
+    parts ->
+      not (null chars) && all isValidElmPiece parts
+
+
+parseDocsInput :: [String] -> Either String DocsInput
+parseDocsInput [] =
+  Right DocsFromProjectAndDependencies
+
+parseDocsInput args =
+  let packageLike = filter isPackageArgument args
+      moduleLike = filter (not . isPackageArgument) args
+   in case packageLike of
+        [] ->
+          Right (DocsFromModules moduleLike)
+
+        [packageText] ->
+          if null moduleLike
+            then fmap (\(pkg, maybeVersion) -> DocsFromPackage pkg maybeVersion) (parsePackageWithVersion packageText)
+            else Left "When providing a package, do not provide module names."
+
+        _ ->
+          Left "Please provide only one package name."
+
+
+isPackageArgument :: String -> Bool
+isPackageArgument chars =
+  Data.List.isInfixOf "/" chars
+
+
+parsePackageWithVersion :: String -> Either String (Pkg.Name, Maybe Elm.Version.Version)
+parsePackageWithVersion raw =
+  case splitOn '@' (trimWhitespace raw) of
+    [pkgChars] ->
+      case parsePkgName pkgChars of
+        Nothing -> Left "Invalid package name. Expected author/project"
+        Just pkg -> Right (pkg, Nothing)
+
+    [pkgChars, versionChars] ->
+      case (parsePkgName pkgChars, parseSemver versionChars) of
+        (Nothing, _) -> Left "Invalid package name. Expected author/project"
+        (_, Nothing) -> Left "Invalid version. Expected MAJOR.MINOR.PATCH"
+        (Just pkg, Just version) -> Right (pkg, Just version)
+
+    _ ->
+      Left "Invalid package format. Expected author/project or author/project@MAJOR.MINOR.PATCH"
+
+
+parseSemver :: String -> Maybe Elm.Version.Version
+parseSemver versionChars =
+  case splitOn '.' versionChars of
+    [majorChars, minorChars, patchChars] -> do
+      major <- readWord16 majorChars
+      minor <- readWord16 minorChars
+      patch <- readWord16 patchChars
+      pure (Elm.Version.Version major minor patch)
+
+    _ ->
+      Nothing
+
+
+readWord16 :: String -> Maybe Word.Word16
+readWord16 chars =
+  case Read.readMaybe chars :: Maybe Int of
+    Nothing ->
+      Nothing
+
+    Just value ->
+      if value < 0 || value > 65535
+        then Nothing
+        else Just (fromIntegral value)
+
+
+renderModuleEntryFromProject :: FilePath -> FilePath -> (Name.Name, Docs.Module) -> (Name.Name, Text.Text)
+renderModuleEntryFromProject root modulePath (moduleName, docsModule) =
+  let moduleNameText = Text.pack (Name.toChars moduleName)
+      meta =
+        DocsMarkdown.ModuleMeta
+          moduleNameText
+          (Just root)
+          (Just modulePath)
+          Nothing
+      fullBody = DocsMarkdown.renderModule meta docsModule
+   in (moduleName, fullBody)
+
+
+renderModuleEntryFromPackage :: Pkg.Name -> Elm.Version.Version -> (Name.Name, Docs.Module) -> (Name.Name, Text.Text)
+renderModuleEntryFromPackage packageName version (moduleName, docsModule) =
+  let moduleNameText = Text.pack (Name.toChars moduleName)
+      packageText = Text.pack (Pkg.toChars packageName ++ "@" ++ Elm.Version.toChars version)
+      meta =
+        DocsMarkdown.ModuleMeta
+          moduleNameText
+          Nothing
+          Nothing
+          (Just packageText)
+      fullBody = DocsMarkdown.renderModule meta docsModule
+   in (moduleName, fullBody)
 
 mcpCommand :: CommandParser.Command
 mcpCommand = CommandParser.command ["mcp"] "Start the Elm Dev MCP server" devGroup CommandParser.noArg parseServerFlags runServer
@@ -477,6 +964,7 @@ main = do
     [ Gen.Commands.initialize,
       Gen.Commands.Make.command,
       installCommand,
+      docsMarkdownCommand,
       Gen.Commands.addPage,
       Gen.Commands.addStore,
       Gen.Commands.addEffect,

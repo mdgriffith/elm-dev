@@ -4,7 +4,7 @@ module Gen.Commands (initialize, addPage, addStore, addEffect, addDocs, addTheme
 
 import qualified CommandParser
 import Control.Monad (when)
-import Data.Aeson (eitherDecodeStrict)
+import Data.Aeson (Value, eitherDecodeStrict, object, (.=))
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Char as Char
@@ -167,10 +167,94 @@ addTheme = CommandParser.command ["add", "theme"] "Add a theme" addGroup Command
         Just _ ->
           fail "Theme section already exists in config"
         Nothing -> do
-          -- let newConfig = configResult {Config.configTheme = Just Config.defaultTheme}
-          let newConfig = configResult {Config.configTheme = Nothing}
+          let newConfig = configResult {Config.configTheme = Just defaultTheme}
           BS.writeFile "elm.dev.json" (Aeson.encodePretty newConfig)
           putStrLn "Added theme section to config"
+
+defaultTheme :: Value
+defaultTheme =
+  object
+    [ "target" .= ("elm-ui" :: Text),
+      "scale" .= (4 :: Int),
+      "borderWidthScale" .= (1 :: Int),
+      "colors"
+        .= object
+          [ "neutral" .= object ["swatchFrom" .= ("#6B7280" :: Text)],
+            "brand" .= object ["swatchFrom" .= ("#2563EB" :: Text)],
+            "white" .= ("#FFFFFF" :: Text),
+            "black" .= ("#111111" :: Text)
+          ],
+      "colorRoles"
+        .= object
+          [ "text"
+              .= object
+                [ "default" .= ("neutral20" :: Text),
+                  "muted" .= ("neutral40" :: Text),
+                  "onBrand" .= ("white50" :: Text),
+                  "@dark"
+                    .= object
+                      [ "default" .= ("neutral90" :: Text),
+                        "muted" .= ("neutral70" :: Text),
+                        "onBrand" .= ("white95" :: Text)
+                      ]
+                ],
+            "background"
+              .= object
+                [ "canvas" .= ("white50" :: Text),
+                  "surface" .= ("neutral95" :: Text),
+                  "primary" .= ("brand40" :: Text),
+                  "@dark"
+                    .= object
+                      [ "canvas" .= ("neutral10" :: Text),
+                        "surface" .= ("neutral20" :: Text),
+                        "primary" .= ("brand80" :: Text)
+                      ]
+                ],
+            "border"
+              .= object
+                [ "default" .= ("neutral80" :: Text),
+                  "focus" .= ("brand50" :: Text),
+                  "@dark"
+                    .= object
+                      [ "default" .= ("neutral30" :: Text),
+                        "focus" .= ("brand80" :: Text)
+                      ]
+                ]
+          ],
+      "typography"
+        .= object
+          [ "families"
+              .= object
+                [ "uiSans" .= [("Inter" :: Text), ("sans-serif" :: Text)],
+                  "serifDisplay" .= [("EB Garamond" :: Text), ("serif" :: Text)]
+                ],
+            "instances"
+              .= object
+                [ "body"
+                    .= object
+                      [ "family" .= ("uiSans" :: Text),
+                        "size" .= (16 :: Int),
+                        "weight" .= (400 :: Int),
+                        "lineHeight" .= (1.5 :: Double)
+                      ],
+                  "title"
+                    .= object
+                      [ "family" .= ("serifDisplay" :: Text),
+                        "size" .= (32 :: Int),
+                        "weight" .= (700 :: Int),
+                        "lineHeight" .= (1.2 :: Double)
+                      ]
+                ]
+          ],
+      "borders"
+        .= object
+          [ "radius"
+              .= object
+                [ "sm" .= (4 :: Int),
+                  "md" .= (8 :: Int)
+                ]
+          ]
+    ]
 
 -- TYPES
 

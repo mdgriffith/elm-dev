@@ -69,54 +69,68 @@ command =
         (CommandParser.flagWithArg "report" "Report type (json)" parseReportType)
         (CommandParser.flag "hot" "Enable hot reload")
     parseMakeArgs =
-      CommandParser.parseArgList (CommandParser.arg "module")
+      CommandParser.parseOptionalArgList (CommandParser.arg "module")
 
 parseReportType :: String -> Maybe Make.ReportType
 parseReportType "json" = Just Make.Json
 parseReportType _ = Nothing
 
-run :: Maybe FilePath -> (String, [String]) -> (Maybe Bool, Maybe Bool, Maybe Make.Output, Maybe Make.ReportType, Maybe Bool) -> IO ()
-run maybeCwd (fstModule, modules) (debug, optimize, output, report, hot) = do
+run :: Maybe FilePath -> [String] -> (Maybe Bool, Maybe Bool, Maybe Make.Output, Maybe Make.ReportType, Maybe Bool) -> IO ()
+run maybeCwd modulesArg (debug, optimize, output, report, hot) = do
   cwd <- Dir.getCurrentDirectory
-  if fromMaybe False hot
-    then do
-      maybeDaemonStatus <- Watchtower.Server.Daemon.status
-      
-      case maybeDaemonStatus of
-        Just st -> do
-          let base = "http://" ++ Watchtower.Server.Daemon.domain st ++ ":" ++ show (Watchtower.Server.Daemon.httpPort st) ++ "/dev/js"
-          let qs =
-                [ ("dir", cwd)
-                , ("file", fstModule)
-                , ("debug", if fromMaybe False debug then "true" else "false")
-                , ("optimize", if fromMaybe False optimize then "true" else "false")
-                ]
-          let url = Http.toUrl base qs
-          _ <- hotDevRequest url output
-          return ()
-        Nothing -> do
-          putStrLn "Daemon not running"
-          return ()
+  modules <- resolveModules cwd modulesArg
+  codegenResult <- Gen.Generate.run cwd
+  case codegenResult of
+    Left err ->
+      putStrLn err
+    Right () ->
+      if fromMaybe False hot
+        then do
+          maybeDaemonStatus <- Watchtower.Server.Daemon.status
+
+          case maybeDaemonStatus of
+            Just st ->
+              case modules of
+                fstModule : _ -> do
+                  let base = "http://" ++ Watchtower.Server.Daemon.domain st ++ ":" ++ show (Watchtower.Server.Daemon.httpPort st) ++ "/dev/js"
+                  let qs =
+                        [ ("dir", cwd)
+                        , ("file", fstModule)
+                        , ("debug", if fromMaybe False debug then "true" else "false")
+                        , ("optimize", if fromMaybe False optimize then "true" else "false")
+                        ]
+                  let url = Http.toUrl base qs
+                  _ <- hotDevRequest url output
+                  return ()
+
+                [] ->
+                  putStrLn "No entrypoints provided."
+
+            Nothing ->
+              putStrLn "Daemon not running"
+        else
+          Dir.withCurrentDirectory cwd $ do
+            Ext.Log.with [Ext.Log.ElmCompilerError] $
+              Make.run
+                modules
+                ( Make.Flags
+                    (fromMaybe False debug)
+                    (fromMaybe False optimize)
+                    output
+                    report
+                    Nothing
+                )
+
+
+resolveModules :: FilePath -> [String] -> IO [String]
+resolveModules cwd modulesArg = do
+  if not (null modulesArg)
+    then return modulesArg
     else do
-        Dir.withCurrentDirectory cwd $ do
-          codegenResult <- Gen.Generate.run cwd
-          case codegenResult of
-            Right () -> do
-                Ext.Log.with [Ext.Log.ElmCompilerError] $
-                  Make.run
-                    (fstModule : modules)
-                    ( Make.Flags
-                        (fromMaybe False debug)
-                        (fromMaybe False optimize)
-                        output
-                        report
-                        Nothing
-                    )
-                return ()
-                
-            Left err -> do
-                putStrLn err
-                return ()
+      hasElmDevJson <- Dir.doesFileExist (cwd </> "elm.dev.json")
+      if hasElmDevJson
+        then return ["elm-stuff/generated/Main.elm"]
+        else return modulesArg
 
 -- | GET the dev JS and handle output based on HTTP status
 hotDevRequest :: String -> Maybe Make.Output -> IO (Either () ())

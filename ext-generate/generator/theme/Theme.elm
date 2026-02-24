@@ -13,10 +13,10 @@ type alias Theme =
     , colors : List ColorInstance
     , target : Target
     , themes : Maybe ColorThemeDefinitions
-    , spacing : List (Named Int)
+    , spacing : Int
     , typography : List (Named Typeface)
     , borderRadii : List (Named Int)
-    , borderWidths : List (Named Int)
+    , borderWidths : Int
     }
 
 
@@ -179,7 +179,7 @@ fullColorNameToCssVar fullColorName =
                 Nothing ->
                     ""
     in
-    "var(--" ++ decapitalize fullColorName.base ++ variant ++ ")"
+    "var(--color-" ++ decapitalize fullColorName.base ++ variant ++ ")"
 
 
 fullColorToCssClass : String -> FullColorName -> String
@@ -299,16 +299,7 @@ stateToString state =
 
 toColorVar : ColorInstance -> String
 toColorVar colorInstance =
-    let
-        var =
-            "var(--" ++ decapitalize colorInstance.name ++ ")"
-    in
-    case colorInstance.variant of
-        Just variant ->
-            "oklch(from " ++ var ++ " " ++ String.fromInt variant ++ "% c h)"
-
-        Nothing ->
-            var
+    "var(--color-" ++ decapitalize (toColorName colorInstance) ++ ")"
 
 
 toColorName : ColorInstance -> String

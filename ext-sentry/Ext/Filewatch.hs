@@ -67,9 +67,10 @@ getEventFilePath event =
 
 shouldTrigger :: System.FSNotify.Event -> Bool
 shouldTrigger event =
-    let
-        path = getEventFilePath event
-    in
+    shouldTriggerPath (getEventFilePath event)
+
+shouldTriggerPath :: FilePath -> Bool
+shouldTriggerPath path =
     not (List.isInfixOf ".git" path)
         && not (List.isInfixOf "elm-stuff" path)
         && not (List.isInfixOf "node_modules" path)

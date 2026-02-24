@@ -17,8 +17,8 @@
     "install:vscode": "stack --local-bin-path ./apps/vscode/out install",
     "prepare:vscode": "bun install:vscode ; (cd apps/vscode ; bun package)",
     "build:proxy:release": "cd apps/proxy && cargo build --release",
-    "build": "stack build",
-    "test-all": "bash scripts/test-project.sh",
+    "build": "bash scripts/build-generator-assets.sh && stack build",
+    "test": "npm run test-generation && stack test elm-dev:elm-dev-tests",
     "test-generation": "bash scripts/test-generation.sh",
     "stack:run": "stack run --",
     "check:ts-tools": "cd apps/ts-tool && tsc"

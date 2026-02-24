@@ -12,8 +12,10 @@ module Watchtower.Server.MCP.Docs
 
 import qualified Data.Text as Text
 import Data.Text (Text)
+import qualified Data.List as List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Maybe (mapMaybe)
 import qualified Data.Name as Name
 import qualified Elm.Docs as Docs
 import qualified Elm.Compiler.Type as ElmType
@@ -43,6 +45,16 @@ markdownDoc metaYaml body =
     if Text.isSuffixOf "\n" body then "" else "\n"
   ]
 
+markdownDocWithToc :: Text -> Text -> Text
+markdownDocWithToc metaYaml body =
+  let tocEntries = extractTocEntries body
+      tocYaml = renderTocYaml tocEntries
+      fullMeta =
+        if Text.null tocYaml
+          then metaYaml
+          else Text.concat [metaYaml, "\n", tocYaml]
+  in markdownDoc fullMeta body
+
 data ModuleMeta = ModuleMeta
   { moduleName :: Text
   , moduleProjectRoot :: Maybe FilePath
@@ -67,11 +79,7 @@ data PackageMeta = PackageMeta
 renderModuleMeta :: ModuleMeta -> Text
 renderModuleMeta meta =
   let pairs =
-        [ ("module_name", moduleName meta)
-        ]
-        ++ maybe [] (\p -> [("project_root", Text.pack p)]) (moduleProjectRoot meta)
-        ++ maybe [] (\p -> [("path", Text.pack p)]) (moduleFilePath meta)
-        ++ maybe [] (\p -> [("package", p)]) (moduleFromPackage meta)
+        maybe [] (\p -> [("package", p)]) (moduleFromPackage meta)
   in renderYamlLines pairs
 
 renderValueMeta :: ValueMeta -> Text
@@ -96,8 +104,8 @@ renderPackageMeta meta =
 
 renderModule :: ModuleMeta -> Docs.Module -> Text
 renderModule meta modu =
-  let body = toMarkdown modu
-  in markdownDoc (renderModuleMeta meta) body
+  let body = normalizeSpacing (toMarkdown modu)
+  in markdownDocWithToc (renderModuleMeta meta) body
 
 -- public: render a single value from a module as a complete markdown doc
 renderValue :: ValueMeta -> Docs.Module -> Name.Name -> Text
@@ -105,13 +113,13 @@ renderValue meta (Docs.Module _ _ unions aliases values binops) valueNm =
   let nm = Text.pack (Name.toChars valueNm)
 
       body = case Map.lookup valueNm values of
-        Just v  -> renderValueBlock nm v
+        Just v  -> elmBlock (renderValueElmDecl nm v)
         Nothing -> case Map.lookup valueNm aliases of
-          Just a  -> renderAliasBlock nm a
+          Just a  -> elmBlock (renderAliasElmDecl nm a)
           Nothing -> case Map.lookup valueNm unions of
-            Just u  -> renderUnionBlock nm u
+            Just u  -> elmBlock (renderUnionElmDecl nm u)
             Nothing -> case Map.lookup valueNm binops of
-              Just b  -> renderBinopBlock nm b
+              Just b  -> elmBlock (renderBinopElmDecl nm b)
               Nothing -> Text.concat ["## ", nm, "\n\n_(not found in docs)_\n"]
   in markdownDoc (renderValueMeta meta) body
 
@@ -135,60 +143,82 @@ renderPackage pkgMeta mReadme modules =
 
 -- Convert an Elm Docs.Module into a markdown body by expanding @docs references
 toMarkdown :: Docs.Module -> Text
-toMarkdown (Docs.Module modName modComment unions aliases values _binops) =
+toMarkdown (Docs.Module modName modComment unions aliases values binops) =
   let commentText = Text.pack (Json.String.toChars modComment)
       -- Json.String is already JSON-escaped, so newlines are represented as the two characters \ and n
       -- Split on the literal "\\n" sequence rather than actual newline characters
       lines0 = Text.splitOn "\\n" commentText
+      moduleHeader = Text.concat ["# ", Text.pack (Name.toChars modName)]
+
+      renderNamed nm =
+        let nmTxt = Text.pack (Name.toChars nm) in
+        case Map.lookup nm values of
+          Just v  -> Just (renderValueElmDecl nmTxt v)
+          Nothing -> case Map.lookup nm aliases of
+            Just a  -> Just (renderAliasElmDecl nmTxt a)
+            Nothing -> case Map.lookup nm unions of
+              Just u  -> Just (renderUnionElmDecl nmTxt u)
+              Nothing -> case Map.lookup nm binops of
+                Just b  -> Just (renderBinopElmDecl nmTxt b)
+                Nothing -> Nothing
 
       step (accText, seen) line =
-        if Text.isPrefixOf "@docs" line then
-          let names = parseDocsRefs line
-              (renderedBlocks, newlySeen) =
-                foldr (\nm (bs, s) ->
-                  let nmTxt = Text.pack (Name.toChars nm) in
-                  case Map.lookup nm values of
-                    Just v  -> (renderValueBlock nmTxt v : bs, Set.insert nm s)
-                    Nothing -> case Map.lookup nm aliases of
-                      Just a  -> (renderAliasBlock nmTxt a : bs, Set.insert nm s)
-                      Nothing -> case Map.lookup nm unions of
-                        Just u  -> (renderUnionBlock nmTxt u : bs, Set.insert nm s)
-                        Nothing -> (bs, s)
-                ) ([], seen) names
-              chunk = Text.intercalate "\n" renderedBlocks
+        let stripped = Text.stripStart line in
+        if Text.isPrefixOf "@docs" stripped then
+          let names = parseDocsRefs stripped
+              renderedDecls = mapMaybe renderNamed names
+              newlySeen = foldl (\s n -> Set.insert n s) seen names
+              chunk =
+                if null renderedDecls
+                  then ""
+                  else elmBlock (Text.intercalate "\n\n" renderedDecls)
               acc' = if Text.null accText then chunk else Text.intercalate "\n" (filter (not . Text.null) [accText, chunk])
           in (acc', newlySeen)
         else
-          let acc' = if Text.null accText then line else Text.concat [accText, "\n", line]
+          let lineAdjusted =
+                if Text.isPrefixOf "#" stripped
+                  then Text.concat ["#", stripped]
+                  else line
+              acc' = if Text.null accText then lineAdjusted else Text.concat [accText, "\n", lineAdjusted]
           in (acc', seen)
 
       (bodyPrefix, seenRefs) = foldl step (Text.empty, Set.empty) lines0
 
       trailingUnions =
         Map.foldrWithKey
-          (\n u acc -> if Set.member n seenRefs then acc else renderUnionBlock (Text.pack (Name.toChars n)) u : acc)
+          (\n u acc -> if Set.member n seenRefs then acc else renderUnionElmDecl (Text.pack (Name.toChars n)) u : acc)
           []
           unions
 
       trailingAliases =
         Map.foldrWithKey
-          (\n a acc -> if Set.member n seenRefs then acc else renderAliasBlock (Text.pack (Name.toChars n)) a : acc)
+          (\n a acc -> if Set.member n seenRefs then acc else renderAliasElmDecl (Text.pack (Name.toChars n)) a : acc)
           []
           aliases
 
       trailingValues =
         Map.foldrWithKey
-          (\n v acc -> if Set.member n seenRefs then acc else renderValueBlock (Text.pack (Name.toChars n)) v : acc)
+          (\n v acc -> if Set.member n seenRefs then acc else renderValueElmDecl (Text.pack (Name.toChars n)) v : acc)
           []
           values
 
-      trailingBlocks = trailingUnions ++ trailingAliases ++ trailingValues
+      trailingBinops =
+        Map.foldrWithKey
+          (\n b acc -> if Set.member n seenRefs then acc else renderBinopElmDecl (Text.pack (Name.toChars n)) b : acc)
+          []
+          binops
+
+      trailingDecls = trailingUnions ++ trailingAliases ++ trailingValues ++ trailingBinops
+      trailingBlock =
+        if null trailingDecls
+          then ""
+          else elmBlock (Text.intercalate "\n\n" trailingDecls)
 
       body =
-        case trailingBlocks of
-          [] -> bodyPrefix
-          _  -> Text.intercalate "\n\n" (filter (not . Text.null) [bodyPrefix, Text.intercalate "\n\n" trailingBlocks])
-      
+        if Text.null trailingBlock
+          then Text.intercalate "\n\n" (filter (not . Text.null) [moduleHeader, bodyPrefix])
+          else Text.intercalate "\n\n" (filter (not . Text.null) [moduleHeader, bodyPrefix, trailingBlock])
+       
   in body
 
 -- Parse an @docs line to a list of names
@@ -262,39 +292,45 @@ commentToText s =
   let raw = Text.pack (Json.String.toChars s)
   in Text.replace "\\n" "\n" (Text.strip raw)
 
--- Render an Elm code block with an optional doc comment.
--- If the rendered comment text is empty, omit the doc comment.
-elmBlock :: Json.String.String -> Text -> Text
-elmBlock c body =
+fenceTicks :: Text
+fenceTicks = "````"
+
+elmBlock :: Text -> Text
+elmBlock body =
+  Text.intercalate "\n"
+    [ Text.concat [fenceTicks, "elm"]
+    , body
+    , fenceTicks
+    ]
+
+renderCommentInElm :: Json.String.String -> Text
+renderCommentInElm c =
   let doc = commentToText c
   in if Text.null doc then
-    Text.intercalate "\n"
-      [ "```elm"
-      , body
-      , "```"
-      ]
-  else
-    Text.intercalate "\n"
-      [ "```elm"
-      , Text.concat ["{-| ", doc, "-}"]
-      , body
-      , "```"
-      ]
+       ""
+     else
+       Text.intercalate "\n"
+         [ "{-|"
+         , doc
+         , "-}"
+         ]
 
-renderValueBlock :: Text -> Docs.Value -> Text
-renderValueBlock nm (Docs.Value comment tipe) =
-  elmBlock comment (Text.concat [ nm, " : ", typeToText tipe])
+renderValueElmDecl :: Text -> Docs.Value -> Text
+renderValueElmDecl nm (Docs.Value comment tipe) =
+  let declaration = Text.concat [ nm, " : ", typeToText tipe]
+      commentBlock = renderCommentInElm comment
+  in if Text.null commentBlock then declaration else Text.concat [commentBlock, "\n", declaration]
 
-renderAliasBlock :: Text -> Docs.Alias -> Text
-renderAliasBlock nm (Docs.Alias comment args tipe) =
+renderAliasElmDecl :: Text -> Docs.Alias -> Text
+renderAliasElmDecl nm (Docs.Alias comment args tipe) =
   let argsText = if null args then Text.empty else Text.concat [" ", Text.intercalate " " (map (Text.pack . Name.toChars) args)]
-      body = Text.concat ["type alias ", nm, argsText, " = ", typeToText tipe]
-  in
-  elmBlock comment body
+      declaration = Text.concat ["type alias ", nm, argsText, " = ", typeToText tipe]
+      commentBlock = renderCommentInElm comment
+  in if Text.null commentBlock then declaration else Text.concat [commentBlock, "\n", declaration]
   
 
-renderUnionBlock :: Text -> Docs.Union -> Text
-renderUnionBlock nm (Docs.Union comment args ctors) =
+renderUnionElmDecl :: Text -> Docs.Union -> Text
+renderUnionElmDecl nm (Docs.Union comment args ctors) =
   let argsText = if null args then Text.empty else Text.concat [" ", Text.intercalate " " (map (Text.pack . Name.toChars) args)]
       ctorFirstLine (ctorName, ctorArgs) =
         let ctorNm = Text.pack (Name.toChars ctorName)
@@ -313,14 +349,67 @@ renderUnionBlock nm (Docs.Union comment args ctors) =
         (first:rest) ->
           let firstLine = ctorFirstLine first
           in Text.intercalate "\n" (firstLine : map ctorRestLine rest)
-      body = Text.intercalate "\n"
+      declaration = Text.intercalate "\n"
         [ Text.concat ["type ", nm, argsText]
         , ctorsBlock
         ]
-  in elmBlock comment body
+      commentBlock = renderCommentInElm comment
+  in if Text.null commentBlock then declaration else Text.concat [commentBlock, "\n", declaration]
     
 
-renderBinopBlock :: Text -> Docs.Binop -> Text
-renderBinopBlock nm (Docs.Binop comment tipe _ _) =
-  elmBlock comment (Text.concat [ nm, " : ", typeToText tipe])
+renderBinopElmDecl :: Text -> Docs.Binop -> Text
+renderBinopElmDecl nm (Docs.Binop comment tipe _ _) =
+  let declaration = Text.concat [ nm, " : ", typeToText tipe]
+      commentBlock = renderCommentInElm comment
+  in if Text.null commentBlock then declaration else Text.concat [commentBlock, "\n", declaration]
+
+
+extractTocEntries :: Text -> [Text]
+extractTocEntries body =
+  let step (inFence, acc) line =
+        let stripped = Text.strip line
+            isFence = Text.isPrefixOf "```" stripped
+        in if isFence then
+             (not inFence, acc)
+           else if inFence then
+             (inFence, acc)
+           else if Text.isPrefixOf "#" stripped then
+             let noHashes = Text.dropWhile (== '#') stripped
+                 cleaned = Text.strip noHashes
+             in if Text.null cleaned
+                  then (inFence, acc)
+                  else (inFence, cleaned : acc)
+           else
+             (inFence, acc)
+      (_, entriesReversed) = foldl step (False, []) (Text.lines body)
+      allEntries = List.nub (reverse entriesReversed)
+  in case allEntries of
+       [] -> []
+       _moduleTitle : rest -> rest
+
+
+renderTocYaml :: [Text] -> Text
+renderTocYaml entries =
+  case entries of
+    [] -> ""
+    _ ->
+      Text.intercalate "\n" ("toc:" : map (\entry -> Text.concat ["  - ", yamlQuote entry]) entries)
+
+
+yamlQuote :: Text -> Text
+yamlQuote t =
+  Text.concat ["\"", Text.replace "\"" "\\\"" t, "\""]
+
+
+normalizeSpacing :: Text -> Text
+normalizeSpacing txt =
+  let lines0 = Text.lines txt
+      step (acc, blankCount) line =
+        let isBlank = Text.null (Text.strip line)
+        in if isBlank then
+             if blankCount >= 1 then (acc, blankCount + 1) else (acc ++ [""], 1)
+           else
+             (acc ++ [line], 0)
+      (collapsed, _) = foldl step ([], 0) lines0
+  in Text.stripEnd (Text.unlines collapsed)
   

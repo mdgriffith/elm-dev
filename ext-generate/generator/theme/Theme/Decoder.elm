@@ -112,7 +112,7 @@ gatherAltnerateThemeNames defs existing =
 
 decode : Json.Decode.Decoder Theme
 decode =
-    Json.Decode.at [ "colors", "palette" ] decodeColorSwatch
+    Json.Decode.field "colors" decodeColorSwatch
         |> Json.Decode.andThen
             (\colorSwatches ->
                 Json.Decode.map6 (Theme "ui" colorSwatches)
@@ -123,72 +123,380 @@ decode =
                             ]
                         )
                     )
-                    (Json.Decode.map Just
-                        (Json.Decode.at [ "colors", "aliases" ]
-                            (decodeSemanticMap
-                                [ "primary"
-                                , "neutral"
-                                , "success"
-                                , "error"
-                                ]
-                            )
-                            |> Json.Decode.andThen
-                                (\semanticMap ->
-                                    Json.Decode.field "colors"
-                                        (Json.Decode.map3
-                                            (\text bgs borders ->
-                                                let
-                                                    uniqueThemeNames =
-                                                        Set.empty
-                                                            |> gatherAltnerateThemeNames text
-                                                            |> gatherAltnerateThemeNames bgs
-                                                            |> gatherAltnerateThemeNames borders
-                                                in
-                                                { default =
-                                                    { text = List.filter (\t -> t.theme == Nothing) text
-                                                    , background = List.filter (\t -> t.theme == Nothing) bgs
-                                                    , border = List.filter (\t -> t.theme == Nothing) borders
-                                                    }
-                                                , alternates =
-                                                    Set.toList uniqueThemeNames
-                                                        |> List.map
-                                                            (\name ->
-                                                                { name = Name name
-                                                                , item =
-                                                                    { text = List.filter (\t -> t.theme == Just name) text
-                                                                    , background = List.filter (\t -> t.theme == Just name) bgs
-                                                                    , border = List.filter (\t -> t.theme == Just name) borders
-                                                                    }
-                                                                }
-                                                            )
-                                                }
-                                            )
-                                            (Json.Decode.field "text" (decodeNamedColorDefinitions colorSwatches semanticMap))
-                                            (Json.Decode.field "background" (decodeNamedColorDefinitions colorSwatches semanticMap))
-                                            (Json.Decode.field "border" (decodeNamedColorDefinitions colorSwatches semanticMap))
-                                        )
-                                )
-                        )
-                    )
-                    (Json.Decode.field "spacing"
-                        (decodeNamed Json.Decode.int)
-                    )
-                    (Json.Decode.field "typography"
-                        (Json.Decode.map List.concat (Json.Decode.list decodeTypeface))
-                    )
+                    (Json.Decode.field "colorRoles" (decodeColorRoles colorSwatches) |> Json.Decode.map Just)
+                    (Json.Decode.field "scale" decodeSpacingFromScale)
+                    (Json.Decode.field "typography" decodeTypography)
                     (Json.Decode.maybe
                         (Json.Decode.field "borders"
                             (Json.Decode.field "radius" (decodeNamed Json.Decode.int))
                         )
                         |> Json.Decode.map (Maybe.withDefault [])
                     )
-                    (Json.Decode.maybe
-                        (Json.Decode.field "borders"
-                            (Json.Decode.field "width" (decodeNamed Json.Decode.int))
-                        )
-                        |> Json.Decode.map (Maybe.withDefault [])
-                    )
+                    decodeBorderWidthScale
             )
+
+
+decodeSpacingFromScale : Json.Decode.Decoder Int
+decodeSpacingFromScale =
+    Json.Decode.int
+        |> Json.Decode.andThen
+            (\scale ->
+                if scale <= 0 then
+                    Json.Decode.fail "`scale` must be a positive integer"
+
+                else
+                    Json.Decode.succeed scale
+            )
+
+
+decodeBorderWidthScale : Json.Decode.Decoder Int
+decodeBorderWidthScale =
+    Json.Decode.maybe (Json.Decode.field "borderWidthScale" Json.Decode.int)
+        |> Json.Decode.andThen
+            (\maybeScale ->
+                let
+                    scale =
+                        Maybe.withDefault 1 maybeScale
+                in
+                if scale <= 0 then
+                    Json.Decode.fail "`borderWidthScale` must be a positive integer"
+
+                else
+                    Json.Decode.succeed scale
+            )
+
+
+decodeColorRoles : List Theme.ColorInstance -> Json.Decode.Decoder Theme.ColorThemeDefinitions
+decodeColorRoles colors =
+    Json.Decode.keyValuePairs Json.Decode.value
+        |> Json.Decode.andThen
+            (\pairs ->
+                let
+                    expectedNamespaces =
+                        [ "text", "background", "border" ]
+
+                    seenNamespaces =
+                        List.map Tuple.first pairs
+
+                    unknownNamespaces =
+                        List.filter (\name -> not (List.member name expectedNamespaces)) seenNamespaces
+
+                    missingNamespaces =
+                        List.filter (\name -> not (List.member name seenNamespaces)) expectedNamespaces
+                in
+                case ( unknownNamespaces, missingNamespaces ) of
+                    ( unknown :: _, _ ) ->
+                        Json.Decode.fail ("Unknown colorRoles namespace `" ++ unknown ++ "`. Supported namespaces: text, background, border")
+
+                    ( [], missing :: _ ) ->
+                        Json.Decode.fail ("Missing required colorRoles namespace `" ++ missing ++ "`")
+
+                    ( [], [] ) ->
+                        decodeColorRolesFromPairs colors pairs
+            )
+
+
+decodeColorRolesFromPairs :
+    List Theme.ColorInstance
+    -> List ( String, Json.Decode.Value )
+    -> Json.Decode.Decoder Theme.ColorThemeDefinitions
+decodeColorRolesFromPairs colors pairs =
+    let
+        findValue key =
+            pairs
+                |> List.filter (\( name, _ ) -> name == key)
+                |> List.head
+                |> Maybe.map Tuple.second
+    in
+    case ( findValue "text", findValue "background", findValue "border" ) of
+        ( Just textValue, Just backgroundValue, Just borderValue ) ->
+            Json.Decode.map3
+                (\text background border ->
+                    let
+                        hasDarkOverrides =
+                            text.dark /= Nothing || background.dark /= Nothing || border.dark /= Nothing
+
+                        darkTheme =
+                            { text = Maybe.withDefault text.base text.dark
+                            , background = Maybe.withDefault background.base background.dark
+                            , border = Maybe.withDefault border.base border.dark
+                            }
+                    in
+                    { default =
+                        { text = text.base
+                        , background = background.base
+                        , border = border.base
+                        }
+                    , alternates =
+                        if hasDarkOverrides then
+                            [ { name = Name "darkmode", item = darkTheme } ]
+
+                        else
+                            []
+                    }
+                )
+                (decodeColorRoleNamespace colors "text" textValue)
+                (decodeColorRoleNamespace colors "background" backgroundValue)
+                (decodeColorRoleNamespace colors "border" borderValue)
+
+        _ ->
+            Json.Decode.fail "colorRoles is missing one of: text, background, border"
+
+
+type alias DecodedRoleNamespace =
+    { base : List Theme.ColorDefinition
+    , dark : Maybe (List Theme.ColorDefinition)
+    }
+
+
+decodeColorRoleNamespace :
+    List Theme.ColorInstance
+    -> String
+    -> Json.Decode.Value
+    -> Json.Decode.Decoder DecodedRoleNamespace
+decodeColorRoleNamespace colors namespaceName value =
+    case Json.Decode.decodeValue (Json.Decode.keyValuePairs Json.Decode.value) value of
+        Err err ->
+            Json.Decode.fail (Json.Decode.errorToString err)
+
+        Ok pairs ->
+            let
+                modeKeys =
+                    List.filter (\( key, _ ) -> String.startsWith "@" key) pairs
+
+                invalidModeKeys =
+                    List.filter (\( key, _ ) -> key /= "@dark") modeKeys
+
+                basePairs =
+                    List.filter (\( key, _ ) -> not (String.startsWith "@" key)) pairs
+
+                maybeDarkValue =
+                    List.filter (\( key, _ ) -> key == "@dark") pairs
+                        |> List.head
+                        |> Maybe.map Tuple.second
+            in
+            case invalidModeKeys of
+                ( badMode, _ ) :: _ ->
+                    Json.Decode.fail ("Unsupported mode `" ++ badMode ++ "` under colorRoles." ++ namespaceName ++ ". Only @dark is supported")
+
+                [] ->
+                    decodeRoleDefinitions colors namespaceName Nothing basePairs
+                        |> Json.Decode.andThen
+                            (\baseDefs ->
+                                case maybeDarkValue of
+                                    Nothing ->
+                                        Json.Decode.succeed
+                                            { base = baseDefs
+                                            , dark = Nothing
+                                            }
+
+                                    Just darkValue ->
+                                        Json.Decode.decodeValue (decodeDarkModeDefinitions colors namespaceName baseDefs) darkValue
+                                            |> Result.mapError Json.Decode.errorToString
+                                            |> resultToDecoder
+                            )
+
+
+decodeDarkModeDefinitions :
+    List Theme.ColorInstance
+    -> String
+    -> List Theme.ColorDefinition
+    -> Json.Decode.Decoder DecodedRoleNamespace
+decodeDarkModeDefinitions colors namespaceName baseDefs =
+    Json.Decode.keyValuePairs Json.Decode.value
+        |> Json.Decode.andThen
+            (\darkPairs ->
+                decodeRoleDefinitions colors namespaceName (Just "darkmode") darkPairs
+                    |> Json.Decode.andThen
+                        (\darkDefs ->
+                            let
+                                baseKeys =
+                                    Set.fromList (List.map .name baseDefs)
+
+                                darkKeys =
+                                    Set.fromList (List.map .name darkDefs)
+                            in
+                            if baseKeys == darkKeys then
+                                Json.Decode.succeed
+                                    { base = baseDefs
+                                    , dark = Just darkDefs
+                                    }
+
+                            else
+                                Json.Decode.fail
+                                    ("colorRoles." ++ namespaceName ++ ".@dark must define exactly the same keys as colorRoles." ++ namespaceName)
+                        )
+            )
+
+
+decodeRoleDefinitions :
+    List Theme.ColorInstance
+    -> String
+    -> Maybe String
+    -> List ( String, Json.Decode.Value )
+    -> Json.Decode.Decoder (List Theme.ColorDefinition)
+decodeRoleDefinitions colors namespaceName maybeThemeName pairs =
+    pairs
+        |> List.map
+            (\( roleName, roleValue ) ->
+                Json.Decode.decodeValue (decodeRoleDefinition colors roleName maybeThemeName) roleValue
+            )
+        |> foldResults
+        |> Result.mapError
+            (\error ->
+                "Error in colorRoles."
+                    ++ namespaceName
+                    ++ ": "
+                    ++ Json.Decode.errorToString error
+            )
+        |> Result.map List.reverse
+        |> resultToDecoder
+
+
+decodeRoleDefinition :
+    List Theme.ColorInstance
+    -> String
+    -> Maybe String
+    -> Json.Decode.Decoder Theme.ColorDefinition
+decodeRoleDefinition colors roleName maybeThemeName =
+    Json.Decode.oneOf
+        [ Json.Decode.string
+            |> Json.Decode.andThen
+                (\tokenName ->
+                    case lookupExactColor tokenName colors of
+                        Nothing ->
+                            Json.Decode.fail ("I don't recognize this color token: " ++ tokenName)
+
+                        Just color ->
+                            Json.Decode.succeed
+                                { name = roleName
+                                , color = color
+                                , hover = Nothing
+                                , active = Nothing
+                                , focus = Nothing
+                                , theme = maybeThemeName
+                                }
+                )
+        , Json.Decode.map4
+            (\base hover active focus ->
+                { name = roleName
+                , color = base
+                , hover = hover
+                , active = active
+                , focus = focus
+                , theme = maybeThemeName
+                }
+            )
+            (Json.Decode.field "default" (decodeColorRef colors))
+            (maybeField "hover" (decodeColorRef colors))
+            (maybeField "active" (decodeColorRef colors))
+            (maybeField "focus" (decodeColorRef colors))
+        ]
+
+
+decodeTypography : Json.Decode.Decoder (List (Named Typeface))
+decodeTypography =
+    Json.Decode.map2 Tuple.pair
+        (Json.Decode.field "families" (Json.Decode.dict (nonEmptyList Json.Decode.string)))
+        (Json.Decode.field "instances" (Json.Decode.keyValuePairs decodeTypographyInstance))
+        |> Json.Decode.andThen
+            (\( families, instances ) ->
+                instances
+                    |> List.map
+                        (\( instanceName, instanceDef ) ->
+                            case Dict.get instanceDef.family families of
+                                Nothing ->
+                                    Json.Decode.fail
+                                        ("Typography instance `"
+                                            ++ instanceName
+                                            ++ "` references unknown family `"
+                                            ++ instanceDef.family
+                                            ++ "`"
+                                        )
+
+                                Just ( face, fallback ) ->
+                                    Json.Decode.succeed
+                                        { name = Name instanceName
+                                        , item =
+                                            { face = face
+                                            , fallback = fallback
+                                            , weight = ( toWeightName instanceDef.weight, instanceDef.weight )
+                                            , size = instanceDef.size
+                                            , lineHeight = instanceDef.lineHeight
+                                            , variants = []
+                                            , capitalSizing = Nothing
+                                            }
+                                        }
+                        )
+                    |> List.foldl
+                        (\decoder acc ->
+                            Json.Decode.map2 (::) decoder acc
+                        )
+                        (Json.Decode.succeed [])
+                    |> Json.Decode.map List.reverse
+            )
+
+
+decodeTypographyInstance :
+    Json.Decode.Decoder
+        { family : String
+        , size : Int
+        , weight : Int
+        , lineHeight : Float
+        }
+decodeTypographyInstance =
+    Json.Decode.map4
+        (\family size weight lineHeight ->
+            { family = family
+            , size = size
+            , weight = weight
+            , lineHeight = lineHeight
+            }
+        )
+        (Json.Decode.field "family" Json.Decode.string)
+        (Json.Decode.field "size" Json.Decode.int)
+        (Json.Decode.field "weight" Json.Decode.int)
+        (Json.Decode.field "lineHeight" Json.Decode.float)
+
+
+toWeightName : Int -> WeightName
+toWeightName weight =
+    if weight < 400 then
+        Light
+
+    else if weight >= 700 then
+        Bold
+
+    else
+        Default
+
+
+resultToDecoder : Result String a -> Json.Decode.Decoder a
+resultToDecoder result =
+    case result of
+        Ok value ->
+            Json.Decode.succeed value
+
+        Err message ->
+            Json.Decode.fail message
+
+
+foldResults : List (Result x a) -> Result x (List a)
+foldResults results =
+    List.foldl
+        (\next gathered ->
+            case ( next, gathered ) of
+                ( Ok value, Ok list ) ->
+                    Ok (value :: list)
+
+                ( Err err, _ ) ->
+                    Err err
+
+                ( _, Err err ) ->
+                    Err err
+        )
+        (Ok [])
+        results
 
 
 {-| A map of color names to semantic names
@@ -534,9 +842,7 @@ getState path =
 
 type ColorIntermediate
     = SingleColor Theme.Color.Color
-    | PaletteColor
-        { colors : List { name : String, color : Theme.Color.Color }
-        }
+    | SwatchFrom Color.Color
 
 
 decodeColorSwatch : Json.Decode.Decoder (List Theme.ColorInstance)
@@ -544,27 +850,15 @@ decodeColorSwatch =
     Json.Decode.keyValuePairs
         (Json.Decode.oneOf
             [ Json.Decode.map SingleColor decodeColor
-            , Json.Decode.keyValuePairs (Json.Decode.maybe decodeColor)
+            , Json.Decode.field "swatchFrom" decodeColor
                 |> Json.Decode.andThen
-                    (\colorPairs ->
-                        Json.Decode.succeed
-                            (PaletteColor
-                                { colors =
-                                    List.filterMap
-                                        (\( name, maybeColor ) ->
-                                            case maybeColor of
-                                                Nothing ->
-                                                    Nothing
+                    (\themeColor ->
+                        case themeColor of
+                            Theme.Color.Color _ color ->
+                                Json.Decode.succeed (SwatchFrom color)
 
-                                                Just color ->
-                                                    Just
-                                                        { name = name
-                                                        , color = color
-                                                        }
-                                        )
-                                        colorPairs
-                                }
-                            )
+                            Theme.Color.Grad _ ->
+                                Json.Decode.fail "`swatchFrom` only supports concrete colors, not gradients"
                     )
             ]
         )
@@ -582,20 +876,8 @@ decodeColorSwatch =
                         SingleColor (Theme.Color.Color _ color) ->
                             autoswatch key color
 
-                        PaletteColor pal ->
-                            List.map
-                                (\item ->
-                                    { color = item.color
-                                    , name = key
-                                    , variant =
-                                        String.toInt item.name
-                                            |> Maybe.map
-                                                (\n ->
-                                                    min 100 (max 0 n)
-                                                )
-                                    }
-                                )
-                                pal.colors
+                        SwatchFrom color ->
+                            autoswatch key color
                 )
             )
 
@@ -674,7 +956,8 @@ decodeTypeface =
                 (\( name, sizes ) ->
                     List.map
                         (\size ->
-                            Named (Name name)
+                            { name = Name name
+                            , item =
                                 { face = font
                                 , fallback = fallback
                                 , weight = size.weight
@@ -683,6 +966,7 @@ decodeTypeface =
                                 , variants = size.variants
                                 , capitalSizing = maybeCapitalSizing
                                 }
+                            }
                         )
                         sizes
                 )

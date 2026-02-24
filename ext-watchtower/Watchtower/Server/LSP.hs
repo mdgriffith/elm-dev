@@ -22,7 +22,7 @@ import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.TH
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Builder
-import Data.Char (toLower)
+import Data.Char (ord)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding
@@ -30,6 +30,7 @@ import qualified Ext.ElmFormat
 import qualified Ext.Common
 import qualified Ext.Dev
 import qualified Ext.FileCache
+import qualified File
 import qualified Ext.Render.Type
 import Data.Maybe (maybeToList)
 import qualified Data.Maybe as Maybe
@@ -277,6 +278,7 @@ handleDidOpen state openParams = do
     Just filePath -> do
       -- Update in-memory cache with the full document text
       Ext.FileCache.insert filePath (Data.Text.Encoding.encodeUtf8 text)
+      Watchtower.State.Compile.markFilesystemChanged state [filePath]
       -- Track editor open
       let (Client.State _ _ _ _ _ _ mEditorsOpen _) = state
       Control.Concurrent.STM.atomically $ do
@@ -309,6 +311,7 @@ handleDidChange state changeParams = do
         Left (Ext.FileCache.InvalidEdit err) -> 
           return $ Left $ "Invalid edit: " ++ err
         Right () -> do
+            Watchtower.State.Compile.markFilesystemChanged state [filePath]
             Watchtower.State.Compile.compileRelevantProjects state [filePath]
             return $ Right JSON.Null
 
@@ -361,12 +364,21 @@ handleDidSave state saveParams = do
   case uriToFilePath uri of
     Nothing -> return $ Right JSON.Null
     Just filePath -> do
+      case text of
+        Just fullText ->
+          Ext.FileCache.insert filePath (Data.Text.Encoding.encodeUtf8 fullText)
+        Nothing -> do
+          exists <- File.exists filePath
+          when exists $ do
+            bytes <- File.readUtf8 filePath
+            Ext.FileCache.insert filePath bytes
       -- If the project's elm.json changed and was saved, regenerate the cached test elm.json
       if System.FilePath.takeFileName filePath == "elm.json"
         then do
           _ <- TestCompile.regenerateTestElmJson (System.FilePath.takeDirectory filePath)
           pure ()
         else pure ()
+      Watchtower.State.Compile.markFilesystemChanged state [filePath]
       Watchtower.State.Compile.compileRelevantProjects state [filePath]
       return $ Right JSON.Null
 
@@ -585,12 +597,23 @@ handleDiagnostic state diagnosticParams = do
         Right (projectCache, _) ->
           do { diags <- Helpers.getDiagnosticsForProject state projectCache (Just filePath)
              ; (localizer_, warns) <- Helpers.getWarningsForFile state filePath
+             ; let allDiags = diags ++ concatMap Helpers.warningToUnusedDiagnostic warns
+             ; let resultId = diagnosticsResultId allDiags
 
-             -- Encode as JSON
-             ; let diagnosticsResponse = JSON.object
-                     [ "kind" .= ("full" :: Text)
-                     , "items" .= (diags ++ concatMap Helpers.warningToUnusedDiagnostic warns)
-                     ]
+              -- Encode as JSON
+             ; let diagnosticsResponse =
+                     case documentDiagnosticParamsPreviousResultId diagnosticParams of
+                       Just prevId | prevId == resultId ->
+                         JSON.object
+                           [ "kind" .= ("unchanged" :: Text)
+                           , "resultId" .= resultId
+                           ]
+                       _ ->
+                         JSON.object
+                           [ "kind" .= ("full" :: Text)
+                           , "resultId" .= resultId
+                           , "items" .= allDiags
+                           ]
              ; return $ Right diagnosticsResponse
              }
 
@@ -601,6 +624,16 @@ uriToFilePath uri =
   case Text.stripPrefix "file://" uri of
     Just path -> Just (Text.unpack path)
     Nothing -> Nothing
+
+diagnosticsResultId :: [Diagnostic] -> Text
+diagnosticsResultId diags =
+  let rendered = show diags
+      checksum =
+        Data.List.foldl'
+          (\acc ch -> (acc * 16777619 + ord ch) `mod` 2147483647)
+          (2166136261 :: Int)
+          rendered
+   in Text.pack (show (length diags) ++ "-" ++ show checksum)
 
 handleInlayHint :: Live.State -> InlayHintParams -> IO (Either String [InlayHint])
 handleInlayHint _state inlayHintParams = do
@@ -995,8 +1028,12 @@ serve state _emit connId req@(JSONRPC.Request _ reqId method params) = do
 
     -- Workspace Diagnostic Provider: Provide diagnostics across the entire workspace
     "workspace/diagnostic" -> do
-      report <- buildWorkspaceDiagnosticReport state connId
-      return $ success reqId report
+      wsParams <- parseWorkspaceDiagnosticParams params
+      case wsParams of
+        Left parseErr -> return $ err reqId parseErr
+        Right parsedParams -> do
+          report <- buildWorkspaceDiagnosticReport state connId parsedParams
+          return $ success reqId report
 
     -- Inlay Hint Provider: Show inline type hints and parameter names
     -- Provides inline hints like type annotations and parameter names without modifying the source
@@ -1164,23 +1201,45 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
 
 
 
+parseWorkspaceDiagnosticParams :: Maybe JSON.Value -> IO (Either String WorkspaceDiagnosticParams)
+parseWorkspaceDiagnosticParams maybeParams =
+  case maybeParams of
+    Nothing ->
+      pure
+        ( Right
+            WorkspaceDiagnosticParams
+              { workspaceDiagnosticParamsWorkDoneToken = Nothing
+              , workspaceDiagnosticParamsPartialResultToken = Nothing
+              , workspaceDiagnosticParamsPreviousResultIds = Just []
+              , workspaceDiagnosticParamsIdentifier = Nothing
+              }
+        )
+    Just p ->
+      case JSON.fromJSON p of
+        JSON.Success parsed -> pure (Right parsed)
+        JSON.Error err -> pure (Left ("Invalid workspace diagnostic params: " ++ err))
+
 -- Build a Workspace Diagnostic Report aggregating diagnostics per file across all projects
-buildWorkspaceDiagnosticReport :: Live.State -> JSONRPC.ConnectionId -> IO JSON.Value
-buildWorkspaceDiagnosticReport state connId = do
+buildWorkspaceDiagnosticReport :: Live.State -> JSONRPC.ConnectionId -> WorkspaceDiagnosticParams -> IO JSON.Value
+buildWorkspaceDiagnosticReport state connId workspaceParams = do
   let (Client.State _ mProjects _ _ _ _ _ mWorkspaceDiagsRequested) = state
   projects <- Control.Concurrent.STM.readTVarIO mProjects
-  -- Determine if this connection has already requested diagnostics for current compile
   requestedMap <- Control.Concurrent.STM.readTVarIO mWorkspaceDiagsRequested
   let maybeSnap = Map.lookup connId requestedMap
-  let unchangedMode =
-        case maybeSnap of
-          Just snap -> not (Client.workspaceDiagnosticsSnapshotOutOfDate snap)
-          Nothing -> False
   let prevUris =
         case maybeSnap of
           Just snap -> Client.workspaceDiagnosticsSnapshotFiles snap
           Nothing -> []
-  itemsAndUrisPerProject <- mapM (workspaceItemsForProject connId prevUris state unchangedMode) projects
+  let previousResultIds =
+        case workspaceDiagnosticParamsPreviousResultIds workspaceParams of
+          Just previousIds ->
+            Map.fromList
+              ( map
+                  (\prev -> (unUri (previousResultIdUri prev), previousResultIdValue prev))
+                  previousIds
+              )
+          Nothing -> Map.empty
+  itemsAndUrisPerProject <- mapM (workspaceItemsForProject previousResultIds state) projects
   let (itemsLists, uriLists) = unzip itemsAndUrisPerProject
   let currentUris = Data.List.nub (concat uriLists)
   -- Build clearing entries for URIs that previously had diagnostics but no longer do
@@ -1189,13 +1248,14 @@ buildWorkspaceDiagnosticReport state connId = do
         map
           (\u ->
              JSON.toJSON
-               WorkspaceDocumentDiagnostics
-                 { workspaceDocumentDiagnosticsUri = u
-                 , workspaceDocumentDiagnosticsVersion = Nothing
-                 , workspaceDocumentDiagnosticsKind = ("full" :: Text)
-                 , workspaceDocumentDiagnosticsItems = []
-                 }
-          )
+                WorkspaceDocumentDiagnostics
+                  { workspaceDocumentDiagnosticsUri = u
+                  , workspaceDocumentDiagnosticsVersion = Nothing
+                  , workspaceDocumentDiagnosticsKind = ("full" :: Text)
+                  , workspaceDocumentDiagnosticsResultId = Just (diagnosticsResultId [])
+                  , workspaceDocumentDiagnosticsItems = []
+                  }
+           )
           toClear
   let allItems = concat itemsLists ++ clearItems :: [JSON.Value]
   -- Update or insert the current URI snapshot for this connection
@@ -1218,8 +1278,8 @@ buildWorkspaceDiagnosticReport state connId = do
   pure (JSON.object [ "items" .= JSON.toJSON allItems ])
 
 -- Build workspace diagnostic entries for a single project; also return URIs included
-workspaceItemsForProject :: JSONRPC.ConnectionId -> [Uri] -> Live.State -> Bool -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
-workspaceItemsForProject connId prevUris state unchangedMode projectCache@(Client.ProjectCache proj _ _ _ mTest) = do
+workspaceItemsForProject :: Map.Map Text Text -> Live.State -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
+workspaceItemsForProject previousResultIds state projectCache@(Client.ProjectCache proj _ _ _ mTest) = do
   -- Compiler diagnostics grouped by file (project)
   projectDiagsMap <- Helpers.getProjectDiagnosticsByFile state projectCache
   -- Test diagnostics grouped by file (if a test reactor error exists)
@@ -1252,58 +1312,38 @@ workspaceItemsForProject connId prevUris state unchangedMode projectCache@(Clien
   -- Union of files that have errors and files that have unused warnings (open only)
   let errorFiles = Map.keys diagsMap
   let allFiles = Data.List.nub (errorFiles ++ Map.keys openUnusedMap)
-  let uris = map fromFilePath allFiles
-  if unchangedMode
-    then do
-      -- Send 'unchanged' entries for previously reported URIs, and 'full' entries for newly seen URIs
-      let pairs = zip allFiles uris
-          isPrev u = u `elem` prevUris
-          (prevPairs, newPairs) =
-            foldr
-              (\p@(_fp,u) (ps, ns) -> if isPrev u then (p:ps, ns) else (ps, p:ns))
-              ([], [])
-              pairs
-          unchangedItems =
-            map
-              (\(_fp,u) ->
+  let fileReports =
+        map
+          (\filePath ->
+             let fileErrs = Map.findWithDefault [] filePath diagsMap
+                 unusedWarns = Map.findWithDefault [] filePath openUnusedMap
+                 allDiags = fileErrs ++ unusedWarns
+                 uri = fromFilePath filePath
+                 resultId = diagnosticsResultId allDiags
+              in (uri, resultId, allDiags)
+          )
+          allFiles
+  let items =
+        map
+          (\(uri, resultId, allDiags) ->
+             case Map.lookup (unUri uri) previousResultIds of
+               Just prevId | prevId == resultId ->
                  JSON.toJSON
                    WorkspaceDocumentDiagnosticsUnchanged
-                     { workspaceDocumentDiagnosticsUnchangedUri = u
+                     { workspaceDocumentDiagnosticsUnchangedUri = uri
                      , workspaceDocumentDiagnosticsUnchangedVersion = Nothing
                      , workspaceDocumentDiagnosticsUnchangedKind = ("unchanged" :: Text)
+                     , workspaceDocumentDiagnosticsUnchangedResultId = Just resultId
                      }
-              )
-              prevPairs
-          fullItemsForNew =
-            map
-              (\(filePath,u) ->
-                 let fileErrs = Map.findWithDefault [] filePath diagsMap
-                     unusedWarns = Map.findWithDefault [] filePath openUnusedMap
-                  in JSON.toJSON
-                       WorkspaceDocumentDiagnostics
-                         { workspaceDocumentDiagnosticsUri = u
-                         , workspaceDocumentDiagnosticsVersion = Nothing
-                         , workspaceDocumentDiagnosticsKind = ("full" :: Text)
-                         , workspaceDocumentDiagnosticsItems = (fileErrs ++ unusedWarns)
-                         }
-              )
-              newPairs
-          items = unchangedItems ++ fullItemsForNew
-      
-      pure (items, uris)
-    else do
-      let items =
-            map
-              (\filePath ->
-                 let fileErrs = Map.findWithDefault [] filePath diagsMap
-                     unusedWarns = Map.findWithDefault [] filePath openUnusedMap
-                  in JSON.toJSON
-                       WorkspaceDocumentDiagnostics
-                         { workspaceDocumentDiagnosticsUri = fromFilePath filePath
-                         , workspaceDocumentDiagnosticsVersion = Nothing
-                         , workspaceDocumentDiagnosticsKind = ("full" :: Text)
-                         , workspaceDocumentDiagnosticsItems = (fileErrs ++ unusedWarns)
-                         }
-              )
-              allFiles
-      pure (items, uris)
+               _ ->
+                 JSON.toJSON
+                   WorkspaceDocumentDiagnostics
+                     { workspaceDocumentDiagnosticsUri = uri
+                     , workspaceDocumentDiagnosticsVersion = Nothing
+                     , workspaceDocumentDiagnosticsKind = ("full" :: Text)
+                     , workspaceDocumentDiagnosticsResultId = Just resultId
+                     , workspaceDocumentDiagnosticsItems = allDiags
+                     }
+          )
+          fileReports
+  pure (items, map (\(uri, _, _) -> uri) fileReports)

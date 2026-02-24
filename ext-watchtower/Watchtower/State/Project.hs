@@ -1,5 +1,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-module Watchtower.State.Project (upsert, upsertVirtual, UpsertError(..)) where
+module Watchtower.State.Project
+  ( upsert
+  , upsertVirtual
+  , UpsertError(..)
+  , isRelevantWatchedPath
+  , shouldSyncFilesystemPath
+  ) where
 
 import qualified Control.Concurrent.STM as STM
 import qualified Data.ByteString as BS
@@ -15,6 +21,8 @@ import qualified Ext.FileCache
 import qualified Ext.Filewatch
 import qualified Ext.Log
 import qualified Ext.VirtualFile
+import qualified Ext.Test.Compile as TestCompile
+import qualified File
 import qualified Gen.Config
 import qualified Gen.Generate
 import qualified Json.Encode
@@ -22,8 +30,11 @@ import qualified System.Directory as Dir
 import System.FilePath ((</>))
 import qualified System.FilePath as FilePath
 import qualified Watchtower.Live.Client as Client
+import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.State.Compile
 import qualified Control.Exception as Exception
+import qualified Control.Monad as Monad
+import qualified Data.Set as Set
 
 
 entrypointsIncluded :: NE.List FilePath -> NE.List FilePath -> Bool
@@ -161,9 +172,20 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
       let normalizedList = NE.toList normalizedEntrypoints
       
       missing <- missingFiles normalizedList
-      case missing of
+      missingAfterGeneration <-
+        if List.null missing
+          then pure []
+          else do
+            generationResult <- Gen.Generate.run root
+            case generationResult of
+              Right () -> missingFiles normalizedList
+              Left generationErr -> do
+                Ext.Log.log Ext.Log.Live ("Code generation failed while validating entrypoints: " <> generationErr)
+                pure missing
+
+      case missingAfterGeneration of
         (_:_) ->
-          pure (Left (EntrypointNotFound missing))
+          pure (Left (EntrypointNotFound missingAfterGeneration))
         [] -> do
           let inAnySrc ep =
                 any
@@ -208,14 +230,45 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
 
               if isNew
                 then do
-                  -- Ext.Filewatch.watch
-                  --   root
-                  --   ( \filesChanged -> do
-                  --       Ext.Log.log Ext.Log.Live $ "👀 files changed: " <> List.intercalate ", " (map FilePath.takeFileName filesChanged)
-                  --       mapM_ Ext.FileCache.delete filesChanged
-                  --       Watchtower.State.Compile.compile state flags newProjectCache filesChanged
-                  --       pure ()
-                  --   )
+                  Ext.Filewatch.watch
+                    root
+                    (\filesChanged -> do
+                        let normalized = map FilePath.normalise filesChanged
+                        let relevant = filter isRelevantWatchedPath normalized
+                        if List.null relevant
+                          then pure ()
+                          else do
+                            Ext.Log.log Ext.Log.Live $ "👀 files changed: " <> List.intercalate ", " (map FilePath.takeFileName relevant)
+                            let (Client.State _ _ _ _ _ _ mEditorsOpen _) = state
+                            editorsOpen <- STM.readTVarIO mEditorsOpen
+                            let syncable = filter (`shouldSyncFilesystemPath` editorsOpen) relevant
+
+                            existing <- Monad.filterM Dir.doesFileExist syncable
+                            let existingSet = Set.fromList existing
+                            let removed = filter (\p -> not (Set.member p existingSet)) syncable
+
+                            Monad.mapM_
+                              (\path -> do
+                                  bytes <- File.readUtf8 path
+                                  Ext.FileCache.writeUtf8 path bytes
+                              )
+                              existing
+
+                            Monad.mapM_ Ext.FileCache.delete removed
+
+                            let elmJsonRoots =
+                                  Set.toList
+                                    ( Set.fromList
+                                        ( map FilePath.takeDirectory
+                                            ( filter (\path -> FilePath.takeFileName path == "elm.json") relevant
+                                            )
+                                        )
+                                    )
+                            Monad.mapM_ TestCompile.regenerateTestElmJson elmJsonRoots
+
+                            Watchtower.State.Compile.markFilesystemChanged state syncable
+                            Watchtower.State.Compile.compileRelevantProjects state relevant
+                    )
                   pure ()
                 else pure ()
 
@@ -237,3 +290,15 @@ readDocsInfo root = do
         Just docsConfig -> pure docsConfig
         Nothing -> pure Gen.Config.defaultDocs
     _ -> pure Gen.Config.defaultDocs
+
+isRelevantWatchedPath :: FilePath -> Bool
+isRelevantWatchedPath path =
+  let base = FilePath.takeFileName path
+      ext = FilePath.takeExtension path
+   in ext == ".elm"
+        || base == "elm.json"
+        || base == "elm.dev.json"
+
+shouldSyncFilesystemPath :: FilePath -> EditorsOpen.EditorsOpen -> Bool
+shouldSyncFilesystemPath path editorsOpen =
+  not (EditorsOpen.isFileOpen path editorsOpen)

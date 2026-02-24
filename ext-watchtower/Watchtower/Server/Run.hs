@@ -330,6 +330,7 @@ runStdIO state handler notificationHandler = do
       Just messageContent -> do
         case JSON.eitherDecode messageContent of
           Left err -> do
+            Ext.Log.log Ext.Log.Misc ("JSON-RPC parse error (stdio): " ++ err)
             -- Send parse error response
             let errorResponse = JSON.encode (JSONRPC.parseError (T.pack err))
             sendWithContentLength errorResponse
@@ -382,6 +383,7 @@ runHttp state handler notificationHandler = do
           body <- readRequestBody 65536 -- 64KB limit
           case JSON.eitherDecode body of
             Left err -> do
+              liftIO $ Ext.Log.log Ext.Log.Misc ("JSON-RPC parse error (http): " ++ err)
               writeJSON $ JSONRPC.parseError (T.pack err)
             Right jsonMsg -> do
               case jsonMsg of

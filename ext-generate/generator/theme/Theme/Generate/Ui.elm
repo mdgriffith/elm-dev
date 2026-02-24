@@ -43,7 +43,6 @@ generateTheme theme =
     Elm.file [ "Theme" ]
         [ helpers theme
         , typography theme
-        , layout theme
         , spacing theme
         , borders theme
         ]
@@ -100,10 +99,6 @@ helpers theme =
         ]
 
 
-attrBorderWidthsType target =
-    Elm.Annotation.namedWith [] "BorderWidths" [ attrType target ]
-
-
 type Side
     = All
     | Top
@@ -131,55 +126,39 @@ sideToString side =
             "left"
 
 
-border target side =
-    Elm.fn (Elm.Arg.varWith "width" Elm.Annotation.int)
-        (toBorder target side)
+border : Theme.Target -> Elm.Expression -> Side -> Elm.Expression
+border target scale side =
+    Elm.fn (Elm.Arg.varWith "amount" Elm.Annotation.float)
+        (\amount ->
+            toBorder target side (scaledPx scale amount)
+                |> attr target
+        )
+
+
+borderWidthScaleFromTheme : Theme.Theme -> Int
+borderWidthScaleFromTheme theme =
+    theme.borderWidths
 
 
 borders : Theme.Theme -> Elm.Declaration
 borders theme =
+    let
+        widthScale =
+            borderWidthScaleFromTheme theme
+    in
     Elm.group
-        [ Elm.alias "BorderWidths"
-            (toFieldsType (\_ -> Elm.Annotation.var "item") theme.borderWidths)
-        , Elm.declaration "mapBorderWidths"
-            (Elm.fn
-                (Elm.Arg.var "f")
-                (\f ->
-                    Elm.record
-                        (toFields
-                            (\s ->
-                                Elm.apply f [ Elm.int s ]
-                            )
-                            theme.borderWidths
-                        )
-                )
-            )
-        , Elm.declaration "borderWidth"
-            ([ toFields
-                (\int -> toBorder theme.target All (Elm.int int))
-                theme.borderWidths
-             , [ ( "top"
-                 , Elm.apply (Elm.val "mapBorderWidths") [ border theme.target Top ]
-                    |> Elm.withType (attrBorderWidthsType theme.target)
-                 )
-               , ( "right"
-                 , Elm.apply (Elm.val "mapBorderWidths") [ border theme.target Right ]
-                    |> Elm.withType (attrBorderWidthsType theme.target)
-                 )
-               , ( "bottom"
-                 , Elm.apply (Elm.val "mapBorderWidths") [ border theme.target Bottom ]
-                    |> Elm.withType (attrBorderWidthsType theme.target)
-                 )
-               , ( "left"
-                 , Elm.apply (Elm.val "mapBorderWidths") [ border theme.target Left ]
-                    |> Elm.withType (attrBorderWidthsType theme.target)
-                 )
-               ]
-             ]
-                |> List.concat
-                |> Elm.record
-            )
-            |> Elm.exposeConstructor
+        [ Elm.declaration "borderWidthScale" (Elm.float (toFloat widthScale))
+            |> Elm.expose
+        , Elm.declaration "borderWidth" (border theme.target (Elm.val "borderWidthScale") All)
+            |> Elm.expose
+        , Elm.declaration "borderWidthTop" (border theme.target (Elm.val "borderWidthScale") Top)
+            |> Elm.expose
+        , Elm.declaration "borderWidthRight" (border theme.target (Elm.val "borderWidthScale") Right)
+            |> Elm.expose
+        , Elm.declaration "borderWidthBottom" (border theme.target (Elm.val "borderWidthScale") Bottom)
+            |> Elm.expose
+        , Elm.declaration "borderWidthLeft" (border theme.target (Elm.val "borderWidthScale") Left)
+            |> Elm.expose
         , Elm.declaration "borderRadius"
             ([ toFields (\int -> toBorderRadius theme.target All (Elm.int int))
                 theme.borderRadii
@@ -227,47 +206,33 @@ layout theme =
                     )
                     |> Elm.exposeConstructor
                 , Elm.declaration "row"
-                    (Elm.record
-                        (toFields
-                            (\space ->
-                                Elm.fn2
-                                    (Elm.Arg.var "attrs")
-                                    (Elm.Arg.var "children")
-                                    (\attrs children ->
-                                        Gen.Html.call_.div
-                                            (attrs
-                                                |> Elm.Op.cons (toSpacing theme.target space)
-                                                |> Elm.Op.cons (Gen.Html.Attributes.style "display" "flex")
-                                                |> Elm.Op.cons (Gen.Html.Attributes.style "flex-direction" "row")
-                                            )
-                                            children
-                                    )
-                            )
-                            theme.spacing
+                    (Elm.fn2
+                        (Elm.Arg.var "attrs")
+                        (Elm.Arg.var "children")
+                        (\attrs children ->
+                            Gen.Html.call_.div
+                                (attrs
+                                    |> Elm.Op.cons (Gen.Html.Attributes.style "display" "flex")
+                                    |> Elm.Op.cons (Gen.Html.Attributes.style "flex-direction" "row")
+                                )
+                                children
                         )
                     )
-                    |> Elm.exposeConstructor
+                    |> Elm.expose
                 , Elm.declaration "column"
-                    (Elm.record
-                        (toFields
-                            (\space ->
-                                Elm.fn2
-                                    (Elm.Arg.var "attrs")
-                                    (Elm.Arg.var "children")
-                                    (\attrs children ->
-                                        Gen.Html.call_.div
-                                            (attrs
-                                                |> Elm.Op.cons (toSpacing theme.target space)
-                                                |> Elm.Op.cons (Gen.Html.Attributes.style "display" "flex")
-                                                |> Elm.Op.cons (Gen.Html.Attributes.style "flex-direction" "column")
-                                            )
-                                            children
-                                    )
-                            )
-                            theme.spacing
+                    (Elm.fn2
+                        (Elm.Arg.var "attrs")
+                        (Elm.Arg.var "children")
+                        (\attrs children ->
+                            Gen.Html.call_.div
+                                (attrs
+                                    |> Elm.Op.cons (Gen.Html.Attributes.style "display" "flex")
+                                    |> Elm.Op.cons (Gen.Html.Attributes.style "flex-direction" "column")
+                                )
+                                children
                         )
                     )
-                    |> Elm.exposeConstructor
+                    |> Elm.expose
                 ]
 
         Theme.ElmUI ->
@@ -276,228 +241,234 @@ layout theme =
                     Gen.Ui.values_.el
                     |> Elm.exposeConstructor
                 , Elm.declaration "row"
-                    (Elm.record
-                        (toFields
-                            (\space ->
-                                Elm.fn2
-                                    (Elm.Arg.var "attrs")
-                                    (Elm.Arg.var "children")
-                                    (\attrs children ->
-                                        Gen.Ui.call_.row (Elm.Op.cons (Gen.Ui.spacing space) attrs) children
-                                    )
-                            )
-                            theme.spacing
+                    (Elm.fn2
+                        (Elm.Arg.var "attrs")
+                        (Elm.Arg.var "children")
+                        (\attrs children ->
+                            Gen.Ui.call_.row attrs children
                         )
                     )
-                    |> Elm.exposeConstructor
+                    |> Elm.expose
                 , Elm.declaration "column"
-                    (Elm.record
-                        (toFields
-                            (\space ->
-                                Elm.fn2
-                                    (Elm.Arg.var "attrs")
-                                    (Elm.Arg.var "children")
-                                    (\attrs children ->
-                                        Gen.Ui.call_.column (Elm.Op.cons (Gen.Ui.spacing space) attrs) children
-                                    )
-                            )
-                            theme.spacing
+                    (Elm.fn2
+                        (Elm.Arg.var "attrs")
+                        (Elm.Arg.var "children")
+                        (\attrs children ->
+                            Gen.Ui.call_.column attrs children
                         )
                     )
-                    |> Elm.exposeConstructor
+                    |> Elm.expose
                 ]
 
 
-attrSpacingType target =
-    Elm.Annotation.namedWith [] "Spaced" [ attrType target ]
+spacingScale : Theme.Theme -> Int
+spacingScale theme =
+    theme.spacing
 
 
-padding : Theme.Target -> Int -> Elm.Expression
-padding target int =
+padding : Theme.Target -> Elm.Expression -> Elm.Expression -> Elm.Expression
+padding target scale amount =
     case target of
         Theme.HTML ->
-            Gen.Html.Attributes.style "padding" (px int)
+            Gen.Html.Attributes.call_.style (Elm.string "padding") (scaledPx scale amount)
 
         Theme.ElmUI ->
-            Gen.Ui.padding int
+            Gen.Ui.htmlAttribute
+                (Gen.Html.Attributes.call_.style (Elm.string "padding") (scaledPx scale amount))
 
 
-px : Int -> String
-px p =
-    String.fromInt p ++ "px"
+fromFloat : Elm.Expression -> Elm.Expression
+fromFloat value =
+    Elm.apply
+        (Elm.value
+            { importFrom = [ "String" ]
+            , name = "fromFloat"
+            , annotation = Nothing
+            }
+        )
+        [ value ]
 
 
-callPx : Elm.Expression -> Elm.Expression
-callPx p =
-    Elm.Op.append (Gen.String.call_.fromInt p) (Elm.string "px")
+scaledPx : Elm.Expression -> Elm.Expression -> Elm.Expression
+scaledPx scale amount =
+    Elm.Op.append (fromFloat (Elm.Op.multiply amount scale)) (Elm.string "px")
 
 
-toPaddingXY : Theme.Target -> Elm.Expression -> Elm.Expression -> Elm.Expression
-toPaddingXY target x y =
+toPaddingXY : Theme.Target -> Elm.Expression -> Elm.Expression -> Elm.Expression -> Elm.Expression
+toPaddingXY target scale x y =
     case target of
         Theme.HTML ->
             Gen.Html.Attributes.call_.style (Elm.string "padding")
                 (Elm.Op.append
-                    (Elm.Op.append (callPx y)
+                    (Elm.Op.append (scaledPx scale y)
                         (Elm.string " ")
                     )
-                    (callPx x)
+                    (scaledPx scale x)
                 )
 
         Theme.ElmUI ->
-            Gen.Ui.call_.paddingXY x y
+            Gen.Ui.htmlAttribute
+                (Gen.Html.Attributes.call_.style (Elm.string "padding")
+                    (Elm.Op.append
+                        (Elm.Op.append (scaledPx scale y)
+                            (Elm.string " ")
+                        )
+                        (scaledPx scale x)
+                    )
+                )
 
 
-padTop : Theme.Target -> Elm.Expression
-padTop target =
+padTop : Theme.Target -> Elm.Expression -> Elm.Expression
+padTop target scale =
     case target of
         Theme.HTML ->
             Elm.fn
-                (Elm.Arg.var "px")
+                (Elm.Arg.varWith "amount" Elm.Annotation.float)
                 (\v ->
                     Gen.Html.Attributes.call_.style
                         (Elm.string "padding-top")
-                        (callPx v)
+                        (scaledPx scale v)
                 )
 
         Theme.ElmUI ->
-            Gen.Ui.values_.paddingTop
+            Elm.fn
+                (Elm.Arg.varWith "amount" Elm.Annotation.float)
+                (\v ->
+                    Gen.Ui.htmlAttribute
+                        (Gen.Html.Attributes.call_.style
+                            (Elm.string "padding-top")
+                            (scaledPx scale v)
+                        )
+                )
 
 
-padBottom : Theme.Target -> Elm.Expression
-padBottom target =
+padBottom : Theme.Target -> Elm.Expression -> Elm.Expression
+padBottom target scale =
     case target of
         Theme.HTML ->
             Elm.fn
-                (Elm.Arg.var "px")
+                (Elm.Arg.varWith "amount" Elm.Annotation.float)
                 (\v ->
                     Gen.Html.Attributes.call_.style
                         (Elm.string "padding-bottom")
-                        (callPx v)
+                        (scaledPx scale v)
                 )
 
         Theme.ElmUI ->
-            Gen.Ui.values_.paddingBottom
+            Elm.fn
+                (Elm.Arg.varWith "amount" Elm.Annotation.float)
+                (\v ->
+                    Gen.Ui.htmlAttribute
+                        (Gen.Html.Attributes.call_.style
+                            (Elm.string "padding-bottom")
+                            (scaledPx scale v)
+                        )
+                )
 
 
-padLeft : Theme.Target -> Elm.Expression
-padLeft target =
+padLeft : Theme.Target -> Elm.Expression -> Elm.Expression
+padLeft target scale =
     case target of
         Theme.HTML ->
             Elm.fn
-                (Elm.Arg.var "px")
+                (Elm.Arg.varWith "amount" Elm.Annotation.float)
                 (\v ->
                     Gen.Html.Attributes.call_.style
                         (Elm.string "padding-left")
-                        (callPx v)
+                        (scaledPx scale v)
                 )
 
         Theme.ElmUI ->
-            Gen.Ui.values_.paddingLeft
+            Elm.fn
+                (Elm.Arg.varWith "amount" Elm.Annotation.float)
+                (\v ->
+                    Gen.Ui.htmlAttribute
+                        (Gen.Html.Attributes.call_.style
+                            (Elm.string "padding-left")
+                            (scaledPx scale v)
+                        )
+                )
 
 
-padRight : Theme.Target -> Elm.Expression
-padRight target =
+padRight : Theme.Target -> Elm.Expression -> Elm.Expression
+padRight target scale =
     case target of
         Theme.HTML ->
             Elm.fn
-                (Elm.Arg.var "px")
+                (Elm.Arg.varWith "amount" Elm.Annotation.float)
                 (\v ->
                     Gen.Html.Attributes.call_.style
                         (Elm.string "padding-right")
-                        (callPx v)
+                        (scaledPx scale v)
                 )
 
         Theme.ElmUI ->
-            Gen.Ui.values_.paddingRight
+            Elm.fn
+                (Elm.Arg.varWith "amount" Elm.Annotation.float)
+                (\v ->
+                    Gen.Ui.htmlAttribute
+                        (Gen.Html.Attributes.call_.style
+                            (Elm.string "padding-right")
+                            (scaledPx scale v)
+                        )
+                )
 
 
-toSpacing : Theme.Target -> Int -> Elm.Expression
-toSpacing target int =
+toSpacing : Theme.Target -> Elm.Expression -> Elm.Expression -> Elm.Expression
+toSpacing target scale amount =
     case target of
         Theme.HTML ->
-            Gen.Html.Attributes.style "gap" (String.fromInt int ++ "px")
+            Gen.Html.Attributes.call_.style (Elm.string "gap") (scaledPx scale amount)
 
         Theme.ElmUI ->
-            Gen.Ui.spacing int
+            Gen.Ui.htmlAttribute
+                (Gen.Html.Attributes.call_.style (Elm.string "gap") (scaledPx scale amount))
 
 
 spacing : Theme.Theme -> Elm.Declaration
 spacing theme =
+    let
+        scale =
+            spacingScale theme
+    in
     Elm.group
-        [ Elm.declaration "space"
-            (Elm.record
-                (toFields Elm.int
-                    theme.spacing
+        [ Elm.declaration "scale" (Elm.float (toFloat scale))
+            |> Elm.expose
+        , Elm.declaration "gap"
+            (Elm.fn (Elm.Arg.varWith "amount" Elm.Annotation.float)
+                (\amount ->
+                    toSpacing theme.target (Elm.val "scale") amount
+                        |> attr theme.target
                 )
             )
-        , Elm.declaration "mapSpace"
-            (Elm.fn
-                (Elm.Arg.var "f")
-                (\f ->
-                    Elm.record
-                        (toFields
-                            (\s ->
-                                Elm.apply f [ Elm.int s ]
-                            )
-                            theme.spacing
+            |> Elm.expose
+        , Elm.declaration "pad"
+            (Elm.fn (Elm.Arg.varWith "amount" Elm.Annotation.float)
+                (\amount ->
+                    padding theme.target (Elm.val "scale") amount
+                        |> attr theme.target
+                )
+            )
+            |> Elm.expose
+        , Elm.declaration "padXY"
+            (Elm.fn (Elm.Arg.varWith "x" Elm.Annotation.float)
+                (\x ->
+                    Elm.fn (Elm.Arg.varWith "y" Elm.Annotation.float)
+                        (\y ->
+                            toPaddingXY theme.target (Elm.val "scale") x y
+                                |> attr theme.target
                         )
                 )
             )
-        , Elm.declaration "gap"
-            (Elm.record
-                (toFields (attr theme.target << toSpacing theme.target)
-                    theme.spacing
-                )
-            )
-            |> Elm.exposeConstructor
-        , Elm.alias "Spaced"
-            (toFieldsType (\_ -> Elm.Annotation.var "item") theme.spacing)
-        , Elm.declaration "pad"
-            (Elm.record
-                (toFields (attr theme.target << padding theme.target)
-                    theme.spacing
-                    ++ [ ( "xy"
-                         , Elm.apply (Elm.val "mapSpace")
-                            [ Elm.fn
-                                (Elm.Arg.varWith "spacingX" Elm.Annotation.int)
-                                (\spacingX ->
-                                    Elm.apply (Elm.val "mapSpace")
-                                        [ Elm.fn
-                                            (Elm.Arg.varWith "spacingY" Elm.Annotation.int)
-                                            (\spacingY ->
-                                                toPaddingXY theme.target spacingX spacingY
-                                            )
-                                        ]
-                                )
-                            ]
-                            |> Elm.withType
-                                (Elm.Annotation.namedWith []
-                                    "Spaced"
-                                    [ attrSpacingType theme.target
-                                    ]
-                                )
-                         )
-                       , ( "top"
-                         , Elm.apply (Elm.val "mapSpace") [ padTop theme.target ]
-                            |> Elm.withType (attrSpacingType theme.target)
-                         )
-                       , ( "right"
-                         , Elm.apply (Elm.val "mapSpace") [ padRight theme.target ]
-                            |> Elm.withType (attrSpacingType theme.target)
-                         )
-                       , ( "bottom"
-                         , Elm.apply (Elm.val "mapSpace") [ padBottom theme.target ]
-                            |> Elm.withType (attrSpacingType theme.target)
-                         )
-                       , ( "left"
-                         , Elm.apply (Elm.val "mapSpace") [ padLeft theme.target ]
-                            |> Elm.withType (attrSpacingType theme.target)
-                         )
-                       ]
-                )
-            )
-            |> Elm.exposeConstructor
+            |> Elm.expose
+        , Elm.declaration "padTop" (padTop theme.target (Elm.val "scale") |> Elm.withType (Elm.Annotation.function [ Elm.Annotation.float ] (attrType theme.target)))
+            |> Elm.expose
+        , Elm.declaration "padRight" (padRight theme.target (Elm.val "scale") |> Elm.withType (Elm.Annotation.function [ Elm.Annotation.float ] (attrType theme.target)))
+            |> Elm.expose
+        , Elm.declaration "padBottom" (padBottom theme.target (Elm.val "scale") |> Elm.withType (Elm.Annotation.function [ Elm.Annotation.float ] (attrType theme.target)))
+            |> Elm.expose
+        , Elm.declaration "padLeft" (padLeft theme.target (Elm.val "scale") |> Elm.withType (Elm.Annotation.function [ Elm.Annotation.float ] (attrType theme.target)))
+            |> Elm.expose
         ]
 
 
@@ -933,11 +904,11 @@ colorVars colors =
             (\clr dict ->
                 let
                     varName =
-                        "--" ++ clr.name
+                        "--color-" ++ Theme.toColorName clr
                 in
                 if not (Dict.member varName dict) then
                     Dict.insert varName
-                        (Style.string varName (Theme.Color.toCssStringBase clr.color))
+                        (Style.string varName (Theme.Color.toCssString clr.color))
                         dict
 
                 else
@@ -1279,28 +1250,27 @@ toColor target clr =
 
 
 toBorder : Theme.Target -> Side -> Elm.Expression -> Elm.Expression
-toBorder target side widthInt =
+toBorder target side widthValue =
     case target of
         Theme.HTML ->
             case side of
                 All ->
-                    Gen.Html.Attributes.call_.style (Elm.string ("border-" ++ sideToString side ++ "-width"))
-                        (Elm.Op.append (Gen.String.call_.fromInt widthInt) (Elm.string "px"))
+                    Gen.Html.Attributes.call_.style (Elm.string "border-width")
+                        widthValue
 
                 _ ->
                     Gen.Html.Attributes.call_.style (Elm.string ("border-" ++ sideToString side ++ "-width"))
-                        (Elm.Op.append (Gen.String.call_.fromInt widthInt) (Elm.string "px"))
+                        widthValue
 
         Theme.ElmUI ->
             case side of
                 All ->
-                    Gen.Ui.call_.border widthInt
+                    Gen.Ui.htmlAttribute
+                        (Gen.Html.Attributes.call_.style (Elm.string "border-width") widthValue)
 
                 _ ->
                     Gen.Ui.htmlAttribute
-                        (Gen.Html.Attributes.call_.style (Elm.string ("border-" ++ sideToString side ++ "-width"))
-                            (Elm.Op.append (Gen.String.call_.fromInt widthInt) (Elm.string "px"))
-                        )
+                        (Gen.Html.Attributes.call_.style (Elm.string ("border-" ++ sideToString side ++ "-width")) widthValue)
 
 
 toBorderRadius : Theme.Target -> Side -> Elm.Expression -> Elm.Expression

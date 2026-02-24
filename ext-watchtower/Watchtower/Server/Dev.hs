@@ -622,10 +622,13 @@ fileChangedHandler state = do
           contents <- liftIO (File.readUtf8 path)
           _ <- liftIO (Ext.FileCache.writeUtf8 path contents)
 
-          -- 2) Compile relevant projects
+          -- 2) Mark project filesystem versions as changed
+          _ <- liftIO (Watchtower.State.Compile.markFilesystemChanged state [path])
+
+          -- 3) Compile relevant projects
           _ <- liftIO (Watchtower.State.Compile.compileRelevantProjects state [path])
 
-          -- 3) Broadcasts are handled inside compile; nothing to do here
+          -- 4) Broadcasts are handled inside compile; nothing to do here
           modifyResponse $ setContentType "application/json"
           writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
 
@@ -989,4 +992,3 @@ checkImportsForModule interfaces imports =
 --                                   mains = MapStrict.singleton home main_
 --                                   graph = Opt.addLocalGraph locals objects
 --                               pure (Right (JS.generate mode graph mains Nothing))
-

@@ -177,58 +177,48 @@ applyEdit content (TextEdit maybeRange newText) =
 -- | Apply a ranged edit to text content
 applyRangeEdit :: Text.Text -> Range -> Text.Text -> Either String Text.Text
 applyRangeEdit content range newText = do
-  let lines' = Text.lines content
-      startLine = positionLine (rangeStart range)
-      startChar = positionCharacter (rangeStart range)
-      endLine = positionLine (rangeEnd range)
-      endChar = positionCharacter (rangeEnd range)
-  
-  -- Validate line numbers
-  if startLine < 0 || endLine < 0 || startLine > length lines' || endLine > length lines'
-    then Left $ "Invalid line numbers: start=" ++ show startLine ++ " end=" ++ show endLine ++ " total=" ++ show (length lines')
-    else do
-      -- Get the lines before, at, and after the edit range
-      let beforeLines = take startLine lines'
-          afterLines = if endLine < length lines' then drop (endLine + 1) lines' else []
-      
-      if startLine == endLine
-        then do
-          -- Single line edit
-          if startLine == length lines'
-            then do
-              -- Insertion at end-of-file (e.g. line == numLines, char positions must be 0)
-              if startChar == 0 && endChar == 0
-                then Right (content <> newText)
-                else Left $ "Invalid character positions at end of file: start=" ++ show startChar ++ " end=" ++ show endChar
-            else do
-              let line = lines' !! startLine
-                  lineLength = Text.length line
-              if startChar < 0 || endChar < 0 || startChar > lineLength || endChar > lineLength || startChar > endChar
-                then Left $ "Invalid character positions: start=" ++ show startChar ++ " end=" ++ show endChar ++ " line length=" ++ show lineLength
-                else do
-                  let beforeChar = Text.take startChar line
-                      afterChar = Text.drop endChar line
-                      newLine = beforeChar <> newText <> afterChar
-                      newLines = beforeLines ++ [newLine] ++ afterLines
-                  Right $ Text.unlines newLines
-        else do
-          -- Multi-line edit
-          if startLine >= length lines'
-            then Left $ "Invalid start line for multi-line edit: " ++ show startLine
-            else do
-              let startLineText = lines' !! startLine
-                  endWithinBounds = endLine < length lines'
-                  endLineText = if endWithinBounds then lines' !! endLine else Text.empty
-                  startLineLength = Text.length startLineText
-                  endLineLength = if endWithinBounds then Text.length endLineText else 0
-              if startChar < 0 || startChar > startLineLength || endChar < 0 || (endWithinBounds && endChar > endLineLength) || (not endWithinBounds && endChar /= 0)
-                then Left $ "Invalid character positions in multi-line edit"
-                else do
-                  let beforeChar = Text.take startChar startLineText
-                      afterChar = if endWithinBounds then Text.drop endChar endLineText else Text.empty
-                      newContent' = beforeChar <> newText <> afterChar
-                      newLines = beforeLines ++ [newContent'] ++ afterLines
-                  Right $ Text.unlines newLines
+  startOffset <- positionToOffset content (rangeStart range)
+  endOffset <- positionToOffset content (rangeEnd range)
+  if startOffset > endOffset
+    then Left $ "Invalid range: start offset " ++ show startOffset ++ " is after end offset " ++ show endOffset
+    else
+      Right
+        ( Text.take startOffset content
+            <> newText
+            <> Text.drop endOffset content
+        )
+
+positionToOffset :: Text.Text -> Position -> Either String Int
+positionToOffset content (Position line char)
+  | line < 0 = Left $ "Invalid line number: " ++ show line
+  | char < 0 = Left $ "Invalid character position: " ++ show char
+  | otherwise =
+      let segments = Text.splitOn "\n" content
+          lineCount = length segments
+       in if line > lineCount
+            then Left $ "Line out of bounds: " ++ show line ++ ", total lines: " ++ show lineCount
+            else
+              if line == lineCount
+                then
+                  if char == 0
+                    then Right (Text.length content)
+                    else Left $ "Character out of bounds at EOF line: " ++ show char
+                else
+                  let lineText = segments !! line
+                      lineLength = Text.length lineText
+                   in if char > lineLength
+                        then
+                          Left
+                            ( "Character out of bounds: "
+                                ++ show char
+                                ++ ", line length: "
+                                ++ show lineLength
+                                ++ ", line: "
+                                ++ show line
+                            )
+                        else
+                          let charsBeforeLine = sum (map Text.length (take line segments)) + line
+                           in Right (charsBeforeLine + char)
 
 {- builder/src/File.* interface equivalents -}
 

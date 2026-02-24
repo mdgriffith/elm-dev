@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.State.Compile (compile, compileRelevantProjects, updateVfsFromFs, compileTests) where
+module Watchtower.State.Compile (compile, compileRelevantProjects, updateVfsFromFs, compileTests, markFilesystemChanged) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -30,17 +30,23 @@ import qualified Ext.FileCache
 import qualified Watchtower.State.Versions as Versions
 import qualified Control.Monad as Monad
 import qualified Ext.Test.Discover
+import qualified Data.Set as Set
+import qualified Control.Concurrent.MVar as MVar
+import qualified System.IO.Unsafe as Unsafe
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
 
 compile :: Client.State -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
 compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequested) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
+  versionsAtStart <- Versions.readVersions projectRoot
+  let fsSnapshot = Versions.fsVersion versionsAtStart
+  let markCompileSnapshot = do
+        Versions.setCompileVersionTo projectRoot fsSnapshot
   Dir.withCurrentDirectory projectRoot $ do
     -- First run code generation
     codegenResult <- Gen.Generate.run projectRoot
     case codegenResult of
       Right () -> do
-        let filesToCompile = NE.append files entrypoints
         -- Then run compilation, passing the optional packages TVar for caching package docs/readme
         (eitherCompiled, fileInfoByPath) <- CompileProxy.compile elmJsonRoot entrypoints flags (Just mPackages)
 
@@ -83,12 +89,14 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequest
                 pure ()
               CompileHelpers.CompiledSkippedOutput ->
                 pure ()
+            markCompileSnapshot
             pure (Right result)
           Left exit -> do
             -- Broadcast error to Dev websocket clients
             let clientErr = Client.ReactorError exit
             let errJson = Client.encodeCompilationResult (Client.Error clientErr)
             DevWS.broadcastCompilationError state errJson
+            markCompileSnapshot
             pure (Left clientErr)
       Left err -> do
         -- Update compile result TVar with the error
@@ -115,7 +123,41 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequest
                   )
                   cur
           STM.writeTVar mWorkspaceDiagsRequested updated
+        markCompileSnapshot
         pure $ Left clientErr
+
+{-# NOINLINE projectCompileLocks #-}
+projectCompileLocks :: MVar.MVar (Map.Map FilePath (MVar.MVar ()))
+projectCompileLocks = Unsafe.unsafePerformIO (MVar.newMVar Map.empty)
+
+withProjectCompileLock :: FilePath -> IO a -> IO a
+withProjectCompileLock projectRoot action = do
+  lock <- MVar.modifyMVar projectCompileLocks $ \locks ->
+    case Map.lookup projectRoot locks of
+      Just existing -> pure (locks, existing)
+      Nothing -> do
+        newLock <- MVar.newMVar ()
+        pure (Map.insert projectRoot newLock locks, newLock)
+  MVar.withMVar lock (\_ -> action)
+
+markFilesystemChanged :: Client.State -> [FilePath] -> IO ()
+markFilesystemChanged (Client.State _ mProjects _ _ _ _ _ _) changedPaths = do
+  if List.null changedPaths
+    then pure ()
+    else do
+      projects <- STM.readTVarIO mProjects
+      let touchedRoots =
+            Set.toList
+              ( Set.fromList
+                  ( map
+                      (\(Client.ProjectCache proj _ _ _ _) -> Ext.Dev.Project.getRoot proj)
+                      ( List.filter
+                          (\(Client.ProjectCache proj _ _ _ _) -> any (\p -> Ext.Dev.Project.contains p proj) changedPaths)
+                          projects
+                      )
+                  )
+              )
+      Monad.mapM_ Versions.bumpFsVersion touchedRoots
 
 -- | Recursively gather Elm source files under a directory.
 listElmFilesRecursive :: FilePath -> IO [FilePath]
@@ -191,14 +233,21 @@ compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = 
       any (\p -> Ext.Dev.Project.contains p proj) paths
 
     compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO ()
-    compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _ mTestVar) = do
-      
-      let projectFiles = List.filter (\p -> Ext.Dev.Project.contains p proj) paths
-      Ext.Log.log Ext.Log.Live ("Compiling project: " ++ show projectFiles)
-      _ <- compile state projCache projectFiles
-      -- If this project has tests, compile them using previously discovered test files
-      compileTests state projCache
-      pure ()
+    compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _ _) = do
+      let projectRoot = Ext.Dev.Project.getRoot proj
+      withProjectCompileLock projectRoot $ do
+        let projectFiles = List.filter (\p -> Ext.Dev.Project.contains p proj) paths
+        versions <- Versions.readVersions projectRoot
+        if Versions.compileVersion versions < Versions.fsVersion versions
+          then do
+            Ext.Log.log Ext.Log.Live ("Compiling project: " ++ show projectFiles)
+            _ <- compile state projCache projectFiles
+            -- If this project has tests, compile them using previously discovered test files
+            compileTests state projCache
+            pure ()
+          else do
+            Ext.Log.log Ext.Log.Live ("Skipping compile (up-to-date): " ++ show projectFiles)
+            pure ()
 
 -- | Compile tests for a project if test files have been discovered.
 compileTests :: Client.State -> Client.ProjectCache -> IO ()
