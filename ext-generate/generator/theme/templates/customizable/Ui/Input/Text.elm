@@ -1,19 +1,21 @@
-module Ui.Input.Text exposing (..)
+module Ui.Input.Text exposing
+    ( TextInput, SearchResult
+    , text, search
+    , view
+    )
 
 {-|
 
+@docs TextInput, SearchResult
 @docs text, search
-
-@docs with
-
 @docs view
 
 -}
 
+import Theme
+import Theme.Color
 import Ui
-import Ui.Dropdown
 import Ui.Input
-import Ui.Theme
 
 
 type TextInput msg
@@ -25,6 +27,15 @@ type alias Details msg =
     , onChange : String -> msg
     , onSubmit : Maybe msg
     , placeholder : String
+    , label : String
+    , results : List SearchResult
+    }
+
+
+type alias SearchResult =
+    { name : String
+    , group : String
+    , url : String
     }
 
 
@@ -32,11 +43,15 @@ text :
     { onChange : String -> msg
     , text : String
     }
-    -> Ui.Element msg
+    -> TextInput msg
 text options =
     TextInput
         { value = options.text
         , onChange = options.onChange
+        , onSubmit = Nothing
+        , placeholder = ""
+        , label = "Text"
+        , results = []
         }
 
 
@@ -46,35 +61,33 @@ search :
     , text : String
     , results : List SearchResult
     }
-    -> Ui.Element msg
+    -> TextInput msg
 search options =
     TextInput
         { value = options.text
         , onChange = options.onChange
+        , onSubmit = Just options.onSubmit
+        , placeholder = "Search"
+        , label = "Search"
+        , results = options.results
         }
 
 
 view : TextInput msg -> Ui.Element msg
 view (TextInput details) =
     Ui.Input.search
-        [ Ui.Theme.border.small
-        , Ui.below
-            (viewResults options.results)
+        [ Theme.Color.borderDefault
+        , Theme.borderWidth 1
+        , Theme.borderRadius.sm
+        , Ui.below (viewResults details.results)
         ]
-        { onChange = options.onChange
-        , text = options.text
+        { onChange = details.onChange
+        , text = details.value
         , placeholder =
             Just (Ui.Input.placeholder [] (Ui.text details.placeholder))
         , label =
-            Ui.Input.labelHidden options.label
+            Ui.Input.labelHidden details.label
         }
-
-
-type alias SearchResult =
-    { name : String
-    , group : String
-    , url : String
-    }
 
 
 viewResults : List SearchResult -> Ui.Element msg
@@ -87,27 +100,28 @@ viewResults results =
             let
                 groups =
                     groupWhile
-                        (\one two ->
-                            one.group == two.group
-                        )
+                        (\one two -> one.group == two.group)
                         results
             in
             Ui.column
-                [ Ui.Theme.border.small
-                , Ui.Theme.padding.sm
+                [ Theme.Color.backgroundSurface
+                , Theme.Color.borderDefault
+                , Theme.borderWidth 1
+                , Theme.borderRadius.sm
+                , Theme.pad 1
                 , Ui.width Ui.fill
-                , Ui.Theme.spacing.sm
+                , Theme.gap 1
                 ]
                 (List.map
                     (\( top, others ) ->
-                        Ui.column [ Ui.width Ui.fill, Ui.Theme.spacing.sm3 ]
+                        Ui.column [ Ui.width Ui.fill, Theme.gap 2 ]
                             [ Ui.el
                                 [ Ui.ellipsis
                                 , Ui.width Ui.fill
-                                , Ui.Theme.font.small
+                                , Theme.font.body
                                 ]
                                 (Ui.text top.group)
-                            , Ui.column [ Ui.width Ui.fill, Ui.Theme.spacing.sm2 ]
+                            , Ui.column [ Ui.width Ui.fill, Theme.gap 1 ]
                                 (List.map
                                     (\item ->
                                         Ui.el

@@ -969,6 +969,7 @@ main = do
       Gen.Commands.addStore,
       Gen.Commands.addEffect,
       Gen.Commands.addListener,
+      Gen.Commands.addUi,
       -- Gen.Commands.addDocs,
       -- Gen.Commands.addTheme,
       Gen.Commands.customize,

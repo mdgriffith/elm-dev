@@ -21,8 +21,9 @@ module Ui.Button exposing
 -}
 
 import Ui
-import Ui.Theme
-import Ui.Theme.Palette
+import Html.Attributes as Attr
+import Theme
+import Theme.Color
 
 
 type Button msg
@@ -109,11 +110,17 @@ withSmall (Button details) =
 
 
 {-| -}
+withLoading : Button msg -> Button msg
+withLoading button =
+    button
+
+
+{-| -}
 withSecondary : Button msg -> Button msg
 withSecondary (Button details) =
     Button
         { details
-            | size = Secondary
+            | style = Secondary
         }
 
 
@@ -122,7 +129,7 @@ view : Button msg -> Ui.Element msg
 view (Button details) =
     Ui.el
         [ Ui.onClick details.onClick
-        , Ui.Theme.font.default
+        , Theme.font.body
 
         -- Variable styles
         , if details.widthFill then
@@ -132,35 +139,31 @@ view (Button details) =
             Ui.noAttr
         , case details.size of
             Small ->
-                Ui.Theme.padding.sm
+                Theme.pad 1
 
             Normal ->
-                Ui.Theme.padding.md
+                Theme.pad 2
         , case details.style of
             Primary ->
-                Ui.Theme.Palette.primary
+                Theme.Color.backgroundPrimary
 
             Secondary ->
-                Ui.Theme.Palette.secondary
+                Theme.Color.backgroundSurface
+        , case details.style of
+            Primary ->
+                Theme.Color.textOnBrand
+
+            Secondary ->
+                Theme.Color.textDefault
         , case details.corners of
             Rounded ->
-                Ui.rounded 4
+                Theme.borderRadius.sm
 
             RoundedLeft ->
-                Ui.roundedWith
-                    { topLeft = 0
-                    , topRight = 4
-                    , bottomLeft = 0
-                    , bottomRight = 4
-                    }
+                Ui.htmlAttribute (Attr.style "border-radius" "0 4px 4px 0")
 
             RoundedRight ->
-                Ui.roundedWith
-                    { topLeft = 4
-                    , topRight = 0
-                    , bottomLeft = 4
-                    , bottomRight = 0
-                    }
+                Ui.htmlAttribute (Attr.style "border-radius" "4px 0 0 4px")
 
             Sharp ->
                 Ui.noAttr

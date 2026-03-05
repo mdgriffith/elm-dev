@@ -11,6 +11,7 @@ Welcome to Elm Dev
   elm-prefab ${Chalk.green("add page <url>")} ............ add a new page
   elm-prefab ${Chalk.green("add store <name>")} ... add a new store
   elm-prefab ${Chalk.green("add effect <name>")} ....... add a new effect
+  elm-prefab ${Chalk.green("add ui")} .......... add built-in UI modules
   elm-prefab ${Chalk.green("add docs")} ................. add a docs site
   elm-prefab ${Chalk.green("add graphql")} .................. add GraphQL
   elm-prefab ${Chalk.green("add theme")} .................... add a theme

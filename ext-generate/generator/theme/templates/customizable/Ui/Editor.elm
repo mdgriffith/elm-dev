@@ -176,7 +176,7 @@ type ControlBar msg
 
 noControls : ControlBar msg
 noControls =
-    ControlBar { attrs = [], controls = [] }
+    ControlBar { elem = Html.div, attrs = [], controls = [] }
 
 
 controls :

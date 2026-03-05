@@ -1,14 +1,13 @@
 module Ui.Markdown exposing (parse, render, view)
 
+import Char
 import Html exposing (Html)
-import Html.Attributes
-import Http
 import Markdown.Block as Block
 import Markdown.Parser
-import Markdown.Renderer
-import Theme.Color as Color
-import Theme.Layout as Layout
-import Theme.Text as Text
+import Theme
+import Theme.Color
+import Theme.Color.Palette as Palette
+import Theme.Text
 import Ui
 import Ui.Divider
 import Ui.Font
@@ -20,10 +19,10 @@ view : String -> Ui.Element msg
 view src =
     case parse src of
         Ok blocks ->
-            Layout.column.sm []
+            Ui.column [ Theme.gap 1 ]
                 (List.map render blocks)
 
-        Err errors ->
+        Err _ ->
             Ui.text src
 
 
@@ -37,42 +36,39 @@ render : Block.Block -> Ui.Element msg
 render block =
     case block of
         Block.Heading Block.H1 content ->
-            Text.h1
-                (Block.extractInlineText content)
+            Theme.Text.title [] (Block.extractInlineText content)
 
         Block.Heading Block.H2 content ->
-            Text.h2
-                (Block.extractInlineText content)
+            Theme.Text.title [] (Block.extractInlineText content)
 
         Block.Heading _ content ->
-            Text.h2
-                (Block.extractInlineText content)
+            Theme.Text.body [ Ui.Font.bold ] (Block.extractInlineText content)
 
         Block.Paragraph inlines ->
             paragraph []
                 (List.map renderInline inlines)
 
-        Block.HtmlBlock html ->
+        Block.HtmlBlock _ ->
             Ui.none
 
-        Block.UnorderedList tight items ->
-            Layout.column.sm []
+        Block.UnorderedList _ items ->
+            Ui.column [ Theme.gap 1 ]
                 (List.map
-                    (\(Block.ListItem checked innerBlocks) ->
-                        Layout.row.sm []
-                            [ Ui.text "•"
+                    (\(Block.ListItem _ innerBlocks) ->
+                        Ui.row [ Theme.gap 1 ]
+                            [ Ui.text "-"
                             , paragraph [] (List.map render innerBlocks)
                             ]
                     )
                     items
                 )
 
-        Block.OrderedList tight startingIndex items ->
-            Layout.column.sm []
+        Block.OrderedList _ startingIndex items ->
+            Ui.column [ Theme.gap 1 ]
                 (List.indexedMap
                     (\index innerBlocks ->
-                        Layout.row.sm []
-                            [ Ui.text (String.fromInt (startingIndex + index))
+                        Ui.row [ Theme.gap 1 ]
+                            [ Ui.text (String.fromInt (startingIndex + index) ++ ".")
                             , paragraph [] (List.map render innerBlocks)
                             ]
                     )
@@ -81,17 +77,17 @@ render block =
 
         Block.CodeBlock codeBlock ->
             Ui.el
-                [ Layout.padding.sm3
-                , Ui.background Color.grey100
-                , Ui.rounded 4
+                [ Theme.pad 3
+                , Ui.background Palette.neutral95
+                , Theme.borderRadius.sm
                 ]
-                (Ui.text codeBlock.code)
+                (Ui.text codeBlock.body)
 
         Block.ThematicBreak ->
             Ui.Divider.horizontal
 
         Block.BlockQuote nestedBlocks ->
-            paragraph [ Layout.padding.lg ]
+            paragraph [ Theme.pad 2 ]
                 (List.map render nestedBlocks)
 
         Block.Table headers rows ->
@@ -99,7 +95,7 @@ render block =
                 columns =
                     Ui.Table.columns
                         (List.indexedMap
-                            (\index cell ->
+                            (\index cell_ ->
                                 let
                                     isNumeric =
                                         rows
@@ -116,7 +112,7 @@ render block =
                                               else
                                                 Ui.noAttr
                                             ]
-                                            (Block.extractInlineText cell.label)
+                                            (Block.extractInlineText cell_.label)
                                     , view =
                                         \row ->
                                             let
@@ -168,7 +164,7 @@ renderInline inline =
             paragraph [ Ui.Font.strike ]
                 (List.map renderInline innerInlines)
 
-        Block.Image src title children ->
+        Block.Image _ _ _ ->
             Ui.none
 
         Block.Text string ->
@@ -176,13 +172,13 @@ renderInline inline =
 
         Block.CodeSpan string ->
             Ui.el
-                [ Layout.padding.sm4
-                , Ui.background Color.grey100
-                , Ui.rounded 4
+                [ Theme.pad 1
+                , Ui.background Palette.neutral95
+                , Theme.borderRadius.sm
                 ]
                 (Ui.text string)
 
-        Block.Link destination title inlines ->
+        Block.Link destination _ inlines ->
             Ui.el [ Ui.link destination ]
                 (Ui.text (Block.extractInlineText inlines))
 
@@ -190,7 +186,7 @@ renderInline inline =
             Ui.el [ Ui.Font.exactWhitespace ]
                 (Ui.html (Html.text "\n"))
 
-        Block.HtmlInline html ->
+        Block.HtmlInline _ ->
             Ui.none
 
 
@@ -215,19 +211,9 @@ getIndex index items =
 
 header attrs content =
     Ui.Table.cell
-        [ Ui.borderColor (Ui.rgb 200 200 200)
-        , Ui.borderWith
-            { top = 0
-            , left = 0
-            , right = 0
-            , bottom = 1
-            }
-        , Ui.paddingWith
-            { top = 16
-            , left = 16
-            , right = 16
-            , bottom = 8
-            }
+        [ Theme.Color.borderDefault
+        , Theme.borderWidthBottom 1
+        , Theme.padXY 4 2
         , Ui.height Ui.fill
         ]
         (Ui.el [ Ui.width Ui.fill ]

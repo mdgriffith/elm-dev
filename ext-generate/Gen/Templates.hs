@@ -25,6 +25,7 @@ templates = $(TH.runIO
                     "ext-generate/generator" 
                     [ "app"
                     , "assets"
+                    , "theme/templates"
                     ]
                 ) >>= TH.lift
              )
@@ -139,4 +140,4 @@ writeGroupCustomizable target src hiddenSrc = do
 
 -- Version.  Iterate when we change the templates
 version :: String
-version = "654042c76a42280d"
+version = "e64b7090ccc2c744"

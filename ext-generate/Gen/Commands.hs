@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Gen.Commands (initialize, addPage, addStore, addEffect, addDocs, addTheme, addListener, customize) where
+module Gen.Commands (initialize, addPage, addStore, addEffect, addDocs, addTheme, addUi, addListener, customize) where
 
 import qualified CommandParser
-import Control.Monad (when)
+import Control.Monad (forM, when)
 import Data.Aeson (Value, eitherDecodeStrict, object, (.=))
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteString.Lazy as BS
@@ -137,6 +137,79 @@ addListener = CommandParser.command ["add", "listener"] "Add a new listener" add
 
       putStrLn $ "Created new listener: " ++ name
 
+-- Add UI Command
+addUi :: CommandParser.Command
+addUi = CommandParser.command ["add", "ui"] "Add built-in UI modules" addGroup CommandParser.noArg CommandParser.noFlag runUi
+  where
+    runUi :: () -> () -> IO ()
+    runUi _ _ = do
+      cwd <- Dir.getCurrentDirectory
+      configResult <- Gen.Generate.readConfigOrFail cwd
+
+      case Config.configTheme configResult of
+        Nothing -> do
+          let newConfig = configResult {Config.configTheme = Just defaultTheme}
+          BS.writeFile "elm.dev.json" (Aeson.encodePretty newConfig)
+          putStrLn "Added theme section to config"
+        Just _ ->
+          return ()
+
+      let uiTemplates =
+            List.sortBy
+              (\a b -> compare (Gen.Templates.Loader.elmModuleName a) (Gen.Templates.Loader.elmModuleName b))
+              ( filter
+                  (\t ->
+                      Gen.Templates.Loader.target t == Gen.Templates.Loader.Customizable
+                        && Gen.Templates.Loader.plugin t == "theme"
+                        && isUiPath (Gen.Templates.Loader.dir t)
+                  )
+                  Gen.Templates.templates
+              )
+
+      if List.null uiTemplates
+        then fail "Could not find built-in UI templates"
+        else do
+          results <- forM uiTemplates $ \template -> do
+            let relativePath = Config.elmSrc </> Gen.Templates.Loader.dir template </> Gen.Templates.Loader.filename template
+            let targetPath = cwd </> relativePath
+            targetExists <- Dir.doesFileExist targetPath
+
+            if targetExists
+              then return ([], [relativePath])
+              else do
+                Dir.createDirectoryIfMissing True (FP.takeDirectory targetPath)
+                TIO.writeFile targetPath (Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template))
+
+                let hiddenPath = cwd </> "elm-stuff/generated" </> Gen.Templates.Loader.dir template </> Gen.Templates.Loader.filename template
+                hiddenExists <- Dir.doesFileExist hiddenPath
+                when hiddenExists (Dir.removeFile hiddenPath)
+
+                return ([relativePath], [])
+
+          let created = List.concatMap fst results
+          let skipped = List.concatMap snd results
+
+          putStrLn ""
+          mapM_ (\path -> putStrLn $ "  + " ++ Terminal.Colors.green path) created
+          mapM_ (\path -> putStrLn $ "  = " ++ Terminal.Colors.yellow path ++ " (already exists)") skipped
+          putStrLn ""
+          putStrLn $ "Added " ++ show (length created) ++ " UI module(s)."
+
+          codegenResult <- Gen.Generate.run cwd
+          case codegenResult of
+            Left err -> do
+              putStrLn ""
+              putStrLn "UI modules were added, but code generation failed:"
+              putStrLn err
+              fail "Unable to regenerate generated modules after `add ui`."
+
+            Right () -> do
+              putStrLn "Regenerated generated modules."
+
+    isUiPath :: String -> Bool
+    isUiPath dirPath =
+      dirPath == "Ui" || List.isPrefixOf "Ui/" dirPath
+
 -- Add Docs Command
 addDocs :: CommandParser.Command
 addDocs = CommandParser.command ["add", "docs"] "Add docs site" addGroup CommandParser.noArg CommandParser.noFlag runDocs
@@ -262,6 +335,7 @@ data AddCommand
   = AddPage Terminal.Helpers.PageParams
   | AddStore Elm.ModuleName.Raw
   | AddEffect Elm.ModuleName.Raw
+  | AddUi
   | AddDocs
   | AddTheme
 
@@ -287,7 +361,20 @@ customizeGroup :: Maybe String
 customizeGroup = Just "Move an elm-dev-generated file into your project"
 
 customize :: CommandParser.Command
-customize = CommandParser.command ["customize"] "Customize project components" customizeGroup (CommandParser.parseArg (CommandParser.arg "module")) CommandParser.noFlag $ \moduleName () -> do
+customize = CommandParser.command ["customize"] "Customize project components" customizeGroup (CommandParser.parseOptionalArg (CommandParser.arg "module")) customizeFlags $ \maybeModuleName flags -> do
+  case (flags, maybeModuleName) of
+    (True, _) -> printCustomizableTemplates
+    (_, Nothing) -> printCustomizableTemplates
+    (_, Just moduleName) -> customizeTemplate moduleName
+
+customizeFlags :: CommandParser.ParsedArgs -> Either String (Bool, CommandParser.ParsedArgs)
+customizeFlags parsed =
+  case CommandParser.parseFlag CommandParser.helpFlag parsed of
+    Left err -> Left err
+    Right (maybeHelp, parsedRest) -> Right (Maybe.fromMaybe False maybeHelp, parsedRest)
+
+customizeTemplate :: String -> IO ()
+customizeTemplate moduleName = do
   -- Read config to get source directory
   cwd <- Dir.getCurrentDirectory
   configResult <- Gen.Generate.readConfigOrFail cwd
@@ -306,12 +393,8 @@ customize = CommandParser.command ["customize"] "Customize project components" c
 
   case maybeTemplate of
     Nothing -> do
-      let customizableTemplates =
-            List.sortBy (\a b -> compare (Gen.Templates.Loader.elmModuleName a) (Gen.Templates.Loader.elmModuleName b)) $
-              filter (\t -> Gen.Templates.Loader.target t == Gen.Templates.Loader.Customizable) Gen.Templates.templates
       putStrLn $ "I wasn't able to find  " ++ Terminal.Colors.yellow moduleName
-      putStrLn "Available customizable templates:\n"
-      mapM_ (\t -> putStrLn $ "  " ++ Terminal.Colors.green (Gen.Templates.Loader.elmModuleName t)) customizableTemplates
+      printCustomizableTemplates
     Just template -> do
       -- Write template to configSrc folder
       let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
@@ -331,7 +414,7 @@ customize = CommandParser.command ["customize"] "Customize project components" c
         TIO.writeFile targetPath contents
 
         -- Check and remove corresponding file in ToHidden directory
-        let hiddenPath = cwd </> ".elm-generate" </> moduleFilePath
+        let hiddenPath = cwd </> "elm-stuff/generated" </> moduleFilePath
         hiddenExists <- Dir.doesFileExist hiddenPath
         when hiddenExists $ do
           Dir.removeFile hiddenPath
@@ -340,6 +423,14 @@ customize = CommandParser.command ["customize"] "Customize project components" c
         putStrLn $ "  " ++ Terminal.Colors.green relativePath ++ " is now in your project!"
         putStrLn ""
         putStrLn "Customize away!"
+
+printCustomizableTemplates :: IO ()
+printCustomizableTemplates = do
+  let customizableTemplates =
+        List.sortBy (\a b -> compare (Gen.Templates.Loader.elmModuleName a) (Gen.Templates.Loader.elmModuleName b)) $
+          filter (\t -> Gen.Templates.Loader.target t == Gen.Templates.Loader.Customizable) Gen.Templates.templates
+  putStrLn "Available customizable templates:\n"
+  mapM_ (\t -> putStrLn $ "  " ++ Terminal.Colors.green (Gen.Templates.Loader.elmModuleName t)) customizableTemplates
 
 reflow :: String -> P.Doc
 reflow string =

@@ -15,8 +15,8 @@ module Ui.Modal exposing
 -}
 
 import Ui
-import Ui.Input
-import Ui.Theme
+import Html.Attributes as Attr
+import Theme.Color
 
 
 type Modal msg
@@ -25,7 +25,7 @@ type Modal msg
 
 type alias Details msg =
     { visible : Bool
-    , closeOnClickBackdrop : Maybe (Bool -> msg)
+    , closeOnClickBackdrop : Maybe msg
     , content : Ui.Element msg
     }
 
@@ -35,7 +35,7 @@ modal :
     { visible : Bool
     , content : Ui.Element msg
     }
-    -> Switch msg
+    -> Modal msg
 modal options =
     Modal
         { visible = options.visible
@@ -44,7 +44,7 @@ modal options =
         }
 
 
-withCloseOnBackdropClick : (Bool -> msg) -> Modal msg -> Modal msg
+withCloseOnBackdropClick : msg -> Modal msg -> Modal msg
 withCloseOnBackdropClick closeOnClickBackdrop (Modal details) =
     Modal
         { details
@@ -58,7 +58,8 @@ view (Modal options) =
     Ui.el
         [ Ui.width Ui.fill
         , Ui.height Ui.fill
-        , Ui.Theme.background.backdrop
+        , Theme.Color.backgroundCanvas
+        , Ui.htmlAttribute (Attr.style "background-color" "rgba(0,0,0,0.45)")
         , case options.closeOnClickBackdrop of
             Nothing ->
                 Ui.noAttr

@@ -49,10 +49,11 @@ Add to your Elm app:
   elm-dev add store <name> ................... Add a new store
   elm-dev add effect <name> ................. Add a new effect
   elm-dev add listener <name> ............. Add a new listener
+  elm-dev add ui ........................ Add built-in UI modules
 
 Move an elm-dev-generated file into your project:
 
-  elm-dev customize <module> .... Customize project components
+  elm-dev customize [module] .... Customize project components
 
 Testing:
 

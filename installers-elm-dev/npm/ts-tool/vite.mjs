@@ -1,5 +1,6 @@
 // Vite plugin for Elm Dev - ESM build
 import { spawn } from 'node:child_process';
+import { existsSync } from 'fs';
 import path from 'node:path';
 // import { toColoredTerminalOutput } from './elm-errors-render.js';
 
@@ -11,6 +12,28 @@ function setEmptyCacheFor(id, compilationCache) {
     };
     compilationCache.set(id, moduleState);
     return moduleState;
+}
+
+function stripQueryAndHash(id) {
+    return id.split('?')[0].split('#')[0];
+}
+
+function isElmRequest(id) {
+    return stripQueryAndHash(id).endsWith('.elm');
+}
+
+function findProjectRootFor(filePath) {
+    let dir = path.dirname(filePath);
+    while (true) {
+        if (existsSync(path.join(dir, 'elm.json'))) {
+            return dir;
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir) {
+            return path.dirname(filePath);
+        }
+        dir = parent;
+    }
 }
 
 const loggingEnabled = false;
@@ -76,14 +99,23 @@ async function discoverDevServer() {
 
 function wrapCompiledElmCode(id, code) {
     const elmModuleName = guessElmModuleName(id);
+    const codeLiteral = JSON.stringify(code);
     const wrappedCode = `
+const __elmCode = ${codeLiteral};
+const __elmScope = {};
+new Function(__elmCode).call(__elmScope);
 
+const __elmExport = __elmScope.Elm && __elmScope.Elm["${elmModuleName}"] ? __elmScope.Elm["${elmModuleName}"] : undefined;
 
-function start() {
-    ${code}
+if (!window.Elm || !window.Elm["${elmModuleName}"]) {
+    if (__elmScope.Elm) {
+        window.Elm = __elmScope.Elm;
+    }
+} else if (window.Elm && window.Elm.hot && typeof window.Elm.hot.reload === 'function') {
+    window.Elm.hot.reload(__elmScope);
 }
-start.call(window);
-export default window.Elm.${elmModuleName};
+
+export default __elmExport;
 
 if (import.meta.hot) {
     import.meta.hot.accept(() => {});
@@ -92,13 +124,30 @@ if (import.meta.hot) {
     return wrappedCode;
 }
 
+function stripInjectedHotJs(compiledJs) {
+    const marker = '[elm-dev][hot]';
+    const markerIndex = compiledJs.indexOf(marker);
+    if (markerIndex === -1) {
+        return compiledJs;
+    }
+
+    const startIndex = compiledJs.lastIndexOf('(function () {', markerIndex);
+    const endIndex = compiledJs.indexOf('})();', markerIndex);
+    if (startIndex === -1 || endIndex === -1) {
+        return compiledJs;
+    }
+
+    return `${compiledJs.slice(0, startIndex)}${compiledJs.slice(endIndex + 5)}`;
+}
+
 async function compileWithDevServer(id, debug, optimize, serverInfo) {
     // Always resolve to an absolute path for the dev server
     const absoluteId = toAbsolute(id);
+    const projectRoot = findProjectRootFor(absoluteId);
 
     const options = {
-        dir: process.cwd(),
-        file: path.relative(process.cwd(), absoluteId),
+        dir: projectRoot,
+        file: path.relative(projectRoot, absoluteId),
         debug,
         optimize,
     };
@@ -123,7 +172,7 @@ async function compileWithDevServer(id, debug, optimize, serverInfo) {
         return { error: 'Empty response from dev server' };
     }
 
-    const wrappedCode = wrapCompiledElmCode(absoluteId, compiledJs);
+    const wrappedCode = wrapCompiledElmCode(absoluteId, stripInjectedHotJs(compiledJs));
     return { code: wrappedCode };
 }
 
@@ -137,12 +186,20 @@ async function notifyFileChanged(file, serverInfo) {
     const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/dev/fileChanged?${params.toString()}`;
     try {
         const res = await fetch(url, { method: 'GET' });
-        if (!res.ok && loggingEnabled) {
-            const payload = await res.text();
-            log('fileChanged returned non-OK', res.status, payload);
+        if (!res.ok) {
+            if (loggingEnabled) {
+                const payload = await res.text();
+                log('fileChanged returned non-OK', res.status, payload);
+            }
+            return { ok: false, compiled: false };
         }
+
+        const payload = await res.json().catch(() => null);
+        const compiled = Boolean(payload && payload.compiled);
+        return { ok: true, compiled };
     } catch (e) {
         if (loggingEnabled) log('fileChanged request failed', e);
+        return { ok: false, compiled: false };
     }
 }
 
@@ -169,92 +226,117 @@ async function compileWithCli(id, debug, optimize) {
     });
 }
 
+function invalidateElmModules(server, compilationCache) {
+    const modulesToReload = new Set();
+
+    for (const [loadedId] of compilationCache) {
+        setEmptyCacheFor(loadedId, compilationCache);
+
+        const byId = server.moduleGraph.getModuleById(loadedId);
+        if (byId) modulesToReload.add(byId);
+
+        const byFile = server.moduleGraph.getModulesByFile(loadedId);
+        if (byFile) {
+            for (const m of byFile) modulesToReload.add(m);
+        }
+    }
+
+    for (const moduleNode of modulesToReload) {
+        server.moduleGraph.invalidateModule(moduleNode);
+    }
+
+    return Array.from(modulesToReload);
+}
+
 export default function elmDevPlugin(options = {}) {
     const { debug = false, optimize = false, useDevServer = true } = options;
     const compilationCache = new Map();
     let devServer = null;
+
+    async function compileElmModule(id) {
+        const cacheId = toAbsolute(id);
+
+        let moduleState = compilationCache.get(cacheId);
+        if (!moduleState) {
+            moduleState = setEmptyCacheFor(cacheId, compilationCache);
+        }
+
+        if (moduleState.code) {
+            if (loggingEnabled) log('cache hit for', cacheId);
+            return moduleState.code;
+        }
+
+        if (moduleState.isCompiling && moduleState.compilationPromise) {
+            if (loggingEnabled) log('already compiling, returning promise for', cacheId);
+            return moduleState.compilationPromise;
+        }
+
+        moduleState.isCompiling = true;
+        const compilationPromise = new Promise(async (resolve, reject) => {
+            try {
+                if (useDevServer) {
+                    if (!devServer) {
+                        const discovered = await discoverDevServer();
+                        if (discovered) {
+                            devServer = { ...discovered };
+                        }
+                    }
+                }
+                if (useDevServer && devServer) {
+                    if (loggingEnabled) log('compiling with dev server', cacheId);
+                    const result = await compileWithDevServer(cacheId, debug, optimize, devServer);
+                    if (result && result.error) {
+                        setEmptyCacheFor(cacheId, compilationCache);
+                        reject(new Error(result.error));
+                        return;
+                    }
+                    const wrappedCode = result && result.code ? result.code : null;
+                    if (!wrappedCode) {
+                        setEmptyCacheFor(cacheId, compilationCache);
+                        reject(new Error('Compilation failed'));
+                        return;
+                    }
+                    moduleState.code = wrappedCode;
+                    moduleState.isCompiling = false;
+                    moduleState.compilationPromise = null;
+                    resolve(wrappedCode);
+                    return;
+                }
+
+                log('compiling with cli', cacheId);
+                const wrappedCode = await compileWithCli(cacheId, debug, optimize);
+                moduleState.code = wrappedCode;
+                moduleState.isCompiling = false;
+                moduleState.compilationPromise = null;
+                resolve(wrappedCode);
+            } catch (e) {
+                setEmptyCacheFor(cacheId, compilationCache);
+                reject(e);
+            }
+        });
+
+        moduleState.compilationPromise = compilationPromise;
+        return compilationPromise;
+    }
 
     return {
         name: 'vite-plugin-elm-dev',
         enforce: 'pre',
 
         // Resolve Elm module ids to filesystem paths using Vite/Rollup's resolver.
-        // This is the most "standard" way to get an absolute (or `/@fs/`) id.
-        // We still keep `toAbsolute` elsewhere as a fallback because `id` in
-        // load/transform may include query strings.
         async resolveId(id, importer) {
-            if (!id.endsWith('.elm')) return null;
-            const resolved = await this.resolve(id, importer, { skipSelf: true });
-            return resolved ? resolved.id : id;
+            if (!isElmRequest(id)) return null;
+            const cleanedId = stripQueryAndHash(id);
+            const resolved = await this.resolve(cleanedId, importer, { skipSelf: true });
+            return resolved ? resolved.id : cleanedId;
         },
 
         async load(id) {
-            if (!id.endsWith('.elm')) {
+            if (!isElmRequest(id)) {
                 return null;
             }
             if (loggingEnabled) log('load', id);
-
-            let moduleState = compilationCache.get(id);
-            if (!moduleState) {
-                moduleState = setEmptyCacheFor(id, compilationCache);
-            }
-
-            if (moduleState.code) {
-                if (loggingEnabled) log('cache hit for', id);
-                return moduleState.code;
-            }
-
-            if (moduleState.isCompiling && moduleState.compilationPromise) {
-                if (loggingEnabled) log('already compiling, returning promise for', id);
-                return moduleState.compilationPromise;
-            }
-
-            moduleState.isCompiling = true;
-            const compilationPromise = new Promise(async (resolve, reject) => {
-                try {
-                    if (useDevServer) {
-                        if (!devServer) {
-                            const discovered = await discoverDevServer();
-                            if (discovered) {
-                                devServer = { ...discovered };
-                            }
-                        }
-                    }
-                    if (useDevServer && devServer) {
-                        if (loggingEnabled) log('compiling with dev server', id);
-                        const result = await compileWithDevServer(id, debug, optimize, devServer);
-                        if (result && result.error) {
-                            setEmptyCacheFor(id, compilationCache);
-                            reject(new Error(result.error));
-                            return;
-                        }
-                        const wrappedCode = result && result.code ? result.code : null;
-                        if (!wrappedCode) {
-                            setEmptyCacheFor(id, compilationCache);
-                            reject(new Error('Compilation failed'));
-                            return;
-                        }
-                        moduleState.code = wrappedCode;
-                        moduleState.isCompiling = false;
-                        moduleState.compilationPromise = null;
-                        resolve(wrappedCode);
-                        return;
-                    }
-
-                    log('compiling with cli', id);
-                    const wrappedCode = await compileWithCli(id, debug, optimize);
-                    moduleState.code = wrappedCode;
-                    moduleState.isCompiling = false;
-                    moduleState.compilationPromise = null;
-                    resolve(wrappedCode);
-                } catch (e) {
-                    setEmptyCacheFor(id, compilationCache);
-                    reject(e);
-                }
-            });
-
-            moduleState.compilationPromise = compilationPromise;
-            return compilationPromise;
+            return compileElmModule(id);
         },
 
         async handleHotUpdate(ctx) {
@@ -263,29 +345,12 @@ export default function elmDevPlugin(options = {}) {
                 return;
             }
 
-            // HMR strategy: 
             if (useDevServer && devServer) {
                 await notifyFileChanged(file, devServer);
-                return [];
             }
 
-            // No Dev server
-            // Fallback when not using the dev server: invalidate cached Elm entries so next load recompiles
-            const modulesToReload = new Set();
-            for (const [loadedId] of compilationCache) {
-                setEmptyCacheFor(loadedId, compilationCache);
-
-                const byId = server.moduleGraph.getModuleById(loadedId);
-                if (byId) modulesToReload.add(byId);
-
-                const byFile = server.moduleGraph.getModulesByFile(loadedId);
-                if (byFile) {
-                    for (const m of byFile) modulesToReload.add(m);
-                }
-            }
-
-            server.ws.send({ type: 'full-reload' });
-            return Array.from(modulesToReload);
+            const modulesToReload = invalidateElmModules(server, compilationCache);
+            return modulesToReload.length > 0 ? modulesToReload : modules;
         },
 
     };
@@ -303,5 +368,3 @@ function guessElmModuleName(id) {
     }
     return moduleNameParts.reverse().join('.');
 }
-
-

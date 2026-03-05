@@ -7,41 +7,36 @@ module Ui.Table.Column exposing
 {-|
 
 @docs text
-
 @docs int, dollars
-
 @docs date, dateTime
 
 -}
 
+import Char
+import Theme
+import Theme.Color
 import Time
+import Ui
+import Ui.Font
 import Ui.Table
-import Ui.Theme
 
 
-{-| Standard header styling.
-
-This isn't exposed for a reason! We want to keep this detail internal to this module so there's one place where headers are styled.
-
--}
 header : String -> Ui.Table.Header msg
 header label =
     Ui.Table.cell
-        [ Ui.background Ui.Theme.colors.grey100
+        [ Theme.Color.backgroundSurface
+        , Theme.Color.textDefault
+        , Theme.font.body
         , Ui.Font.bold
         ]
         (Ui.text label)
 
 
-{-| Standard cell styling
--}
-cell : List (Ui.Attribute msg) Ui.Element msg -> Ui.Table.Cell msg
+cell : List (Ui.Attribute msg) -> Ui.Element msg -> Ui.Table.Cell msg
 cell attrs content =
-    Ui.Table.cell attrs
-        content
+    Ui.Table.cell attrs content
 
 
-{-| -}
 text :
     { header : String
     , toText : data -> String
@@ -56,36 +51,30 @@ text options =
         }
 
 
-
-{-|-}
 int :
     { header : String
     , toInt : data -> Int
     }
     -> Ui.Table.Column state data msg
-int options ==
-    number 
+int options =
+    number
         { header = options.header
         , toFloat = options.toInt >> toFloat
         , format = { currency = Nothing, decimalPlaces = 0 }
         }
 
 
-{-|-}
 dollars :
     { header : String
     , toFloat : data -> Float
     }
     -> Ui.Table.Column state data msg
-dollars options ==
-    number 
+dollars options =
+    number
         { header = options.header
         , toFloat = options.toFloat
         , format = { currency = Just "$", decimalPlaces = 2 }
         }
-
-
-{- Number cell implementation -}
 
 
 type alias NumberFormat =
@@ -94,7 +83,6 @@ type alias NumberFormat =
     }
 
 
-{-| -}
 number :
     { header : String
     , toFloat : data -> Float
@@ -103,15 +91,11 @@ number :
     -> Ui.Table.Column state data msg
 number options =
     Ui.Table.column
-        { header =
-            header options.header
+        { header = header options.header
         , view =
             \data ->
                 cell
-                    [ Ui.Font.alignRight
-                    , Ui.Font.variants
-                        [ Ui.Font.tabularNumbers ]
-                    ]
+                    [ Ui.alignRight ]
                     (Ui.text (formatFloat options.format (options.toFloat data)))
         }
 
@@ -135,9 +119,6 @@ floatToString format float =
         let
             topString =
                 String.fromInt (floor float)
-                    -- Add commas as a thousands separator
-                    -- We could extend the formatter to allow for switching the period and commas
-                    -- Which is commonly used in places like France and Germany.
                     |> String.foldr
                         (\char ( count, gathered ) ->
                             if count == 3 then
@@ -152,19 +133,17 @@ floatToString format float =
             multiplier =
                 10 ^ format.decimalPlaces
 
-            tail =
-                floor ((float - toFloat (floor float)) * multiplier)
+            tailValue =
+                floor ((float - toFloat (floor float)) * toFloat multiplier)
         in
-        topString ++ "." ++ String.fromInt tail
+        topString ++ "." ++ String.fromInt tailValue
 
 
-{-| -}
 type DateFormat
     = Date
     | DateTime
 
 
-{-| -}
 date :
     { header : String
     , toTimeZone : state -> Time.Zone
@@ -180,7 +159,6 @@ date options =
         }
 
 
-{-| -}
 dateTime :
     { header : String
     , toTimeZone : state -> Time.Zone
@@ -196,9 +174,6 @@ dateTime options =
         }
 
 
-
-{- Date Cell Implementation -}
-
 dateCell :
     { header : String
     , toTimeZone : state -> Time.Zone
@@ -208,11 +183,9 @@ dateCell :
     -> Ui.Table.Column state data msg
 dateCell options =
     Ui.Table.columnWithState
-        { header =
-            \state ->
-                header options.header
+        { header = \_ -> header options.header
         , view =
-            \index state data ->
+            \_ state data ->
                 cell []
                     (Ui.text (formatDate options.format (options.toTimeZone state) (options.toDate data)))
         }
@@ -222,24 +195,24 @@ formatDate : DateFormat -> Time.Zone -> Time.Posix -> String
 formatDate dateFormat zone posix =
     case dateFormat of
         Date ->
-            toMonthName (Time.toMonth zone time)
+            toMonthName (Time.toMonth zone posix)
                 ++ " "
-                ++ String.fromInt (Time.toDay zone time)
+                ++ String.fromInt (Time.toDay zone posix)
                 ++ ", "
-                ++ String.fromInt (Time.toYear zone time)
+                ++ String.fromInt (Time.toYear zone posix)
 
         DateTime ->
-            toMonthName (Time.toMonth zone time)
+            toMonthName (Time.toMonth zone posix)
                 ++ " "
-                ++ String.fromInt (Time.toDay zone time)
+                ++ String.fromInt (Time.toDay zone posix)
                 ++ ", "
-                ++ String.fromInt (Time.toYear zone time)
+                ++ String.fromInt (Time.toYear zone posix)
                 ++ " "
-                ++ String.fromInt (Time.toHour zone time)
+                ++ String.fromInt (Time.toHour zone posix)
                 ++ ":"
-                ++ String.fromInt (Time.toMinute zone time)
+                ++ String.fromInt (Time.toMinute zone posix)
                 ++ ":"
-                ++ String.fromInt (Time.toSecond zone time)
+                ++ String.fromInt (Time.toSecond zone posix)
 
 
 toMonthName : Time.Month -> String

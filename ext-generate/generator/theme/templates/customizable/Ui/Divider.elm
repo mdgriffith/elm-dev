@@ -3,8 +3,7 @@ module Ui.Divider exposing (horizontal, vertical)
 {-| -}
 
 import Ui
-import Ui.Theme
-import Ui.Theme.Palette
+import Theme.Color.Palette as Palette
 
 
 {-| -}
@@ -13,7 +12,7 @@ horizontal =
     Ui.el
         [ Ui.height (Ui.px 1)
         , Ui.width Ui.fill
-        , Ui.Theme.Palette.neutralInverted
+        , Ui.background Palette.neutral80
         ]
         Ui.none
 
@@ -24,6 +23,6 @@ vertical =
     Ui.el
         [ Ui.width (Ui.px 1)
         , Ui.height Ui.fill
-        , Ui.Theme.Palette.neutralInverted
+        , Ui.background Palette.neutral80
         ]
         Ui.none
