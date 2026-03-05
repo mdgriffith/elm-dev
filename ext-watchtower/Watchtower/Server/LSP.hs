@@ -286,7 +286,7 @@ handleDidOpen state openParams = do
         Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedOpen filePath editors)
       Watchtower.Server.DevWS.broadcastServiceStatus state
       -- Recompile relevant projects for this file
-      Watchtower.State.Compile.compileRelevantProjects state [filePath]
+      _ <- Watchtower.State.Compile.compileRelevantProjects state [filePath]
       return $ Right JSON.Null
 
 handleDidChange :: Live.State -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
@@ -312,7 +312,7 @@ handleDidChange state changeParams = do
           return $ Left $ "Invalid edit: " ++ err
         Right () -> do
             Watchtower.State.Compile.markFilesystemChanged state [filePath]
-            Watchtower.State.Compile.compileRelevantProjects state [filePath]
+            _ <- Watchtower.State.Compile.compileRelevantProjects state [filePath]
             return $ Right JSON.Null
 
 -- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
@@ -379,7 +379,7 @@ handleDidSave state saveParams = do
           pure ()
         else pure ()
       Watchtower.State.Compile.markFilesystemChanged state [filePath]
-      Watchtower.State.Compile.compileRelevantProjects state [filePath]
+      _ <- Watchtower.State.Compile.compileRelevantProjects state [filePath]
       return $ Right JSON.Null
 
 handleHover :: Live.State -> HoverParams -> IO (Either String (Maybe Hover))

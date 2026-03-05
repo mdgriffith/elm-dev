@@ -618,19 +618,21 @@ fileChangedHandler state = do
       if not ok
         then problemSnap 404 "not_found" (Text.pack "File not found")
         else do
+          canonicalPath <- liftIO (Dir.canonicalizePath path)
+
           -- 1) Read from FS and write to cache
-          contents <- liftIO (File.readUtf8 path)
-          _ <- liftIO (Ext.FileCache.writeUtf8 path contents)
+          contents <- liftIO (File.readUtf8 canonicalPath)
+          _ <- liftIO (Ext.FileCache.writeUtf8 canonicalPath contents)
 
           -- 2) Mark project filesystem versions as changed
-          _ <- liftIO (Watchtower.State.Compile.markFilesystemChanged state [path])
+          _ <- liftIO (Watchtower.State.Compile.markFilesystemChanged state [canonicalPath])
 
           -- 3) Compile relevant projects
-          _ <- liftIO (Watchtower.State.Compile.compileRelevantProjects state [path])
+          compiled <- liftIO (Watchtower.State.Compile.compileRelevantProjects state [canonicalPath])
 
           -- 4) Broadcasts are handled inside compile; nothing to do here
           modifyResponse $ setContentType "application/json"
-          writeLBS (JSON.encode (JSON.object ["ok" JSON..= True]))
+          writeLBS (JSON.encode (JSON.object ["ok" JSON..= True, "compiled" JSON..= compiled, "path" JSON..= canonicalPath]))
 
 -- Return the list of projects in the same JSON shape as websocket "Status" message
 projectListHandler :: Live.State -> Snap ()

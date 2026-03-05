@@ -155,20 +155,21 @@ data UpsertError
  
 upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO (Either UpsertError Client.ProjectCache)
 upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoints = do
-  normalizedEntrypoints <- normalizeEntrypoints root entrypoints
+  canonicalRoot <- Dir.canonicalizePath root
+  normalizedEntrypoints <- normalizeEntrypoints canonicalRoot entrypoints
 
-  eOutline <- Exception.try (Elm.Outline.read root)
+  eOutline <- Exception.try (Elm.Outline.read canonicalRoot)
   case eOutline of
     Left (_ :: Exception.IOException) ->
-      pure (Left (NoElmJson root))
+      pure (Left (NoElmJson canonicalRoot))
     Right (Left outlineExit) ->
       pure (Left (ElmJsonError outlineExit))
     Right (Right outline) -> do
       srcDirs <- case outline of
         Elm.Outline.App appOutline -> do
           let srcDirsList = NE.toList (Elm.Outline._app_source_dirs appOutline)
-          pure (map (Elm.Outline.toAbsolute root) srcDirsList)
-        Elm.Outline.Pkg _ -> pure [root </> "src"]
+          pure (map (Elm.Outline.toAbsolute canonicalRoot) srcDirsList)
+        Elm.Outline.Pkg _ -> pure [canonicalRoot </> "src"]
       let normalizedList = NE.toList normalizedEntrypoints
       
       missing <- missingFiles normalizedList
@@ -176,7 +177,7 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
         if List.null missing
           then pure []
           else do
-            generationResult <- Gen.Generate.run root
+            generationResult <- Gen.Generate.run canonicalRoot
             case generationResult of
               Right () -> missingFiles normalizedList
               Left generationErr -> do
@@ -199,7 +200,7 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
             Just badEp ->
               pure (Left (EntrypointOutsideSourceDirs badEp srcDirs))
             Nothing -> do
-              docsInfo <- readDocsInfo root
+              docsInfo <- readDocsInfo canonicalRoot
 
               -- Assign a stable shortId based on existing projects; reuse if matching project exists, else next available
               existingProjects <- STM.readTVarIO mProjects
@@ -207,7 +208,7 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
               let nextId = case existingIds of
                              [] -> 1
                              _  -> (maximum existingIds) + 1
-              let newProject = Ext.Dev.Project.Project root root normalizedEntrypoints srcDirs nextId 
+              let newProject = Ext.Dev.Project.Project canonicalRoot canonicalRoot normalizedEntrypoints srcDirs nextId 
               mCompileResult <- STM.newTVarIO Client.NotCompiled
               mTest <- STM.newTVarIO Nothing
               let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTest
@@ -231,7 +232,7 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
               if isNew
                 then do
                   Ext.Filewatch.watch
-                    root
+                    canonicalRoot
                     (\filesChanged -> do
                         let normalized = map FilePath.normalise filesChanged
                         let relevant = filter isRelevantWatchedPath normalized
@@ -267,7 +268,8 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
                             Monad.mapM_ TestCompile.regenerateTestElmJson elmJsonRoots
 
                             Watchtower.State.Compile.markFilesystemChanged state syncable
-                            Watchtower.State.Compile.compileRelevantProjects state relevant
+                            _ <- Watchtower.State.Compile.compileRelevantProjects state relevant
+                            pure ()
                     )
                   pure ()
                 else pure ()

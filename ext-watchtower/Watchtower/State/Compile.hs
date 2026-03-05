@@ -204,22 +204,24 @@ updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
 --   A project is considered relevant if it contains at least one of the provided files.
 --   Compilation is performed synchronously here so the caller can rely on
 --   fresh results when this function returns.
-compileRelevantProjects :: Client.State -> [FilePath] -> IO ()
+compileRelevantProjects :: Client.State -> [FilePath] -> IO Bool
 compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = do
   if elmFiles == []
-    then pure ()
+    then pure False
     else do
       projects <- STM.readTVarIO mProjects
       let relevant = List.filter (projectTouchesAny elmFiles) projects
       case relevant of
         [] -> do 
           Ext.Log.log Ext.Log.Live "No relevant projects to compile"
-          pure ()
+          pure False
         _ ->
           Ext.Common.track "compile relevant projects" $ do
             counter <- STM.newTVarIO (List.length relevant)
+            anyCompiled <- STM.newTVarIO False
             let runOne projCache = do
-                  compileProjectFiles elmFiles projCache
+                  didCompile <- compileProjectFiles elmFiles projCache
+                  Monad.when didCompile (STM.atomically (STM.writeTVar anyCompiled True))
                   STM.atomically $ do
                     n <- STM.readTVar counter
                     STM.writeTVar counter (n - 1)
@@ -227,12 +229,13 @@ compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = 
             STM.atomically $ do
               n <- STM.readTVar counter
               STM.check (n == 0)
+            STM.readTVarIO anyCompiled
   where
     projectTouchesAny :: [FilePath] -> Client.ProjectCache -> Bool
     projectTouchesAny paths (Client.ProjectCache proj _ _ _ _) =
       any (\p -> Ext.Dev.Project.contains p proj) paths
 
-    compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO ()
+    compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO Bool
     compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _ _) = do
       let projectRoot = Ext.Dev.Project.getRoot proj
       withProjectCompileLock projectRoot $ do
@@ -244,10 +247,10 @@ compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = 
             _ <- compile state projCache projectFiles
             -- If this project has tests, compile them using previously discovered test files
             compileTests state projCache
-            pure ()
+            pure True
           else do
             Ext.Log.log Ext.Log.Live ("Skipping compile (up-to-date): " ++ show projectFiles)
-            pure ()
+            pure False
 
 -- | Compile tests for a project if test files have been discovered.
 compileTests :: Client.State -> Client.ProjectCache -> IO ()
