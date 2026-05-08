@@ -15,7 +15,6 @@ import App.View.Region
 import Broadcast
 import Data.Controls
 import Data.ProjectStatus as ProjectStatus
-import Dict
 import Docs.Ref
 import Docs.Ref.Get
 import Effect exposing (Effect)
@@ -123,7 +122,7 @@ update stores msg model =
                                 Docs.Ref.Package _ ->
                                     False
                     in
-                    if Debug.log "PLS" matchesThisModule then
+                    if matchesThisModule then
                         ( { model | interactiveExamples = Just examples }, Effect.none )
 
                     else
@@ -178,8 +177,6 @@ view viewId shared model =
                 maybeRoot =
                     Maybe.map .projectRoot maybeProject
 
-                _ =
-                    Debug.log "VIEWING CONTROLS" (Dict.keys shared.interactive.controlsByFile)
               in
               case ( maybeRoot, shared.devServer.base ) of
                 ( Just root, Just baseUrl ) ->
@@ -205,7 +202,7 @@ view viewId shared model =
                                         , filePath = first.path
                                         }
                                     ]
-                                , case Debug.log "FOUND CONTROLS" <| Store.Interactive.get (Debug.log "first.path" first.path) shared.interactive of
+                                , case Store.Interactive.get first.path shared.interactive of
                                     Just controls ->
                                         InteractiveControls.view
                                             (\path v ->
@@ -228,4 +225,3 @@ view viewId shared model =
                     Html.text ""
             ]
     }
-

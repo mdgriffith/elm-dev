@@ -6,6 +6,7 @@ import Webcomponents from "./js/webcomponents";
 import * as JSON from "./js/util/json";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { fetch } from "@tauri-apps/plugin-http";
 type TauriHttpResponse = { ok: boolean; json: () => Promise<unknown> };
 
@@ -27,6 +28,28 @@ const app = Main.init({
 
 // Connect all effects
 Effects.connect(app, {});
+
+const appWindow = getCurrentWindow();
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+
+  const control = target.closest<HTMLElement>("[data-window-control]");
+  const action = control?.dataset.windowControl;
+  if (action == null) return;
+
+  switch (action) {
+    case "minimize":
+      void appWindow.minimize();
+      break;
+    case "maximize":
+      void appWindow.toggleMaximize();
+      break;
+    case "close":
+      void appWindow.close();
+      break;
+  }
+});
 
 // Connect listeners via daemon status from Tauri
 

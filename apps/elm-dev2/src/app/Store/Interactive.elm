@@ -51,11 +51,10 @@ store =
             \msg model ->
                 case msg of
                     ControlsUpdated filepath controls ->
-                        ( Debug.log "ControlsUpdated"
-                            { model
-                                | controlsByFile =
-                                    Dict.insert filepath controls model.controlsByFile
-                            }
+                        ( { model
+                            | controlsByFile =
+                                Dict.insert filepath controls model.controlsByFile
+                          }
                         , Effect.none
                         )
 
@@ -69,8 +68,7 @@ store =
                                     Just controls ->
                                         Dict.insert filepath (Controls.setValueForPath key value controls) model.controlsByFile
                         in
-                        ( Debug.log "PropertyUpdated"
-                            { model | controlsByFile = updatedDict }
+                        ( { model | controlsByFile = updatedDict }
                         , Ui.Interactive.Controls.propertyUpdated { filepath = filepath, key = key, value = value }
                         )
         , subscriptions =
@@ -88,4 +86,3 @@ store =
                         )
                     ]
         }
-

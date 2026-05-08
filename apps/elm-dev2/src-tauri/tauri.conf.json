@@ -10,12 +10,17 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "withGlobalTauri": true,
     "windows": [
       {
         "title": "elm-dev",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "titleBarStyle": "Overlay",
+        "alwaysOnTop": true,
+        "decorations": false,
+        "transparent": true
       }
     ],
     "security": {

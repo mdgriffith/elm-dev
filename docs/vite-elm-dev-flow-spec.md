@@ -144,7 +144,7 @@ sequenceDiagram
 
 - `ext-generate/Modify/Inject/hot.js` consumes `Compiled` and `CompilationError` for runtime code-apply.
 - Vite plugin (`apps/ts-tool/vite.mjs`) does not consume daemon websocket messages for module replacement.
-- UI clients in `apps/elm-dev/src/main.ts` and `apps/elm-dev2/src/main.ts` forward daemon websocket JSON into Elm ports as status/events, but do not execute compiled JS payloads.
+- The UI client in `apps/elm-dev2/src/main.ts` forwards daemon websocket JSON into Elm ports as status/events, but does not execute compiled JS payloads.
 
 So if Vite is active, daemon websocket broadcasts may still happen, but they are not the authority that updates Vite's module graph.
 

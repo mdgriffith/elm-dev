@@ -8,6 +8,7 @@
 
 body {
   margin: 0 !important;
+  background-color: transparent;
 }
 
 :root {
@@ -24,6 +25,55 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: #f6f6f6;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.app-titlebar {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 12px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.app-titlebar-title {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.app-window-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.app-window-control {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  box-shadow: none;
+  color: #6b7280;
+  background: transparent;
+  line-height: 1;
+}
+
+.app-window-control:hover {
+  background: rgba(15, 23, 42, 0.08);
+  border: none;
+}
+
+.app-content {
+  min-height: calc(100vh - 34px);
 }
 
 .container {
@@ -103,6 +153,19 @@ button {
   :root {
     color: #f6f6f6;
     background-color: #2f2f2f;
+  }
+
+  .app-shell {
+    background: #2f2f2f;
+  }
+
+  .app-titlebar-title,
+  .app-window-control {
+    color: #d1d5db;
+  }
+
+  .app-window-control:hover {
+    background: rgba(255, 255, 255, 0.12);
   }
 
   a:hover {

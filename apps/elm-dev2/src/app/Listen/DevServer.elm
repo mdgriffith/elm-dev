@@ -19,7 +19,6 @@ import Elm.Docs
 import Elm.Package
 import Elm.Project
 import Json.Decode as Decode
-import Json.Encode as Encode
 import Listen
 import Platform.Sub
 
@@ -34,14 +33,7 @@ listen toMsg =
         , subscription =
             devServer
                 (\val ->
-                    let
-                        result =
-                            Decode.decodeValue (Decode.map toMsg eventDecoder) val
-
-                        _ =
-                            Debug.log "DEV SERVER RESULT" result
-                    in
-                    result
+                    Decode.decodeValue (Decode.map toMsg eventDecoder) val
                 )
         }
 
@@ -102,7 +94,7 @@ eventDecoder =
     Decode.field "msg" Decode.string
         |> Decode.andThen
             (\msg ->
-                case Debug.log "EVENT DECODER" msg of
+                case msg of
                     "Server" ->
                         Decode.field "details"
                             (Decode.field "status" Decode.string
@@ -220,13 +212,7 @@ eventDecoder =
                     _ ->
                         Decode.value
                             |> Decode.andThen
-                                (\val ->
-                                    let
-                                        _ =
-                                            Debug.log "UNRECOGNIZED INCOMING DEV SERVERMSG" (Encode.encode 4 val)
-                                    in
-                                    Decode.fail "UNRECOGNIZED INCOMING MSG"
-                                )
+                                (\_ -> Decode.fail "UNRECOGNIZED INCOMING MSG")
             )
 
 
@@ -250,4 +236,3 @@ interactiveExampleDecoder =
 --         , summary = "placeholder"
 --         , testDeps = Elm.Project.Deps [] []
 --         }
-

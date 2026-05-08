@@ -32,17 +32,7 @@ listen toMsg =
                 (Decode.field "controls" Controls.decode)
 
         decodeValue value =
-            let
-                _ =
-                    Debug.log "decodeValue" (Encode.encode 4 value)
-
-                result =
-                    Decode.decodeValue decoder value
-
-                _ =
-                    Debug.log "decodeValue result" result
-            in
-            result
+            Decode.decodeValue decoder value
     in
     Listen.OnFromJs
         { portName = "onControlsUpdated"
@@ -172,4 +162,3 @@ viewInput onChange input =
                         )
                         items
                 )
-

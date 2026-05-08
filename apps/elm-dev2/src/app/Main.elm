@@ -90,10 +90,35 @@ main =
                         Just (App.View page) ->
                             { title = page.title
                             , body =
-                                [ page.body
-                                ]
+                                [ viewChrome page.title page.body ]
                             }
         }
+
+
+viewChrome : String -> Html.Html msg -> Html.Html msg
+viewChrome title body =
+    Html.div [ Attr.class "app-shell" ]
+        [ Html.div [ Attr.class "app-titlebar", Attr.attribute "data-tauri-drag-region" "" ]
+            [ Html.div [ Attr.class "app-titlebar-title", Attr.attribute "data-tauri-drag-region" "" ]
+                [ Html.text title ]
+            , Html.div [ Attr.class "app-window-controls" ]
+                [ windowControl "minimize" "-"
+                , windowControl "maximize" "+"
+                , windowControl "close" "x"
+                ]
+            ]
+        , Html.div [ Attr.class "app-content" ] [ body ]
+        ]
+
+
+windowControl : String -> String -> Html.Html msg
+windowControl action label =
+    Html.button
+        [ Attr.class "app-window-control"
+        , Attr.attribute "data-window-control" action
+        , Attr.type_ "button"
+        ]
+        [ Html.text label ]
 
 
 type Msg
@@ -117,30 +142,14 @@ update stores msg model =
             loadUrl url model
 
         HealthReceived health ->
-            let
-                _ =
-                    Debug.log "RECVD:Health" health
-            in
             ( model, Effect.none )
 
         DevServerReceived event ->
-            -- let
-            --     _ =
-            --         Debug.log "RECVD:DevServer" event
-            -- in
             case event of
                 Listen.DevServer.ServerStatusUpdated server ->
-                    let
-                        _ =
-                            Debug.log "ServerStatusUpdated" server
-                    in
                     ( model, Effect.none )
 
                 Listen.DevServer.ProjectsStatusUpdated projects ->
-                    let
-                        _ =
-                            Debug.log "ProjectsStatusUpdated" projects
-                    in
                     ( model, Effect.none )
 
                 _ ->
@@ -209,4 +218,3 @@ toCmd stores options model effect =
 -- test : String
 -- test =
 --     True
-
