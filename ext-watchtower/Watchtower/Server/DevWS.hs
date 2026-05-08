@@ -4,7 +4,9 @@ module Watchtower.Server.DevWS
   ( State
   , websocket
   , broadcastCompiled
+  , broadcastCompiledTarget
   , broadcastCompilationError
+  , broadcastCompilationTargetError
   , broadcastServiceStatus
   ) where
 
@@ -84,10 +86,28 @@ broadcastCompiled (Client.State mClients _ _ _ _ _ _ _) codeText = do
         ]
   Watchtower.Websocket.broadcastWith mClients (\_ -> True) (aesonToText payload)
 
+broadcastCompiledTarget :: Client.State -> FilePath -> T.Text -> IO ()
+broadcastCompiledTarget (Client.State mClients _ _ _ _ _ _ _) entrypoint codeText = do
+  let payload = JSON.object
+        [ "msg" JSON..= JSON.String (T.pack "Compiled")
+        , "entrypoint" JSON..= entrypoint
+        , "details" JSON..= JSON.String codeText
+        ]
+  Watchtower.Websocket.broadcastWith mClients (\_ -> True) (aesonToText payload)
+
 broadcastCompilationError :: Client.State -> JSON.Value -> IO ()
 broadcastCompilationError (Client.State mClients _ _ _ _ _ _ _) errVal = do
   let payload = JSON.object
         [ "msg" JSON..= JSON.String (T.pack "CompilationError")
+        , "details" JSON..= errVal
+        ]
+  Watchtower.Websocket.broadcastWith mClients (\_ -> True) (aesonToText payload)
+
+broadcastCompilationTargetError :: Client.State -> FilePath -> JSON.Value -> IO ()
+broadcastCompilationTargetError (Client.State mClients _ _ _ _ _ _ _) entrypoint errVal = do
+  let payload = JSON.object
+        [ "msg" JSON..= JSON.String (T.pack "CompilationError")
+        , "entrypoint" JSON..= entrypoint
         , "details" JSON..= errVal
         ]
   Watchtower.Websocket.broadcastWith mClients (\_ -> True) (aesonToText payload)
@@ -101,8 +121,7 @@ broadcastServiceStatus (Client.State mClients _ _ _ _ mSessions mEditors _) = do
   sessionsMap <- STM.readTVarIO mSessions
   editorsOpen <- STM.readTVarIO mEditors
   let editorsJson =
-        case editorsOpen of
-          EditorsOpen.EditorsOpen m -> JSON.toJSON m
+        JSON.toJSON (EditorsOpen.toCounts editorsOpen)
   let payload =
         JSON.object
           [ "msg" JSON..= JSON.String (T.pack "ServiceStatus")
@@ -113,4 +132,4 @@ broadcastServiceStatus (Client.State mClients _ _ _ _ mSessions mEditors _) = do
           ]
   Watchtower.Websocket.broadcastWith mClients (\_ -> True) (aesonToText payload)
 
--- 
+--

@@ -276,7 +276,7 @@ toolUnused = MCP.Tool
       case selection of
         Left msg -> pure (errTxt msg)
         Right pc@(Client.ProjectCache proj _ _ _ _) -> do
-          _ <- Watchtower.State.Compile.compile state pc []
+          _ <- Watchtower.State.Compile.compile state "mcp.unused" pc []
           case getStringArg args "file" of
             Just filePath -> do
               (_loc, warns) <- Helpers.getWarningsForFile state filePath
@@ -285,7 +285,7 @@ toolUnused = MCP.Tool
               pure (MCP.ToolCallResponse [MCP.ToolResponseText Nothing body])
             Nothing -> do
               allInfos <- Client.getAllFileInfos state
-              let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.contains p proj) (Map.toList allInfos)
+              let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.affectsCompilation p proj) (Map.toList allInfos)
               perFile <- mapM
                           (\p -> do
                               (_loc, warns) <- Helpers.getWarningsForFile state p
@@ -417,7 +417,7 @@ toolCompile = MCP.Tool
           let (Client.ProjectCache proj _ _ _ _) = projCache
           _ <- Watchtower.State.Compile.updateVfsFromFs proj
           -- Perform compile
-          compileResult <- Watchtower.State.Compile.compile state projCache []
+          compileResult <- Watchtower.State.Compile.compile state "mcp.compile" projCache []
           -- Also compile tests regardless of main compile result
           _ <- Watchtower.State.Compile.compileTests state projCache
           -- Mark compiled version = current fs version snapshot, regardless of success or error
@@ -786,6 +786,10 @@ toolProjectSelect = MCP.Tool
                             case reactor of
                               Exit.ReactorBadBuild _ -> ("errors", Nothing)
                               _ -> ("error", Nothing)
+                          Client.TargetResults results ->
+                            if all (Client.compilationResultSucceeded . snd) results
+                              then ("ok", Nothing)
+                              else ("errors", Nothing)
                   let linesOut =
                         [ Text.concat ["Focused project set to root: ", Text.pack canonicalRoot]
                         , Text.concat ["Compilation status: ", compStatus]
@@ -813,6 +817,10 @@ toolProjectSelect = MCP.Tool
                                 case reactor of
                                   Exit.ReactorBadBuild _ -> ("errors", Nothing)
                                   _ -> ("error", Nothing)
+                              Client.TargetResults results ->
+                                if all (Client.compilationResultSucceeded . snd) results
+                                  then ("ok", Nothing)
+                                  else ("errors", Nothing)
                       let linesOut =
                             [ Text.concat ["Focused project set to root: ", Text.pack canonicalRoot]
                             , Text.concat ["Compilation status: ", compStatus]
@@ -916,7 +924,7 @@ resourceOverview =
               let projectRoot = Ext.Dev.Project.getRoot proj
               vers <- Versions.readVersions projectRoot
               when (Versions.compileVersion vers < Versions.fsVersion vers) $ do
-                _ <- Watchtower.State.Compile.compile state pc []
+                _ <- Watchtower.State.Compile.compile state "mcp.project_overview" pc []
                 cur <- Versions.readVersions projectRoot
                 Versions.setCompileVersionTo projectRoot (Versions.fsVersion cur)
               currentResult <- Control.Concurrent.STM.readTVarIO mCompileResult
@@ -929,6 +937,10 @@ resourceOverview =
                     Client.Error (Client.ReactorError reactor) -> case reactor of
                       Exit.ReactorBadBuild _ -> ("errors", [])
                       _ -> ("error", [])
+                    Client.TargetResults results ->
+                      if all (Client.compilationResultSucceeded . snd) results
+                        then ("ok", [])
+                        else ("errors", [])
 
               -- Test summary (if any)
               mTests <- Control.Concurrent.STM.readTVarIO mTest
@@ -1087,7 +1099,7 @@ resourceDiagnostics =
                   let body = Text.concat ["Error: ", msg]
                   pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
                 Right pc@(Client.ProjectCache proj _ _ _ _) -> do
-                  _ <- Watchtower.State.Compile.compile state pc []
+                  _ <- Watchtower.State.Compile.compile state "mcp.diagnostics" pc []
                   case mFile of
                     Just fileTxt -> do
                       let filePath = Text.unpack fileTxt
@@ -1554,7 +1566,7 @@ resolveModuleSpec state spec =
           case projectResult of
             Left _ -> pure (Left "file not associated with a known project")
             Right (pc, _) -> do
-              _ <- Watchtower.State.Compile.compile state pc []
+              _ <- Watchtower.State.Compile.compile state "mcp.module_by_filepath" pc []
               mInfo2 <- Client.getFileInfo fp state
               case mInfo2 of
                 Just (Client.FileInfo { Client.docs = Just m@(Docs.Module name _ _ _ _ _) }) ->

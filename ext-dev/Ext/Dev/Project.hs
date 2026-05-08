@@ -9,6 +9,8 @@ module Ext.Dev.Project
     getRoot,
     findByRoot,
     contains,
+    affectsCompilation,
+    entrypointGroupsForChangedFiles,
     discover,
     decodeProject,
     Project (..),
@@ -35,6 +37,7 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline
 import qualified Elm.Package
 import qualified Ext.Log
+import qualified Ext.FileCache
 import qualified Json.Decode
 import qualified Gen.Generate
 import Json.Encode ((==>))
@@ -42,7 +45,8 @@ import qualified Json.Encode
 import qualified Json.String
 import qualified Reporting.Exit as Exit
 import qualified System.Directory as Dir
-import System.FilePath as FP ((</>))
+import System.FilePath ((</>))
+import qualified System.FilePath as FP
 import Prelude hiding (lookup)
 import qualified StandaloneInstances
 
@@ -130,6 +134,12 @@ data Project = Project
   }
   deriving (Show)
 
+data SourceGraph = SourceGraph
+  { graphModuleToPath :: Map.Map ModuleName.Raw FilePath
+  , graphPathToModule :: Map.Map FilePath ModuleName.Raw
+  , graphImports :: Map.Map ModuleName.Raw [ModuleName.Raw]
+  }
+
 
 
 equal :: Project -> Project -> Bool
@@ -142,7 +152,127 @@ getRoot (Project root _ _ _ _) =
 
 contains :: FilePath -> Project -> Bool
 contains path (Project root _ _ _ _) =
-  root `List.isPrefixOf` path
+  let normalizedRoot = FP.normalise root
+      normalizedPath = FP.normalise path
+      rootDir = FP.addTrailingPathSeparator normalizedRoot
+   in normalizedPath == normalizedRoot || rootDir `List.isPrefixOf` normalizedPath
+
+
+affectsCompilation :: FilePath -> Project -> Bool
+affectsCompilation path project@(Project _ _ _ srcDirs _) =
+  let normalizedPath = FP.normalise path
+      fileName = FP.takeFileName normalizedPath
+      pathSegments = FP.splitDirectories normalizedPath
+      inSrcDir dir =
+        let normalizedDir = FP.normalise dir
+            dirWithSep = FP.addTrailingPathSeparator normalizedDir
+         in normalizedPath == normalizedDir || dirWithSep `List.isPrefixOf` normalizedPath
+   in contains normalizedPath project
+        && not (List.elem "elm-stuff" pathSegments)
+        && ( fileName == "elm.json"
+               || fileName == "elm.dev.json"
+                || (FP.takeExtension normalizedPath == ".elm" && any inSrcDir srcDirs)
+            )
+
+entrypointGroupsForChangedFiles :: [FilePath] -> Project -> IO [NE.List FilePath]
+entrypointGroupsForChangedFiles changedFiles project@(Project root _ entrypoints _ _) = do
+  outlineResult <- Elm.Outline.read root
+  case outlineResult of
+    Right (Elm.Outline.App _) -> applicationEntrypointGroups changedFiles project
+    Right (Elm.Outline.Pkg _) -> pure [entrypoints]
+    Left _ -> pure [entrypoints]
+
+applicationEntrypointGroups :: [FilePath] -> Project -> IO [NE.List FilePath]
+applicationEntrypointGroups changedFiles (Project _ _ entrypoints srcDirs _) = do
+  if null changedFiles || any isProjectConfig changedFiles
+    then pure (singletonGroups entrypoints)
+    else do
+      maybeGraph <- parseSourceGraph srcDirs
+      case maybeGraph of
+        Nothing -> pure (singletonGroups entrypoints)
+        Just graph -> do
+          let changedModules = changedFileModules graph changedFiles
+              allChangedElmFilesKnown = all (changedElmFileKnown graph) (filter isElmFile changedFiles)
+          if not allChangedElmFilesKnown
+            then pure (singletonGroups entrypoints)
+            else pure (filter (entrypointDependsOnAny graph changedModules) (singletonGroups entrypoints))
+
+singletonGroups :: NE.List FilePath -> [NE.List FilePath]
+singletonGroups entrypoints =
+  fmap (\entrypoint -> NE.List entrypoint []) (NE.toList entrypoints)
+
+isProjectConfig :: FilePath -> Bool
+isProjectConfig path =
+  let fileName = FP.takeFileName (FP.normalise path)
+  in fileName == "elm.json" || fileName == "elm.dev.json"
+
+isElmFile :: FilePath -> Bool
+isElmFile path =
+  FP.takeExtension path == ".elm"
+
+changedFileModules :: SourceGraph -> [FilePath] -> Set.Set ModuleName.Raw
+changedFileModules graph changedFiles =
+  Set.fromList (Maybe.mapMaybe (\path -> Map.lookup (FP.normalise path) (graphPathToModule graph)) changedFiles)
+
+changedElmFileKnown :: SourceGraph -> FilePath -> Bool
+changedElmFileKnown graph path =
+  Map.member (FP.normalise path) (graphPathToModule graph)
+
+entrypointDependsOnAny :: SourceGraph -> Set.Set ModuleName.Raw -> NE.List FilePath -> Bool
+entrypointDependsOnAny graph changedModules (NE.List entrypoint _) =
+  case Map.lookup (FP.normalise entrypoint) (graphPathToModule graph) of
+    Nothing -> True
+    Just entryModule ->
+      not (Set.null (Set.intersection changedModules (moduleClosure graph entryModule)))
+
+moduleClosure :: SourceGraph -> ModuleName.Raw -> Set.Set ModuleName.Raw
+moduleClosure graph start =
+  go Set.empty [start]
+  where
+    go visited remaining =
+      case remaining of
+        [] -> visited
+        moduleName : rest ->
+          if Set.member moduleName visited
+            then go visited rest
+            else
+              let localImports = filter (\imp -> Map.member imp (graphModuleToPath graph)) (Map.findWithDefault [] moduleName (graphImports graph))
+              in go (Set.insert moduleName visited) (localImports ++ rest)
+
+parseSourceGraph :: [FilePath] -> IO (Maybe SourceGraph)
+parseSourceGraph srcDirs = do
+  elmFiles <- Monad.foldM
+    (\acc dir -> do
+        files <- listElmFilesRecursive dir
+        pure (acc <> files)
+    )
+    []
+    srcDirs
+  parsed <- traverse parseGraphModule elmFiles
+  if any Maybe.isNothing parsed
+    then pure Nothing
+    else do
+      let modules = Maybe.mapMaybe id parsed
+          addModule (path, moduleName, imports) (moduleToPath, pathToModule, importsByModule) =
+            ( Map.insert moduleName path moduleToPath
+            , Map.insert path moduleName pathToModule
+            , Map.insert moduleName imports importsByModule
+            )
+          (moduleToPath, pathToModule, importsByModule) = List.foldr addModule (Map.empty, Map.empty, Map.empty) modules
+      if Map.size moduleToPath /= length modules
+        then pure Nothing
+        else pure (Just (SourceGraph moduleToPath pathToModule importsByModule))
+
+parseGraphModule :: FilePath -> IO (Maybe (FilePath, ModuleName.Raw, [ModuleName.Raw]))
+parseGraphModule path = do
+  cached <- Ext.FileCache.lookup path
+  bytes <- case cached of
+    Just (_, contents) -> pure contents
+    Nothing -> BS.readFile path
+  case Parse.Module.fromByteString Parse.Module.Application bytes of
+    Right modul ->
+      pure (Just (FP.normalise path, Src.getName modul, fmap Src.getImportName (Src._imports modul)))
+    Left _ -> pure Nothing
 
 -- | Find a project by its root. There can only be one project per root.
 findByRoot :: FilePath -> [Project] -> Maybe Project

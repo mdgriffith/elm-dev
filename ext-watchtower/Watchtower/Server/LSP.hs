@@ -81,6 +81,7 @@ import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.DevWS
 import qualified Ext.Test.Compile as TestCompile
+import qualified Watchtower.Trace as Trace
 
 
 
@@ -160,7 +161,7 @@ defaultServerCapabilities = ServerCapabilities
       ],
     serverCapabilitiesDiagnosticProvider = Just $ JSON.object
       [ "interFileDependencies" .= True,
-        "workspaceDiagnostics" .= True
+        "workspaceDiagnostics" .= False
       ],
     serverCapabilitiesWorkspaceSymbolProvider = Nothing,
     serverCapabilitiesWorkspace = Just $ JSON.object
@@ -263,8 +264,8 @@ handleInitialize state connId initParams = do
     then return $ Left "No workspace root provided and no projects are registered"
     else return $ Right initResult
 
-handleDidOpen :: Live.State -> DidOpenTextDocumentParams -> IO (Either String JSON.Value)
-handleDidOpen state openParams = do
+handleDidOpen :: Live.State -> JSONRPC.ConnectionId -> DidOpenTextDocumentParams -> IO (Either String JSON.Value)
+handleDidOpen state connId openParams = do
   -- Handle document open notification
   let doc = didOpenTextDocumentParamsTextDocument openParams
       uri = textDocumentItemUri doc
@@ -276,17 +277,27 @@ handleDidOpen state openParams = do
   case uriToFilePath uri of
     Nothing -> return $ Right JSON.Null
     Just filePath -> do
+      traceId <- Trace.newTraceId "lsp.didOpen"
       -- Update in-memory cache with the full document text
       Ext.FileCache.insert filePath (Data.Text.Encoding.encodeUtf8 text)
+      bytes <- Ext.FileCache.readUtf8 filePath
+      Ext.Log.log Ext.Log.LSP
+        ( concat
+            [ "[trace " ++ traceId ++ "] didOpen"
+            , " conn=" ++ Text.unpack connId
+            , " path=" ++ filePath
+            , " hash=" ++ Trace.fingerprintBytes bytes
+            ]
+        )
       Watchtower.State.Compile.markFilesystemChanged state [filePath]
       -- Track editor open
       let (Client.State _ _ _ _ _ _ mEditorsOpen _) = state
       Control.Concurrent.STM.atomically $ do
         editors <- Control.Concurrent.STM.readTVar mEditorsOpen
-        Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedOpen filePath editors)
+        Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedOpen connId filePath editors)
       Watchtower.Server.DevWS.broadcastServiceStatus state
       -- Recompile relevant projects for this file
-      _ <- Watchtower.State.Compile.compileRelevantProjects state [filePath]
+      _ <- Watchtower.State.Compile.compileRelevantProjects state traceId [filePath]
       return $ Right JSON.Null
 
 handleDidChange :: Live.State -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
@@ -300,6 +311,7 @@ handleDidChange state changeParams = do
   case uriToFilePath uri of
     Nothing -> return $ Left $ "Failed to convert URI to file path: " ++ Text.unpack uri
     Just filePath -> do
+      traceId <- Trace.newTraceId "lsp.didChange"
       -- Convert LSP changes to FileCache edits
       let fileEdits = map lspChangeToFileEdit changes
       
@@ -310,9 +322,19 @@ handleDidChange state changeParams = do
           return $ Left $ "File not found: " ++ path
         Left (Ext.FileCache.InvalidEdit err) -> 
           return $ Left $ "Invalid edit: " ++ err
-        Right () -> do
-            Watchtower.State.Compile.markFilesystemChanged state [filePath]
-            _ <- Watchtower.State.Compile.compileRelevantProjects state [filePath]
+        Right changed -> do
+            bytes <- Ext.FileCache.readUtf8 filePath
+            Ext.Log.log Ext.Log.LSP
+              ( concat
+                  [ "[trace " ++ traceId ++ "] didChange"
+                  , " path=" ++ filePath
+                  , " edits=" ++ show (length fileEdits)
+                  , " hash=" ++ Trace.fingerprintBytes bytes
+                  ]
+              )
+            when changed $ do
+              Watchtower.State.Compile.markFilesystemChanged state [filePath]
+              Watchtower.State.Compile.scheduleDebouncedCompileRelevantProjects state traceId didChangeCompileDebounceMicros [filePath]
             return $ Right JSON.Null
 
 -- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
@@ -322,6 +344,9 @@ lspChangeToFileEdit change =
     { Ext.FileCache.textEditRange = fmap lspRangeToFileRange (textDocumentContentChangeEventRange change),
       Ext.FileCache.textEditText = textDocumentContentChangeEventText change
     }
+
+didChangeCompileDebounceMicros :: Int
+didChangeCompileDebounceMicros = 350000
 
 -- | Convert LSP Range to FileCache Range
 lspRangeToFileRange :: Range -> Ext.FileCache.Range
@@ -339,8 +364,8 @@ lspPositionToFilePosition lspPos =
       Ext.FileCache.positionCharacter = positionCharacter lspPos
     }
 
-handleDidClose :: Live.State -> DidCloseTextDocumentParams -> IO (Either String JSON.Value)
-handleDidClose state closeParams = do
+handleDidClose :: Live.State -> JSONRPC.ConnectionId -> DidCloseTextDocumentParams -> IO (Either String JSON.Value)
+handleDidClose state connId closeParams = do
   -- Handle document close notification
   let doc = didCloseTextDocumentParamsTextDocument closeParams
       uri = textDocumentIdentifierUri doc
@@ -350,7 +375,7 @@ handleDidClose state closeParams = do
       let (Client.State _ _ _ _ _ _ mEditorsOpen _) = state
       Control.Concurrent.STM.atomically $ do
         editors <- Control.Concurrent.STM.readTVar mEditorsOpen
-        Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedClosed filePath editors)
+        Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedClosed connId filePath editors)
       Watchtower.Server.DevWS.broadcastServiceStatus state
       return $ Right JSON.Null
 
@@ -364,22 +389,36 @@ handleDidSave state saveParams = do
   case uriToFilePath uri of
     Nothing -> return $ Right JSON.Null
     Just filePath -> do
-      case text of
+      traceId <- Trace.newTraceId "lsp.didSave"
+      changed <- case text of
         Just fullText ->
-          Ext.FileCache.insert filePath (Data.Text.Encoding.encodeUtf8 fullText)
+          Ext.FileCache.insertIfChanged filePath (Data.Text.Encoding.encodeUtf8 fullText)
         Nothing -> do
           exists <- File.exists filePath
-          when exists $ do
-            bytes <- File.readUtf8 filePath
-            Ext.FileCache.insert filePath bytes
+          if exists
+            then do
+              fsBytes <- File.readUtf8 filePath
+              Ext.FileCache.insertIfChanged filePath fsBytes
+            else pure False
+      bytes <- Ext.FileCache.readUtf8 filePath
+      Ext.Log.log Ext.Log.LSP
+        ( concat
+            [ "[trace " ++ traceId ++ "] didSave"
+            , " path=" ++ filePath
+            , " includeText=" ++ show (Maybe.isJust text)
+            , " hash=" ++ Trace.fingerprintBytes bytes
+            ]
+        )
       -- If the project's elm.json changed and was saved, regenerate the cached test elm.json
       if System.FilePath.takeFileName filePath == "elm.json"
         then do
           _ <- TestCompile.regenerateTestElmJson (System.FilePath.takeDirectory filePath)
           pure ()
         else pure ()
-      Watchtower.State.Compile.markFilesystemChanged state [filePath]
-      _ <- Watchtower.State.Compile.compileRelevantProjects state [filePath]
+      when changed $ do
+        Watchtower.State.Compile.markFilesystemChanged state [filePath]
+        _ <- Watchtower.State.Compile.compileRelevantProjects state traceId [filePath]
+        pure ()
       return $ Right JSON.Null
 
 handleHover :: Live.State -> HoverParams -> IO (Either String (Maybe Hover))
@@ -1104,7 +1143,7 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
         Just p -> do
           case JSON.fromJSON p of
             JSON.Success openParams -> do
-              _ <- handleDidOpen state openParams
+              _ <- handleDidOpen state connId openParams
               send (logMessage LogMessageTypeInfo "Opened document")
               return ()
             JSON.Error err -> do
@@ -1120,8 +1159,6 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
               _ <- handleDidChange state changeParams
               -- Emit code lens refresh; diagnostics are provided via pull (DocumentDiagnostic)
               send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
-              -- Ask client to refresh workspace diagnostics (pull model)
-              send (JSONRPC.OutboundRequest "workspace/diagnostic/refresh" Nothing)
               send (logMessage LogMessageTypeLog "Document changed")
               return ()
             JSON.Error err -> do
@@ -1134,7 +1171,7 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
         Just p -> do
           case JSON.fromJSON p of
             JSON.Success closeParams -> do
-              _ <- handleDidClose state closeParams
+              _ <- handleDidClose state connId closeParams
               send (logMessage LogMessageTypeInfo "Closed document")
               return ()
             JSON.Error err -> do
@@ -1150,8 +1187,6 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
               _ <- handleDidSave state saveParams
               -- Emit code lens refresh; diagnostics are provided via pull (DocumentDiagnostic)
               send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
-              -- Ask client to refresh workspace diagnostics (pull model)
-              send (JSONRPC.OutboundRequest "workspace/diagnostic/refresh" Nothing)
               send (logMessage LogMessageTypeInfo "Saved document")
               return ()
             JSON.Error err -> do
@@ -1296,8 +1331,8 @@ workspaceItemsForProject previousResultIds state projectCache@(Client.ProjectCac
   editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
   let openFilesInProject =
         case editorsOpen of
-          EditorsOpen.EditorsOpen m ->
-            filter (\p -> Ext.Dev.Project.contains p proj) (Map.keys m)
+          EditorsOpen.EditorsOpen m _ ->
+            filter (\p -> Ext.Dev.Project.affectsCompilation p proj) (Map.keys m)
   -- For open files, compute unused-value diagnostics (imports/variables) only
   openUnusedPairs <-
     mapM

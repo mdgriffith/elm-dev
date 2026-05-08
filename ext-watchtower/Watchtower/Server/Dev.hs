@@ -52,6 +52,7 @@ import qualified Ext.FileCache
 import qualified Ext.CompileProxy
 import qualified Ext.Dev.Project
 import qualified Ext.VirtualFile
+import qualified Watchtower.Trace as Trace
 import System.FilePath ((</>), (<.>))
 import qualified System.FilePath as FilePath
 import qualified File
@@ -612,25 +613,36 @@ fileChangedHandler state = do
   case mPath of
     Nothing -> problemSnap 400 "bad_request" (Text.pack "Missing query param: path")
     Just pathBs -> do
-      liftIO (Ext.Log.log Ext.Log.Live ("---- File changed: " <> show pathBs))
       let path = Text.unpack (Data.Text.Encoding.decodeUtf8 pathBs)
       ok <- liftIO (File.exists path)
       if not ok
         then problemSnap 404 "not_found" (Text.pack "File not found")
         else do
+          traceId <- liftIO (Trace.newTraceId "dev.fileChanged")
           canonicalPath <- liftIO (Dir.canonicalizePath path)
 
           -- 1) Read from FS and write to cache
           contents <- liftIO (File.readUtf8 canonicalPath)
-          _ <- liftIO (Ext.FileCache.writeUtf8 canonicalPath contents)
+          liftIO
+            ( Ext.Log.log Ext.Log.Live
+                ( concat
+                    [ "[trace " ++ traceId ++ "] fileChanged"
+                    , " path=" ++ canonicalPath
+                    , " hash=" ++ Trace.fingerprintBytes contents
+                    ]
+                )
+            )
+          changed <- liftIO (Ext.FileCache.insertIfChanged canonicalPath contents)
 
-          -- 2) Mark project filesystem versions as changed
-          _ <- liftIO (Watchtower.State.Compile.markFilesystemChanged state [canonicalPath])
+          -- 2) Mark and compile only when the effective contents changed
+          compiled <-
+            if changed
+              then liftIO $ do
+                Watchtower.State.Compile.markFilesystemChanged state [canonicalPath]
+                Watchtower.State.Compile.compileRelevantProjects state traceId [canonicalPath]
+              else pure False
 
-          -- 3) Compile relevant projects
-          compiled <- liftIO (Watchtower.State.Compile.compileRelevantProjects state [canonicalPath])
-
-          -- 4) Broadcasts are handled inside compile; nothing to do here
+          -- 3) Broadcasts are handled inside compile; nothing to do here
           modifyResponse $ setContentType "application/json"
           writeLBS (JSON.encode (JSON.object ["ok" JSON..= True, "compiled" JSON..= compiled, "path" JSON..= canonicalPath]))
 
@@ -648,8 +660,7 @@ serviceStatusHandler state = do
   sessionsMap <- liftIO (STM.readTVarIO (Client.sessions state))
   editorsOpen <- liftIO (STM.readTVarIO (Client.projectsBeingEdited state))
   let editorsJson =
-        case editorsOpen of
-          EditorsOpen.EditorsOpen m -> JSON.toJSON m
+        JSON.toJSON (EditorsOpen.toCounts editorsOpen)
   modifyResponse $ setContentType "application/json"
   writeLBS
     ( JSON.encode
@@ -667,12 +678,35 @@ data ErrorOutput = ErrorJson JSON.Value | ErrorTerminal Text.Text
 
 compile :: Live.State -> FilePath -> FilePath -> Bool -> Bool -> Report -> IO (Either ErrorOutput Builder.Builder)
 compile state root file debug optimize report = do
+  traceId <- Trace.newTraceId "dev.js"
   let wsUrl = Client.urlsDevWebsocket (Client.urls state)
       desired = CompileHelpers.getMode debug optimize
       flags = CompileHelpers.Flags
                 desired
                 (CompileHelpers.OutputTo CompileHelpers.Js)
       hotJs = Modify.Inject.Loader.hotJs wsUrl
+      entrypointPath = if FilePath.isAbsolute file then FilePath.normalise file else FilePath.normalise (root </> file)
+
+  diskExists <- Dir.doesFileExist entrypointPath
+  diskHash <-
+    if diskExists
+      then do
+        bytes <- File.readUtf8 entrypointPath
+        pure (Just (Trace.fingerprintBytes bytes))
+      else pure Nothing
+  cacheHash <- do
+    bytes <- Ext.FileCache.readUtf8 entrypointPath
+    pure (Trace.fingerprintBytes bytes)
+  Ext.Log.log Ext.Log.Live
+    ( concat
+        [ "[trace " ++ traceId ++ "] /dev/js"
+        , " root=" ++ root
+        , " file=" ++ file
+        , " entrypoint=" ++ entrypointPath
+        , " vfsHash=" ++ cacheHash
+        , " diskHash=" ++ show diskHash
+        ]
+    )
 
 
   -- Find an existing project whose elm.json root equals the given root; otherwise create it
@@ -693,14 +727,14 @@ compile state root file debug optimize report = do
       pure (Left (ErrorTerminal detail))
     Right projCache -> do
       liftIO markCompileStart
-      compiledR <- Watchtower.State.Compile.compile state projCache [file]
+      compiledR <- Watchtower.State.Compile.compile state traceId projCache [file]
       liftIO markCompileEnd
       -- Record a GC sample after each compile completes
       recordPostCompileSample
-      Ext.Log.log Ext.Log.Live ("Recompiled")
+      Ext.Log.log Ext.Log.Live ("[trace " ++ traceId ++ "] Recompiled")
       case compiledR of
         Left clientErr -> do
-          Ext.Log.log Ext.Log.Live ("Compilation error")
+          Ext.Log.log Ext.Log.Live ("[trace " ++ traceId ++ "] Compilation error")
           case report of
             ReportJson -> do
               let errJson = Client.encodeCompilationResult (Client.Error clientErr)
@@ -713,15 +747,15 @@ compile state root file debug optimize report = do
         Right result ->
           case result of
             CompileHelpers.CompiledJs jsBuilder -> do
-              Ext.Log.log Ext.Log.Live ("Compiled JS")
+              Ext.Log.log Ext.Log.Live ("[trace " ++ traceId ++ "] Compiled JS")
               pure (Right (hotJs <> jsBuilder))
 
             CompileHelpers.CompiledHtml _ -> do
-              Ext.Log.log Ext.Log.Live ("HTML output not supported on /dev/js")
+              Ext.Log.log Ext.Log.Live ("[trace " ++ traceId ++ "] HTML output not supported on /dev/js")
               pure (Left (ErrorTerminal (Text.pack "HTML output not supported on /dev/js")))
                 
             CompileHelpers.CompiledSkippedOutput -> do
-              Ext.Log.log Ext.Log.Live ("Compilation skipped")
+              Ext.Log.log Ext.Log.Live ("[trace " ++ traceId ++ "] Compilation skipped")
               pure (Left (ErrorTerminal (Text.pack "Compilation skipped")))
           
 

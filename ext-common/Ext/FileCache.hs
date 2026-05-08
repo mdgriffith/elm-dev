@@ -85,6 +85,16 @@ insert path value = do
   t <- currentTime
   H.insert fileCache path (t, value)
 
+insertIfChanged :: FilePath -> BS.ByteString -> IO Bool
+insertIfChanged path value = do
+  existing <- lookup path
+  case existing of
+    Just (_, oldValue) | oldValue == value ->
+      pure False
+    _ -> do
+      insert path value
+      pure True
+
 delete :: FilePath -> IO ()
 delete path = do
   t <- currentTime
@@ -131,7 +141,7 @@ upsertPath path = do
       pure $ Just path
 
 -- | Apply text edits to a file in the cache
-edit :: FilePath -> [TextEdit] -> IO (Either FileError ())
+edit :: FilePath -> [TextEdit] -> IO (Either FileError Bool)
 edit path edits = do
   res <- lookup path
   case res of
@@ -149,13 +159,13 @@ edit path edits = do
       applyEdits path (Text.decodeUtf8 content) edits
 
 -- | Apply a list of text edits to file content
-applyEdits :: FilePath -> Text.Text -> [TextEdit] -> IO (Either FileError ())
+applyEdits :: FilePath -> Text.Text -> [TextEdit] -> IO (Either FileError Bool)
 applyEdits path content edits = do
   case foldM applyEdit content edits of
     Left err -> pure $ Left (InvalidEdit err)
     Right newContent -> do
-      insert path (Text.encodeUtf8 newContent)
-      pure $ Right ()
+      changed <- insertIfChanged path (Text.encodeUtf8 newContent)
+      pure $ Right changed
   where
     foldM :: (a -> b -> Either String a) -> a -> [b] -> Either String a
     foldM _ acc [] = Right acc
@@ -349,7 +359,13 @@ remove path = do
 
 removeDir :: FilePath -> IO ()
 removeDir path = do
-  delete path
+  cachedEntries <- H.toList fileCache
+  let normalizedDir = System.FilePath.addTrailingPathSeparator (System.FilePath.normalise path)
+      shouldRemove key =
+        let normalizedKey = System.FilePath.normalise key
+         in normalizedKey == System.FilePath.normalise path
+              || normalizedDir `List.isPrefixOf` normalizedKey
+  Monad.mapM_ (delete . fst) (List.filter (shouldRemove . fst) cachedEntries)
   Monad.when allowWrites $
     File.removeDir path
 

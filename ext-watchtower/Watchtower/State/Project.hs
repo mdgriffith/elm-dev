@@ -35,6 +35,7 @@ import qualified Watchtower.State.Compile
 import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
 import qualified Data.Set as Set
+import qualified Watchtower.Trace as Trace
 
 
 entrypointsIncluded :: NE.List FilePath -> NE.List FilePath -> Bool
@@ -234,12 +235,19 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
                   Ext.Filewatch.watch
                     canonicalRoot
                     (\filesChanged -> do
+                        traceId <- Trace.newTraceId "watch.fs"
                         let normalized = map FilePath.normalise filesChanged
                         let relevant = filter isRelevantWatchedPath normalized
                         if List.null relevant
                           then pure ()
                           else do
-                            Ext.Log.log Ext.Log.Live $ "👀 files changed: " <> List.intercalate ", " (map FilePath.takeFileName relevant)
+                            Ext.Log.log Ext.Log.Live
+                              ( concat
+                                  [ "[trace " ++ traceId ++ "] watcher.changed"
+                                  , " root=" ++ canonicalRoot
+                                  , " relevant=" ++ Trace.formatPaths relevant
+                                  ]
+                              )
                             let (Client.State _ _ _ _ _ _ mEditorsOpen _) = state
                             editorsOpen <- STM.readTVarIO mEditorsOpen
                             let syncable = filter (`shouldSyncFilesystemPath` editorsOpen) relevant
@@ -248,12 +256,20 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
                             let existingSet = Set.fromList existing
                             let removed = filter (\p -> not (Set.member p existingSet)) syncable
 
-                            Monad.mapM_
-                              (\path -> do
-                                  bytes <- File.readUtf8 path
-                                  Ext.FileCache.writeUtf8 path bytes
-                              )
-                              existing
+                            changedExisting <-
+                              Monad.filterM
+                                (\path -> do
+                                     bytes <- File.readUtf8 path
+                                     Ext.Log.log Ext.Log.Live
+                                       ( concat
+                                           [ "[trace " ++ traceId ++ "] watcher.sync"
+                                           , " path=" ++ path
+                                           , " hash=" ++ Trace.fingerprintBytes bytes
+                                           ]
+                                       )
+                                     Ext.FileCache.insertIfChanged path bytes
+                                )
+                                existing
 
                             Monad.mapM_ Ext.FileCache.delete removed
 
@@ -267,8 +283,16 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
                                     )
                             Monad.mapM_ TestCompile.regenerateTestElmJson elmJsonRoots
 
-                            Watchtower.State.Compile.markFilesystemChanged state syncable
-                            _ <- Watchtower.State.Compile.compileRelevantProjects state relevant
+                            Ext.Log.log Ext.Log.Live
+                              ( concat
+                                  [ "[trace " ++ traceId ++ "] watcher.compile"
+                                  , " syncable=" ++ Trace.formatPaths syncable
+                                  , " removed=" ++ Trace.formatPaths removed
+                                  ]
+                              )
+                            let changed = changedExisting ++ removed
+                            Watchtower.State.Compile.markFilesystemChanged state changed
+                            _ <- Watchtower.State.Compile.compileRelevantProjects state traceId changed
                             pure ()
                     )
                   pure ()

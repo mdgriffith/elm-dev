@@ -281,6 +281,7 @@ Executable elm-dev
         Watchtower.Server.LSP.Protocol
         Watchtower.Server.LSP.Helpers
         Watchtower.Server.LSP.EditorsOpen
+        Watchtower.Trace
         Watchtower.Server.Daemon
         Watchtower.Server.Proxy
         
@@ -613,6 +614,7 @@ Test-Suite elm-dev-tests
         Watchtower.Server.JSONRPC
         Watchtower.Server.LSP.EditorsOpen
         Watchtower.Server.LSP.Protocol
+        Watchtower.Trace
         Watchtower.State.Compile
         Watchtower.State.Project
         Watchtower.State.Versions

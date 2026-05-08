@@ -88,7 +88,7 @@ toAffectedProject changedFiles projCache@(Client.ProjectCache proj@(Ext.Dev.Proj
     [] ->
       Nothing
     (top : remain) ->
-      if List.any (\f -> Ext.Dev.Project.contains f proj) changedFiles
+      if List.any (\f -> Ext.Dev.Project.affectsCompilation f proj) changedFiles
         then Just (top, remain, projCache)
         else Nothing
 

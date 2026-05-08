@@ -50,11 +50,14 @@ module Watchtower.Live.Client
     watchedFiles,
     toOldJSON,
     getStatus,
+    compilationResultSucceeded,
+    compilationResultReactorErrors,
     -- Session helpers
-    registerSession,
-    unregisterSession,
-    setFocusedProjectId,
-    getFocusedProjectId
+     registerSession,
+     unregisterSession,
+     setFocusedProjectId,
+     getFocusedProjectId,
+     cleanupConnectionState
   )
 where
 
@@ -155,6 +158,7 @@ data CompilationResult =
     NotCompiled
   | Success Ext.CompileHelpers.Generic.CompilationResult
   | Error Error
+  | TargetResults [(FilePath, CompilationResult)]
 
 data Error
   = ReactorError Reporting.Exit.Reactor
@@ -182,6 +186,10 @@ toOldJSON (Error (ReactorError exit)) =
   Reporting.Exit.toJson (Reporting.Exit.reactorToReport exit)
 toOldJSON (Error (GenerationError err)) =
   Json.Encode.chars err
+toOldJSON (TargetResults results) =
+  case dropWhile (compilationResultSucceeded . snd) results of
+    [] -> Json.Encode.object ["compiled" ==> Json.Encode.bool True]
+    (_, firstFailure) : _ -> toOldJSON firstFailure
 
 
 -- New JSON encoder (Aeson) that includes generated JS/HTML when available
@@ -215,6 +223,32 @@ encodeCompilationResult (Error (ReactorError exit)) =
        Right val -> val
 encodeCompilationResult (Error (GenerationError err)) =
   Aeson.String (T.pack err)
+encodeCompilationResult (TargetResults results) =
+  Aeson.object
+    [ "compiled" .= all (compilationResultSucceeded . snd) results
+    , "targets" .= fmap encodeTargetResult results
+    ]
+
+encodeTargetResult :: (FilePath, CompilationResult) -> Aeson.Value
+encodeTargetResult (entrypoint, result) =
+  Aeson.object
+    [ "entrypoint" .= entrypoint
+    , "result" .= encodeCompilationResult result
+    ]
+
+compilationResultSucceeded :: CompilationResult -> Bool
+compilationResultSucceeded result =
+  case result of
+    Success _ -> True
+    TargetResults results -> all (compilationResultSucceeded . snd) results
+    _ -> False
+
+compilationResultReactorErrors :: CompilationResult -> [Reporting.Exit.Reactor]
+compilationResultReactorErrors result =
+  case result of
+    Error (ReactorError exit) -> [exit]
+    TargetResults results -> concatMap (compilationResultReactorErrors . snd) results
+    _ -> []
 
 
 -- Client
@@ -548,10 +582,7 @@ getStatus :: ProjectCache -> State -> IO ProjectStatus
 getStatus (ProjectCache proj docsInfo _ mCompileResult _) (State _ _ _ mPackages _ _ _ _) =
   do
     result <- STM.readTVarIO mCompileResult
-    let successful =
-          case result of
-            Success _ -> True
-            _ -> False
+    let successful = compilationResultSucceeded result
     let json = toOldJSON result
     let elmJsonPath = Ext.Dev.Project._projectRoot proj </> "elm.json"
     exists <- Dir.doesFileExist elmJsonPath
@@ -984,10 +1015,19 @@ registerSession (State _ mProjects _ _ _ mSessions _ _) connId = do
   pure ()
   
 unregisterSession :: State -> T.Text -> IO ()
-unregisterSession (State _ _ _ _ _ mSessions _ _) connId = do
+unregisterSession state@(State _ _ _ _ _ mSessions _ _) connId = do
+  cleanupConnectionState state connId
   STM.atomically $ do
     sessionsMap <- STM.readTVar mSessions
     STM.writeTVar mSessions (Map.delete connId sessionsMap)
+
+cleanupConnectionState :: State -> T.Text -> IO ()
+cleanupConnectionState (State _ _ _ _ _ _ mEditorsOpen mWorkspaceDiagsRequested) connId =
+  STM.atomically $ do
+    editors <- STM.readTVar mEditorsOpen
+    STM.writeTVar mEditorsOpen (EditorsOpen.connectionClosed connId editors)
+    requested <- STM.readTVar mWorkspaceDiagsRequested
+    STM.writeTVar mWorkspaceDiagsRequested (Map.delete connId requested)
 
 setFocusedProjectId :: State -> T.Text -> Int -> IO Bool
 setFocusedProjectId (State _ mProjects _ _ _ mSessions _ _) connId pid = do

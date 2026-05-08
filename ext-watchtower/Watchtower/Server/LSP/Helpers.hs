@@ -48,14 +48,7 @@ getDiagnosticsForProject state projectCache maybeFilePath = do
 
   -- Project diagnostics
   projectDiags <-
-    case currentResult of
-      Watchtower.Live.Client.Success _ -> pure []
-      Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) -> do
-        pure (extractDiagnosticsFromReactor maybeFilePath exitReactor)
-      Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) -> do
-        pure []
-      Watchtower.Live.Client.NotCompiled -> do
-        pure []
+    pure (concatMap (extractDiagnosticsFromReactor maybeFilePath) (Watchtower.Live.Client.compilationResultReactorErrors currentResult))
 
   -- Test diagnostics (if present)
   let testDiags =
@@ -71,14 +64,11 @@ getDiagnosticsForProject state projectCache maybeFilePath = do
 getProjectDiagnosticsByFile :: Watchtower.Live.Client.State -> Watchtower.Live.Client.ProjectCache -> IO (Map.Map FilePath [Diagnostic])
 getProjectDiagnosticsByFile _state projectCache = do
   currentResult <- Control.Concurrent.STM.readTVarIO (Watchtower.Live.Client.compileResult projectCache)
-  case currentResult of
-    Watchtower.Live.Client.Success _ -> pure Map.empty
-    Watchtower.Live.Client.Error (Watchtower.Live.Client.ReactorError exitReactor) ->
-      pure (extractDiagnosticsFromReactorByFile exitReactor)
-    Watchtower.Live.Client.Error (Watchtower.Live.Client.GenerationError _) ->
-      pure Map.empty
-    Watchtower.Live.Client.NotCompiled ->
-      pure Map.empty
+  pure
+    ( Map.unionsWith
+        (++)
+        (fmap extractDiagnosticsFromReactorByFile (Watchtower.Live.Client.compilationResultReactorErrors currentResult))
+    )
 
 
 -- | Build 'unchanged' workspace diagnostic entries for files with current diagnostics

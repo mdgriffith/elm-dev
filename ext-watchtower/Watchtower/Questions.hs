@@ -358,7 +358,7 @@ ask state question =
             Watchtower.State.Project.EntrypointOutsideSourceDirs p srcs ->
               pure (Left (Watchtower.Live.Client.GenerationError ("Entrypoint is outside source-directories: " <> p <> " (srcDirs: " <> List.intercalate ", " srcs <> ")")))
         Right projectCache ->
-          Watchtower.State.Compile.compile state projectCache []
+          Watchtower.State.Compile.compile state "questions.make" projectCache []
       case compilationResult of
         Left (Watchtower.Live.Client.ReactorError reactorExit) ->
           pure (Out.asJsonUgly (Left (Terminal.Dev.Error.ExitReactor reactorExit)))

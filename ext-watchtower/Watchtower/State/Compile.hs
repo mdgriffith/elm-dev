@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.State.Compile (compile, compileRelevantProjects, updateVfsFromFs, compileTests, markFilesystemChanged) where
+module Watchtower.State.Compile (compile, compileRelevantProjects, scheduleDebouncedCompileRelevantProjects, updateVfsFromFs, compileTests, markFilesystemChanged, updateProjectFileInfo) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -28,18 +28,30 @@ import qualified Ext.Log
 import qualified System.FilePath as FP
 import qualified Ext.FileCache
 import qualified Watchtower.State.Versions as Versions
+import qualified Watchtower.Trace as Trace
 import qualified Control.Monad as Monad
 import qualified Ext.Test.Discover
 import qualified Data.Set as Set
 import qualified Control.Concurrent.MVar as MVar
 import qualified System.IO.Unsafe as Unsafe
+import qualified Control.Exception as Exception
+import qualified Control.Concurrent as Concurrent
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
 
-compile :: Client.State -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequested) projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
+compile :: Client.State -> String -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
+compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequested) traceId projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot _entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
   versionsAtStart <- Versions.readVersions projectRoot
   let fsSnapshot = Versions.fsVersion versionsAtStart
+  Ext.Log.log Ext.Log.Live
+    ( concat
+        [ "[trace " ++ traceId ++ "] compile.start"
+        , " root=" ++ projectRoot
+        , " files=" ++ Trace.formatPaths files
+        , " fsVersion=" ++ show (Versions.fsVersion versionsAtStart)
+        , " compileVersion=" ++ show (Versions.compileVersion versionsAtStart)
+        ]
+    )
   let markCompileSnapshot = do
         Versions.setCompileVersionTo projectRoot fsSnapshot
   Dir.withCurrentDirectory projectRoot $ do
@@ -47,57 +59,83 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequest
     codegenResult <- Gen.Generate.run projectRoot
     case codegenResult of
       Right () -> do
-        -- Then run compilation, passing the optional packages TVar for caching package docs/readme
-        (eitherCompiled, fileInfoByPath) <- CompileProxy.compile elmJsonRoot entrypoints flags (Just mPackages)
+        entrypointGroups <- Ext.Dev.Project.entrypointGroupsForChangedFiles files proj
+        if null entrypointGroups
+          then do
+            markCompileSnapshot
+            versionsAtEnd <- Versions.readVersions projectRoot
+            Ext.Log.log Ext.Log.Live
+              ( concat
+                  [ "[trace " ++ traceId ++ "] compile.no_affected_entrypoints"
+                  , " root=" ++ projectRoot
+                  , " files=" ++ Trace.formatPaths files
+                  , " fsVersion=" ++ show (Versions.fsVersion versionsAtEnd)
+                  , " compileVersion=" ++ show (Versions.compileVersion versionsAtEnd)
+                  ]
+              )
+            pure (Right CompileHelpers.CompiledSkippedOutput)
+          else do
+            compileResults <- Monad.forM entrypointGroups $ \entrypointGroup -> do
+              compiled <- CompileProxy.compile elmJsonRoot entrypointGroup flags (Just mPackages)
+              pure (entrypointGroupPath entrypointGroup, compiled)
+            let eitherCompiled = combineCompileResults compileResults
+                fileInfoByPath = combineFileInfo compileResults
+                targetResults = fmap targetCompilationResult compileResults
 
-        -- Update the compilation result TVar
-        let newResult = case eitherCompiled of
-              Right result -> Client.Success result
-              Left exit -> Client.Error (Client.ReactorError exit)
-        STM.atomically $ STM.writeTVar mCompileResult newResult
+            let newResult = Client.TargetResults targetResults
+            STM.atomically $ STM.writeTVar mCompileResult newResult
 
-        -- Merge fileInfoByPath into State.fileInfo (always merge whatever we got)
-        STM.atomically $ do
-          current <- STM.readTVar mFileInfo
-          let merged = Map.foldlWithKey'
-                         (\acc path info -> Map.insert path info acc)
-                         current
-                         fileInfoByPath
-          STM.writeTVar mFileInfo merged
+            -- Replace this project's file info on successful compile so stale ASTs
+            -- from renamed or deleted files do not accumulate indefinitely.
+            STM.atomically $ do
+              current <- STM.readTVar mFileInfo
+              STM.writeTVar mFileInfo (updateProjectFileInfo proj eitherCompiled current fileInfoByPath)
 
-        -- Mark workspace diagnostics snapshots as out-of-date after compile result and file info updates
-        STM.atomically $ do
-          cur <- STM.readTVar mWorkspaceDiagsRequested
-          let updated =
-                Map.map
-                  (\s -> Client.LspSession
-                    { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
-                    , Client.workspaceDiagnosticsSnapshotOutOfDate = True
-                    , Client.lspRoot = Client.lspRoot s
-                    }
+            -- Mark workspace diagnostics snapshots as out-of-date after compile result and file info updates
+            STM.atomically $ do
+              cur <- STM.readTVar mWorkspaceDiagsRequested
+              let updated =
+                    Map.map
+                      (\s -> Client.LspSession
+                        { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
+                        , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                        , Client.lspRoot = Client.lspRoot s
+                        }
+                      )
+                      cur
+              STM.writeTVar mWorkspaceDiagsRequested updated
+
+            broadcastTargetResults state targetResults
+
+            case eitherCompiled of
+              Right result -> do
+                markCompileSnapshot
+                versionsAtEnd <- Versions.readVersions projectRoot
+                Ext.Log.log Ext.Log.Live
+                  ( concat
+                      [ "[trace " ++ traceId ++ "] compile.success"
+                      , " root=" ++ projectRoot
+                      , " fsVersion=" ++ show (Versions.fsVersion versionsAtEnd)
+                      , " compileVersion=" ++ show (Versions.compileVersion versionsAtEnd)
+                      ]
                   )
-                  cur
-          STM.writeTVar mWorkspaceDiagsRequested updated
-
-        case eitherCompiled of
-          Right result -> do
-            -- Broadcast success to Dev websocket clients
-            case result of
-              CompileHelpers.CompiledJs jsBuilder ->
-                DevWS.broadcastCompiled state (Client.builderToString jsBuilder)
-              CompileHelpers.CompiledHtml _ ->
-                pure ()
-              CompileHelpers.CompiledSkippedOutput ->
-                pure ()
-            markCompileSnapshot
-            pure (Right result)
-          Left exit -> do
-            -- Broadcast error to Dev websocket clients
-            let clientErr = Client.ReactorError exit
-            let errJson = Client.encodeCompilationResult (Client.Error clientErr)
-            DevWS.broadcastCompilationError state errJson
-            markCompileSnapshot
-            pure (Left clientErr)
+                pure (Right result)
+              Left exit -> do
+                -- Broadcast error to Dev websocket clients
+                let clientErr = Client.ReactorError exit
+                let errJson = Client.encodeCompilationResult (Client.Error clientErr)
+                DevWS.broadcastCompilationError state errJson
+                markCompileSnapshot
+                versionsAtEnd <- Versions.readVersions projectRoot
+                Ext.Log.log Ext.Log.Live
+                  ( concat
+                      [ "[trace " ++ traceId ++ "] compile.error"
+                      , " root=" ++ projectRoot
+                      , " fsVersion=" ++ show (Versions.fsVersion versionsAtEnd)
+                      , " compileVersion=" ++ show (Versions.compileVersion versionsAtEnd)
+                      ]
+                  )
+                pure (Left clientErr)
       Left err -> do
         -- Update compile result TVar with the error
         STM.atomically $ STM.writeTVar mCompileResult (Client.Error (Client.GenerationError err))
@@ -124,21 +162,72 @@ compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequest
                   cur
           STM.writeTVar mWorkspaceDiagsRequested updated
         markCompileSnapshot
+        versionsAtEnd <- Versions.readVersions projectRoot
+        Ext.Log.log Ext.Log.Live
+          ( concat
+              [ "[trace " ++ traceId ++ "] compile.codegen_error"
+              , " root=" ++ projectRoot
+              , " fsVersion=" ++ show (Versions.fsVersion versionsAtEnd)
+              , " compileVersion=" ++ show (Versions.compileVersion versionsAtEnd)
+              ]
+          )
         pure $ Left clientErr
+
+entrypointGroupPath :: NE.List FilePath -> FilePath
+entrypointGroupPath (NE.List entrypoint _) =
+  entrypoint
+
+targetCompilationResult :: (FilePath, (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Client.FileInfo)) -> (FilePath, Client.CompilationResult)
+targetCompilationResult (entrypoint, (eitherCompiled, _)) =
+  case eitherCompiled of
+    Right result -> (entrypoint, Client.Success result)
+    Left exit -> (entrypoint, Client.Error (Client.ReactorError exit))
+
+broadcastTargetResults :: Client.State -> [(FilePath, Client.CompilationResult)] -> IO ()
+broadcastTargetResults state results =
+  Monad.mapM_ broadcastOne results
+  where
+    broadcastOne (entrypoint, result) =
+      case result of
+        Client.Success (CompileHelpers.CompiledJs jsBuilder) ->
+          DevWS.broadcastCompiledTarget state entrypoint (Client.builderToString jsBuilder)
+        Client.Error (Client.ReactorError _) ->
+          DevWS.broadcastCompilationTargetError state entrypoint (Client.encodeCompilationResult result)
+        _ -> pure ()
+
+combineCompileResults :: [(FilePath, (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Client.FileInfo))] -> Either Exit.Reactor CompileHelpers.CompilationResult
+combineCompileResults results =
+  case [err | (_, (Left err, _)) <- results] of
+    err : _ -> Left err
+    [] ->
+      case [result | (_, (Right result, _)) <- results] of
+        [] -> Right CompileHelpers.CompiledSkippedOutput
+        successes -> Right (last successes)
+
+combineFileInfo :: [(FilePath, (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Client.FileInfo))] -> Map.Map FilePath Client.FileInfo
+combineFileInfo results =
+  Map.unions [fileInfoByPath | (_, (_, fileInfoByPath)) <- results]
 
 {-# NOINLINE projectCompileLocks #-}
 projectCompileLocks :: MVar.MVar (Map.Map FilePath (MVar.MVar ()))
 projectCompileLocks = Unsafe.unsafePerformIO (MVar.newMVar Map.empty)
 
-withProjectCompileLock :: FilePath -> IO a -> IO a
-withProjectCompileLock projectRoot action = do
+{-# NOINLINE projectCompileDebounces #-}
+projectCompileDebounces :: MVar.MVar (Map.Map FilePath Concurrent.ThreadId)
+projectCompileDebounces = Unsafe.unsafePerformIO (MVar.newMVar Map.empty)
+
+withProjectCompileLockIfAvailable :: FilePath -> IO Bool -> IO Bool
+withProjectCompileLockIfAvailable projectRoot action = do
   lock <- MVar.modifyMVar projectCompileLocks $ \locks ->
     case Map.lookup projectRoot locks of
       Just existing -> pure (locks, existing)
       Nothing -> do
         newLock <- MVar.newMVar ()
         pure (Map.insert projectRoot newLock locks, newLock)
-  MVar.withMVar lock (\_ -> action)
+  acquired <- MVar.tryTakeMVar lock
+  case acquired of
+    Nothing -> pure False
+    Just () -> action `Exception.finally` MVar.putMVar lock ()
 
 markFilesystemChanged :: Client.State -> [FilePath] -> IO ()
 markFilesystemChanged (Client.State _ mProjects _ _ _ _ _ _) changedPaths = do
@@ -152,9 +241,9 @@ markFilesystemChanged (Client.State _ mProjects _ _ _ _ _ _) changedPaths = do
                   ( map
                       (\(Client.ProjectCache proj _ _ _ _) -> Ext.Dev.Project.getRoot proj)
                       ( List.filter
-                          (\(Client.ProjectCache proj _ _ _ _) -> any (\p -> Ext.Dev.Project.contains p proj) changedPaths)
+                          (\(Client.ProjectCache proj _ _ _ _) -> any (\p -> Ext.Dev.Project.affectsCompilation p proj) changedPaths)
                           projects
-                      )
+                       )
                   )
               )
       Monad.mapM_ Versions.bumpFsVersion touchedRoots
@@ -204,16 +293,23 @@ updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
 --   A project is considered relevant if it contains at least one of the provided files.
 --   Compilation is performed synchronously here so the caller can rely on
 --   fresh results when this function returns.
-compileRelevantProjects :: Client.State -> [FilePath] -> IO Bool
-compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = do
+compileRelevantProjects :: Client.State -> String -> [FilePath] -> IO Bool
+compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) traceId elmFiles = do
   if elmFiles == []
     then pure False
     else do
       projects <- STM.readTVarIO mProjects
       let relevant = List.filter (projectTouchesAny elmFiles) projects
+      Ext.Log.log Ext.Log.Live
+        ( concat
+            [ "[trace " ++ traceId ++ "] compileRelevantProjects"
+            , " changed=" ++ Trace.formatPaths elmFiles
+            , " relevantProjects=" ++ show (length relevant)
+            ]
+        )
       case relevant of
         [] -> do 
-          Ext.Log.log Ext.Log.Live "No relevant projects to compile"
+          Ext.Log.log Ext.Log.Live ("[trace " ++ traceId ++ "] No relevant projects to compile")
           pure False
         _ ->
           Ext.Common.track "compile relevant projects" $ do
@@ -233,24 +329,76 @@ compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) elmFiles = 
   where
     projectTouchesAny :: [FilePath] -> Client.ProjectCache -> Bool
     projectTouchesAny paths (Client.ProjectCache proj _ _ _ _) =
-      any (\p -> Ext.Dev.Project.contains p proj) paths
+      any (\p -> Ext.Dev.Project.affectsCompilation p proj) paths
 
     compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO Bool
     compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _ _) = do
       let projectRoot = Ext.Dev.Project.getRoot proj
-      withProjectCompileLock projectRoot $ do
-        let projectFiles = List.filter (\p -> Ext.Dev.Project.contains p proj) paths
-        versions <- Versions.readVersions projectRoot
-        if Versions.compileVersion versions < Versions.fsVersion versions
-          then do
-            Ext.Log.log Ext.Log.Live ("Compiling project: " ++ show projectFiles)
-            _ <- compile state projCache projectFiles
-            -- If this project has tests, compile them using previously discovered test files
-            compileTests state projCache
-            pure True
-          else do
-            Ext.Log.log Ext.Log.Live ("Skipping compile (up-to-date): " ++ show projectFiles)
-            pure False
+          projectFiles = List.filter (\p -> Ext.Dev.Project.affectsCompilation p proj) paths
+          compileUntilClean didCompileAny = do
+            versions <- Versions.readVersions projectRoot
+            if Versions.compileVersion versions < Versions.fsVersion versions
+              then do
+                Ext.Log.log Ext.Log.Live
+                  ( concat
+                      [ "[trace " ++ traceId ++ "] compiling project"
+                      , " root=" ++ projectRoot
+                      , " files=" ++ Trace.formatPaths projectFiles
+                      , " fsVersion=" ++ show (Versions.fsVersion versions)
+                      , " compileVersion=" ++ show (Versions.compileVersion versions)
+                      ]
+                  )
+                _ <- compile state traceId projCache projectFiles
+                -- If this project has tests, compile them using previously discovered test files
+                compileTests state projCache
+                compileUntilClean True
+              else do
+                Ext.Log.log Ext.Log.Live
+                  ( concat
+                      [ "[trace " ++ traceId ++ "] skipping compile"
+                      , " root=" ++ projectRoot
+                      , " files=" ++ Trace.formatPaths projectFiles
+                      , " fsVersion=" ++ show (Versions.fsVersion versions)
+                      , " compileVersion=" ++ show (Versions.compileVersion versions)
+                      ]
+                  )
+                pure didCompileAny
+      withProjectCompileLockIfAvailable projectRoot (compileUntilClean False)
+
+scheduleDebouncedCompileRelevantProjects :: Client.State -> String -> Int -> [FilePath] -> IO ()
+scheduleDebouncedCompileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) traceId delayMicros elmFiles = do
+  if elmFiles == []
+    then pure ()
+    else do
+      projects <- STM.readTVarIO mProjects
+      let relevant = List.filter (projectTouchesAny elmFiles) projects
+      Ext.Log.log Ext.Log.Live
+        ( concat
+            [ "[trace " ++ traceId ++ "] scheduleDebouncedCompileRelevantProjects"
+            , " changed=" ++ Trace.formatPaths elmFiles
+            , " relevantProjects=" ++ show (length relevant)
+            , " delayMicros=" ++ show delayMicros
+            ]
+        )
+      Monad.mapM_ scheduleOne relevant
+  where
+    projectTouchesAny :: [FilePath] -> Client.ProjectCache -> Bool
+    projectTouchesAny paths (Client.ProjectCache proj _ _ _ _) =
+      any (\p -> Ext.Dev.Project.affectsCompilation p proj) paths
+
+    scheduleOne :: Client.ProjectCache -> IO ()
+    scheduleOne (Client.ProjectCache proj _ _ _ _) = do
+      let projectRoot = Ext.Dev.Project.getRoot proj
+      oldThread <- MVar.modifyMVar projectCompileDebounces $ \scheduled ->
+        pure (Map.delete projectRoot scheduled, Map.lookup projectRoot scheduled)
+      Monad.mapM_ Concurrent.killThread oldThread
+      threadId <- Concurrent.forkIO $ do
+        Concurrent.threadDelay delayMicros
+        MVar.modifyMVar_ projectCompileDebounces (pure . Map.delete projectRoot)
+        _ <- compileRelevantProjects state traceId elmFiles
+        pure ()
+      MVar.modifyMVar_ projectCompileDebounces $ \scheduled ->
+        pure (Map.insert projectRoot threadId scheduled)
 
 -- | Compile tests for a project if test files have been discovered.
 compileTests :: Client.State -> Client.ProjectCache -> IO ()
@@ -288,3 +436,12 @@ compileTests state@(Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) (Client
                     )
                     cur
             STM.writeTVar mWorkspaceDiagsRequested updated
+
+updateProjectFileInfo :: Project.Project -> Either a b -> Map.Map FilePath Client.FileInfo -> Map.Map FilePath Client.FileInfo -> Map.Map FilePath Client.FileInfo
+updateProjectFileInfo proj compileResult current fileInfoByPath =
+  let withoutProject = Map.filterWithKey (\path _ -> not (Ext.Dev.Project.contains path proj)) current
+      merged = Map.foldlWithKey' (\acc path info -> Map.insert path info acc) current fileInfoByPath
+      replaced = Map.union fileInfoByPath withoutProject
+   in case compileResult of
+        Right _ -> replaced
+        Left _ -> merged
