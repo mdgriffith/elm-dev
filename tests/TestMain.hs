@@ -298,8 +298,39 @@ runCompiledSuite root label js = do
 
 testPortedReplacementSuite :: IO Bool
 testPortedReplacementSuite = do
-  results <- compileAndRunSuite portedReplacementSuiteElm
-  pure (results == Just ("Pass!", "Pass!", "Pass!"))
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+  writeElmApp root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainPath portedReplacementSuiteElm
+
+  o0 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O0)
+  o2 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O2)
+  o3 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O3)
+
+  case (o0, o2, o3) of
+    (Right jsO0, Right jsO2, Right jsO3) -> do
+      runO0 <- runCompiledSuite root "ported-o0" jsO0
+      runO2 <- runCompiledSuite root "ported-o2" jsO2
+      runO3 <- runCompiledSuite root "ported-o3" jsO3
+      pure
+        ( runO0 == Just "Pass!"
+            && runO2 == Just "Pass!"
+            && runO3 == Just "Pass!"
+            && not (List.isInfixOf "var result = '';" jsO0)
+            && List.isInfixOf "var result = '';" jsO2
+            && List.isInfixOf "chunk = chunk + chunk;" jsO2
+            && List.isInfixOf "var acc = '' + strs.a;" jsO2
+            && List.isInfixOf "while (strs.b)" jsO2
+            && List.isInfixOf "var result = '';" jsO3
+            && List.isInfixOf "chunk = chunk + chunk;" jsO3
+            && List.isInfixOf "var acc = '' + strs.a;" jsO3
+            && List.isInfixOf "while (strs.b)" jsO3
+        )
+
+    _ ->
+      pure False
 
 testOptimizationEdgeCases :: IO Bool
 testOptimizationEdgeCases = do
@@ -535,6 +566,11 @@ portedReplacementSuiteElm =
     , "    describe \"String\""
     , "        [ test \"String.repeat 4\" <| \\_ -> \"nananana\" == String.repeat 4 \"na\""
     , "        , test \"String.repeat 10\" <| \\_ -> \"nananananananananana\" == String.repeat 10 \"na\""
+    , "        , test \"String.repeat zero\" <| \\_ -> \"\" == String.repeat 0 \"na\""
+    , "        , test \"String.repeat negative\" <| \\_ -> \"\" == String.repeat -1 \"na\""
+    , "        , test \"String.join\" <| \\_ -> \"a,b,c\" == String.join \",\" [ \"a\", \"b\", \"c\" ]"
+    , "        , test \"String.join empty\" <| \\_ -> \"\" == String.join \",\" []"
+    , "        , test \"String.join singleton\" <| \\_ -> \"a\" == String.join \",\" [ \"a\" ]"
     , "        ]"
     ]
 

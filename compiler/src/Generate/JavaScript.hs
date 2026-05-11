@@ -8,6 +8,7 @@ module Generate.JavaScript
 
 
 import Prelude hiding (cycle, print)
+import Control.Applicative ((<|>))
 import qualified Data.ByteString.Builder as B
 import Data.Monoid ((<>))
 import qualified Data.List as List
@@ -25,6 +26,7 @@ import qualified Elm.Kernel as K
 import qualified Elm.ModuleName as ModuleName
 import qualified Ext.Optimization.JavaScript.DirectCalls as DirectCalls
 import qualified Ext.Optimization.JavaScript.ListReplacements as ListReplacements
+import qualified Ext.Optimization.JavaScript.StringReplacements as StringReplacements
 import qualified Ext.Optimization.JavaScript.UnwrappedFunctions as UnwrappedFunctions
 import qualified Generate.JavaScript.Builder as JS
 import qualified Generate.JavaScript.Expression as Expr
@@ -200,7 +202,7 @@ addGlobalHelp mode graph global@(Opt.Global home name) state =
   case graph ! global of
     Opt.Define expr deps ->
       -- Check if this function needs special JavaScript generation
-      case ListReplacements.replacement mode home name global of
+      case ListReplacements.replacement mode home name global <|> StringReplacements.replacement mode home name global of
         Just stmt ->
           addStmt (addDeps deps state) stmt
         Nothing ->

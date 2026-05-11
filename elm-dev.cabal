@@ -330,6 +330,7 @@ Executable elm-dev
         Ext.Optimization.JavaScript.DirectCalls
         Ext.Optimization.JavaScript.Functions
         Ext.Optimization.JavaScript.ListReplacements
+        Ext.Optimization.JavaScript.StringReplacements
         Ext.Optimization.JavaScript.UnwrappedFunctions
         Ext.Optimization.Level
         Ext.Sanity
@@ -559,6 +560,7 @@ Test-Suite elm-dev-tests
         Ext.Optimization.JavaScript.DirectCalls
         Ext.Optimization.JavaScript.Functions
         Ext.Optimization.JavaScript.ListReplacements
+        Ext.Optimization.JavaScript.StringReplacements
         Ext.Optimization.JavaScript.UnwrappedFunctions
         Ext.Optimization.Level
         Make
