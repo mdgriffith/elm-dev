@@ -102,6 +102,8 @@ optimizationTests =
   , runTest "make mode maps -O2 and -O3 to optimization levels" testMakeOptimizationModes
   , runTest "make flags parse -O2 shorthand" testMakeO2FlagParsing
   , runTest "compiled O0/O2/O3 JS preserves worker runtime output" testCompiledOptimizationRuntime
+  , runTest "ported elm-optimize-level-2 replacement suite passes O0/O2/O3" testPortedReplacementSuite
+  , runTest "O2/O3 optimization edge cases preserve runtime behavior" testOptimizationEdgeCases
   ]
 
 testO2FunctionHelpers :: IO Bool
@@ -277,6 +279,91 @@ runCompiledWorker root label js = do
     Exit.ExitSuccess -> Just (trim stdout)
     _ -> Nothing
 
+runCompiledSuite :: FilePath -> String -> String -> IO (Maybe String)
+runCompiledSuite root label js = do
+  let jsPath = root FilePath.</> (label ++ ".js")
+      runnerPath = root FilePath.</> (label ++ "-runner.js")
+  writeFile jsPath js
+  writeFile runnerPath $ unlines
+    [ "const elm = require('./" ++ label ++ ".js');"
+    , "const app = elm.Elm.Main.init({ flags: {} });"
+    , "app.ports.onSuccessSend.subscribe(value => { console.log(value); process.exit(0); });"
+    , "app.ports.onFailureSend.subscribe(value => { console.error(value); process.exit(1); });"
+    , "setTimeout(() => process.exit(2), 1000);"
+    ]
+  (exitCode, stdout, stderr) <- Process.readProcessWithExitCode "node" [runnerPath] ""
+  pure $ case exitCode of
+    Exit.ExitSuccess -> Just (trim stdout)
+    _ -> Just ("FAIL: " ++ trim stderr)
+
+testPortedReplacementSuite :: IO Bool
+testPortedReplacementSuite = do
+  results <- compileAndRunSuite portedReplacementSuiteElm
+  pure (results == Just ("Pass!", "Pass!", "Pass!"))
+
+testOptimizationEdgeCases :: IO Bool
+testOptimizationEdgeCases = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+  writeElmApp root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainPath optimizationEdgeCasesElm
+
+  o0 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O0)
+  o2 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O2)
+  o3 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O3)
+
+  case (o0, o2, o3) of
+    (Right jsO0, Right jsO2, Right jsO3) -> do
+      runO0 <- runCompiledSuite root "edge-o0" jsO0
+      runO2 <- runCompiledSuite root "edge-o2" jsO2
+      runO3 <- runCompiledSuite root "edge-o3" jsO3
+      pure
+        ( runO0 == Just "Pass!"
+            && runO2 == Just "Pass!"
+            && runO3 == Just "Pass!"
+            && not (List.isInfixOf "apply2_unwrapped" jsO0)
+            && List.isInfixOf "$author$project$Main$apply2_unwrapped($author$project$Main$add_fn, 6, 7)" jsO2
+            && List.isInfixOf "$author$project$Main$apply2_fn($author$project$Main$sum3, 1, 2)(3)" jsO2
+            && List.isInfixOf "$author$project$Main$apply3_unwrapped($author$project$Main$sum3_fn, 4, 5, 6)" jsO2
+            && List.isInfixOf "$author$project$Main$sum9_fn(1, 2, 3, 4, 5, 6, 7, 8, 9)" jsO2
+            && List.isInfixOf "$author$project$Main$add_fn(1, 2) === (1 + 2)" jsO2
+            && List.isInfixOf "$author$project$Main$apply2_unwrapped($author$project$Main$add_fn, 6, 7)" jsO3
+            && List.isInfixOf "$author$project$Main$apply2_fn($author$project$Main$sum3, 1, 2)(3)" jsO3
+            && List.isInfixOf "$author$project$Main$apply3_unwrapped($author$project$Main$sum3_fn, 4, 5, 6)" jsO3
+            && List.isInfixOf "$author$project$Main$sum9_fn(1, 2, 3, 4, 5, 6, 7, 8, 9)" jsO3
+            && List.isInfixOf "$author$project$Main$add_fn(1, 2) === (1 + 2)" jsO3
+        )
+
+    _ ->
+      pure False
+
+compileAndRunSuite :: String -> IO (Maybe (String, String, String))
+compileAndRunSuite elmSource = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+  writeElmApp root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainPath elmSource
+
+  o0 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O0)
+  o2 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O2)
+  o3 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O3)
+
+  case (o0, o2, o3) of
+    (Right jsO0, Right jsO2, Right jsO3) -> do
+      runO0 <- runCompiledSuite root "suite-o0" jsO0
+      runO2 <- runCompiledSuite root "suite-o2" jsO2
+      runO3 <- runCompiledSuite root "suite-o3" jsO3
+      pure $ case (runO0, runO2, runO3) of
+        (Just a, Just b, Just c) -> Just (a, b, c)
+        _ -> Nothing
+
+    _ ->
+      pure Nothing
+
 trim :: String -> String
 trim = reverse . dropWhile isLineBreak . reverse . dropWhile isLineBreak
 
@@ -356,7 +443,214 @@ optimizationRuntimeElm =
     , "        { init = \\_ -> ( (), output result )"
     , "        , update = \\_ model -> ( model, Cmd.none )"
     , "        , subscriptions = \\_ -> Sub.none"
+     , "        }"
+     ]
+
+portedReplacementSuiteElm :: String
+portedReplacementSuiteElm =
+  unlines
+    [ "port module Main exposing (main)"
+    , ""
+    , "port onSuccessSend : String -> Cmd msg"
+    , "port onFailureSend : String -> Cmd msg"
+    , ""
+    , "main : Program {} () ()"
+    , "main ="
+    , "    Platform.worker"
+    , "        { init = \\_ ->"
+    , "            ( ()"
+    , "            , case run suite of"
+    , "                [] ->"
+    , "                    onSuccessSend \"Pass!\""
+    , ""
+    , "                errors ->"
+    , "                    onFailureSend (String.join \", \" errors)"
+    , "            )"
+    , "        , update = \\_ model -> ( model, Cmd.none )"
+    , "        , subscriptions = \\_ -> Sub.none"
     , "        }"
+    , ""
+    , "type Test"
+    , "    = Describe String (List Test)"
+    , "    | Test String (() -> Bool)"
+    , ""
+    , "run : Test -> List String"
+    , "run testcase ="
+    , "    case testcase of"
+    , "        Test name toResult ->"
+    , "            if toResult () then [] else [ name ]"
+    , ""
+    , "        Describe name tests ->"
+    , "            List.foldl (\\t results -> run t ++ results) [] tests"
+    , "                |> List.map (\\failure -> name ++ \" -> \" ++ failure)"
+    , ""
+    , "test ="
+    , "    Test"
+    , ""
+    , "describe ="
+    , "    Describe"
+    , ""
+    , "suite : Test"
+    , "suite ="
+    , "    describe \"Tests for js code replacements\""
+    , "        [ list"
+    , "        , string"
+    , "        ]"
+    , ""
+    , "list : Test"
+    , "list ="
+    , "    describe \"List\""
+    , "        [ test \"List.all\" <| \\_ -> True == List.all (\\i -> i == 1) [ 1, 1, 1, 1 ]"
+    , "        , test \"List.all empty\" <| \\_ -> True == List.all (\\_ -> False) []"
+    , "        , test \"List.all false\" <| \\_ -> False == List.all (\\i -> i == 1) [ 1, 2, 1 ]"
+    , "        , test \"List.append\" <| \\_ -> [ 1, 2, 3, 4, 5, 6 ] == List.append [ 1, 2, 3 ] [ 4, 5, 6 ]"
+    , "        , test \"List.append left empty\" <| \\_ -> [ 4, 5, 6 ] == List.append [] [ 4, 5, 6 ]"
+    , "        , test \"List.append right empty\" <| \\_ -> [ 1, 2, 3 ] == List.append [ 1, 2, 3 ] []"
+    , "        , test \"List.concat\" <| \\_ -> [ 1, 2, 3, 4, 5, 6 ] == List.concat [ [ 1, 2, 3 ], [ 4, 5, 6 ] ]"
+    , "        , test \"List.concat empty\" <| \\_ -> [] == List.concat []"
+    , "        , test \"List.concat internal empties\" <| \\_ -> [ 1, 2, 3 ] == List.concat [ [], [ 1 ], [], [ 2, 3 ], [] ]"
+    , "        , test \"List.concatMap\" <| \\_ -> [ 1, 2, 3, 4, 5, 6 ] == List.concatMap identity [ [ 1, 2, 3 ], [ 4, 5, 6 ] ]"
+    , "        , test \"List.concatMap empty input\" <| \\_ -> [] == List.concatMap (\\n -> [ n, n ]) []"
+    , "        , test \"List.concatMap empty outputs\" <| \\_ -> [] == List.concatMap (\\_ -> []) [ 1, 2, 3 ]"
+    , "        , test \"List.filter\" <| \\_ -> [ 1, 2, 3, 4, 5, 6 ] == List.filter (\\_ -> True) [ 1, 2, 3, 4, 5, 6 ]"
+    , "        , test \"List.filter none\" <| \\_ -> [] == List.filter (\\_ -> False) [ 1, 2, 3 ]"
+    , "        , test \"List.filter only even\" <| \\_ -> [ 2, 4, 6 ] == List.filter (\\i -> modBy 2 i == 0) [ 1, 2, 3, 4, 5, 6 ]"
+    , "        , test \"List.indexedMap\" <| \\_ -> [ 0, 1, 2, 3, 4, 5 ] == List.indexedMap (\\i _ -> i) [ 1, 2, 3, 4, 5, 6 ]"
+    , "        , test \"List.indexedMap empty\" <| \\_ -> [] == List.indexedMap (\\i _ -> i) []"
+    , "        , test \"List.intersperse\" <| \\_ -> [ 1, 10, 2, 10, 3, 10, 4, 10, 5, 10, 6 ] == List.intersperse 10 [ 1, 2, 3, 4, 5, 6 ]"
+    , "        , test \"List.intersperse empty\" <| \\_ -> [] == List.intersperse 10 []"
+    , "        , test \"List.intersperse singleton\" <| \\_ -> [ 1 ] == List.intersperse 10 [ 1 ]"
+    , "        , test \"List.partition\" <| \\_ -> ( [ 2, 4, 6 ], [ 1, 3, 5 ] ) == List.partition (\\i -> modBy 2 i == 0) [ 1, 2, 3, 4, 5, 6 ]"
+    , "        , test \"List.partition empty\" <| \\_ -> ( [], [] ) == List.partition (\\_ -> True) []"
+    , "        , test \"List.take\" <| \\_ -> [ 1, 2 ] == List.take 2 [ 1, 2, 3, 4, 5, 6 ]"
+    , "        , test \"List.take zero\" <| \\_ -> [] == List.take 0 [ 1, 2, 3 ]"
+    , "        , test \"List.take negative\" <| \\_ -> [] == List.take -1 [ 1, 2, 3 ]"
+    , "        , test \"List.take too many\" <| \\_ -> [ 1, 2, 3 ] == List.take 10 [ 1, 2, 3 ]"
+    , "        , test \"List.unzip\" <| \\_ -> ( [ 1, 2 ], [ 3, 4 ] ) == List.unzip [ ( 1, 3 ), ( 2, 4 ) ]"
+    , "        , test \"List.unzip empty\" <| \\_ -> ( [], [] ) == List.unzip []"
+    , "        ]"
+    , ""
+    , "string : Test"
+    , "string ="
+    , "    describe \"String\""
+    , "        [ test \"String.repeat 4\" <| \\_ -> \"nananana\" == String.repeat 4 \"na\""
+    , "        , test \"String.repeat 10\" <| \\_ -> \"nananananananananana\" == String.repeat 10 \"na\""
+    , "        ]"
+    ]
+
+optimizationEdgeCasesElm :: String
+optimizationEdgeCasesElm =
+  unlines
+    [ "port module Main exposing (main)"
+    , ""
+    , "port onSuccessSend : String -> Cmd msg"
+    , "port onFailureSend : String -> Cmd msg"
+    , ""
+    , "main : Program {} () ()"
+    , "main ="
+    , "    Platform.worker"
+    , "        { init = \\_ ->"
+    , "            if allPassed then"
+    , "                ( (), onSuccessSend \"Pass!\" )"
+    , ""
+    , "            else"
+    , "                ( (), onFailureSend failureMessage )"
+    , "        , update = \\_ model -> ( model, Cmd.none )"
+    , "        , subscriptions = \\_ -> Sub.none"
+    , "        }"
+    , ""
+    , "add : Int -> Int -> Int"
+    , "add a b ="
+    , "    a + b"
+    , ""
+    , "sum3 : Int -> Int -> Int -> Int"
+    , "sum3 a b c ="
+    , "    a + b + c"
+    , ""
+    , "sum4 : Int -> Int -> Int -> Int -> Int"
+    , "sum4 a b c d ="
+    , "    a + b + c + d"
+    , ""
+    , "sum9 : Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int -> Int"
+    , "sum9 a b c d e f g h i ="
+    , "    a + b + c + d + e + f + g + h + i"
+    , ""
+    , "sumDown : Int -> Int -> Int"
+    , "sumDown n acc ="
+    , "    if n <= 0 then"
+    , "        acc"
+    , ""
+    , "    else"
+    , "        sumDown (n - 1) (acc + n)"
+    , ""
+    , "apply2 : (Int -> Int -> value) -> Int -> Int -> value"
+    , "apply2 fn a b ="
+    , "    fn a b"
+    , ""
+    , "apply3 : (Int -> Int -> Int -> Int) -> Int -> Int -> Int -> Int"
+    , "apply3 fn a b c ="
+    , "    fn a b c"
+    , ""
+    , "type alias Rec ="
+    , "    { a : Int, b : Int, c : Int }"
+    , ""
+    , "recordUpdate : Int"
+    , "recordUpdate ="
+    , "    let"
+    , "        r ="
+    , "            { a = 1, b = 2, c = 3 }"
+    , ""
+    , "        updated ="
+    , "            { r | b = 20 }"
+    , "    in"
+    , "    updated.a + updated.b + updated.c"
+    , ""
+    , "type Shape"
+    , "    = Empty"
+    , "    | One Int"
+    , "    | Two Int Int"
+    , ""
+    , "shapeValue : Shape -> Int"
+    , "shapeValue shape ="
+    , "    case shape of"
+    , "        Empty ->"
+    , "            0"
+    , ""
+    , "        One a ->"
+    , "            a"
+    , ""
+    , "        Two a b ->"
+    , "            a + b"
+    , ""
+    , "checks : List ( String, Bool )"
+    , "checks ="
+    , "    [ ( \"direct arity 2\", add 1 2 == 3 )"
+    , "    , ( \"partial arity 2\", (add 10) 5 == 15 )"
+    , "    , ( \"direct arity 3\", sum3 1 2 3 == 6 )"
+    , "    , ( \"direct arity 4\", sum4 1 2 3 4 == 10 )"
+    , "    , ( \"direct arity 9\", sum9 1 2 3 4 5 6 7 8 9 == 45 )"
+    , "    , ( \"tail recursion\", sumDown 10 0 == 55 )"
+    , "    , ( \"unwrapped matching arity\", apply2 add 6 7 == 13 )"
+    , "    , ( \"unwrapped arity mismatch keeps partial application\", (apply2 sum3 1 2) 3 == 6 )"
+    , "    , ( \"unwrapped arity 3\", apply3 sum3 4 5 6 == 15 )"
+    , "    , ( \"list callback partial\", List.map (add 1) [ 1, 2, 3 ] == [ 2, 3, 4 ] )"
+    , "    , ( \"list callback raw exact\", List.map (apply2 add 1) [ 1, 2, 3 ] == [ 2, 3, 4 ] )"
+    , "    , ( \"numeric primitive equality\", add 1 2 == 1 + 2 )"
+    , "    , ( \"string equality remains correct\", String.fromInt (add 1 2) == \"3\" )"
+    , "    , ( \"record update\", recordUpdate == 24 )"
+    , "    , ( \"variant cases\", List.map shapeValue [ Empty, One 5, Two 10 20 ] == [ 0, 5, 30 ] )"
+    , "    ]"
+    , ""
+    , "allPassed : Bool"
+    , "allPassed ="
+    , "    List.all Tuple.second checks"
+    , ""
+    , "failureMessage : String"
+    , "failureMessage ="
+    , "    checks"
+    , "        |> List.filter (Tuple.second >> not)"
+    , "        |> List.map Tuple.first"
+    , "        |> String.join \", \""
     ]
 
 renderBuilder :: Builder.Builder -> String
