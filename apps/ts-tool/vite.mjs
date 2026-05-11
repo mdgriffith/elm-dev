@@ -107,10 +107,10 @@ new Function(__elmCode).call(__elmScope);
 
 const __elmExport = __elmScope.Elm && __elmScope.Elm["${elmModuleName}"] ? __elmScope.Elm["${elmModuleName}"] : undefined;
 
-if (!window.Elm || !window.Elm["${elmModuleName}"]) {
-    if (__elmScope.Elm) {
-        window.Elm = __elmScope.Elm;
-    }
+if (!window.Elm) {
+    window.Elm = __elmScope.Elm || {};
+} else if (__elmScope.Elm && !window.Elm["${elmModuleName}"]) {
+    Object.assign(window.Elm, __elmScope.Elm);
 } else if (window.Elm && window.Elm.hot && typeof window.Elm.hot.reload === 'function') {
     window.Elm.hot.reload(__elmScope);
 }
@@ -140,7 +140,18 @@ function stripInjectedHotJs(compiledJs) {
     return `${compiledJs.slice(0, startIndex)}${compiledJs.slice(endIndex + 5)}`;
 }
 
-async function compileWithDevServer(id, debug, optimize, serverInfo) {
+function normalizeDebuggerOption(debug, debuggerOption) {
+    if (debuggerOption === undefined || debuggerOption === null) {
+        return debug ? 'elm-dev' : 'none';
+    }
+
+    if (debuggerOption === true) return 'elm-dev';
+    if (debuggerOption === false) return 'none';
+
+    return String(debuggerOption);
+}
+
+async function compileWithDevServer(id, debug, optimize, debuggerOption, serverInfo) {
     // Always resolve to an absolute path for the dev server
     const absoluteId = toAbsolute(id);
     const projectRoot = findProjectRootFor(absoluteId);
@@ -150,6 +161,7 @@ async function compileWithDevServer(id, debug, optimize, serverInfo) {
         file: path.relative(projectRoot, absoluteId),
         debug,
         optimize,
+        debugger: normalizeDebuggerOption(debug, debuggerOption),
     };
     log('compileWithDevServer', serverInfo, options);
 
@@ -158,6 +170,7 @@ async function compileWithDevServer(id, debug, optimize, serverInfo) {
         file: options.file,
         debug: options.debug ? 'true' : 'false',
         optimize: options.optimize ? 'true' : 'false',
+        debugger: options.debugger,
     });
     const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/dev/js?${params.toString()}`;
     const res = await fetch(url, { method: 'GET' });
@@ -249,7 +262,7 @@ function invalidateElmModules(server, compilationCache) {
 }
 
 export default function elmDevPlugin(options = {}) {
-    const { debug = false, optimize = false, useDevServer = true } = options;
+    const { debug = false, optimize = false, useDevServer = true, debugger: debuggerOption } = options;
     const compilationCache = new Map();
     let devServer = null;
 
@@ -284,7 +297,7 @@ export default function elmDevPlugin(options = {}) {
                 }
                 if (useDevServer && devServer) {
                     if (loggingEnabled) log('compiling with dev server', cacheId);
-                    const result = await compileWithDevServer(cacheId, debug, optimize, devServer);
+                    const result = await compileWithDevServer(cacheId, debug, optimize, debuggerOption, devServer);
                     if (result && result.error) {
                         setEmptyCacheFor(cacheId, compilationCache);
                         reject(new Error(result.error));

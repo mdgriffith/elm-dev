@@ -54,7 +54,7 @@ import qualified Ext.Disk.Build
 import Ext.Sanity
 
 compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> IO (Either Exit.Reactor CompileHelpers.CompilationResult)
-compile root paths flags@(CompileHelpers.Flags mode output) = do
+compile root paths flags@(CompileHelpers.Flags mode output debuggerMode) = do
   Dir.withCurrentDirectory root $
     BW.withScope $ \scope -> Stuff.withRootLock root $
       Task.run $ do
@@ -62,7 +62,7 @@ compile root paths flags@(CompileHelpers.Flags mode output) = do
           details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
           artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.Disk.Build.fromPaths compilationFlags Reporting.silent root details paths
           
-          CompileHelpers.generate root details mode artifacts output
+          CompileHelpers.generate root details mode debuggerMode artifacts output
 
 
 compileToDocs :: FilePath -> NE.List ModuleName.Raw -> IO (Either Exit.Reactor Elm.Docs.Documentation)
@@ -397,4 +397,3 @@ toImportErrors (Build.Env _ _ _ _ _ locals foreigns) results imports problems =
       Import.Error (regionDict ! name) name unimportedModules problem
   in
   fmap toError problems
-

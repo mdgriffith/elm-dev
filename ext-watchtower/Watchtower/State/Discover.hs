@@ -40,7 +40,7 @@ discover state root = do
 
 initializeProject :: Client.State -> [Client.ProjectCache] -> Ext.Dev.Project.Project -> IO [Client.ProjectCache]
 initializeProject state accum project = do
-  let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput
+  let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
   result <- Watchtower.State.Project.upsert state flags (Ext.Dev.Project._root project) (Ext.Dev.Project._entrypoints project)
   case result of
     Left _ ->

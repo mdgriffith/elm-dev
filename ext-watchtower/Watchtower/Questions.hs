@@ -345,6 +345,7 @@ ask state question =
                       _ -> CompileHelpers.Dev
               )
               (CompileHelpers.OutputTo CompileHelpers.Js)
+              CompileHelpers.DebuggerElm
       upsertResult <- Watchtower.State.Project.upsert state flags cwd entrypoints
       compilationResult <- case upsertResult of
         Left upErr ->

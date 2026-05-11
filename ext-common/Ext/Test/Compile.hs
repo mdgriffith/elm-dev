@@ -75,7 +75,7 @@ compile root entrypoints = do
       Left err -> pure (Left err)
       Right () -> do
         Dir.withCurrentDirectory testRoot $ do
-          let flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.NoOutput)
+          let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
           let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
           (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
           case eitherCompiled of
@@ -92,7 +92,7 @@ compileRunner root entrypoints = do
       Left err -> pure (Left err)
       Right () -> do
         Dir.withCurrentDirectory testRoot $ do
-          let flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.OutputTo CompileHelpers.Js)
+          let flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.OutputTo CompileHelpers.Js) CompileHelpers.DebuggerNone
           let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
           (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
           case eitherCompiled of
@@ -254,6 +254,5 @@ rewriteEntrypoint :: FilePath -> FilePath -> FilePath
 rewriteEntrypoint root path =
   let rel = FP.makeRelative root path
   in ("../../" </> rel)
-
 
 

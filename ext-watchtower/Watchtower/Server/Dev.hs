@@ -277,6 +277,7 @@ jsHandler state = do
   mDir <- getParam "dir"
   mFile <- getParam "file"
   mDebug <- getParam "debug"
+  mDebugger <- getParam "debugger"
   mOptimize <- getParam "optimize"
   mReport <- getParam "report"
   case (mDir, mFile) of
@@ -287,8 +288,9 @@ jsHandler state = do
       let file = Text.unpack (Data.Text.Encoding.decodeUtf8 fileBs)
       let debug = parseBoolParamWithDefault False mDebug
       let optimize = parseBoolParamWithDefault False mOptimize
+      let debuggerMode = parseDebuggerParam debug mDebugger
       let report = parseReportParam mReport
-      e <- liftIO (compile state dir file debug optimize report)
+      e <- liftIO (compile state dir file debug optimize debuggerMode report)
       case e of
         Left errOut -> do
           modifyResponse $ setResponseCode 422
@@ -369,6 +371,7 @@ interactiveCompileHandler state = do
                       CompileHelpers.Flags
                         CompileHelpers.Dev
                         (CompileHelpers.OutputTo CompileHelpers.Js)
+                        CompileHelpers.DebuggerNone
                 (eitherCompiled, _fileInfoByPath) <- Ext.CompileProxy.compile virtualRoot (NE.List absoluteElmPath []) flags (Just (Client.packages state))
                 case eitherCompiled of
                   Left exit ->
@@ -676,14 +679,15 @@ data Report = ReportJson | ReportTerminal
 
 data ErrorOutput = ErrorJson JSON.Value | ErrorTerminal Text.Text
 
-compile :: Live.State -> FilePath -> FilePath -> Bool -> Bool -> Report -> IO (Either ErrorOutput Builder.Builder)
-compile state root file debug optimize report = do
+compile :: Live.State -> FilePath -> FilePath -> Bool -> Bool -> CompileHelpers.DebuggerMode -> Report -> IO (Either ErrorOutput Builder.Builder)
+compile state root file debug optimize debuggerMode report = do
   traceId <- Trace.newTraceId "dev.js"
   let wsUrl = Client.urlsDevWebsocket (Client.urls state)
-      desired = CompileHelpers.getMode debug optimize
+      desired = getModeForDebugger debug optimize debuggerMode
       flags = CompileHelpers.Flags
                 desired
                 (CompileHelpers.OutputTo CompileHelpers.Js)
+                debuggerMode
       hotJs = Modify.Inject.Loader.hotJs wsUrl
       entrypointPath = if FilePath.isAbsolute file then FilePath.normalise file else FilePath.normalise (root </> file)
 
@@ -807,6 +811,33 @@ parseReportParam m =
   case fmap (Text.toLower . Data.Text.Encoding.decodeUtf8) m of
     Just "json" -> ReportJson
     _ -> ReportTerminal
+
+
+parseDebuggerParam :: Bool -> Maybe BS.ByteString -> CompileHelpers.DebuggerMode
+parseDebuggerParam debug m =
+  case fmap (Text.toLower . Data.Text.Encoding.decodeUtf8) m of
+    Just "elm-dev" -> CompileHelpers.DebuggerElmDev
+    Just "elmdev" -> CompileHelpers.DebuggerElmDev
+    Just "dev" -> CompileHelpers.DebuggerElmDev
+    Just "elm" -> CompileHelpers.DebuggerElm
+    Just "built-in" -> CompileHelpers.DebuggerElm
+    Just "builtin" -> CompileHelpers.DebuggerElm
+    Just "none" -> CompileHelpers.DebuggerNone
+    Just "off" -> CompileHelpers.DebuggerNone
+    Just "false" -> CompileHelpers.DebuggerNone
+    _ ->
+      if debug then
+        CompileHelpers.DebuggerElm
+      else
+        CompileHelpers.DebuggerNone
+
+
+getModeForDebugger :: Bool -> Bool -> CompileHelpers.DebuggerMode -> CompileHelpers.DesiredMode
+getModeForDebugger debug optimize debuggerMode =
+  case debuggerMode of
+    CompileHelpers.DebuggerElm -> CompileHelpers.Debug
+    CompileHelpers.DebuggerElmDev -> CompileHelpers.Debug
+    CompileHelpers.DebuggerNone -> CompileHelpers.getMode False optimize
 
 problemSnap :: Int -> BS.ByteString -> Text.Text -> Snap ()
 problemSnap code problemCode detail = do

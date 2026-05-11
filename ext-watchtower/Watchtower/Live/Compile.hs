@@ -105,7 +105,7 @@ recompileFile state (top, remain, projCache@(Client.ProjectCache proj@(Ext.Dev.P
       Ext.CompileProxy.compile
         elmJsonRoot
         entry
-        (CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput)
+        (CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone)
         Nothing
     let newResult = case eitherResult of
           Right r -> Client.Success r

@@ -11,6 +11,7 @@ import Prelude hiding (cycle, print)
 import qualified Data.ByteString.Builder as B
 import Data.Monoid ((<>))
 import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 import Data.Map ((!))
 import qualified Data.Map as Map
 import qualified Data.Name as Name
@@ -44,7 +45,7 @@ type Mains = Map.Map ModuleName.Canonical Opt.Main
 generate :: Mode.Mode -> Opt.GlobalGraph -> Mains -> Maybe B.Builder -> B.Builder
 generate mode (Opt.GlobalGraph graph _) mains maybeInjectJs =
   let
-    state = Map.foldrWithKey (addMain mode graph) emptyState mains
+    state = Map.foldrWithKey (addMain mode graph) (emptyState (Maybe.isJust maybeInjectJs)) mains
   in
   "(function(scope){\n'use strict';"
   <> Functions.functions
@@ -86,7 +87,7 @@ generateForRepl :: Bool -> L.Localizer -> Opt.GlobalGraph -> ModuleName.Canonica
 generateForRepl ansi localizer (Opt.GlobalGraph graph _) home name (Can.Forall _ tipe) =
   let
     mode = Mode.Dev Nothing
-    debugState = addGlobal mode graph emptyState (Opt.Global ModuleName.debug "toString")
+    debugState = addGlobal mode graph (emptyState False) (Opt.Global ModuleName.debug "toString")
     evalState = addGlobal mode graph debugState (Opt.Global home name)
   in
   "process.on('uncaughtException', function(err) { process.stderr.write(err.toString() + '\\n'); process.exit(1); });"
@@ -122,7 +123,7 @@ generateForReplEndpoint localizer (Opt.GlobalGraph graph _) home maybeName (Can.
   let
     name = maybe Name.replValueToPrint id maybeName
     mode = Mode.Dev Nothing
-    debugState = addGlobal mode graph emptyState (Opt.Global ModuleName.debug "toString")
+    debugState = addGlobal mode graph (emptyState False) (Opt.Global ModuleName.debug "toString")
     evalState = addGlobal mode graph debugState (Opt.Global home name)
   in
   Functions.functions
@@ -155,16 +156,17 @@ data State =
     { _revKernels :: [B.Builder]
     , _revBuilders :: [B.Builder]
     , _seenGlobals :: Set.Set Opt.Global
+    , _skipDebuggerGlobals :: Bool
     }
 
 
-emptyState :: State
-emptyState =
-  State mempty [] Set.empty
+emptyState :: Bool -> State
+emptyState skipDebuggerGlobals =
+  State mempty [] Set.empty skipDebuggerGlobals
 
 
 stateToBuilder :: State -> B.Builder
-stateToBuilder (State revKernels revBuilders _) =
+stateToBuilder (State revKernels revBuilders _ _) =
   prependBuilders revKernels (prependBuilders revBuilders mempty)
 
 
@@ -178,12 +180,12 @@ prependBuilders revBuilders monolith =
 
 
 addGlobal :: Mode.Mode -> Graph -> State -> Opt.Global -> State
-addGlobal mode graph state@(State revKernels builders seen) global =
+addGlobal mode graph state@(State revKernels builders seen skipDebuggerGlobals) global =
   if Set.member global seen then
     state
   else
     addGlobalHelp mode graph global $
-      State revKernels builders (Set.insert global seen)
+      State revKernels builders (Set.insert global seen) skipDebuggerGlobals
 
 
 addGlobalHelp :: Mode.Mode -> Graph -> Opt.Global -> State -> State
@@ -226,7 +228,7 @@ addGlobalHelp mode graph global@(Opt.Global home name) state =
       generateManager mode graph global effectsType state
 
     Opt.Kernel chunks deps ->
-      if isDebugger global && not (Mode.isDebug mode) then
+      if isDebugger global && (not (Mode.isDebug mode) || _skipDebuggerGlobals state) then
         state
       else
         addKernel (addDeps deps state) (generateKernel mode chunks)
@@ -258,13 +260,13 @@ addStmt state stmt =
 
 
 addBuilder :: State -> B.Builder -> State
-addBuilder (State revKernels revBuilders seen) builder =
-  State revKernels (builder:revBuilders) seen
+addBuilder (State revKernels revBuilders seen skipDebuggerGlobals) builder =
+  State revKernels (builder:revBuilders) seen skipDebuggerGlobals
 
 
 addKernel :: State -> B.Builder -> State
-addKernel (State revKernels revBuilders seen) kernel =
-  State (kernel:revKernels) revBuilders seen
+addKernel (State revKernels revBuilders seen skipDebuggerGlobals) kernel =
+  State (kernel:revKernels) revBuilders seen skipDebuggerGlobals
 
 
 var :: Opt.Global -> Expr.Code -> JS.Stmt

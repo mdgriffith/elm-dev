@@ -51,6 +51,7 @@ Executable elm-dev
         ext-sentry
         -- elm-dev
         ext-dev
+        ext-debug
         ext-generate
         ext-watchtower
 
@@ -326,6 +327,10 @@ Executable elm-dev
         Ext.Dev.Imports
         Ext.Log
         Ext.Sanity
+
+        -- ext-debug
+        Ext.Debug
+        Ext.Debug.Loader
 
         -- alternate reporting
         Ext.Type.Error

@@ -55,7 +55,7 @@ debug =
 
 -- Returns (either compile result or reactor error, and the per-file info map).
 compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo)
-compile root paths flags@(CompileHelpers.Flags mode output) packagesVar = do
+compile root paths flags@(CompileHelpers.Flags mode output debuggerMode) packagesVar = do
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope -> do
         -- Bust caches explicitly
@@ -74,7 +74,7 @@ compile root paths flags@(CompileHelpers.Flags mode output) packagesVar = do
               Left buildProblem ->
                 pure (Left (Exit.ReactorBadBuild buildProblem), fileInfoByPath)
               Right artifacts -> do
-                compiledEither <- Task.run $ CompileHelpers.generate root details mode artifacts output
+                compiledEither <- Task.run $ CompileHelpers.generate root details mode debuggerMode artifacts output
                 case compiledEither of
                   Left reactorErr -> pure (Left reactorErr, fileInfoByPath)
                   Right compiled -> pure (Right compiled, fileInfoByPath)

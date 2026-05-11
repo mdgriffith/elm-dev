@@ -320,7 +320,7 @@ testDuplicateChangeEventsMarkDirtyOnce = do
       oldContents = BS.pack (map (fromIntegral . fromEnum) "module Main exposing (old)\n\nold = 1\n")
       newContents = BS.pack (map (fromIntegral . fromEnum) "module Main exposing (new)\n\nnew = 1\n")
       proj = Project.Project root root (NE.List path []) [srcDir] 1
-      flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput
+      flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
   Dir.createDirectoryIfMissing True srcDir
   BS.writeFile path newContents
   FileCache.insert path oldContents

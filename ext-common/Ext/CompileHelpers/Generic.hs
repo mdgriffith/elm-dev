@@ -41,6 +41,7 @@ import qualified Generate.Html
 import qualified Build
 import qualified Modify
 import qualified Modify.Inject.Loader
+import qualified Ext.Debug.Loader
 
 data Artifacts =
   Artifacts
@@ -170,6 +171,7 @@ data Flags =
   Flags
     { _mode :: DesiredMode
     , _output :: Output
+    , _debugger :: DebuggerMode
     }
     deriving (Show, Eq)
 
@@ -180,6 +182,9 @@ data OutputFormat = Html | Js
   deriving (Show, Eq)
 
 data DesiredMode = Debug | Dev | Prod
+  deriving (Show, Eq)
+
+data DebuggerMode = DebuggerElm | DebuggerElmDev | DebuggerNone
   deriving (Show, Eq)
 
 newtype ElmDevWsUrl = ElmDevWsUrl B.Builder
@@ -207,20 +212,28 @@ getMode debug optimize =
     (False, True ) -> Prod
 
 
-generate :: FilePath -> Details.Details -> DesiredMode -> Build.Artifacts -> Output -> Task.Task Exit.Reactor CompilationResult
-generate root details desiredMode artifacts output =
+generate :: FilePath -> Details.Details -> DesiredMode -> DebuggerMode -> Build.Artifacts -> Output -> Task.Task Exit.Reactor CompilationResult
+generate root details desiredMode debuggerMode artifacts output =
   case output of
     NoOutput -> pure CompiledSkippedOutput
     OutputTo format ->
       Task.mapError Exit.ReactorBadGenerate $ do
         js <- case desiredMode of
-                Debug -> Generate.debug root details artifacts Nothing
+                Debug -> Generate.debug root details artifacts (debuggerInjection debuggerMode)
                 Dev   -> Generate.dev   root details artifacts Nothing
                 Prod  -> Generate.prod  root details artifacts Nothing
         case format of
           Html -> 
               pure (CompiledHtml (Generate.Html.sandwich (Name.fromChars "Main") js))
           Js   -> pure (CompiledJs js)
+
+
+debuggerInjection :: DebuggerMode -> Maybe Data.ByteString.Builder.Builder
+debuggerInjection debuggerMode =
+  case debuggerMode of
+    DebuggerElm -> Nothing
+    DebuggerElmDev -> Just Ext.Debug.Loader.runtimeJs
+    DebuggerNone -> Nothing
     
 
 
@@ -275,4 +288,3 @@ compileOutside flags (Build.Env key _ projectType _ _ _ _) (Details.Local path t
 
     (_warnings, Left errors) ->
       return $ Build.ROutsideErr $ Reporting.Error.Module name path time source errors
-
