@@ -406,6 +406,65 @@ generateWithDirectLocalCalls mode directParam expression =
       JsBlock $
         generateDefWithDirectLocalCalls mode directParam def : codeToStmtList (generateWithDirectLocalCalls mode directParam body)
 
+    Opt.Destruct (Opt.Destructor name path) body ->
+      let
+        pathDef = JS.Var (JsName.fromLocal name) (generatePath mode path)
+      in
+      JsBlock $ pathDef : codeToStmtList (generateWithDirectLocalCalls mode directParam body)
+
+    Opt.Case label root decider jumps ->
+      JsBlock $ generateCaseWithDirectLocalCalls mode directParam label root decider jumps
+
+    Opt.Access record field ->
+      JsExpr $ JS.Access (codeToExpr (generateWithDirectLocalCalls mode directParam record)) (generateField mode field)
+
+    Opt.Update record fields ->
+      JsExpr $
+        JS.Call (JS.Ref (JsName.fromKernel Name.utils "update"))
+          [ codeToExpr (generateWithDirectLocalCalls mode directParam record)
+          , generateRecordWithDirectLocalCalls mode directParam fields
+          ]
+
+    Opt.Record fields ->
+      JsExpr $ generateRecordWithDirectLocalCalls mode directParam fields
+
+    Opt.Tuple a b maybeC ->
+      JsExpr $
+        case maybeC of
+          Nothing ->
+            JS.Call (JS.Ref (JsName.fromKernel Name.utils "Tuple2"))
+              [ codeToExpr (generateWithDirectLocalCalls mode directParam a)
+              , codeToExpr (generateWithDirectLocalCalls mode directParam b)
+              ]
+
+          Just c ->
+            JS.Call (JS.Ref (JsName.fromKernel Name.utils "Tuple3"))
+              [ codeToExpr (generateWithDirectLocalCalls mode directParam a)
+              , codeToExpr (generateWithDirectLocalCalls mode directParam b)
+              , codeToExpr (generateWithDirectLocalCalls mode directParam c)
+              ]
+
+    Opt.List entries ->
+      case entries of
+        [] ->
+          JsExpr $ JS.Ref (JsName.fromKernel Name.list "Nil")
+
+        _ ->
+          JsExpr $
+            JS.Call
+              (JS.Ref (JsName.fromKernel Name.list "fromArray"))
+              [ JS.Array $ map (codeToExpr . generateWithDirectLocalCalls mode directParam) entries
+              ]
+
+    Opt.Function args _ | directParam `elem` args ->
+      generate mode expression
+
+    Opt.Function args body ->
+      generateFunction (map JsName.fromLocal args) (generateWithDirectLocalCalls mode directParam body)
+
+    Opt.TailCall name args ->
+      JsBlock $ generateTailCallWithDirectLocalCalls mode directParam name args
+
     _ ->
       generate mode expression
 
@@ -437,8 +496,94 @@ generateDefWithDirectLocalCalls mode directParam def =
     Opt.Def name body ->
       JS.Var (JsName.fromLocal name) (codeToExpr (generateWithDirectLocalCalls mode directParam body))
 
-    Opt.TailDef name argNames body ->
+    Opt.TailDef name argNames body | directParam `elem` argNames ->
       JS.Var (JsName.fromLocal name) (codeToExpr (generateTailDef mode name argNames body))
+
+    Opt.TailDef name argNames body ->
+      JS.Var (JsName.fromLocal name) (codeToExpr (generateTailDefWithDirectLocalCalls mode directParam name argNames body))
+
+
+generateRecordWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Map.Map Name.Name Opt.Expr -> JS.Expr
+generateRecordWithDirectLocalCalls mode directParam fields =
+  let
+    toPair (field, value) =
+      (generateField mode field, codeToExpr (generateWithDirectLocalCalls mode directParam value))
+  in
+  JS.Object (map toPair (Map.toList fields))
+
+
+generateTailCallWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Name.Name -> [(Name.Name, Opt.Expr)] -> [JS.Stmt]
+generateTailCallWithDirectLocalCalls mode directParam name args =
+  let
+    toTempVars (argName, arg) =
+      ( JsName.makeTemp argName, codeToExpr (generateWithDirectLocalCalls mode directParam arg) )
+
+    toRealVars (argName, _) =
+      JS.ExprStmt $
+        JS.Assign (JS.LRef (JsName.fromLocal argName)) (JS.Ref (JsName.makeTemp argName))
+  in
+  JS.Vars (map toTempVars args)
+  : map toRealVars args
+  ++ [ JS.Continue (Just (JsName.fromLocal name)) ]
+
+
+generateTailDefWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Name.Name -> [Name.Name] -> Opt.Expr -> Code
+generateTailDefWithDirectLocalCalls mode directParam name argNames body =
+  generateFunction (map JsName.fromLocal argNames) $ JsBlock $
+    [ JS.Labelled (JsName.fromLocal name) $
+        JS.While (JS.Bool True) $
+          codeToStmt $ generateWithDirectLocalCalls mode directParam body
+    ]
+
+
+generateCaseWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Name.Name -> Name.Name -> Opt.Decider Opt.Choice -> [(Int, Opt.Expr)] -> [JS.Stmt]
+generateCaseWithDirectLocalCalls mode directParam label root decider jumps =
+  foldr (gotoWithDirectLocalCalls mode directParam label) (generateDeciderWithDirectLocalCalls mode directParam label root decider) jumps
+
+
+gotoWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Name.Name -> (Int, Opt.Expr) -> [JS.Stmt] -> [JS.Stmt]
+gotoWithDirectLocalCalls mode directParam label (index, branch) stmts =
+  let
+    labeledDeciderStmt =
+      JS.Labelled
+        (JsName.makeLabel label index)
+        (JS.While (JS.Bool True) (JS.Block stmts))
+  in
+  labeledDeciderStmt : codeToStmtList (generateWithDirectLocalCalls mode directParam branch)
+
+
+generateDeciderWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Name.Name -> Name.Name -> Opt.Decider Opt.Choice -> [JS.Stmt]
+generateDeciderWithDirectLocalCalls mode directParam label root decisionTree =
+  case decisionTree of
+    Opt.Leaf (Opt.Inline branch) ->
+      codeToStmtList (generateWithDirectLocalCalls mode directParam branch)
+
+    Opt.Leaf (Opt.Jump index) ->
+      [ JS.Break (Just (JsName.makeLabel label index)) ]
+
+    Opt.Chain testChain success failure ->
+      [ JS.IfStmt
+          (List.foldl1' (JS.Infix JS.OpAnd) (map (generateIfTest mode root) testChain))
+          (JS.Block $ generateDeciderWithDirectLocalCalls mode directParam label root success)
+          (JS.Block $ generateDeciderWithDirectLocalCalls mode directParam label root failure)
+      ]
+
+    Opt.FanOut path edges fallback ->
+      [ JS.Switch
+          (generateCaseTest mode root path (fst (head edges)))
+          ( foldr
+              (\edge cases -> generateCaseBranchWithDirectLocalCalls mode directParam label root edge : cases)
+              [ JS.Default (generateDeciderWithDirectLocalCalls mode directParam label root fallback) ]
+              edges
+          )
+      ]
+
+
+generateCaseBranchWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Name.Name -> Name.Name -> (DT.Test, Opt.Decider Opt.Choice) -> JS.Case
+generateCaseBranchWithDirectLocalCalls mode directParam label root (test, subTree) =
+  JS.Case
+    (generateCaseValue mode test)
+    (generateDeciderWithDirectLocalCalls mode directParam label root subTree)
 
 
 

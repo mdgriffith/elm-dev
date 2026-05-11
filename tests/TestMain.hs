@@ -356,11 +356,17 @@ testOptimizationEdgeCases = do
             && runO3 == Just "Pass!"
             && not (List.isInfixOf "apply2_unwrapped" jsO0)
             && List.isInfixOf "$author$project$Main$apply2_unwrapped($author$project$Main$add_fn, 6, 7)" jsO2
+            && List.isInfixOf "$author$project$Main$apply2Record_unwrapped($author$project$Main$add_fn, 8, 9)" jsO2
+            && List.isInfixOf "$author$project$Main$apply2Tuple_unwrapped($author$project$Main$add_fn, 10, 11)" jsO2
+            && List.isInfixOf "n: fn(a, b)" jsO2
             && List.isInfixOf "$author$project$Main$apply2_fn($author$project$Main$sum3, 1, 2)(3)" jsO2
             && List.isInfixOf "$author$project$Main$apply3_unwrapped($author$project$Main$sum3_fn, 4, 5, 6)" jsO2
             && List.isInfixOf "$author$project$Main$sum9_fn(1, 2, 3, 4, 5, 6, 7, 8, 9)" jsO2
             && List.isInfixOf "$author$project$Main$add_fn(1, 2) === (1 + 2)" jsO2
             && List.isInfixOf "$author$project$Main$apply2_unwrapped($author$project$Main$add_fn, 6, 7)" jsO3
+            && List.isInfixOf "$author$project$Main$apply2Record_unwrapped($author$project$Main$add_fn, 8, 9)" jsO3
+            && List.isInfixOf "$author$project$Main$apply2Tuple_unwrapped($author$project$Main$add_fn, 10, 11)" jsO3
+            && List.isInfixOf "n: fn(a, b)" jsO3
             && List.isInfixOf "$author$project$Main$apply2_fn($author$project$Main$sum3, 1, 2)(3)" jsO3
             && List.isInfixOf "$author$project$Main$apply3_unwrapped($author$project$Main$sum3_fn, 4, 5, 6)" jsO3
             && List.isInfixOf "$author$project$Main$sum9_fn(1, 2, 3, 4, 5, 6, 7, 8, 9)" jsO3
@@ -623,6 +629,14 @@ optimizationEdgeCasesElm =
     , "apply2 fn a b ="
     , "    fn a b"
     , ""
+    , "apply2Record : (Int -> Int -> Int) -> Int -> Int -> Int"
+    , "apply2Record fn a b ="
+    , "    { value = fn a b }.value"
+    , ""
+    , "apply2Tuple : (Int -> Int -> Int) -> Int -> Int -> Int"
+    , "apply2Tuple fn a b ="
+    , "    Tuple.first ( fn a b, 0 )"
+    , ""
     , "apply3 : (Int -> Int -> Int -> Int) -> Int -> Int -> Int -> Int"
     , "apply3 fn a b c ="
     , "    fn a b c"
@@ -667,6 +681,8 @@ optimizationEdgeCasesElm =
     , "    , ( \"direct arity 9\", sum9 1 2 3 4 5 6 7 8 9 == 45 )"
     , "    , ( \"tail recursion\", sumDown 10 0 == 55 )"
     , "    , ( \"unwrapped matching arity\", apply2 add 6 7 == 13 )"
+    , "    , ( \"unwrapped nested record\", apply2Record add 8 9 == 17 )"
+    , "    , ( \"unwrapped nested tuple\", apply2Tuple add 10 11 == 21 )"
     , "    , ( \"unwrapped arity mismatch keeps partial application\", (apply2 sum3 1 2) 3 == 6 )"
     , "    , ( \"unwrapped arity 3\", apply3 sum3 4 5 6 == 15 )"
     , "    , ( \"list callback partial\", List.map (add 1) [ 1, 2, 3 ] == [ 2, 3, 4 ] )"

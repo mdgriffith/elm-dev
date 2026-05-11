@@ -62,9 +62,11 @@ command =
     (run Nothing)
   where
     parseMakeFlags =
-      CommandParser.parseFlag5
+      CommandParser.parseFlag7
         (CommandParser.flag "debug" "Debug mode")
         (CommandParser.flag "optimize" "Make the code smaller and faster")
+        (CommandParser.flag "O2" "Turn on level 2 JavaScript optimizations")
+        (CommandParser.flag "O3" "Turn on level 3 JavaScript optimizations")
         (CommandParser.flagWithArg "output" "Output file path" Make.parseOutput)
         (CommandParser.flagWithArg "report" "Report type (json)" parseReportType)
         (CommandParser.flag "hot" "Enable hot reload")
@@ -75,8 +77,8 @@ parseReportType :: String -> Maybe Make.ReportType
 parseReportType "json" = Just Make.Json
 parseReportType _ = Nothing
 
-run :: Maybe FilePath -> [String] -> (Maybe Bool, Maybe Bool, Maybe Make.Output, Maybe Make.ReportType, Maybe Bool) -> IO ()
-run maybeCwd modulesArg (debug, optimize, output, report, hot) = do
+run :: Maybe FilePath -> [String] -> (Maybe Bool, Maybe Bool, Maybe Bool, Maybe Bool, Maybe Make.Output, Maybe Make.ReportType, Maybe Bool) -> IO ()
+run maybeCwd modulesArg (debug, optimize, o2, o3, output, report, hot) = do
   cwd <- Dir.getCurrentDirectory
   modules <- resolveModules cwd modulesArg
   codegenResult <- Gen.Generate.run cwd
@@ -116,6 +118,8 @@ run maybeCwd modulesArg (debug, optimize, output, report, hot) = do
                 ( Make.Flags
                     (fromMaybe False debug)
                     (fromMaybe False optimize)
+                    (fromMaybe False o2)
+                    (fromMaybe False o3)
                     output
                     report
                     Nothing

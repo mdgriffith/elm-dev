@@ -12,6 +12,7 @@ module CommandParser
     parseFlag3,
     parseFlag4,
     parseFlag5,
+    parseFlag7,
     -- Flag constructors
     flag,
     flagWithArg,
@@ -174,6 +175,7 @@ flagToName flag = "--" ++ flagLong (flagInfo flag)
 findFlagName :: String -> Flag a -> Bool
 findFlagName arg flag = case arg of
   ('-' : '-' : name) -> flagLong (flagInfo flag) == name
+  ('-' : name@('O' : _)) -> flagLong (flagInfo flag) == name
   _ -> False
 
 -- | Get all defined flag names from a list of flags
@@ -432,6 +434,34 @@ parseFlag5 flag1 flag2 flag3 flag4 flag5 parsed =
                       if null (parsedFlags parsed5)
                         then Right ((maybeA, maybeB, maybeC, maybeD, maybeE), parsed5)
                         else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed5)
+
+-- | Parse seven flags
+parseFlag7 :: Flag a -> Flag b -> Flag c -> Flag d -> Flag e -> Flag f -> Flag g -> ParsedArgs -> Either String ((Maybe a, Maybe b, Maybe c, Maybe d, Maybe e, Maybe f, Maybe g), ParsedArgs)
+parseFlag7 flag1 flag2 flag3 flag4 flag5 flag6 flag7 parsed =
+  case parseFlag flag1 parsed of
+    Left err -> Left err
+    Right (maybeA, parsed1) ->
+      case parseFlag flag2 parsed1 of
+        Left err -> Left err
+        Right (maybeB, parsed2) ->
+          case parseFlag flag3 parsed2 of
+            Left err -> Left err
+            Right (maybeC, parsed3) ->
+              case parseFlag flag4 parsed3 of
+                Left err -> Left err
+                Right (maybeD, parsed4) ->
+                  case parseFlag flag5 parsed4 of
+                    Left err -> Left err
+                    Right (maybeE, parsed5) ->
+                      case parseFlag flag6 parsed5 of
+                        Left err -> Left err
+                        Right (maybeF, parsed6) ->
+                          case parseFlag flag7 parsed6 of
+                            Left err -> Left err
+                            Right (maybeG, parsed7) ->
+                              if null (parsedFlags parsed7)
+                                then Right ((maybeA, maybeB, maybeC, maybeD, maybeE, maybeF, maybeG), parsed7)
+                                else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed7)
 
 -- | Run a list of commands with parsed arguments
 run :: String -> ([CommandMetadata] -> [String] -> String) -> [Command] -> IO ()
