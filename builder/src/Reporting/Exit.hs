@@ -1598,6 +1598,7 @@ toRedirectDoc response =
 data Make
   = MakeNoOutline
   | MakeCannotOptimizeAndDebug
+  | MakeCannotCombineOptimizationLevels
   | MakeBadDetails Details
   | MakeAppNeedsFileNames
   | MakePkgNeedsExposing
@@ -1630,6 +1631,15 @@ makeToReport make =
             "I need to take away information to optimize things, and I need to\
             \ add information to add the debugger. It is impossible to do both\
             \ at once though! Pick just one of those flags and it should work!"
+        ]
+
+    MakeCannotCombineOptimizationLevels ->
+      Help.docReport "CLASHING FLAGS" Nothing
+        ( D.fillSep
+            ["I","cannot","compile","with",D.red "-O2","and",D.red "-O3","at","the","same","time."]
+        )
+        [ D.reflow
+            "Pick just one optimization level and it should work!"
         ]
 
     MakeBadDetails detailsProblem ->

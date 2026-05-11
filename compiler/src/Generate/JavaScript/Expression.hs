@@ -4,6 +4,7 @@ module Generate.JavaScript.Expression
   , generateCtor
   , generateField
   , generateTailDef
+  , generateUnwrappedFunction
   , generateMain
   , Code
   , codeToExpr
@@ -29,6 +30,8 @@ import qualified Elm.Compiler.Type.Extract as Extract
 import qualified Elm.Version as V
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
+import qualified Ext.Optimization.JavaScript.DirectCalls as DirectCalls
+import qualified Ext.Optimization.JavaScript.UnwrappedFunctions as UnwrappedFunctions
 import qualified Generate.JavaScript.Builder as JS
 import qualified Generate.JavaScript.Name as JsName
 import qualified Generate.Mode as Mode
@@ -59,7 +62,7 @@ generate mode expression =
           Mode.Dev _ ->
             JS.Call toChar [ JS.String (Utf8.toBuilder char) ]
 
-          Mode.Prod _ ->
+          Mode.Prod _ _ _ _ ->
             JS.String (Utf8.toBuilder char)
 
     Opt.Str string ->
@@ -82,14 +85,14 @@ generate mode expression =
         Mode.Dev _ ->
           JsExpr $ JS.Ref (JsName.fromGlobal home name)
 
-        Mode.Prod _ ->
+        Mode.Prod _ _ _ _ ->
           JsExpr $ JS.Int (Index.toMachine index)
 
     Opt.VarBox (Opt.Global home name) ->
       JsExpr $ JS.Ref $
         case mode of
           Mode.Dev _ -> JsName.fromGlobal home name
-          Mode.Prod _ -> JsName.fromGlobal ModuleName.basics Name.identity
+          Mode.Prod _ _ _ _ -> JsName.fromGlobal ModuleName.basics Name.identity
 
     Opt.VarCycle home name ->
       JsExpr $ JS.Call (JS.Ref (JsName.fromCycle home name)) []
@@ -161,7 +164,7 @@ generate mode expression =
         Mode.Dev _ ->
           JsExpr $ JS.Ref (JsName.fromKernel Name.utils "Tuple0")
 
-        Mode.Prod _ ->
+        Mode.Prod _ _ _ _ ->
           JsExpr $ JS.Int 0
 
     Opt.Tuple a b maybeC ->
@@ -271,7 +274,7 @@ generateCtor mode (Opt.Global home name) index arity =
     ctorTag =
       case mode of
         Mode.Dev _ -> JS.String (Name.toBuilder name)
-        Mode.Prod _ -> JS.Int (ctorToInt home name index)
+        Mode.Prod _ _ _ _ -> JS.Int (ctorToInt home name index)
   in
   generateFunction argNames $ JsExpr $ JS.Object $
     (JsName.dollar, ctorTag) : map (\n -> (n, JS.Ref n)) argNames
@@ -304,7 +307,7 @@ generateField mode name =
     Mode.Dev _ ->
       JsName.fromLocal name
 
-    Mode.Prod fields ->
+    Mode.Prod _ fields _ _ ->
       fields ! name
 
 
@@ -379,6 +382,65 @@ funcHelpers =
     map (\n -> (n, JS.Ref (JsName.makeF n))) [2..9]
 
 
+generateUnwrappedFunction :: Mode.Mode -> [Name.Name] -> Opt.Expr -> Int -> JS.Expr
+generateUnwrappedFunction mode args body paramIndex =
+  JS.Function Nothing (map JsName.fromLocal args) $
+    codeToStmtList (generateWithDirectLocalCalls mode (args !! paramIndex) body)
+
+
+generateWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Opt.Expr -> Code
+generateWithDirectLocalCalls mode directParam expression =
+  case expression of
+    Opt.Call (Opt.VarLocal name) args | name == directParam ->
+      JsExpr $ JS.Call (JS.Ref (JsName.fromLocal name)) (map (generateJsExpr mode) args)
+
+    Opt.Call func args ->
+      JsExpr $ generateNormalCall
+        (codeToExpr (generateWithDirectLocalCalls mode directParam func))
+        (map (codeToExpr . generateWithDirectLocalCalls mode directParam) args)
+
+    Opt.If branches final ->
+      generateIfWithDirectLocalCalls mode directParam branches final
+
+    Opt.Let def body ->
+      JsBlock $
+        generateDefWithDirectLocalCalls mode directParam def : codeToStmtList (generateWithDirectLocalCalls mode directParam body)
+
+    _ ->
+      generate mode expression
+
+
+generateIfWithDirectLocalCalls :: Mode.Mode -> Name.Name -> [(Opt.Expr, Opt.Expr)] -> Opt.Expr -> Code
+generateIfWithDirectLocalCalls mode directParam branches final =
+  let
+    branchExprs =
+      map
+        (\(condition, expr) ->
+          ( codeToExpr (generateWithDirectLocalCalls mode directParam condition)
+          , generateWithDirectLocalCalls mode directParam expr
+          )
+        )
+        branches
+
+    finalCode =
+      generateWithDirectLocalCalls mode directParam final
+  in
+  if isBlock finalCode || any (isBlock . snd) branchExprs then
+    JsBlock [ foldr addStmtIf (codeToStmt finalCode) branchExprs ]
+  else
+    JsExpr $ foldr addExprIf (codeToExpr finalCode) branchExprs
+
+
+generateDefWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Opt.Def -> JS.Stmt
+generateDefWithDirectLocalCalls mode directParam def =
+  case def of
+    Opt.Def name body ->
+      JS.Var (JsName.fromLocal name) (codeToExpr (generateWithDirectLocalCalls mode directParam body))
+
+    Opt.TailDef name argNames body ->
+      JS.Var (JsName.fromLocal name) (codeToExpr (generateTailDef mode name argNames body))
+
+
 
 -- CALLS
 
@@ -389,12 +451,21 @@ generateCall mode func args =
     Opt.VarGlobal global@(Opt.Global (ModuleName.Canonical pkg _) _) | pkg == Pkg.core ->
       generateCoreCall mode global args
 
+    Opt.VarGlobal global ->
+      let jsArgs = map (generateJsExpr mode) args in
+      case UnwrappedFunctions.call mode global args jsArgs of
+        Just call -> call
+        Nothing ->
+          case DirectCalls.directCall mode global jsArgs of
+            Just call -> call
+            Nothing -> generateGlobalCallFromExpr mode global jsArgs
+
     Opt.VarBox _ ->
       case mode of
         Mode.Dev _ ->
           generateCallHelp mode func args
 
-        Mode.Prod _ ->
+        Mode.Prod _ _ _ _ ->
           case args of
             [arg] ->
               generateJsExpr mode arg
@@ -416,6 +487,11 @@ generateCallHelp mode func args =
 generateGlobalCall :: ModuleName.Canonical -> Name.Name -> [JS.Expr] -> JS.Expr
 generateGlobalCall home name args =
   generateNormalCall (JS.Ref (JsName.fromGlobal home name)) args
+
+
+generateGlobalCallFromExpr :: Mode.Mode -> Opt.Global -> [JS.Expr] -> JS.Expr
+generateGlobalCallFromExpr _ (Opt.Global home name) args =
+  generateGlobalCall home name args
 
 
 generateNormalCall :: JS.Expr -> [JS.Expr] -> JS.Expr
@@ -530,8 +606,8 @@ generateBasicsCall mode home name args =
             "mul"  -> JS.Infix JS.OpMul left right
             "fdiv" -> JS.Infix JS.OpDiv left right
             "idiv" -> JS.Infix JS.OpBitwiseOr (JS.Infix JS.OpDiv left right) (JS.Int 0)
-            "eq"   -> equal left right
-            "neq"  -> notEqual left right
+            "eq"   -> equal mode left right
+            "neq"  -> notEqual mode left right
             "lt"   -> cmp JS.OpLt JS.OpLt   0  left right
             "gt"   -> cmp JS.OpGt JS.OpGt   0  left right
             "le"   -> cmp JS.OpLe JS.OpLt   1  left right
@@ -546,21 +622,64 @@ generateBasicsCall mode home name args =
       generateGlobalCall home name (map (generateJsExpr mode) args)
 
 
-equal :: JS.Expr -> JS.Expr -> JS.Expr
-equal left right =
-  if isLiteral left || isLiteral right then
+equal :: Mode.Mode -> JS.Expr -> JS.Expr -> JS.Expr
+equal mode left right =
+  if isPrimitiveEqualityOperand mode left || isPrimitiveEqualityOperand mode right then
     strictEq left right
   else
     JS.Call (JS.Ref (JsName.fromKernel Name.utils "eq")) [left, right]
 
 
-notEqual :: JS.Expr -> JS.Expr -> JS.Expr
-notEqual left right =
-  if isLiteral left || isLiteral right then
+notEqual :: Mode.Mode -> JS.Expr -> JS.Expr -> JS.Expr
+notEqual mode left right =
+  if isPrimitiveEqualityOperand mode left || isPrimitiveEqualityOperand mode right then
     strictNEq left right
   else
     JS.Prefix JS.PrefixNot $
       JS.Call (JS.Ref (JsName.fromKernel Name.utils "eq")) [left, right]
+
+
+isPrimitiveEqualityOperand :: Mode.Mode -> JS.Expr -> Bool
+isPrimitiveEqualityOperand mode expr =
+  isLiteral expr || (DirectCalls.isEnabled mode && isInferredPrimitive expr)
+
+
+isInferredPrimitive :: JS.Expr -> Bool
+isInferredPrimitive expr =
+  case expr of
+    JS.Prefix JS.PrefixNegate inner ->
+      isNumberLiteral inner
+
+    JS.Infix op left right | isNumericOp op ->
+      isNumberLiteral left || isNumberLiteral right
+
+    _ ->
+      False
+
+
+isNumericOp :: JS.InfixOp -> Bool
+isNumericOp op =
+  case op of
+    JS.OpAdd -> True
+    JS.OpSub -> True
+    JS.OpMul -> True
+    JS.OpDiv -> True
+    JS.OpMod -> True
+    JS.OpBitwiseAnd -> True
+    JS.OpBitwiseXor -> True
+    JS.OpBitwiseOr -> True
+    JS.OpLShift -> True
+    JS.OpSpRShift -> True
+    JS.OpZfRShift -> True
+    _ -> False
+
+
+isNumberLiteral :: JS.Expr -> Bool
+isNumberLiteral expr =
+  case expr of
+    JS.Int _ -> True
+    JS.Float _ -> True
+    _ -> False
 
 
 cmp :: JS.InfixOp -> JS.InfixOp -> Int -> JS.Expr -> JS.Expr -> JS.Expr
@@ -751,7 +870,7 @@ generatePath mode path =
         Mode.Dev _ ->
           JS.Access (generatePath mode subPath) (JsName.fromIndex Index.first)
 
-        Mode.Prod _ ->
+        Mode.Prod _ _ _ _ ->
           generatePath mode subPath
 
 
@@ -878,7 +997,7 @@ generateIfTest mode root (path, test) =
         tag =
           case mode of
             Mode.Dev _ -> JS.Access value JsName.dollar
-            Mode.Prod _ ->
+            Mode.Prod _ _ _ _ ->
               case opts of
                 Can.Normal -> JS.Access value JsName.dollar
                 Can.Enum   -> value
@@ -887,7 +1006,7 @@ generateIfTest mode root (path, test) =
       strictEq tag $
         case mode of
           Mode.Dev _ -> JS.String (Name.toBuilder name)
-          Mode.Prod _ -> JS.Int (ctorToInt home name index)
+          Mode.Prod _ _ _ _ -> JS.Int (ctorToInt home name index)
 
     DT.IsBool True ->
       value
@@ -902,7 +1021,7 @@ generateIfTest mode root (path, test) =
       strictEq (JS.String (Utf8.toBuilder char)) $
         case mode of
           Mode.Dev _ -> JS.Call (JS.Access value (JsName.fromLocal "valueOf")) []
-          Mode.Prod _ -> value
+          Mode.Prod _ _ _ _ -> value
 
     DT.IsStr string ->
       strictEq value (JS.String (Utf8.toBuilder string))
@@ -932,7 +1051,7 @@ generateCaseValue mode test =
     DT.IsCtor home name index _ _ ->
       case mode of
         Mode.Dev _ -> JS.String (Name.toBuilder name)
-        Mode.Prod _ -> JS.Int (ctorToInt home name index)
+        Mode.Prod _ _ _ _ -> JS.Int (ctorToInt home name index)
 
     DT.IsInt int ->
       JS.Int int
@@ -970,7 +1089,7 @@ generateCaseTest mode root path exampleTest =
           Mode.Dev _ ->
             JS.Access value JsName.dollar
 
-          Mode.Prod _ ->
+          Mode.Prod _ _ _ _ ->
             case opts of
               Can.Normal ->
                 JS.Access value JsName.dollar
@@ -992,7 +1111,7 @@ generateCaseTest mode root path exampleTest =
         Mode.Dev _ ->
           JS.Call (JS.Access value (JsName.fromLocal "valueOf")) []
 
-        Mode.Prod _ ->
+        Mode.Prod _ _ _ _ ->
           value
 
     DT.IsBool _ ->
@@ -1023,7 +1142,7 @@ pathToJsExpr mode root path =
         Mode.Dev _ ->
           JS.Access (pathToJsExpr mode root subPath) (JsName.fromIndex Index.first)
 
-        Mode.Prod _ ->
+        Mode.Prod _ _ _ _ ->
           pathToJsExpr mode root subPath
 
     DT.Empty ->
@@ -1057,7 +1176,7 @@ generateMain mode home main =
 toDebugMetadata :: Mode.Mode -> Can.Type -> JS.Expr
 toDebugMetadata mode msgType =
   case mode of
-    Mode.Prod _ ->
+    Mode.Prod _ _ _ _ ->
       JS.Int 0
 
     Mode.Dev Nothing ->

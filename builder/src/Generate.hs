@@ -3,6 +3,7 @@ module Generate
   ( debug
   , dev
   , prod
+  , prodWithOptimization
   , repl
   )
   where
@@ -25,6 +26,7 @@ import qualified Elm.Details as Details
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
+import qualified Ext.Optimization.Level as Optimization
 import qualified Ext.FileProxy as File
 import qualified Generate.JavaScript as JS
 import qualified Generate.Mode as Mode
@@ -70,11 +72,16 @@ dev root details (Build.Artifacts pkg _ roots modules) maybeInjectJs =
 
 
 prod :: FilePath -> Details.Details -> Build.Artifacts -> Maybe B.Builder -> Task B.Builder
-prod root details (Build.Artifacts pkg _ roots modules) maybeInjectJs =
+prod root details artifacts maybeInjectJs =
+  prodWithOptimization Optimization.O0 root details artifacts maybeInjectJs
+
+
+prodWithOptimization :: Optimization.Level -> FilePath -> Details.Details -> Build.Artifacts -> Maybe B.Builder -> Task B.Builder
+prodWithOptimization optimizationLevel root details (Build.Artifacts pkg _ roots modules) maybeInjectJs =
   do  objects <- finalizeObjects =<< loadObjects root details modules
       checkForDebugUses objects
       let graph = objectsToGlobalGraph objects
-      let mode = Mode.Prod (Mode.shortenFieldNames graph)
+      let mode = Mode.Prod optimizationLevel (Mode.shortenFieldNames graph) (Mode.rawFunctions graph) (Mode.unwrappedFunctions graph)
       let mains = gatherMains pkg objects roots
       return $ JS.generate mode graph mains maybeInjectJs
 

@@ -7,6 +7,7 @@ module Generate.JavaScript.Name
   , fromInt
   , fromLocal
   , fromGlobal
+  , fromGlobalSuffix
   , fromCycle
   , fromKernel
   , makeF
@@ -64,6 +65,11 @@ fromLocal name =
 fromGlobal :: ModuleName.Canonical -> Name.Name -> Name
 fromGlobal home name =
   Name $ homeToBuilder home <> usd <> Name.toBuilder name
+
+
+fromGlobalSuffix :: ModuleName.Canonical -> Name.Name -> B.Builder -> Name
+fromGlobalSuffix home name suffix =
+  Name $ homeToBuilder home <> usd <> Name.toBuilder name <> suffix
 
 
 fromCycle :: ModuleName.Canonical -> Name.Name -> Name

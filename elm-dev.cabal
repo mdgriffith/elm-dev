@@ -53,6 +53,7 @@ Executable elm-dev
         ext-dev
         ext-debug
         ext-generate
+        ext-optimization
         ext-watchtower
 
     other-extensions:
@@ -326,6 +327,11 @@ Executable elm-dev
         Ext.Dev.Usage
         Ext.Dev.Imports
         Ext.Log
+        Ext.Optimization.JavaScript.DirectCalls
+        Ext.Optimization.JavaScript.Functions
+        Ext.Optimization.JavaScript.ListReplacements
+        Ext.Optimization.JavaScript.UnwrappedFunctions
+        Ext.Optimization.Level
         Ext.Sanity
 
         -- ext-debug
@@ -451,7 +457,9 @@ Test-Suite elm-dev-tests
         ext-common
         ext-sentry
         ext-dev
+        ext-debug
         ext-generate
+        ext-optimization
         ext-watchtower
 
     main-is: TestMain.hs
@@ -512,6 +520,8 @@ Test-Suite elm-dev-tests
         Ext.Dev.Find.Canonical
         Ext.Dev.Project
         Ext.Dev.Warnings
+        Ext.Debug
+        Ext.Debug.Loader
         Ext.Disk.Build
         Ext.FileCache
         Ext.FileProxy
@@ -546,6 +556,11 @@ Test-Suite elm-dev-tests
         Json.String
         Llamadera
         Ext.Log
+        Ext.Optimization.JavaScript.DirectCalls
+        Ext.Optimization.JavaScript.Functions
+        Ext.Optimization.JavaScript.ListReplacements
+        Ext.Optimization.JavaScript.UnwrappedFunctions
+        Ext.Optimization.Level
         Make
         Modify
         Modify.Inject.Loader

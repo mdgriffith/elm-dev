@@ -379,7 +379,17 @@ data Value
 
 findFlag :: String -> [Chunk] -> Maybe FoundFlag
 findFlag flagName chunks =
-  findFlagHelp [] ("--" ++ flagName) ("--" ++ flagName ++ "=") chunks
+  case findFlagHelp [] ("--" ++ flagName) ("--" ++ flagName ++ "=") chunks of
+    Just foundFlag ->
+      Just foundFlag
+
+    Nothing ->
+      case flagName of
+        'O' : _ ->
+          findFlagHelp [] ("-" ++ flagName) ("-" ++ flagName ++ "=") chunks
+
+        _ ->
+          Nothing
 
 
 findFlagHelp :: [Chunk] -> String -> String -> [Chunk] -> Maybe FoundFlag

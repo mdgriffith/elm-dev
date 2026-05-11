@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings, QuasiQuotes #-}
 module Generate.JavaScript.Functions
-  ( functions
+  ( defaultFunctions
+  , functions
   )
   where
 
@@ -8,13 +9,23 @@ module Generate.JavaScript.Functions
 import qualified Data.ByteString.Builder as B
 import Text.RawString.QQ (r)
 
+import qualified Ext.Optimization.JavaScript.Functions as Optimization
+import qualified Generate.Mode as Mode
+
 
 
 -- FUNCTIONS
 
 
-functions :: B.Builder
-functions = [r|
+functions :: Mode.Mode -> B.Builder
+functions mode =
+  case mode of
+    Mode.Dev _ -> defaultFunctions
+    Mode.Prod level _ _ _ -> Optimization.functions level defaultFunctions
+
+
+defaultFunctions :: B.Builder
+defaultFunctions = [r|
 
 function F(arity, fun, wrapper) {
   wrapper.a = arity;

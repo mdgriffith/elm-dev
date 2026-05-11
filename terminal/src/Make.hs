@@ -3,7 +3,9 @@ module Make
   ( Flags(..)
   , Output(..)
   , ReportType(..)
+  , DesiredMode(..)
   , run
+  , getMode
   , reportType
   , output
   , docsFile
@@ -26,6 +28,7 @@ import qualified BackgroundWriter as BW
 import qualified Build
 import qualified Elm.Details as Details
 import qualified Elm.ModuleName as ModuleName
+import qualified Ext.Optimization.Level as Optimization
 import qualified Ext.FileProxy as File
 import qualified Generate
 import qualified Generate.Html as Html
@@ -44,6 +47,8 @@ data Flags =
   Flags
     { _debug :: Bool
     , _optimize :: Bool
+    , _o2 :: Bool
+    , _o3 :: Bool
     , _output :: Maybe Output
     , _report :: Maybe ReportType
     , _docs :: Maybe FilePath
@@ -71,7 +76,7 @@ type Task a = Task.Task Exit.Make a
 
 
 run :: [FilePath] -> Flags -> IO ()
-run paths flags@(Flags _ _ _ report _) =
+run paths flags@(Flags _ _ _ _ _ report _) =
   do  style <- getStyle report
       maybeRoot <- Stuff.findRoot
       Reporting.attemptWithStyle style Exit.makeToReport $
@@ -81,10 +86,10 @@ run paths flags@(Flags _ _ _ report _) =
 
 
 runHelp :: FilePath -> [FilePath] -> Reporting.Style -> Flags -> IO (Either Exit.Make ())
-runHelp root paths style (Flags debug optimize maybeOutput _ maybeDocs) =
+runHelp root paths style (Flags debug optimize o2 o3 maybeOutput _ maybeDocs) =
   BW.withScope $ \scope ->
   Stuff.withRootLock root $ Task.run $
-  do  desiredMode <- getMode debug optimize
+  do  desiredMode <- getMode debug optimize o2 o3
       details <- Task.eio Exit.MakeBadDetails (Details.load style scope root)
       case paths of
         [] ->
@@ -136,13 +141,16 @@ getStyle report =
     Just Json -> return Reporting.json
 
 
-getMode :: Bool -> Bool -> Task DesiredMode
-getMode debug optimize =
-  case (debug, optimize) of
-    (True , True ) -> Task.throw Exit.MakeCannotOptimizeAndDebug
-    (True , False) -> return Debug
-    (False, False) -> return Dev
-    (False, True ) -> return Prod
+getMode :: Bool -> Bool -> Bool -> Bool -> Task DesiredMode
+getMode debug optimize o2 o3 =
+  case (debug, optimize || o2 || o3, o2, o3) of
+    (True , True , _    , _    ) -> Task.throw Exit.MakeCannotOptimizeAndDebug
+    (_    , _    , True , True ) -> Task.throw Exit.MakeCannotCombineOptimizationLevels
+    (True , False, _    , _    ) -> return Debug
+    (False, _    , _    , True ) -> return (Prod Optimization.O3)
+    (False, _    , True , _    ) -> return (Prod Optimization.O2)
+    (False, True , _    , _    ) -> return (Prod Optimization.O0)
+    (False, False, _    , _    ) -> return Dev
 
 
 getExposed :: Details.Details -> Task (NE.List ModuleName.Raw)
@@ -265,7 +273,8 @@ generate style outputType builder names =
 -- TO BUILDER
 
 
-data DesiredMode = Debug | Dev | Prod
+data DesiredMode = Debug | Dev | Prod Optimization.Level
+  deriving (Eq, Show)
 
 
 toBuilder :: FilePath -> Details.Details -> DesiredMode -> Build.Artifacts -> Task B.Builder
@@ -274,7 +283,7 @@ toBuilder root details desiredMode artifacts =
     case desiredMode of
       Debug -> Generate.debug root details artifacts Nothing
       Dev   -> Generate.dev   root details artifacts Nothing
-      Prod  -> Generate.prod  root details artifacts Nothing
+      Prod optimizationLevel -> Generate.prodWithOptimization optimizationLevel root details artifacts Nothing
 
 
 

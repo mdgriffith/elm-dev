@@ -19,6 +19,7 @@ import qualified Elm.Details as Details
 import qualified Elm.Interface as I
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
+import qualified Ext.Optimization.Level as Optimization
 import qualified Nitpick.PatternMatches
 
 import qualified System.IO.Unsafe
@@ -83,7 +84,7 @@ compilationModsFromFlags mode =
   case mode of
     Debug -> CompilationFlags { modifications = Modify.Modifications True }
     Dev   -> CompilationFlags { modifications = Modify.Modifications False }
-    Prod  -> CompilationFlags { modifications = Modify.Modifications False }
+    Prod _ -> CompilationFlags { modifications = Modify.Modifications False }
 
 -- This is weirdly named becase it mirrors Compile.compile
 -- but does our Canonical updates
@@ -181,7 +182,7 @@ data Output = NoOutput | OutputTo OutputFormat
 data OutputFormat = Html | Js
   deriving (Show, Eq)
 
-data DesiredMode = Debug | Dev | Prod
+data DesiredMode = Debug | Dev | Prod Optimization.Level
   deriving (Show, Eq)
 
 data DebuggerMode = DebuggerElm | DebuggerElmDev | DebuggerNone
@@ -209,7 +210,7 @@ getMode debug optimize =
     (True , True ) -> Debug
     (True , False) -> Debug
     (False, False) -> Dev
-    (False, True ) -> Prod
+    (False, True ) -> Prod Optimization.O0
 
 
 generate :: FilePath -> Details.Details -> DesiredMode -> DebuggerMode -> Build.Artifacts -> Output -> Task.Task Exit.Reactor CompilationResult
@@ -221,7 +222,7 @@ generate root details desiredMode debuggerMode artifacts output =
         js <- case desiredMode of
                 Debug -> Generate.debug root details artifacts (debuggerInjection debuggerMode)
                 Dev   -> Generate.dev   root details artifacts Nothing
-                Prod  -> Generate.prod  root details artifacts Nothing
+                Prod optimizationLevel -> Generate.prodWithOptimization optimizationLevel root details artifacts Nothing
         case format of
           Html -> 
               pure (CompiledHtml (Generate.Html.sandwich (Name.fromChars "Main") js))

@@ -3,14 +3,25 @@ module Main where
 import Control.Monad (when)
 import qualified Control.Concurrent.STM as STM
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as Builder
+import qualified Data.ByteString.Lazy.Char8 as LazyChar8
 import qualified Ext.FileCache as FileCache
 import qualified Ext.Filewatch as Filewatch
 import qualified Data.Map.Strict as Map
 import qualified Data.NonEmptyList as NE
+import qualified Ext.CompileHelpers.Disk as DiskCompile
+import qualified Ext.Optimization.Level as Optimization
 import qualified Gen.Generate as Generate
 import qualified Gen.Config as GenConfig
 import qualified Ext.Dev.Project as Project
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
+import qualified Generate.JavaScript.Functions as JsFunctions
+import qualified Generate.Mode as Mode
+import qualified Make
+import qualified Reporting.Exit as ReportingExit
+import qualified Reporting.Task as Task
+import qualified Terminal
+import qualified Terminal.Chomp as Chomp
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.LSP.Protocol as Protocol
 import qualified Watchtower.State.Compile as CompileState
@@ -20,6 +31,7 @@ import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified System.Exit as Exit
 import qualified System.Directory as Dir
 import qualified System.FilePath as FilePath
+import qualified System.Process as Process
 import qualified Data.List as List
 import qualified Data.Text as Text
 import qualified Data.Time.Clock.POSIX as POSIX
@@ -29,7 +41,8 @@ main = do
   fileCacheResults <- sequence fileCacheTests
   versionResults <- sequence versionTests
   generationResults <- sequence generationTests
-  let results = fileCacheResults ++ versionResults ++ generationResults
+  optimizationResults <- sequence optimizationTests
+  let results = fileCacheResults ++ versionResults ++ generationResults ++ optimizationResults
       failures = [name | (name, False) <- results]
   if null failures
     then do
@@ -80,6 +93,274 @@ generationTests =
   [ runTest "code generation succeeds with basic config" testGenerateBasicConfig
   , runTest "code generation returns generator errors clearly" testGenerateThemeDecodeError
   ]
+
+optimizationTests :: [NamedTest]
+optimizationTests =
+  [ runTest "O2 function helpers use arity-specific raw function fields" testO2FunctionHelpers
+  , runTest "O0 function helpers preserve default wrapper fields" testO0FunctionHelpers
+  , runTest "O2 function helpers preserve runtime call behavior" testO2FunctionHelpersRuntime
+  , runTest "make mode maps -O2 and -O3 to optimization levels" testMakeOptimizationModes
+  , runTest "make flags parse -O2 shorthand" testMakeO2FlagParsing
+  , runTest "compiled O0/O2/O3 JS preserves worker runtime output" testCompiledOptimizationRuntime
+  ]
+
+testO2FunctionHelpers :: IO Bool
+testO2FunctionHelpers = do
+  let js = renderBuilder (JsFunctions.functions (Mode.Prod Optimization.O2 Map.empty Map.empty Map.empty))
+  pure
+    ( List.isInfixOf "curried.a2 = fun;" js
+        && List.isInfixOf "return fun.a2 ? fun.a2(a, b) : fun(a)(b);" js
+        && List.isInfixOf "curried.a9 = fun;" js
+        && List.isInfixOf "return fun.a9 ? fun.a9(a, b, c, d, e, f, g, h, i)" js
+        && not (List.isInfixOf "wrapper.a = arity;" js)
+    )
+
+testO0FunctionHelpers :: IO Bool
+testO0FunctionHelpers = do
+  let js = renderBuilder (JsFunctions.functions (Mode.Prod Optimization.O0 Map.empty Map.empty Map.empty))
+  pure
+    ( List.isInfixOf "wrapper.a = arity;" js
+        && List.isInfixOf "wrapper.f = fun;" js
+        && List.isInfixOf "return fun.a === 2 ? fun.f(a, b) : fun(a)(b);" js
+        && not (List.isInfixOf "curried.a2 = fun;" js)
+    )
+
+testO2FunctionHelpersRuntime :: IO Bool
+testO2FunctionHelpersRuntime = do
+  let helpers = renderBuilder (JsFunctions.functions (Mode.Prod Optimization.O2 Map.empty Map.empty Map.empty))
+      script =
+        helpers ++ unlines
+          [ "var add = F2(function(a, b) { return a + b; });"
+          , "var sum3 = F3(function(a, b, c) { return a + b + c; });"
+          , "if (A2(add, 1, 2) !== 3) process.exit(1);"
+          , "if (add(1)(2) !== 3) process.exit(2);"
+          , "if (A3(sum3, 1, 2, 3) !== 6) process.exit(3);"
+          , "if (sum3(1)(2)(3) !== 6) process.exit(4);"
+          ]
+  (exitCode, _, _) <- Process.readProcessWithExitCode "node" ["-e", script] ""
+  pure (exitCode == Exit.ExitSuccess)
+
+testMakeOptimizationModes :: IO Bool
+testMakeOptimizationModes = do
+  dev <- Task.run (Make.getMode False False False False)
+  optimize <- Task.run (Make.getMode False True False False)
+  o2 <- Task.run (Make.getMode False False True False)
+  o3 <- Task.run (Make.getMode False False False True)
+  debugO2 <- Task.run (Make.getMode True False True False)
+  o2o3 <- Task.run (Make.getMode False False True True)
+  pure
+    ( isRightMode Make.Dev dev
+        && isRightMode (Make.Prod Optimization.O0) optimize
+        && isRightMode (Make.Prod Optimization.O2) o2
+        && isRightMode (Make.Prod Optimization.O3) o3
+        && isOptimizeDebugError debugO2
+        && isOptimizationLevelError o2o3
+    )
+
+isRightMode :: Make.DesiredMode -> Either ReportingExit.Make Make.DesiredMode -> Bool
+isRightMode expected result =
+  case result of
+    Right actual -> actual == expected
+    Left _ -> False
+
+isOptimizeDebugError :: Either ReportingExit.Make Make.DesiredMode -> Bool
+isOptimizeDebugError result =
+  case result of
+    Left ReportingExit.MakeCannotOptimizeAndDebug -> True
+    _ -> False
+
+isOptimizationLevelError :: Either ReportingExit.Make Make.DesiredMode -> Bool
+isOptimizationLevelError result =
+  case result of
+    Left ReportingExit.MakeCannotCombineOptimizationLevels -> True
+    _ -> False
+
+testMakeO2FlagParsing :: IO Bool
+testMakeO2FlagParsing = do
+  let (_, result) = Chomp.chomp Nothing ["-O2"] Terminal.noArgs testMakeFlags
+  pure $ case result of
+    Right ((), Make.Flags False False True False Nothing Nothing Nothing) -> True
+    _ -> False
+
+testMakeFlags :: Terminal.Flags Make.Flags
+testMakeFlags =
+  Terminal.flags Make.Flags
+    Terminal.|-- Terminal.onOff "debug" "debug"
+    Terminal.|-- Terminal.onOff "optimize" "optimize"
+    Terminal.|-- Terminal.onOff "O2" "O2"
+    Terminal.|-- Terminal.onOff "O3" "O3"
+    Terminal.|-- Terminal.flag "output" Make.output "output"
+    Terminal.|-- Terminal.flag "report" Make.reportType "report"
+    Terminal.|-- Terminal.flag "docs" Make.docsFile "docs"
+
+testCompiledOptimizationRuntime :: IO Bool
+testCompiledOptimizationRuntime = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+  writeElmApp root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainPath optimizationRuntimeElm
+
+  o0 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O0)
+  o2 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O2)
+  o3 <- compileOptimizationApp root (CompileHelpers.Prod Optimization.O3)
+
+  case (o0, o2, o3) of
+    (Right jsO0, Right jsO2, Right jsO3) -> do
+      runO0 <- runCompiledWorker root "o0" jsO0
+      runO2 <- runCompiledWorker root "o2" jsO2
+      runO3 <- runCompiledWorker root "o3" jsO3
+      pure
+        ( runO0 == Just "117"
+            && runO2 == Just "117"
+            && runO3 == Just "117"
+            && List.isInfixOf "wrapper.a = arity;" jsO0
+            && not (List.isInfixOf "curried.a2 = fun;" jsO0)
+            && List.isInfixOf "curried.a2 = fun;" jsO2
+            && List.isInfixOf "curried.a2 = fun;" jsO3
+            && not (List.isInfixOf "add_fn" jsO0)
+            && List.isInfixOf "add_fn" jsO2
+            && List.isInfixOf "sum3_fn" jsO2
+            && List.isInfixOf "add_fn(" jsO2
+            && List.isInfixOf "sum3_fn(" jsO2
+            && List.isInfixOf "apply2_unwrapped" jsO2
+            && List.isInfixOf "$elm$core$List$map = F2(" jsO2
+            && List.isInfixOf "$elm$core$List$filter = F2(" jsO2
+            && List.isInfixOf "$elm$core$List$concatMap = F2(" jsO2
+            && List.isInfixOf "$elm$core$List$partition = F2(" jsO2
+            && List.isInfixOf "expected === (1 + 2)" jsO2
+            && List.isInfixOf "add_fn" jsO3
+            && List.isInfixOf "sum3_fn" jsO3
+            && List.isInfixOf "add_fn(" jsO3
+            && List.isInfixOf "sum3_fn(" jsO3
+            && List.isInfixOf "apply2_unwrapped" jsO3
+            && List.isInfixOf "$elm$core$List$map = F2(" jsO3
+            && List.isInfixOf "$elm$core$List$filter = F2(" jsO3
+            && List.isInfixOf "$elm$core$List$concatMap = F2(" jsO3
+            && List.isInfixOf "$elm$core$List$partition = F2(" jsO3
+            && List.isInfixOf "expected === (1 + 2)" jsO3
+        )
+
+    _ ->
+      pure False
+
+compileOptimizationApp :: FilePath -> CompileHelpers.DesiredMode -> IO (Either String String)
+compileOptimizationApp root desiredMode = do
+  result <- DiskCompile.compile
+    root
+    (NE.List ("src" FilePath.</> "Main.elm") [])
+    (CompileHelpers.Flags desiredMode (CompileHelpers.OutputTo CompileHelpers.Js) CompileHelpers.DebuggerNone)
+  pure $ case result of
+    Right (CompileHelpers.CompiledJs builder) ->
+      Right (renderBuilder builder)
+
+    Right _ ->
+      Left "expected compiled JS"
+
+    Left err ->
+      Left (show err)
+
+runCompiledWorker :: FilePath -> String -> String -> IO (Maybe String)
+runCompiledWorker root label js = do
+  let jsPath = root FilePath.</> (label ++ ".js")
+      runnerPath = root FilePath.</> (label ++ "-runner.js")
+  writeFile jsPath js
+  writeFile runnerPath $ unlines
+    [ "const elm = require('./" ++ label ++ ".js');"
+    , "const app = elm.Elm.Main.init({ flags: null });"
+    , "app.ports.output.subscribe(value => { console.log(value); process.exit(0); });"
+    , "setTimeout(() => process.exit(2), 1000);"
+    ]
+  (exitCode, stdout, _) <- Process.readProcessWithExitCode "node" [runnerPath] ""
+  pure $ case exitCode of
+    Exit.ExitSuccess -> Just (trim stdout)
+    _ -> Nothing
+
+trim :: String -> String
+trim = reverse . dropWhile isLineBreak . reverse . dropWhile isLineBreak
+
+isLineBreak :: Char -> Bool
+isLineBreak char =
+  char == '\n' || char == '\r'
+
+optimizationRuntimeElm :: String
+optimizationRuntimeElm =
+  unlines
+    [ "port module Main exposing (main)"
+    , ""
+    , "import Platform"
+    , "import Platform.Cmd as Cmd"
+    , "import Platform.Sub as Sub"
+    , "import String"
+    , ""
+    , "port output : String -> Cmd msg"
+    , ""
+    , "add : Int -> Int -> Int"
+    , "add a b ="
+    , "    a + b"
+    , ""
+    , "sum3 : Int -> Int -> Int -> Int"
+    , "sum3 a b c ="
+    , "    a + b + c"
+    , ""
+    , "applyTwice : (Int -> Int) -> Int -> Int"
+    , "applyTwice fn value ="
+    , "    fn (fn value)"
+    , ""
+    , "apply2 : (Int -> Int -> Int) -> Int -> Int -> Int"
+     , "apply2 fn a b ="
+     , "    fn a b"
+     , ""
+     , "primitiveEquality : Int"
+     , "primitiveEquality ="
+     , "    let"
+     , "        expected ="
+     , "            add 1 2"
+     , "    in"
+     , "    if expected == 1 + 2 then"
+     , "        5"
+     , ""
+     , "    else"
+     , "        0"
+     , ""
+     , "listResult : Int"
+     , "listResult ="
+     , "    let"
+     , "        ( lessThanThree, atLeastThree ) ="
+     , "            List.partition (\\n -> n < 3) [ 1, 2, 3 ]"
+     , ""
+     , "        ( unzipLeft, unzipRight ) ="
+     , "            List.unzip [ ( 1, 2 ), ( 3, 4 ) ]"
+     , "    in"
+     , "    List.sum (List.map ((+) 1) (List.filter (\\n -> n < 4) [ 1, 2, 3, 4 ]))"
+     , "        + (if List.all (\\n -> n < 5) [ 1, 2, 3 ] then 1 else 0)"
+     , "        + List.length (List.concat [ [ 1 ], [ 2, 3 ] ])"
+     , "        + List.length (List.concatMap (\\n -> [ n, n ]) [ 1, 2 ])"
+     , "        + List.length (List.intersperse 0 [ 1, 2, 3 ])"
+     , "        + List.length lessThanThree * 10"
+     , "        + List.length atLeastThree"
+     , "        + List.length (List.take 2 [ 1, 2, 3 ])"
+     , "        + List.sum unzipLeft"
+     , "        + List.sum unzipRight"
+     , "        + List.sum (List.indexedMap (+) [ 5, 6 ])"
+     , "        + List.length ([ 1, 2 ] ++ [ 3 ])"
+     , ""
+     , "result : String"
+     , "result ="
+     , "    String.fromInt (add 1 2 + sum3 3 4 5 + applyTwice ((+) 2) 10 + apply2 add 6 7 + listResult + primitiveEquality)"
+    , ""
+    , "main : Program () () msg"
+    , "main ="
+    , "    Platform.worker"
+    , "        { init = \\_ -> ( (), output result )"
+    , "        , update = \\_ model -> ( model, Cmd.none )"
+    , "        , subscriptions = \\_ -> Sub.none"
+    , "        }"
+    ]
+
+renderBuilder :: Builder.Builder -> String
+renderBuilder = LazyChar8.unpack . Builder.toLazyByteString
 
 mkRange :: (Int, Int) -> (Int, Int) -> FileCache.Range
 mkRange (sl, sc) (el, ec) =

@@ -33,6 +33,7 @@ import qualified Ext.Dev.InScope
 import qualified Ext.Dev.Project
 import qualified Ext.FileCache
 import qualified Ext.Log
+import qualified Ext.Optimization.Level as Optimization
 import qualified Ext.Project.Find
 import qualified Ext.Sentry
 import qualified Ext.VirtualFile
@@ -338,7 +339,7 @@ ask state question =
       let flags =
             CompileHelpers.Flags
               ( case optimize of
-                  Just True -> CompileHelpers.Prod
+                  Just True -> CompileHelpers.Prod Optimization.O0
                   _ ->
                     case debug of
                       Just True -> CompileHelpers.Debug
