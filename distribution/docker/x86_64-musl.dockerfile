@@ -56,6 +56,7 @@ COPY compiler compiler
 COPY reactor reactor
 COPY terminal terminal
 COPY LICENSE ./
+COPY installers-elm-dev/npm/package.json installers-elm-dev/npm/package.json
 
 COPY ext-common ext-common
 COPY ext-debug ext-debug
