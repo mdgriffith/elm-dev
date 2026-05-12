@@ -12,14 +12,14 @@ jobs:
     runs-on: macos-13
     steps:
       - name: Install SSH key
-        uses: shimataro/ssh-key-action@v2
+        uses: shimataro/ssh-key-action@v2.8.1
         with:
           key: ${{ secrets.GH_USER_SCP_KEY }}
           name: id_ed25519
           known_hosts: ${{ secrets.KNOWN_HOSTS }}
           if_key_exists: replace
-      - uses: actions/checkout@v3
-      - uses: freckle/stack-cache-action@v2
+      - uses: actions/checkout@v6
+      - uses: freckle/stack-cache-action@v3.0.0
       - run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
       - name: Run distribution script
         run: |
