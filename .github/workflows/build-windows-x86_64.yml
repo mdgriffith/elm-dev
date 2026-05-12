@@ -92,7 +92,7 @@ jobs:
       # with a second stack install. 🤷🏻‍♂️
       - uses: nick-fields/retry@v4.0.0
         with:
-          timeout_minutes: 5
+          timeout_minutes: 20
           max_attempts: 4
           # https://gitlab.haskell.org/ghc/ghc/-/issues/20878
           # https://gitlab.haskell.org/ghc/ghc/-/issues/20010#note_359766
