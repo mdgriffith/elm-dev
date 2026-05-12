@@ -1,10 +1,10 @@
 {
   "name": "@elm_dev_binaries/linux_arm64",
   "version": "0.2.3",
-  "description": "Download the Elm binary for Linux (arm64)",
+  "description": "Download the Elm Dev binary for Linux (arm64)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/elm/compiler.git"
+    "url": "git+https://github.com/mdgriffith/elm-dev.git"
   },
   "license": "BSD-3-Clause",
   "os": [

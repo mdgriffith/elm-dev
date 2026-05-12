@@ -5,16 +5,15 @@ Synopsis:
     The `elm-dev` command line interface.
 
 Description:
-    This includes commands like `elm make`, `elm repl`, and many others
-    for helping make Elm developers happy and productive.
+    A version of the Elm compiler with extra development tooling.
 
-Homepage: https://elm-lang.org
+Homepage: https://github.com/mdgriffith/elm-dev
 
 License: BSD3
 License-file: LICENSE
 
 Author:     Matt Griffith
-Maintainer: info@elm-lang.org
+Maintainer: Matt Griffith
 
 Category: Compiler, Language
 
@@ -23,7 +22,7 @@ Build-type: Simple
 
 source-repository head
     type:     git
-    location: git://github.com/elm/compiler.git
+    location: git://github.com/mdgriffith/elm-dev.git
 
 
 Flag dev {
