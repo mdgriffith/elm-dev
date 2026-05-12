@@ -20,7 +20,7 @@ import qualified Generate.Mode as Mode
 info :: Mode.Mode -> Opt.Global -> Maybe Mode.UnwrappedFunction
 info mode global =
   case mode of
-    Mode.Prod level _ _ unwrappedFunctions | level == Level.O2 || level == Level.O3 ->
+    Mode.Prod level _ _ unwrappedFunctions _ | level == Level.O2 || level == Level.O3 ->
       Map.lookup global unwrappedFunctions
 
     _ ->

@@ -41,6 +41,7 @@ import qualified Watchtower.State.Project
 import qualified Watchtower.State.Compile
 import qualified Modify.Inject.Loader
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
+import qualified Ext.Optimization.Level as Optimization
 import qualified Data.NonEmptyList as NE
 import qualified Data.List as List
 import qualified Reporting.Exit
@@ -279,6 +280,7 @@ jsHandler state = do
   mDebug <- getParam "debug"
   mDebugger <- getParam "debugger"
   mOptimize <- getParam "optimize"
+  mMode <- getParam "mode"
   mReport <- getParam "report"
   case (mDir, mFile) of
     (Nothing, _) -> problemSnap 400 "bad_request" (Text.pack "Missing query param: dir")
@@ -288,22 +290,25 @@ jsHandler state = do
       let file = Text.unpack (Data.Text.Encoding.decodeUtf8 fileBs)
       let debug = parseBoolParamWithDefault False mDebug
       let optimize = parseBoolParamWithDefault False mOptimize
-      let debuggerMode = parseDebuggerParam debug mDebugger
-      let report = parseReportParam mReport
-      e <- liftIO (compile state dir file debug optimize debuggerMode report)
-      case e of
-        Left errOut -> do
-          modifyResponse $ setResponseCode 422
-          case errOut of
-            ErrorJson errJson -> do
-              modifyResponse $ setContentType "application/json"
-              writeLBS (JSON.encode errJson)
-            ErrorTerminal msg -> do
-              modifyResponse $ setContentType "text/plain; charset=utf-8"
-              writeBS (Data.Text.Encoding.encodeUtf8 msg)
-        Right jsBuilder -> do
-          modifyResponse $ setContentType "application/javascript; charset=utf-8"
-          writeBuilder jsBuilder
+      case parseModeParam debug optimize mMode of
+        Left msg -> problemSnap 400 "bad_request" msg
+        Right desiredMode -> do
+          let debuggerMode = parseDebuggerParam debug mDebugger
+          let report = parseReportParam mReport
+          e <- liftIO (compile state dir file desiredMode debuggerMode report)
+          case e of
+            Left errOut -> do
+              modifyResponse $ setResponseCode 422
+              case errOut of
+                ErrorJson errJson -> do
+                  modifyResponse $ setContentType "application/json"
+                  writeLBS (JSON.encode errJson)
+                ErrorTerminal msg -> do
+                  modifyResponse $ setContentType "text/plain; charset=utf-8"
+                  writeBS (Data.Text.Encoding.encodeUtf8 msg)
+            Right jsBuilder -> do
+              modifyResponse $ setContentType "application/javascript; charset=utf-8"
+              writeBuilder jsBuilder
 
 interactiveHandler :: Live.State -> Snap ()
 interactiveHandler state = do
@@ -679,11 +684,11 @@ data Report = ReportJson | ReportTerminal
 
 data ErrorOutput = ErrorJson JSON.Value | ErrorTerminal Text.Text
 
-compile :: Live.State -> FilePath -> FilePath -> Bool -> Bool -> CompileHelpers.DebuggerMode -> Report -> IO (Either ErrorOutput Builder.Builder)
-compile state root file debug optimize debuggerMode report = do
+compile :: Live.State -> FilePath -> FilePath -> CompileHelpers.DesiredMode -> CompileHelpers.DebuggerMode -> Report -> IO (Either ErrorOutput Builder.Builder)
+compile state root file desiredMode debuggerMode report = do
   traceId <- Trace.newTraceId "dev.js"
   let wsUrl = Client.urlsDevWebsocket (Client.urls state)
-      desired = getModeForDebugger debug optimize debuggerMode
+      desired = getModeForDebugger desiredMode debuggerMode
       flags = CompileHelpers.Flags
                 desired
                 (CompileHelpers.OutputTo CompileHelpers.Js)
@@ -809,8 +814,23 @@ parseBoolParamWithDefault def m =
 parseReportParam :: Maybe BS.ByteString -> Report
 parseReportParam m =
   case fmap (Text.toLower . Data.Text.Encoding.decodeUtf8) m of
-    Just "json" -> ReportJson
-    _ -> ReportTerminal
+      Just "json" -> ReportJson
+      _ -> ReportTerminal
+
+
+parseModeParam :: Bool -> Bool -> Maybe BS.ByteString -> Either Text.Text CompileHelpers.DesiredMode
+parseModeParam debug optimize m =
+  case fmap Data.Text.Encoding.decodeUtf8 m of
+    Just raw ->
+      case Text.toLower raw of
+        "debug" -> Right CompileHelpers.Debug
+        "dev" -> Right CompileHelpers.Dev
+        "optimize" -> Right (CompileHelpers.Prod Optimization.O0)
+        "o0" -> Right (CompileHelpers.Prod Optimization.O0)
+        "o2" -> Right (CompileHelpers.Prod Optimization.O2)
+        "o3" -> Right (CompileHelpers.Prod Optimization.O3)
+        _ -> Left (Text.pack "Invalid mode query param: " <> raw)
+    Nothing -> Right (CompileHelpers.getMode debug optimize)
 
 
 parseDebuggerParam :: Bool -> Maybe BS.ByteString -> CompileHelpers.DebuggerMode
@@ -832,12 +852,12 @@ parseDebuggerParam debug m =
         CompileHelpers.DebuggerNone
 
 
-getModeForDebugger :: Bool -> Bool -> CompileHelpers.DebuggerMode -> CompileHelpers.DesiredMode
-getModeForDebugger debug optimize debuggerMode =
+getModeForDebugger :: CompileHelpers.DesiredMode -> CompileHelpers.DebuggerMode -> CompileHelpers.DesiredMode
+getModeForDebugger desiredMode debuggerMode =
   case debuggerMode of
     CompileHelpers.DebuggerElm -> CompileHelpers.Debug
     CompileHelpers.DebuggerElmDev -> CompileHelpers.Debug
-    CompileHelpers.DebuggerNone -> CompileHelpers.getMode False optimize
+    CompileHelpers.DebuggerNone -> desiredMode
 
 problemSnap :: Int -> BS.ByteString -> Text.Text -> Snap ()
 problemSnap code problemCode detail = do

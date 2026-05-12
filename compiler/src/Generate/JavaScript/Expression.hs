@@ -14,6 +14,7 @@ module Generate.JavaScript.Expression
 
 
 import qualified Data.IntMap as IntMap
+import qualified Data.ByteString.Builder as B
 import qualified Data.List as List
 import Data.Map ((!))
 import qualified Data.Map as Map
@@ -31,7 +32,9 @@ import qualified Elm.Version as V
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
 import qualified Ext.Optimization.JavaScript.DirectCalls as DirectCalls
+import qualified Ext.Optimization.JavaScript.RecordUpdates as RecordUpdates
 import qualified Ext.Optimization.JavaScript.UnwrappedFunctions as UnwrappedFunctions
+import qualified Ext.Optimization.Level as Optimization
 import qualified Generate.JavaScript.Builder as JS
 import qualified Generate.JavaScript.Name as JsName
 import qualified Generate.Mode as Mode
@@ -62,7 +65,7 @@ generate mode expression =
           Mode.Dev _ ->
             JS.Call toChar [ JS.String (Utf8.toBuilder char) ]
 
-          Mode.Prod _ _ _ _ ->
+          Mode.Prod _ _ _ _ _ ->
             JS.String (Utf8.toBuilder char)
 
     Opt.Str string ->
@@ -85,14 +88,14 @@ generate mode expression =
         Mode.Dev _ ->
           JsExpr $ JS.Ref (JsName.fromGlobal home name)
 
-        Mode.Prod _ _ _ _ ->
+        Mode.Prod _ _ _ _ _ ->
           JsExpr $ JS.Int (Index.toMachine index)
 
     Opt.VarBox (Opt.Global home name) ->
       JsExpr $ JS.Ref $
         case mode of
           Mode.Dev _ -> JsName.fromGlobal home name
-          Mode.Prod _ _ _ _ -> JsName.fromGlobal ModuleName.basics Name.identity
+          Mode.Prod _ _ _ _ _ -> JsName.fromGlobal ModuleName.basics Name.identity
 
     Opt.VarCycle home name ->
       JsExpr $ JS.Call (JS.Ref (JsName.fromCycle home name)) []
@@ -150,21 +153,17 @@ generate mode expression =
       JsExpr $ JS.Access (generateJsExpr mode record) (generateField mode field)
 
     Opt.Update record fields ->
-      JsExpr $
-        JS.Call (JS.Ref (JsName.fromKernel Name.utils "update"))
-          [ generateJsExpr mode record
-          , generateRecord mode fields
-          ]
+      generateRecordUpdate mode (generateJsExpr mode record) (map (generateFieldValue mode) (Map.toList fields))
 
     Opt.Record fields ->
-      JsExpr $ generateRecord mode fields
+      JsExpr $ generateRecordLiteral mode fields
 
     Opt.Unit ->
       case mode of
         Mode.Dev _ ->
           JsExpr $ JS.Ref (JsName.fromKernel Name.utils "Tuple0")
 
-        Mode.Prod _ _ _ _ ->
+        Mode.Prod _ _ _ _ _ ->
           JsExpr $ JS.Int 0
 
     Opt.Tuple a b maybeC ->
@@ -274,7 +273,7 @@ generateCtor mode (Opt.Global home name) index arity =
     ctorTag =
       case mode of
         Mode.Dev _ -> JS.String (Name.toBuilder name)
-        Mode.Prod _ _ _ _ -> JS.Int (ctorToInt home name index)
+        Mode.Prod _ _ _ _ _ -> JS.Int (ctorToInt home name index)
   in
   generateFunction argNames $ JsExpr $ JS.Object $
     (JsName.dollar, ctorTag) : map (\n -> (n, JS.Ref n)) argNames
@@ -301,13 +300,65 @@ generateRecord mode fields =
   JS.Object (map toPair (Map.toList fields))
 
 
+generateFieldValue :: Mode.Mode -> (Name.Name, Opt.Expr) -> (JsName.Name, JS.Expr)
+generateFieldValue mode (field, value) =
+  (generateField mode field, generateJsExpr mode value)
+
+
+generateRecordLiteral :: Mode.Mode -> Map.Map Name.Name Opt.Expr -> JS.Expr
+generateRecordLiteral mode fields =
+  case mode of
+    Mode.Prod Optimization.O3 _ _ _ shapes ->
+      case Map.lookup (Map.keys fields) shapes of
+        Just index ->
+          JS.New (JS.Ref (RecordUpdates.constructorName index)) (map (generateJsExpr mode) (Map.elems fields))
+
+        Nothing ->
+          generateRecord mode fields
+
+    _ ->
+      generateRecord mode fields
+
+
+generateRecordUpdate :: Mode.Mode -> JS.Expr -> [(JsName.Name, JS.Expr)] -> Code
+generateRecordUpdate mode record fields =
+  case mode of
+    Mode.Prod Optimization.O3 _ _ _ _ ->
+      JsBlock
+        [ JS.Var RecordUpdates.oldName record
+        , JS.IfStmt
+            (JS.Prefix JS.PrefixNot (JS.Access (JS.Ref RecordUpdates.oldName) RecordUpdates.cloneName))
+            (JS.Return (defaultRecordUpdate (JS.Ref RecordUpdates.oldName) fields))
+            JS.EmptyStmt
+        , JS.Var RecordUpdates.updatedName (JS.Call (JS.Access (JS.Ref RecordUpdates.oldName) RecordUpdates.cloneName) [])
+        , JS.Block (map assignUpdatedField fields)
+        , JS.Return (JS.Ref RecordUpdates.updatedName)
+        ]
+
+    _ ->
+      JsExpr $ defaultRecordUpdate record fields
+
+
+defaultRecordUpdate :: JS.Expr -> [(JsName.Name, JS.Expr)] -> JS.Expr
+defaultRecordUpdate record fields =
+  JS.Call (JS.Ref (JsName.fromKernel Name.utils "update"))
+    [ record
+    , JS.Object fields
+    ]
+
+
+assignUpdatedField :: (JsName.Name, JS.Expr) -> JS.Stmt
+assignUpdatedField (field, value) =
+  JS.ExprStmt $ JS.Assign (JS.LDot (JS.Ref RecordUpdates.updatedName) field) value
+
+
 generateField :: Mode.Mode -> Name.Name -> JsName.Name
 generateField mode name =
   case mode of
     Mode.Dev _ ->
       JsName.fromLocal name
 
-    Mode.Prod _ fields _ _ ->
+    Mode.Prod _ fields _ _ _ ->
       fields ! name
 
 
@@ -318,22 +369,69 @@ generateField mode name =
 
 generateDebug :: Name.Name -> ModuleName.Canonical -> A.Region -> Maybe Name.Name -> JS.Expr
 generateDebug name (ModuleName.Canonical _ home) region unhandledValueName =
-  if name /= "todo" then
-    JS.Ref (JsName.fromGlobal ModuleName.debug name)
-  else
-    case unhandledValueName of
-      Nothing ->
-        JS.Call (JS.Ref (JsName.fromKernel Name.debug "todo")) $
-          [ JS.String (Name.toBuilder home)
-          , regionToJsExpr region
+  case name of
+    "log" ->
+      JS.Call (JS.Ref (JsName.makeF 2))
+        [ JS.Function Nothing [ JsName.fromLocal "tag", JsName.fromLocal "value" ]
+          [ JS.Var (JsName.fromLocal "runtime")
+              (JS.Access (JS.Ref (JsName.fromLocal "globalThis")) (JsName.fromLocal "__ELM_DEV_DEBUGGER__"))
+          , JS.IfStmt
+              (JS.Infix JS.OpAnd
+                (JS.Ref (JsName.fromLocal "runtime"))
+                (JS.Access (JS.Ref (JsName.fromLocal "runtime")) (JsName.fromLocal "recordDebugLog"))
+              )
+              (JS.ExprStmt $
+                JS.Call
+                  (JS.Access (JS.Ref (JsName.fromLocal "runtime")) (JsName.fromLocal "recordDebugLog"))
+                  [ JS.Ref (JsName.fromLocal "tag")
+                  , JS.Ref (JsName.fromLocal "value")
+                  , JS.Object
+                    [ ( JsName.fromLocal "module", JS.String (Name.toBuilder home) )
+                    , ( JsName.fromLocal "file", JS.String (moduleNameToPath home) )
+                    , ( JsName.fromLocal "region", regionToJsExpr region )
+                    , ( JsName.fromLocal "source", JS.String (sourceLocationToBuilder home region) )
+                    ]
+                  ]
+              )
+              JS.EmptyStmt
+          , JS.ExprStmt $
+              JS.Call
+                (JS.Access (JS.Ref (JsName.fromLocal "console")) (JsName.fromLocal "log"))
+                [ JS.Infix JS.OpAdd
+                  (JS.Infix JS.OpAdd (JS.Ref (JsName.fromLocal "tag")) (JS.String ": "))
+                  (JS.Call (JS.Ref (JsName.fromKernel Name.debug "toString")) [ JS.Ref (JsName.fromLocal "value") ])
+                ]
+          , JS.Return (JS.Ref (JsName.fromLocal "value"))
           ]
+        ]
 
-      Just valueName ->
-        JS.Call (JS.Ref (JsName.fromKernel Name.debug "todoCase")) $
-          [ JS.String (Name.toBuilder home)
-          , regionToJsExpr region
-          , JS.Ref (JsName.fromLocal valueName)
-          ]
+    "todo" ->
+      case unhandledValueName of
+        Nothing ->
+          JS.Call (JS.Ref (JsName.fromKernel Name.debug "todo")) $
+            [ JS.String (Name.toBuilder home)
+            , regionToJsExpr region
+            ]
+
+        Just valueName ->
+          JS.Call (JS.Ref (JsName.fromKernel Name.debug "todoCase")) $
+            [ JS.String (Name.toBuilder home)
+            , regionToJsExpr region
+            , JS.Ref (JsName.fromLocal valueName)
+            ]
+
+    _ ->
+      JS.Ref (JsName.fromGlobal ModuleName.debug name)
+
+
+moduleNameToPath :: Name.Name -> B.Builder
+moduleNameToPath home =
+  Name.toBuilder home <> ".elm"
+
+
+sourceLocationToBuilder :: Name.Name -> A.Region -> B.Builder
+sourceLocationToBuilder home (A.Region (A.Position line column) _) =
+  moduleNameToPath home <> ":" <> B.word16Dec line <> ":" <> B.word16Dec column
 
 
 regionToJsExpr :: A.Region -> JS.Expr
@@ -419,14 +517,12 @@ generateWithDirectLocalCalls mode directParam expression =
       JsExpr $ JS.Access (codeToExpr (generateWithDirectLocalCalls mode directParam record)) (generateField mode field)
 
     Opt.Update record fields ->
-      JsExpr $
-        JS.Call (JS.Ref (JsName.fromKernel Name.utils "update"))
-          [ codeToExpr (generateWithDirectLocalCalls mode directParam record)
-          , generateRecordWithDirectLocalCalls mode directParam fields
-          ]
+      generateRecordUpdate mode
+        (codeToExpr (generateWithDirectLocalCalls mode directParam record))
+        (map (generateFieldValueWithDirectLocalCalls mode directParam) (Map.toList fields))
 
     Opt.Record fields ->
-      JsExpr $ generateRecordWithDirectLocalCalls mode directParam fields
+      JsExpr $ generateRecordLiteralWithDirectLocalCalls mode directParam fields
 
     Opt.Tuple a b maybeC ->
       JsExpr $
@@ -510,6 +606,26 @@ generateRecordWithDirectLocalCalls mode directParam fields =
       (generateField mode field, codeToExpr (generateWithDirectLocalCalls mode directParam value))
   in
   JS.Object (map toPair (Map.toList fields))
+
+
+generateFieldValueWithDirectLocalCalls :: Mode.Mode -> Name.Name -> (Name.Name, Opt.Expr) -> (JsName.Name, JS.Expr)
+generateFieldValueWithDirectLocalCalls mode directParam (field, value) =
+  (generateField mode field, codeToExpr (generateWithDirectLocalCalls mode directParam value))
+
+
+generateRecordLiteralWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Map.Map Name.Name Opt.Expr -> JS.Expr
+generateRecordLiteralWithDirectLocalCalls mode directParam fields =
+  case mode of
+    Mode.Prod Optimization.O3 _ _ _ shapes ->
+      case Map.lookup (Map.keys fields) shapes of
+        Just index ->
+          JS.New (JS.Ref (RecordUpdates.constructorName index)) (map (codeToExpr . generateWithDirectLocalCalls mode directParam) (Map.elems fields))
+
+        Nothing ->
+          generateRecordWithDirectLocalCalls mode directParam fields
+
+    _ ->
+      generateRecordWithDirectLocalCalls mode directParam fields
 
 
 generateTailCallWithDirectLocalCalls :: Mode.Mode -> Name.Name -> Name.Name -> [(Name.Name, Opt.Expr)] -> [JS.Stmt]
@@ -610,7 +726,7 @@ generateCall mode func args =
         Mode.Dev _ ->
           generateCallHelp mode func args
 
-        Mode.Prod _ _ _ _ ->
+        Mode.Prod _ _ _ _ _ ->
           case args of
             [arg] ->
               generateJsExpr mode arg
@@ -1015,7 +1131,7 @@ generatePath mode path =
         Mode.Dev _ ->
           JS.Access (generatePath mode subPath) (JsName.fromIndex Index.first)
 
-        Mode.Prod _ _ _ _ ->
+        Mode.Prod _ _ _ _ _ ->
           generatePath mode subPath
 
 
@@ -1142,7 +1258,7 @@ generateIfTest mode root (path, test) =
         tag =
           case mode of
             Mode.Dev _ -> JS.Access value JsName.dollar
-            Mode.Prod _ _ _ _ ->
+            Mode.Prod _ _ _ _ _ ->
               case opts of
                 Can.Normal -> JS.Access value JsName.dollar
                 Can.Enum   -> value
@@ -1151,7 +1267,7 @@ generateIfTest mode root (path, test) =
       strictEq tag $
         case mode of
           Mode.Dev _ -> JS.String (Name.toBuilder name)
-          Mode.Prod _ _ _ _ -> JS.Int (ctorToInt home name index)
+          Mode.Prod _ _ _ _ _ -> JS.Int (ctorToInt home name index)
 
     DT.IsBool True ->
       value
@@ -1166,7 +1282,7 @@ generateIfTest mode root (path, test) =
       strictEq (JS.String (Utf8.toBuilder char)) $
         case mode of
           Mode.Dev _ -> JS.Call (JS.Access value (JsName.fromLocal "valueOf")) []
-          Mode.Prod _ _ _ _ -> value
+          Mode.Prod _ _ _ _ _ -> value
 
     DT.IsStr string ->
       strictEq value (JS.String (Utf8.toBuilder string))
@@ -1196,7 +1312,7 @@ generateCaseValue mode test =
     DT.IsCtor home name index _ _ ->
       case mode of
         Mode.Dev _ -> JS.String (Name.toBuilder name)
-        Mode.Prod _ _ _ _ -> JS.Int (ctorToInt home name index)
+        Mode.Prod _ _ _ _ _ -> JS.Int (ctorToInt home name index)
 
     DT.IsInt int ->
       JS.Int int
@@ -1234,7 +1350,7 @@ generateCaseTest mode root path exampleTest =
           Mode.Dev _ ->
             JS.Access value JsName.dollar
 
-          Mode.Prod _ _ _ _ ->
+          Mode.Prod _ _ _ _ _ ->
             case opts of
               Can.Normal ->
                 JS.Access value JsName.dollar
@@ -1256,7 +1372,7 @@ generateCaseTest mode root path exampleTest =
         Mode.Dev _ ->
           JS.Call (JS.Access value (JsName.fromLocal "valueOf")) []
 
-        Mode.Prod _ _ _ _ ->
+        Mode.Prod _ _ _ _ _ ->
           value
 
     DT.IsBool _ ->
@@ -1287,7 +1403,7 @@ pathToJsExpr mode root path =
         Mode.Dev _ ->
           JS.Access (pathToJsExpr mode root subPath) (JsName.fromIndex Index.first)
 
-        Mode.Prod _ _ _ _ ->
+        Mode.Prod _ _ _ _ _ ->
           pathToJsExpr mode root subPath
 
     DT.Empty ->
@@ -1321,7 +1437,7 @@ generateMain mode home main =
 toDebugMetadata :: Mode.Mode -> Can.Type -> JS.Expr
 toDebugMetadata mode msgType =
   case mode of
-    Mode.Prod _ _ _ _ ->
+    Mode.Prod _ _ _ _ _ ->
       JS.Int 0
 
     Mode.Dev Nothing ->

@@ -21,7 +21,7 @@ functions :: Mode.Mode -> B.Builder
 functions mode =
   case mode of
     Mode.Dev _ -> defaultFunctions
-    Mode.Prod level _ _ _ -> Optimization.functions level defaultFunctions
+    Mode.Prod level _ _ _ _ -> Optimization.functions level defaultFunctions
 
 
 defaultFunctions :: B.Builder

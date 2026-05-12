@@ -22,15 +22,15 @@ import qualified Generate.Mode as Mode
 isEnabled :: Mode.Mode -> Bool
 isEnabled mode =
   case mode of
-    Mode.Prod Level.O2 _ _ _ -> True
-    Mode.Prod Level.O3 _ _ _ -> True
+    Mode.Prod Level.O2 _ _ _ _ -> True
+    Mode.Prod Level.O3 _ _ _ _ -> True
     _ -> False
 
 
 rawArity :: Mode.Mode -> Opt.Global -> Maybe Int
 rawArity mode global =
   case mode of
-    Mode.Prod level _ rawFunctions _ | level == Level.O2 || level == Level.O3 ->
+    Mode.Prod level _ rawFunctions _ _ | level == Level.O2 || level == Level.O3 ->
       Mode._rawArity <$> Map.lookup global rawFunctions
 
     _ ->
@@ -40,7 +40,7 @@ rawArity mode global =
 rawGlobalName :: Mode.Mode -> Opt.Global -> Maybe JsName.Name
 rawGlobalName mode global =
   case mode of
-    Mode.Prod level _ rawFunctions _ | level == Level.O2 || level == Level.O3 ->
+    Mode.Prod level _ rawFunctions _ _ | level == Level.O2 || level == Level.O3 ->
       toRawName . Mode._rawGlobal <$> Map.lookup global rawFunctions
 
     _ ->

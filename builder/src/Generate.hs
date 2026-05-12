@@ -81,7 +81,7 @@ prodWithOptimization optimizationLevel root details (Build.Artifacts pkg _ roots
   do  objects <- finalizeObjects =<< loadObjects root details modules
       checkForDebugUses objects
       let graph = objectsToGlobalGraph objects
-      let mode = Mode.Prod optimizationLevel (Mode.shortenFieldNames graph) (Mode.rawFunctions graph) (Mode.unwrappedFunctions graph)
+      let mode = Mode.Prod optimizationLevel (Mode.shortenFieldNames graph) (Mode.rawFunctions graph) (Mode.unwrappedFunctions graph) (Mode.recordShapes graph)
       let mains = gatherMains pkg objects roots
       return $ JS.generate mode graph mains maybeInjectJs
 

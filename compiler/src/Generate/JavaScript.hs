@@ -26,8 +26,10 @@ import qualified Elm.Kernel as K
 import qualified Elm.ModuleName as ModuleName
 import qualified Ext.Optimization.JavaScript.DirectCalls as DirectCalls
 import qualified Ext.Optimization.JavaScript.ListReplacements as ListReplacements
+import qualified Ext.Optimization.JavaScript.RecordUpdates as RecordUpdates
 import qualified Ext.Optimization.JavaScript.StringReplacements as StringReplacements
 import qualified Ext.Optimization.JavaScript.UnwrappedFunctions as UnwrappedFunctions
+import qualified Ext.Optimization.Level as Optimization
 import qualified Generate.JavaScript.Builder as JS
 import qualified Generate.JavaScript.Expression as Expr
 import qualified Generate.JavaScript.Functions as Functions
@@ -54,6 +56,7 @@ generate mode (Opt.GlobalGraph graph _) mains maybeInjectJs =
   in
   "(function(scope){\n'use strict';"
   <> Functions.functions mode
+  <> recordConstructors mode
   <> perfNote mode
   -- elm dev injection
   <> maybe mempty id maybeInjectJs
@@ -70,7 +73,7 @@ addMain mode graph home _ state =
 perfNote :: Mode.Mode -> B.Builder
 perfNote mode =
   case mode of
-    Mode.Prod _ _ _ _ ->
+    Mode.Prod _ _ _ _ _ ->
       ""
 
     Mode.Dev Nothing ->
@@ -97,6 +100,7 @@ generateForRepl ansi localizer (Opt.GlobalGraph graph _) home name (Can.Forall _
   in
   "process.on('uncaughtException', function(err) { process.stderr.write(err.toString() + '\\n'); process.exit(1); });"
   <> Functions.functions mode
+  <> recordConstructors mode
   <> stateToBuilder evalState
   <> print ansi localizer home name tipe
 
@@ -132,6 +136,7 @@ generateForReplEndpoint localizer (Opt.GlobalGraph graph _) home maybeName (Can.
     evalState = addGlobal mode graph debugState (Opt.Global home name)
   in
   Functions.functions mode
+  <> recordConstructors mode
   <> stateToBuilder evalState
   <> postMessage localizer home maybeName tipe
 
@@ -178,6 +183,47 @@ stateToBuilder (State revKernels revBuilders _ _) =
 prependBuilders :: [B.Builder] -> B.Builder -> B.Builder
 prependBuilders revBuilders monolith =
   List.foldl' (\m b -> b <> m) monolith revBuilders
+
+
+
+-- RECORD CONSTRUCTORS
+
+
+recordConstructors :: Mode.Mode -> B.Builder
+recordConstructors mode =
+  case mode of
+    Mode.Prod Optimization.O3 _ _ _ shapes ->
+      mconcat $ map (JS.stmtToBuilder . uncurry (recordConstructor mode)) $ List.sortOn snd (Map.toList shapes)
+
+    _ ->
+      mempty
+
+
+recordConstructor :: Mode.Mode -> [Name.Name] -> Int -> JS.Stmt
+recordConstructor mode fields index =
+  let
+    ctor = RecordUpdates.constructorName index
+    args = map fieldArg [0 .. length fields - 1]
+    assignField field arg =
+      JS.ExprStmt $ JS.Assign
+        (JS.LDot (JS.Ref JsName.this) (Expr.generateField mode field))
+        (JS.Ref arg)
+    cloneFunction =
+      JS.Function Nothing []
+        [ JS.Return $ JS.New (JS.Ref ctor) $ map (JS.Access (JS.Ref JsName.this) . Expr.generateField mode) fields
+        ]
+  in
+  JS.Block
+    [ JS.FunctionStmt ctor args (zipWith assignField fields args)
+    , JS.ExprStmt $ JS.Assign
+        (JS.LDot (JS.Access (JS.Ref ctor) (JsName.fromLocal "prototype")) RecordUpdates.cloneName)
+        cloneFunction
+    ]
+
+
+fieldArg :: Int -> JsName.Name
+fieldArg index =
+  JsName.fromLocal (Name.fromChars ("$field" ++ show index))
 
 
 
@@ -336,7 +382,7 @@ generateCycle mode (Opt.Global home _) names values functions =
 
         realBlock@(_:_) ->
             case mode of
-              Mode.Prod _ _ _ _ ->
+              Mode.Prod _ _ _ _ _ ->
                 JS.Block realBlock
 
               Mode.Dev _ ->
@@ -424,7 +470,7 @@ addChunk mode chunk builder =
         Mode.Dev _ ->
           builder
 
-        Mode.Prod _ _ _ _ ->
+        Mode.Prod _ _ _ _ _ ->
           "_UNUSED" <> builder
 
     K.Prod ->
@@ -432,7 +478,7 @@ addChunk mode chunk builder =
         Mode.Dev _ ->
           "_UNUSED" <> builder
 
-        Mode.Prod _ _ _ _ ->
+        Mode.Prod _ _ _ _ _ ->
           builder
 
 
@@ -447,7 +493,7 @@ generateEnum mode global@(Opt.Global home name) index =
       Mode.Dev _ ->
         Expr.codeToExpr (Expr.generateCtor mode global index 0)
 
-      Mode.Prod _ _ _ _ ->
+      Mode.Prod _ _ _ _ _ ->
         JS.Int (Index.toMachine index)
 
 
@@ -462,7 +508,7 @@ generateBox mode global@(Opt.Global home name) =
       Mode.Dev _ ->
         Expr.codeToExpr (Expr.generateCtor mode global Index.first 1)
 
-      Mode.Prod _ _ _ _ ->
+      Mode.Prod _ _ _ _ _ ->
         JS.Ref (JsName.fromGlobal ModuleName.basics Name.identity)
 
 

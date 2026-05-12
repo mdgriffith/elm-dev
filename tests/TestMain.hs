@@ -108,7 +108,7 @@ optimizationTests =
 
 testO2FunctionHelpers :: IO Bool
 testO2FunctionHelpers = do
-  let js = renderBuilder (JsFunctions.functions (Mode.Prod Optimization.O2 Map.empty Map.empty Map.empty))
+  let js = renderBuilder (JsFunctions.functions (Mode.Prod Optimization.O2 Map.empty Map.empty Map.empty Map.empty))
   pure
     ( List.isInfixOf "curried.a2 = fun;" js
         && List.isInfixOf "return fun.a2 ? fun.a2(a, b) : fun(a)(b);" js
@@ -119,7 +119,7 @@ testO2FunctionHelpers = do
 
 testO0FunctionHelpers :: IO Bool
 testO0FunctionHelpers = do
-  let js = renderBuilder (JsFunctions.functions (Mode.Prod Optimization.O0 Map.empty Map.empty Map.empty))
+  let js = renderBuilder (JsFunctions.functions (Mode.Prod Optimization.O0 Map.empty Map.empty Map.empty Map.empty))
   pure
     ( List.isInfixOf "wrapper.a = arity;" js
         && List.isInfixOf "wrapper.f = fun;" js
@@ -129,7 +129,7 @@ testO0FunctionHelpers = do
 
 testO2FunctionHelpersRuntime :: IO Bool
 testO2FunctionHelpersRuntime = do
-  let helpers = renderBuilder (JsFunctions.functions (Mode.Prod Optimization.O2 Map.empty Map.empty Map.empty))
+  let helpers = renderBuilder (JsFunctions.functions (Mode.Prod Optimization.O2 Map.empty Map.empty Map.empty Map.empty))
       script =
         helpers ++ unlines
           [ "var add = F2(function(a, b) { return a + b; });"
@@ -350,8 +350,8 @@ testOptimizationEdgeCases = do
       runO0 <- runCompiledSuite root "edge-o0" jsO0
       runO2 <- runCompiledSuite root "edge-o2" jsO2
       runO3 <- runCompiledSuite root "edge-o3" jsO3
-      pure
-        ( runO0 == Just "Pass!"
+      let passed =
+            runO0 == Just "Pass!"
             && runO2 == Just "Pass!"
             && runO3 == Just "Pass!"
             && not (List.isInfixOf "apply2_unwrapped" jsO0)
@@ -366,12 +366,15 @@ testOptimizationEdgeCases = do
             && List.isInfixOf "$author$project$Main$apply2_unwrapped($author$project$Main$add_fn, 6, 7)" jsO3
             && List.isInfixOf "$author$project$Main$apply2Record_unwrapped($author$project$Main$add_fn, 8, 9)" jsO3
             && List.isInfixOf "$author$project$Main$apply2Tuple_unwrapped($author$project$Main$add_fn, 10, 11)" jsO3
-            && List.isInfixOf "n: fn(a, b)" jsO3
             && List.isInfixOf "$author$project$Main$apply2_fn($author$project$Main$sum3, 1, 2)(3)" jsO3
             && List.isInfixOf "$author$project$Main$apply3_unwrapped($author$project$Main$sum3_fn, 4, 5, 6)" jsO3
             && List.isInfixOf "$author$project$Main$sum9_fn(1, 2, 3, 4, 5, 6, 7, 8, 9)" jsO3
             && List.isInfixOf "$author$project$Main$add_fn(1, 2) === (1 + 2)" jsO3
-        )
+            && not (List.isInfixOf "function $$Record" jsO2)
+            && List.isInfixOf "function $$Record" jsO3
+            && List.isInfixOf ".$c = function" jsO3
+            && List.isInfixOf "$old.$c()" jsO3
+      pure passed
 
     _ ->
       pure False
@@ -653,7 +656,15 @@ optimizationEdgeCasesElm =
     , "        updated ="
     , "            { r | b = 20 }"
     , "    in"
-    , "    updated.a + updated.b + updated.c"
+    , "    updated.a + updated.b + updated.c + r.b"
+    , ""
+    , "recordParamUpdate : Rec -> Int"
+    , "recordParamUpdate rec ="
+    , "    let"
+    , "        updated ="
+    , "            { rec | a = 10, c = 30 }"
+    , "    in"
+    , "    updated.a + updated.b + updated.c + rec.a"
     , ""
     , "type Shape"
     , "    = Empty"
@@ -689,7 +700,8 @@ optimizationEdgeCasesElm =
     , "    , ( \"list callback raw exact\", List.map (apply2 add 1) [ 1, 2, 3 ] == [ 2, 3, 4 ] )"
     , "    , ( \"numeric primitive equality\", add 1 2 == 1 + 2 )"
     , "    , ( \"string equality remains correct\", String.fromInt (add 1 2) == \"3\" )"
-    , "    , ( \"record update\", recordUpdate == 24 )"
+    , "    , ( \"record update\", recordUpdate == 26 )"
+    , "    , ( \"record param update\", recordParamUpdate { a = 1, b = 2, c = 3 } == 43 )"
     , "    , ( \"variant cases\", List.map shapeValue [ Empty, One 5, Two 10 20 ] == [ 0, 5, 30 ] )"
     , "    ]"
     , ""

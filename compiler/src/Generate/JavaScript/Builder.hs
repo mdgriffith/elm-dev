@@ -58,6 +58,7 @@ data Expr
   | If Expr Expr Expr
   | Assign LValue Expr
   | Call Expr [Expr]
+  | New Expr [Expr]
   | Function (Maybe Name) [Name] [Stmt]
 
 
@@ -434,6 +435,17 @@ fromExpr level@(Level indent nextLevel@(Level deeperIndent _)) grouping expressi
           funcB <> "(\n" <> deeperIndent <> commaNewlineSep level argsB <> ")"
         else
           funcB <> "(" <> commaSep argsB <> ")"
+
+    New constructor args ->
+      (,) Many $
+        let
+          (_      , constructorB) = fromExpr level Atomic constructor
+          (anyMany, argsB) = linesMap (fromExpr nextLevel Whatever) args
+        in
+        if anyMany then
+          "new " <> constructorB <> "(\n" <> deeperIndent <> commaNewlineSep level argsB <> ")"
+        else
+          "new " <> constructorB <> "(" <> commaSep argsB <> ")"
 
     Function maybeName args stmts ->
       (,) Many $

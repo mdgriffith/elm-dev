@@ -6,9 +6,11 @@ module Generate.Mode
   , RawFunction(..)
   , UnwrappedFunctions
   , UnwrappedFunction(..)
+  , RecordShapes
   , shortenFieldNames
   , rawFunctions
   , unwrappedFunctions
+  , recordShapes
   )
   where
 
@@ -21,6 +23,7 @@ import qualified Data.Name as Name
 import qualified AST.Optimized as Opt
 import qualified Elm.Compiler.Type.Extract as Extract
 import qualified Ext.Optimization.Level as Optimization
+import qualified Ext.Optimization.JavaScript.RecordUpdates as RecordUpdates
 import qualified Generate.JavaScript.Name as JsName
 
 
@@ -31,7 +34,11 @@ import qualified Generate.JavaScript.Name as JsName
 data Mode
   = Dev (Maybe Extract.Types)
   | Prod Optimization.Level ShortFieldNames RawFunctions
-      UnwrappedFunctions
+      UnwrappedFunctions RecordShapes
+
+
+type RecordShapes =
+  RecordUpdates.RecordShapes
 
 
 type RawFunctions =
@@ -61,7 +68,12 @@ isDebug :: Mode -> Bool
 isDebug mode =
   case mode of
     Dev mi -> Maybe.isJust mi
-    Prod _ _ _ _ -> False
+    Prod _ _ _ _ _ -> False
+
+
+recordShapes :: Opt.GlobalGraph -> RecordShapes
+recordShapes =
+  RecordUpdates.recordShapes
 
 
 

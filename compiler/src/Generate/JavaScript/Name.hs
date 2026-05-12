@@ -15,6 +15,7 @@ module Generate.JavaScript.Name
   , makeLabel
   , makeTemp
   , dollar
+  , this
   )
   where
 
@@ -120,6 +121,11 @@ makeTemp name =
 dollar :: Name
 dollar =
   Name usd
+
+
+this :: Name
+this =
+  Name "this"
 
 
 usd :: B.Builder
