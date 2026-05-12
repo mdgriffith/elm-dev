@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 # Make this script runnable from anywhere (repo root or this dir)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -17,23 +18,25 @@ URL_WINDOWS_X86_64="https://static.lamdera.com/bin/elm-dev/elm-dev-next-windows-
 
 
 # Create target directories
-mkdir -p packages/linux_arm64
-mkdir -p packages/linux_x64
-mkdir -p packages/darwin_arm64
-mkdir -p packages/darwin_x64
-mkdir -p packages/win32_x64
-mkdir -p $RELEASE_DIR
+mkdir -p \
+  packages/linux_arm64 \
+  packages/linux_x64 \
+  packages/darwin_arm64 \
+  packages/darwin_x64 \
+  packages/win32_x64 \
+  "$RELEASE_DIR"
 
 # Download and save files to the respective directories
-curl -L $URL_LINUX_ARM64 -o packages/linux_arm64/elm-dev
-curl -L $URL_LINUX_X86_64 -o packages/linux_x64/elm-dev
-curl -L $URL_MACOS_ARM64 -o packages/darwin_arm64/elm-dev
-curl -L $URL_MACOS_X86_64 -o packages/darwin_x64/elm-dev
-curl -L $URL_WINDOWS_X86_64 -o packages/win32_x64/elm-dev.zip
+curl -fL "$URL_LINUX_ARM64" -o packages/linux_arm64/elm-dev
+curl -fL "$URL_LINUX_X86_64" -o packages/linux_x64/elm-dev
+curl -fL "$URL_MACOS_ARM64" -o packages/darwin_arm64/elm-dev
+curl -fL "$URL_MACOS_X86_64" -o packages/darwin_x64/elm-dev
+curl -fL "$URL_WINDOWS_X86_64" -o packages/win32_x64/elm-dev.zip
 
 
 # # Unzip the Windows file and rename to elm-dev.exe
-unzip packages/win32_x64/elm-dev.zip -d packages/win32_x64
+rm -rf packages/win32_x64/elm-dev
+unzip -q packages/win32_x64/elm-dev.zip -d packages/win32_x64
 mv packages/win32_x64/elm-dev/elm-dev.exe packages/win32_x64/elm-dev.exe
 rm packages/win32_x64/elm-dev.zip # Remove the zip file after extraction
 rm -r packages/win32_x64/elm-dev # Remove the directory after extraction
@@ -46,10 +49,10 @@ chmod +x packages/darwin_x64/elm-dev
 chmod +x packages/win32_x64/elm-dev.exe
 
 # Mark proxy executables
-chmod +x packages/linux_arm64/elm-dev-proxy || true
-chmod +x packages/linux_x64/elm-dev-proxy || true
-chmod +x packages/darwin_arm64/elm-dev-proxy || true
-chmod +x packages/darwin_x64/elm-dev-proxy || true
+chmod +x packages/linux_arm64/elm-dev-proxy
+chmod +x packages/linux_x64/elm-dev-proxy
+chmod +x packages/darwin_arm64/elm-dev-proxy
+chmod +x packages/darwin_x64/elm-dev-proxy
 
 
 # Copy and gzip each file into the releases directory
