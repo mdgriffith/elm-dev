@@ -9,6 +9,7 @@ import qualified Data.Aeson.Types
 import qualified Data.ByteString as BS
 import qualified Data.Text
 import qualified Language.Haskell.TH as TH
+import qualified Language.Haskell.TH.Syntax as TH.Syntax
 import System.FilePath ((</>))
 
 
@@ -22,6 +23,7 @@ version :: String
 version =
   $( do
        packageJsonPath <- TH.runIO (pure ("installers-elm-dev" </> "npm" </> "package.json"))
+       TH.Syntax.addDependentFile packageJsonPath
        contents <- TH.runIO (BS.readFile packageJsonPath)
        case Data.Aeson.eitherDecodeStrict' contents of
          Left err -> fail ("Failed to parse package.json: " ++ err)
@@ -30,4 +32,3 @@ version =
              Just (Data.Aeson.String v) -> TH.litE (TH.StringL (Data.Text.unpack v))
              _ -> fail "Failed to extract version field from package.json"
    )
-

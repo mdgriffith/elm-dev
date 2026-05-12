@@ -1,6 +1,6 @@
 {
   "name": "@elm_dev_binaries/darwin_arm64",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Download the Elm Dev binary for macOS (arm64)",
   "repository": {
     "type": "git",
