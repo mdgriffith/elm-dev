@@ -19,7 +19,15 @@ jobs:
           known_hosts: ${{ secrets.KNOWN_HOSTS }}
           if_key_exists: replace
       - uses: actions/checkout@v6
-      - uses: freckle/stack-cache-action@v3.0.0
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.stack
+            ~/.ghcup/macos-arm64
+            .stack-work
+          key: ${{ runner.os }}-arm64-${{ hashFiles('stack.yaml.lock', 'elm-dev.cabal') }}
+          restore-keys: |
+            ${{ runner.os }}-arm64-
       - run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
       - name: Run distribution script
         run: |
