@@ -58,7 +58,9 @@ COPY terminal terminal
 COPY LICENSE ./
 
 COPY ext-common ext-common
+COPY ext-debug ext-debug
 COPY ext-dev ext-dev
+COPY ext-optimization ext-optimization
 COPY ext-sentry ext-sentry
 COPY ext-generate ext-generate
 COPY ext-watchtower ext-watchtower
