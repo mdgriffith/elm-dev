@@ -17,6 +17,7 @@ check_value() {
 cd "$ROOT_DIR"
 
 check_value "elm-dev.cabal" "$(awk '/^Version:/ { print $2; exit }' elm-dev.cabal)"
+check_value "cabal.project.freeze" "$(awk '/elm-dev ==/ { sub(/.*==/, ""); print; exit }' cabal.project.freeze)"
 check_value "distribution/common.sh" "$(awk -F'"' '/^export version=/ { print $2; exit }' distribution/common.sh)"
 check_value "installers-elm-dev/npm/scripts/download-binaries.sh" "$(awk -F'"' '/^VERSION=/ { print $2; exit }' installers-elm-dev/npm/scripts/download-binaries.sh)"
 
