@@ -27,15 +27,19 @@ type alias Model =
     , viewMode : ViewMode
     , modelView : ModelView
     , lazyStats : List LazyStat
+    , debugLogs : List DebugLog
+    , selectedLogSource : Maybe String
     , collapsed : Set String
     , expanded : Set String
     , messageDrawers : Set Int
+    , inspectMode : Bool
     }
 
 
 type ViewMode
     = TimelineView
     | LazyView
+    | LogsView
 
 
 type ModelView
@@ -77,6 +81,7 @@ type alias FrameEvent =
 type RuntimeMessage
     = RuntimeDebuggerEvent Event
     | RuntimePerformance PerformanceSnapshot
+    | RuntimeDebugLog DebugLog
 
 
 type alias PerformanceSnapshot =
@@ -93,6 +98,32 @@ type alias LazyStat =
     , hits : Int
     , avgRender : Float
     , maxRender : Float
+    , argStats : List LazyArgStat
+    }
+
+
+type alias LazyArgStat =
+    { index : Int
+    , comparisons : Int
+    , misses : Int
+    }
+
+
+type alias DebugLog =
+    { logId : Int
+    , label : String
+    , source : Maybe LogSource
+    , value : DebugValue
+    , timestamp : Float
+    }
+
+
+type alias LogSource =
+    { moduleName : String
+    , file : String
+    , source : String
+    , line : Int
+    , column : Int
     }
 
 
@@ -128,7 +159,10 @@ type Msg
     | Scrub String
     | SelectView ViewMode
     | SelectModelView ModelView
+    | SelectLogSource (Maybe String)
     | ToggleOpen
+    | ToggleInspectMode
+    | PopOut
     | ToggleCollapse String Bool
     | ToggleMessagePayload Int
     | CopyToClipboard String
@@ -137,7 +171,7 @@ type Msg
 main : Program () Model Msg
 main =
     Browser.element
-        { init = \_ -> ( { events = [], selected = Nothing, open = False, viewMode = TimelineView, modelView = ModelDelta, lazyStats = [], collapsed = Set.empty, expanded = Set.empty, messageDrawers = Set.empty }, setOpen False )
+        { init = \_ -> ( { events = [], selected = Nothing, open = False, viewMode = TimelineView, modelView = ModelDelta, lazyStats = [], debugLogs = [], selectedLogSource = Nothing, collapsed = Set.empty, expanded = Set.empty, messageDrawers = Set.empty, inspectMode = False }, setOpen False )
         , update = update
         , subscriptions = \_ -> fromRuntime RuntimeEvent
         , view = view
@@ -162,6 +196,11 @@ update msg model =
                     , Cmd.none
                     )
 
+                Ok (RuntimeDebugLog logEntry) ->
+                    ( { model | debugLogs = model.debugLogs ++ [ logEntry ] }
+                    , Cmd.none
+                    )
+
                 Err _ ->
                     ( { model | events = model.events ++ [ Unknown value ] }
                     , Cmd.none
@@ -179,12 +218,31 @@ update msg model =
         SelectModelView modelView ->
             ( { model | modelView = modelView }, Cmd.none )
 
+        SelectLogSource source ->
+            ( { model | selectedLogSource = source }, Cmd.none )
+
         ToggleOpen ->
             let
                 nextOpen =
                     not model.open
             in
             ( { model | open = nextOpen }, setOpen nextOpen )
+
+        ToggleInspectMode ->
+            let
+                nextInspectMode =
+                    not model.inspectMode
+            in
+            if nextInspectMode then
+                ( { model | inspectMode = True, open = False }
+                , Cmd.batch [ setInspectMode True, setOpen False ]
+                )
+
+            else
+                ( { model | inspectMode = False }, setInspectMode False )
+
+        PopOut ->
+            ( { model | open = True }, Cmd.batch [ setOpen True, popOutDebugger ] )
 
         ToggleCollapse path isCollapsed ->
             if isCollapsed then
@@ -248,22 +306,52 @@ copyText string =
             ]
 
 
+setInspectMode : Bool -> Cmd Msg
+setInspectMode enabled =
+    toRuntime <|
+        Encode.object
+            [ ( "type", Encode.string "setInspectMode" )
+            , ( "enabled", Encode.bool enabled )
+            ]
+
+
+popOutDebugger : Cmd Msg
+popOutDebugger =
+    toRuntime <|
+        Encode.object
+            [ ( "type", Encode.string "popOut" ) ]
+
+
 view : Model -> Html Msg
 view model =
     if model.open then
         div shellStyles
-            [ viewTimeline model
+            [ viewDebuggerHeader model
+            , viewModeTabs model.viewMode model.lazyStats
             , case model.viewMode of
                 TimelineView ->
-                    viewSelected model
+                    div [ style "display" "flex", style "flex" "1", style "min-height" "0" ]
+                        [ viewTimelineSidebar model
+                        , viewSelected model
+                        ]
 
                 LazyView ->
                     viewLazyStats model.lazyStats
+
+                LogsView ->
+                    viewLogs model
             ]
 
     else
         button minimizedStyles
-            [ text ("Elm Dev (" ++ String.fromInt (List.length (selectableEvents model.events)) ++ ")") ]
+            [ text
+                (if model.inspectMode then
+                    "Inspecting"
+
+                 else
+                    "Elm Dev (" ++ String.fromInt (List.length (selectableEvents model.events)) ++ ")"
+                )
+            ]
 
 
 shellStyles : List (Html.Attribute Msg)
@@ -272,6 +360,7 @@ shellStyles =
     , style "width" "100%"
     , style "height" "100%"
     , style "display" "flex"
+    , style "flex-direction" "column"
     , style "background" "linear-gradient(135deg, rgba(26, 20, 10, 0.98), rgba(8, 9, 10, 0.98))"
     , style "color" "#ffd77a"
     , style "box-sizing" "border-box"
@@ -298,8 +387,20 @@ minimizedStyles =
     ]
 
 
-viewTimeline : Model -> Html Msg
-viewTimeline model =
+viewDebuggerHeader : Model -> Html Msg
+viewDebuggerHeader model =
+    div [ style "padding" "12px 14px", style "border-bottom" "1px solid rgba(246, 164, 0, .45)", style "background" "linear-gradient(90deg, rgba(246,164,0,.24), rgba(246,164,0,.04))", style "font-weight" "800", style "letter-spacing" "0.08em", style "display" "flex", style "align-items" "center", style "justify-content" "space-between", style "text-transform" "uppercase", style "gap" "10px" ]
+        [ text "Elm Dev Debugger"
+        , div [ style "display" "flex", style "gap" "8px", style "align-items" "center" ]
+            [ button (inspectButtonStyles model.inspectMode) [ text "Inspect" ]
+            , headerButton PopOut "Pop Out"
+            , button [ onClick ToggleOpen, style "background" "rgba(246,164,0,.12)", style "color" "#ffd77a", style "border" "1px solid rgba(246,164,0,.7)", style "border-radius" "999px", style "font" "inherit", style "cursor" "pointer", style "padding" "3px 10px" ] [ text "Minimize" ]
+            ]
+        ]
+
+
+viewTimelineSidebar : Model -> Html Msg
+viewTimelineSidebar model =
     let
         maxId =
             selectableEvents model.events
@@ -310,23 +411,19 @@ viewTimeline model =
         selected =
             Maybe.withDefault maxId model.selected
     in
-    div [ style "width" "340px", style "border-right" "1px solid rgba(246, 164, 0, .45)", style "display" "flex", style "flex-direction" "column", style "background" "rgba(13, 10, 5, .74)" ]
-        [ div [ style "padding" "12px 14px", style "border-bottom" "1px solid rgba(246, 164, 0, .45)", style "background" "linear-gradient(90deg, rgba(246,164,0,.24), rgba(246,164,0,.04))", style "font-weight" "800", style "letter-spacing" "0.08em", style "display" "flex", style "align-items" "center", style "justify-content" "space-between", style "text-transform" "uppercase" ]
-            [ text "Elm Dev Debugger"
-            , button [ onClick ToggleOpen, style "background" "rgba(246,164,0,.12)", style "color" "#ffd77a", style "border" "1px solid rgba(246,164,0,.7)", style "border-radius" "999px", style "font" "inherit", style "cursor" "pointer", style "padding" "3px 10px" ] [ text "Minimize" ]
-            ]
-        , viewModeTabs model.viewMode model.lazyStats
-        , div [ style "padding" "12px", style "border-bottom" "1px solid rgba(246, 164, 0, .28)" ]
+    div [ style "width" "340px", style "border-right" "1px solid rgba(246, 164, 0, .45)", style "display" "flex", style "flex-direction" "column", style "background" "rgba(13, 10, 5, .74)", style "min-height" "0" ]
+        [ div [ style "padding" "12px", style "border-bottom" "1px solid rgba(246, 164, 0, .28)" ]
             [ input [ type_ "range", Html.Attributes.min "0", Html.Attributes.max (String.fromInt maxId), value (String.fromInt selected), onInput Scrub, style "width" "100%", style "accent-color" "#f6a400" ] [] ]
-        , div [ style "overflow" "auto", style "padding" "6px 0" ] (List.map (viewEventSummary selected) (List.reverse model.events))
+        , div [ style "overflow" "auto", style "padding" "6px 0", style "min-height" "0" ] (List.map (viewEventSummary selected) (List.reverse model.events))
         ]
 
 
 viewModeTabs : ViewMode -> List LazyStat -> Html Msg
 viewModeTabs viewMode lazyStats =
-    div [ style "display" "grid", style "grid-template-columns" "1fr 1fr", style "gap" "8px", style "padding" "10px 12px", style "border-bottom" "1px solid rgba(246, 164, 0, .28)" ]
+    div [ style "display" "grid", style "grid-template-columns" "1fr 1fr 1fr", style "gap" "8px", style "padding" "10px 12px", style "border-bottom" "1px solid rgba(246, 164, 0, .28)" ]
         [ viewModeButton viewMode TimelineView "Timeline"
         , viewModeButton viewMode LazyView ("Lazy (" ++ String.fromInt (List.length lazyStats) ++ ")")
+        , viewModeButton viewMode LogsView "Logs"
         ]
 
 
@@ -358,6 +455,46 @@ viewModeButton current target label =
         , style "font-weight" "800"
         , style "cursor" "pointer"
         , style "padding" "7px 8px"
+        ]
+        [ text label ]
+
+
+inspectButtonStyles : Bool -> List (Html.Attribute Msg)
+inspectButtonStyles active =
+    [ onClick ToggleInspectMode
+    , style "background"
+        (if active then
+            "rgba(246,164,0,.9)"
+
+         else
+            "rgba(246,164,0,.12)"
+        )
+    , style "color"
+        (if active then
+            "#140c00"
+
+         else
+            "#ffd77a"
+        )
+    , style "border" "1px solid rgba(246,164,0,.7)"
+    , style "border-radius" "999px"
+    , style "font" "inherit"
+    , style "cursor" "pointer"
+    , style "padding" "3px 10px"
+    ]
+
+
+headerButton : Msg -> String -> Html Msg
+headerButton msg label =
+    button
+        [ onClick msg
+        , style "background" "rgba(246,164,0,.12)"
+        , style "color" "#ffd77a"
+        , style "border" "1px solid rgba(246,164,0,.7)"
+        , style "border-radius" "999px"
+        , style "font" "inherit"
+        , style "cursor" "pointer"
+        , style "padding" "3px 10px"
         ]
         [ text label ]
 
@@ -439,6 +576,139 @@ viewLazyStats stats =
         ]
 
 
+viewLogs : Model -> Html Msg
+viewLogs model =
+    let
+        sources =
+            logSources model.debugLogs
+
+        visibleLogs =
+            case model.selectedLogSource of
+                Nothing ->
+                    model.debugLogs
+
+                Just selectedSource ->
+                    List.filter (\logEntry -> logSourceKey logEntry == selectedSource) model.debugLogs
+    in
+    div [ style "overflow" "auto", style "flex" "1", style "min-width" "0", style "padding" "22px" ]
+        [ div [ style "display" "flex", style "align-items" "baseline", style "justify-content" "space-between", style "gap" "20px", style "margin-bottom" "18px" ]
+            [ div []
+                [ div [ style "font-size" "11px", style "text-transform" "uppercase", style "letter-spacing" "0.16em", style "color" "#9f7a31" ] [ text "debug history" ]
+                , div [ style "font-size" "24px", style "font-weight" "900", style "color" "#ffd77a" ] [ text "Debug.log" ]
+                ]
+            , div [ style "color" "#9f7a31", style "text-align" "right" ] [ text "Logs are grouped by source call site when location metadata is available." ]
+            ]
+        , viewLogFilters model.selectedLogSource model.debugLogs sources
+        , if List.isEmpty visibleLogs then
+            div [ style "padding" "24px", style "border" "1px dashed rgba(246,164,0,.35)", style "border-radius" "12px", style "color" "#9f7a31" ]
+                [ text "No Debug.log entries observed yet." ]
+
+          else
+            div [ style "display" "grid", style "gap" "10px" ]
+                (List.map (viewLogEntry model) (List.reverse visibleLogs))
+        ]
+
+
+viewLogFilters : Maybe String -> List DebugLog -> List String -> Html Msg
+viewLogFilters selectedSource logs sources =
+    div [ style "display" "flex", style "flex-wrap" "wrap", style "gap" "8px", style "margin-bottom" "18px" ]
+        (logFilterButton selectedSource Nothing ("All (" ++ String.fromInt (List.length logs) ++ ")")
+            :: List.map (\source -> logFilterButton selectedSource (Just source) (shortSourceLabel source ++ " (" ++ String.fromInt (countLogsForSource source logs) ++ ")")) sources
+        )
+
+
+logFilterButton : Maybe String -> Maybe String -> String -> Html Msg
+logFilterButton selectedSource source label =
+    let
+        selected =
+            selectedSource == source
+    in
+    button
+        [ onClick (SelectLogSource source)
+        , style "background"
+            (if selected then
+                "rgba(246,164,0,.24)"
+
+             else
+                "rgba(246,164,0,.06)"
+            )
+        , style "border"
+            (if selected then
+                "1px solid rgba(246,164,0,.75)"
+
+             else
+                "1px solid rgba(246,164,0,.24)"
+            )
+        , style "border-radius" "999px"
+        , style "color" "#ffd77a"
+        , style "font" "inherit"
+        , style "font-weight" "800"
+        , style "cursor" "pointer"
+        , style "padding" "5px 9px"
+        , title label
+        ]
+        [ text label ]
+
+
+viewLogEntry : Model -> DebugLog -> Html Msg
+viewLogEntry model logEntry =
+    div [ style "border" "1px solid rgba(246,164,0,.24)", style "border-radius" "12px", style "background" "rgba(13,10,5,.52)", style "overflow" "hidden" ]
+        [ div [ style "padding" "10px 12px", style "display" "grid", style "grid-template-columns" "1fr max-content", style "gap" "14px", style "align-items" "baseline", style "background" "rgba(246,164,0,.08)" ]
+            [ div []
+                [ div [ style "font-size" "15px", style "font-weight" "900", style "color" "#ffd77a", style "overflow-wrap" "anywhere" ] [ text logEntry.label ]
+                , div [ style "color" "#9f7a31", style "font-size" "12px", style "margin-top" "3px", style "overflow-wrap" "anywhere" ] [ text (logSourceKey logEntry) ]
+                ]
+            , div [ style "color" "#f6a400", style "font-weight" "900" ] [ text ("#" ++ String.fromInt logEntry.logId) ]
+            ]
+        , div [ style "padding" "12px", style "background" "rgba(8,9,10,.66)" ]
+            [ viewDebugValue model 0 ("log-" ++ String.fromInt logEntry.logId) logEntry.value ]
+        ]
+
+
+logSources : List DebugLog -> List String
+logSources logs =
+    List.foldl
+        (\logEntry sources ->
+            addUnique (logSourceKey logEntry) sources
+        )
+        []
+        logs
+
+
+addUnique : String -> List String -> List String
+addUnique value_ values =
+    if List.member value_ values then
+        values
+
+    else
+        values ++ [ value_ ]
+
+
+countLogsForSource : String -> List DebugLog -> Int
+countLogsForSource source logs =
+    List.length (List.filter (\logEntry -> logSourceKey logEntry == source) logs)
+
+
+logSourceKey : DebugLog -> String
+logSourceKey logEntry =
+    case logEntry.source of
+        Just source ->
+            source.source
+
+        Nothing ->
+            "<unknown source>"
+
+
+shortSourceLabel : String -> String
+shortSourceLabel source =
+    case String.split "/" source |> List.reverse of
+        file :: _ ->
+            file
+
+        [] ->
+            source
+
+
 viewLazyStat : LazyStat -> Html Msg
 viewLazyStat stat =
     let
@@ -456,23 +726,65 @@ viewLazyStat stat =
                 ]
             , div [ style "color" "#f6a400", style "font-weight" "900" ] [ text (lazyDiagnosis stat) ]
             ]
-        , div [ style "display" "grid", style "grid-template-columns" "repeat(6, minmax(90px, 1fr))", style "gap" "1px", style "background" "rgba(246,164,0,.16)" ]
-            [ viewMetric "Calls" (String.fromInt stat.calls)
-            , viewMetric "Rendered" (String.fromInt stat.renders ++ " / " ++ formatPercent renderRate)
-            , viewMetric "Avoided renders" (String.fromInt stat.hits ++ " / " ++ formatPercent hitRate)
-            , viewMetric "Avg render" (formatMs stat.avgRender)
-            , viewMetric "Max render" (formatMs stat.maxRender)
-            , viewMetric "Signal" (lazySignal stat)
+        , div [ style "display" "grid", style "grid-template-columns" "repeat(auto-fit, minmax(110px, 1fr))", style "gap" "1px", style "background" "rgba(246,164,0,.16)" ]
+            [ viewMetricText "Calls" (String.fromInt stat.calls)
+            , viewMetricText "Cache hit rate" (formatPercent hitRate ++ " / " ++ String.fromInt stat.hits ++ " avoided")
+            , viewMetricText "Render time" ("avg " ++ formatMs stat.avgRender ++ " / max " ++ formatMs stat.maxRender)
+            , viewMetricHtml "Arg equality" (viewLazyArgStats stat.argStats)
             ]
         ]
 
 
-viewMetric : String -> String -> Html Msg
-viewMetric label value_ =
+viewMetricText : String -> String -> Html Msg
+viewMetricText label value_ =
+    viewMetricHtml label (text value_)
+
+
+viewMetricHtml : String -> Html Msg -> Html Msg
+viewMetricHtml label value_ =
     div [ style "background" "rgba(8,9,10,.86)", style "padding" "10px 12px", style "min-width" "0" ]
         [ div [ style "font-size" "10px", style "text-transform" "uppercase", style "letter-spacing" "0.14em", style "color" "#9f7a31", style "margin-bottom" "4px" ] [ text label ]
-        , div [ style "font-size" "14px", style "font-weight" "900", style "color" "#ffe6aa", style "overflow-wrap" "anywhere" ] [ text value_ ]
+        , div [ style "font-size" "14px", style "font-weight" "900", style "color" "#ffe6aa", style "overflow-wrap" "anywhere" ] [ value_ ]
         ]
+
+
+viewLazyArgStats : List LazyArgStat -> Html Msg
+viewLazyArgStats argStats =
+    if List.isEmpty argStats then
+        text "none"
+
+    else
+        div [ style "display" "flex", style "flex-wrap" "wrap", style "gap" "4px" ]
+            (List.map viewLazyArgStat argStats)
+
+
+viewLazyArgStat : LazyArgStat -> Html Msg
+viewLazyArgStat argStat =
+    let
+        equalityRate =
+            1 - rate argStat.misses argStat.comparisons
+    in
+    span
+        [ title ("arg " ++ String.fromInt argStat.index ++ " kept the same reference " ++ String.fromInt (argStat.comparisons - argStat.misses) ++ " of " ++ String.fromInt argStat.comparisons ++ " comparisons")
+        , style "border" "1px solid rgba(246,164,0,.28)"
+        , style "border-radius" "999px"
+        , style "padding" "1px 6px"
+        , style "background" (lazyArgEqualityBackground equalityRate)
+        , style "white-space" "nowrap"
+        ]
+        [ text (String.fromInt argStat.index ++ ": " ++ formatPercent equalityRate) ]
+
+
+lazyArgEqualityBackground : Float -> String
+lazyArgEqualityBackground equalityRate =
+    if equalityRate <= 0.05 then
+        "rgba(246,70,0,.28)"
+
+    else if equalityRate <= 0.5 then
+        "rgba(246,164,0,.18)"
+
+    else
+        "rgba(246,164,0,.07)"
 
 
 rankLazyStats : List LazyStat -> List LazyStat
@@ -513,18 +825,6 @@ lazyDiagnosis stat =
 
     else
         "mixed"
-
-
-lazySignal : LazyStat -> String
-lazySignal stat =
-    if stat.avgRender >= 8 then
-        "expensive"
-
-    else if stat.avgRender >= 1 then
-        "noticeable"
-
-    else
-        "cheap"
 
 
 rate : Int -> Int -> Float
@@ -1292,6 +1592,9 @@ runtimeMessageDecoder =
                     "performance" ->
                         Decode.map RuntimePerformance performanceSnapshotDecoder
 
+                    "debugLog" ->
+                        Decode.map RuntimeDebugLog debugLogDecoder
+
                     _ ->
                         Decode.value |> Decode.map (RuntimeDebuggerEvent << Unknown)
             )
@@ -1305,15 +1608,47 @@ performanceSnapshotDecoder =
 
 lazyStatDecoder : Decoder LazyStat
 lazyStatDecoder =
-    Decode.map8 LazyStat
-        (Decode.field "id" Decode.int)
-        (Decode.field "name" Decode.string)
-        (Decode.field "arity" Decode.int)
-        (Decode.field "calls" Decode.int)
-        (Decode.field "renders" Decode.int)
-        (Decode.field "hits" Decode.int)
-        (Decode.field "avgRender" Decode.float)
-        (Decode.field "maxRender" Decode.float)
+    Decode.map2
+        (\build argStats -> build argStats)
+        (Decode.map8 LazyStat
+            (Decode.field "id" Decode.int)
+            (Decode.field "name" Decode.string)
+            (Decode.field "arity" Decode.int)
+            (Decode.field "calls" Decode.int)
+            (Decode.field "renders" Decode.int)
+            (Decode.field "hits" Decode.int)
+            (Decode.field "avgRender" Decode.float)
+            (Decode.field "maxRender" Decode.float)
+        )
+        (Decode.field "argStats" (Decode.list lazyArgStatDecoder))
+
+
+lazyArgStatDecoder : Decoder LazyArgStat
+lazyArgStatDecoder =
+    Decode.map3 LazyArgStat
+        (Decode.field "index" Decode.int)
+        (Decode.field "comparisons" Decode.int)
+        (Decode.field "misses" Decode.int)
+
+
+debugLogDecoder : Decoder DebugLog
+debugLogDecoder =
+    Decode.map5 DebugLog
+        (Decode.field "logId" Decode.int)
+        (Decode.field "label" Decode.string)
+        (Decode.field "source" (Decode.nullable logSourceDecoder))
+        (Decode.field "value" debugValueDecoder)
+        (Decode.field "timestamp" Decode.float)
+
+
+logSourceDecoder : Decoder LogSource
+logSourceDecoder =
+    Decode.map5 LogSource
+        (Decode.field "module" Decode.string)
+        (Decode.field "file" Decode.string)
+        (Decode.field "source" Decode.string)
+        (Decode.at [ "region", "start", "line" ] Decode.int)
+        (Decode.at [ "region", "start", "column" ] Decode.int)
 
 
 initEventDecoder : Decoder InitEvent

@@ -3,6 +3,10 @@ declare module 'node:child_process' {
     export function spawn(command: string, args?: readonly string[], options?: any): ChildProcess;
 }
 
+declare module 'node:fs' {
+    export function existsSync(path: string): boolean;
+}
+
 declare module 'node:path' {
     import * as path from 'path';
     export default path;
@@ -16,5 +20,4 @@ declare module 'ws' {
     const _default: any;
     export default _default;
 }
-
 

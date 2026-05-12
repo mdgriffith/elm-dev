@@ -1,6 +1,6 @@
 // Vite plugin for Elm Dev - ESM build
 import { spawn } from 'node:child_process';
-import { existsSync } from 'fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 // import { toColoredTerminalOutput } from './elm-errors-render.js';
 
@@ -140,36 +140,68 @@ function stripInjectedHotJs(compiledJs) {
     return `${compiledJs.slice(0, startIndex)}${compiledJs.slice(endIndex + 5)}`;
 }
 
-function normalizeDebuggerOption(debug, debuggerOption) {
-    if (debuggerOption === undefined || debuggerOption === null) {
-        return debug ? 'elm-dev' : 'none';
-    }
-
-    if (debuggerOption === true) return 'elm-dev';
-    if (debuggerOption === false) return 'none';
-
-    return String(debuggerOption);
+function debuggerModeFor(mode, advancedDebugger) {
+    if (mode !== 'debug') return 'none';
+    return advancedDebugger ? 'elm-dev' : 'elm';
 }
 
-async function compileWithDevServer(id, debug, optimize, debuggerOption, serverInfo) {
+function normalizeMode(options) {
+    if (options.mode !== undefined && options.mode !== null) {
+        const mode = String(options.mode);
+        if (mode === 'debug' || mode === 'dev' || mode === 'optimize' || mode === 'O2' || mode === 'O3') {
+            return mode;
+        }
+        throw new Error(`Invalid elm-dev Vite plugin mode: ${mode}`);
+    }
+
+    return 'dev';
+}
+
+function modeDebug(mode) {
+    return mode === 'debug';
+}
+
+function addModeCliFlag(args, mode) {
+    switch (mode) {
+        case 'debug':
+            args.push('--debug');
+            break;
+        case 'optimize':
+            args.push('--optimize');
+            break;
+        case 'O2':
+            args.push('--O2');
+            break;
+        case 'O3':
+            args.push('--O3');
+            break;
+        case 'dev':
+            break;
+        default:
+            throw new Error(`Invalid elm-dev Vite plugin mode: ${mode}`);
+    }
+}
+
+async function compileWithDevServer(id, mode, advancedDebugger, serverInfo) {
     // Always resolve to an absolute path for the dev server
     const absoluteId = toAbsolute(id);
     const projectRoot = findProjectRootFor(absoluteId);
+    const debug = modeDebug(mode);
 
     const options = {
         dir: projectRoot,
         file: path.relative(projectRoot, absoluteId),
-        debug,
-        optimize,
-        debugger: normalizeDebuggerOption(debug, debuggerOption),
+        mode,
+        debugger: debuggerModeFor(mode, advancedDebugger),
     };
     log('compileWithDevServer', serverInfo, options);
 
     const params = new URLSearchParams({
         dir: options.dir,
         file: options.file,
-        debug: options.debug ? 'true' : 'false',
-        optimize: options.optimize ? 'true' : 'false',
+        mode: options.mode,
+        debug: debug ? 'true' : 'false',
+        optimize: options.mode === 'optimize' ? 'true' : 'false',
         debugger: options.debugger,
     });
     const url = `http://${serverInfo.domain}:${serverInfo.httpPort}/dev/js?${params.toString()}`;
@@ -216,12 +248,11 @@ async function notifyFileChanged(file, serverInfo) {
     }
 }
 
-async function compileWithCli(id, debug, optimize) {
+async function compileWithCli(id, mode) {
     // Always compile using an absolute file path
     const absoluteId = toAbsolute(id);
     const args = ['make', absoluteId, '--output=stdout'];
-    if (debug) args.push('--debug');
-    if (optimize) args.push('--optimize');
+    addModeCliFlag(args, mode);
     return await new Promise((resolve, reject) => {
         const elmDev = spawn('elm-dev', args, { shell: true });
         let output = '';
@@ -262,7 +293,8 @@ function invalidateElmModules(server, compilationCache) {
 }
 
 export default function elmDevPlugin(options = {}) {
-    const { debug = false, optimize = false, useDevServer = true, debugger: debuggerOption } = options;
+    const { useDevServer = true, advancedDebugger = false } = options;
+    const mode = normalizeMode(options);
     const compilationCache = new Map();
     let devServer = null;
 
@@ -297,7 +329,7 @@ export default function elmDevPlugin(options = {}) {
                 }
                 if (useDevServer && devServer) {
                     if (loggingEnabled) log('compiling with dev server', cacheId);
-                    const result = await compileWithDevServer(cacheId, debug, optimize, debuggerOption, devServer);
+                    const result = await compileWithDevServer(cacheId, mode, advancedDebugger, devServer);
                     if (result && result.error) {
                         setEmptyCacheFor(cacheId, compilationCache);
                         reject(new Error(result.error));
@@ -317,7 +349,7 @@ export default function elmDevPlugin(options = {}) {
                 }
 
                 log('compiling with cli', cacheId);
-                const wrappedCode = await compileWithCli(cacheId, debug, optimize);
+                const wrappedCode = await compileWithCli(cacheId, mode);
                 moduleState.code = wrappedCode;
                 moduleState.isCompiling = false;
                 moduleState.compilationPromise = null;

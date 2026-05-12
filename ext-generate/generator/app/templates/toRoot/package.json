@@ -1,6 +1,7 @@
 {
     "devDependencies": {
         "@types/bun": "latest",
+        "elm-dev": "^0.2.3",
         "vite": "^7.2.0"
     },
     "name": "elm-project",

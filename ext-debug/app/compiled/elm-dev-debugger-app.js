@@ -6257,6 +6257,7 @@ var $author$project$ElmDev$Debugger$setOpen = function (open) {
 var $author$project$ElmDev$Debugger$Unknown = function (a) {
 	return {$: 'Unknown', a: a};
 };
+var $elm$core$Platform$Cmd$batch = _Platform_batch;
 var $author$project$ElmDev$Debugger$copyText = function (string) {
 	return $author$project$ElmDev$Debugger$toRuntime(
 		$elm$json$Json$Encode$object(
@@ -6446,9 +6447,16 @@ var $author$project$ElmDev$Debugger$nextSelected = F2(
 				return current;
 		}
 	});
-var $elm$core$Platform$Cmd$batch = _Platform_batch;
 var $elm$core$Platform$Cmd$none = $elm$core$Platform$Cmd$batch(_List_Nil);
 var $elm$core$Basics$not = _Basics_not;
+var $author$project$ElmDev$Debugger$popOutDebugger = $author$project$ElmDev$Debugger$toRuntime(
+	$elm$json$Json$Encode$object(
+		_List_fromArray(
+			[
+				_Utils_Tuple2(
+				'type',
+				$elm$json$Json$Encode$string('popOut'))
+			])));
 var $elm$core$Dict$getMin = function (dict) {
 	getMin:
 	while (true) {
@@ -6823,6 +6831,9 @@ var $author$project$ElmDev$Debugger$Frame = function (a) {
 var $author$project$ElmDev$Debugger$Init = function (a) {
 	return {$: 'Init', a: a};
 };
+var $author$project$ElmDev$Debugger$RuntimeDebugLog = function (a) {
+	return {$: 'RuntimeDebugLog', a: a};
+};
 var $author$project$ElmDev$Debugger$RuntimeDebuggerEvent = function (a) {
 	return {$: 'RuntimeDebuggerEvent', a: a};
 };
@@ -6838,23 +6849,9 @@ var $elm$core$Basics$composeL = F3(
 		return g(
 			f(x));
 	});
-var $elm$json$Json$Decode$field = _Json_decodeField;
-var $author$project$ElmDev$Debugger$FrameEvent = F3(
-	function (id, duration, renderDuration) {
-		return {duration: duration, id: id, renderDuration: renderDuration};
-	});
-var $elm$json$Json$Decode$float = _Json_decodeFloat;
-var $elm$json$Json$Decode$int = _Json_decodeInt;
-var $elm$json$Json$Decode$map3 = _Json_map3;
-var $author$project$ElmDev$Debugger$frameEventDecoder = A4(
-	$elm$json$Json$Decode$map3,
-	$author$project$ElmDev$Debugger$FrameEvent,
-	A2($elm$json$Json$Decode$field, 'id', $elm$json$Json$Decode$int),
-	A2($elm$json$Json$Decode$field, 'duration', $elm$json$Json$Decode$float),
-	A2($elm$json$Json$Decode$field, 'renderDuration', $elm$json$Json$Decode$float));
-var $author$project$ElmDev$Debugger$InitEvent = F2(
-	function (id, model) {
-		return {id: id, model: model};
+var $author$project$ElmDev$Debugger$DebugLog = F5(
+	function (logId, label, source, value, timestamp) {
+		return {label: label, logId: logId, source: source, timestamp: timestamp, value: value};
 	});
 var $author$project$ElmDev$Debugger$ArrayValue = function (a) {
 	return {$: 'ArrayValue', a: a};
@@ -6899,6 +6896,7 @@ var $author$project$ElmDev$Debugger$StringValue = function (a) {
 	return {$: 'StringValue', a: a};
 };
 var $elm$json$Json$Decode$bool = _Json_decodeBool;
+var $elm$json$Json$Decode$field = _Json_decodeField;
 var $elm$json$Json$Decode$list = _Json_decodeList;
 var $elm$json$Json$Decode$null = _Json_decodeNull;
 var $elm$json$Json$Decode$oneOf = _Json_oneOf;
@@ -7045,6 +7043,59 @@ try {
 	};
 } catch ($) {
 	throw 'Some top-level definitions from `ElmDev.Debugger` are causing infinite recursion:\n\n  ┌─────┐\n  │    fieldDecoder\n  │     ↓\n  │    dictEntryDecoder\n  │     ↓\n  │    debugValueDecoder\n  │     ↓\n  │    debugValueByKind\n  └─────┘\n\nThese errors are very tricky, so read https://elm-lang.org/0.19.1/bad-recursion to learn how to fix it!';}
+var $elm$json$Json$Decode$float = _Json_decodeFloat;
+var $elm$json$Json$Decode$int = _Json_decodeInt;
+var $author$project$ElmDev$Debugger$LogSource = F5(
+	function (moduleName, file, source, line, column) {
+		return {column: column, file: file, line: line, moduleName: moduleName, source: source};
+	});
+var $elm$json$Json$Decode$at = F2(
+	function (fields, decoder) {
+		return A3($elm$core$List$foldr, $elm$json$Json$Decode$field, decoder, fields);
+	});
+var $elm$json$Json$Decode$map5 = _Json_map5;
+var $author$project$ElmDev$Debugger$logSourceDecoder = A6(
+	$elm$json$Json$Decode$map5,
+	$author$project$ElmDev$Debugger$LogSource,
+	A2($elm$json$Json$Decode$field, 'module', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'file', $elm$json$Json$Decode$string),
+	A2($elm$json$Json$Decode$field, 'source', $elm$json$Json$Decode$string),
+	A2(
+		$elm$json$Json$Decode$at,
+		_List_fromArray(
+			['region', 'start', 'line']),
+		$elm$json$Json$Decode$int),
+	A2(
+		$elm$json$Json$Decode$at,
+		_List_fromArray(
+			['region', 'start', 'column']),
+		$elm$json$Json$Decode$int));
+var $author$project$ElmDev$Debugger$debugLogDecoder = A6(
+	$elm$json$Json$Decode$map5,
+	$author$project$ElmDev$Debugger$DebugLog,
+	A2($elm$json$Json$Decode$field, 'logId', $elm$json$Json$Decode$int),
+	A2($elm$json$Json$Decode$field, 'label', $elm$json$Json$Decode$string),
+	A2(
+		$elm$json$Json$Decode$field,
+		'source',
+		$elm$json$Json$Decode$nullable($author$project$ElmDev$Debugger$logSourceDecoder)),
+	A2($elm$json$Json$Decode$field, 'value', $author$project$ElmDev$Debugger$debugValueDecoder),
+	A2($elm$json$Json$Decode$field, 'timestamp', $elm$json$Json$Decode$float));
+var $author$project$ElmDev$Debugger$FrameEvent = F3(
+	function (id, duration, renderDuration) {
+		return {duration: duration, id: id, renderDuration: renderDuration};
+	});
+var $elm$json$Json$Decode$map3 = _Json_map3;
+var $author$project$ElmDev$Debugger$frameEventDecoder = A4(
+	$elm$json$Json$Decode$map3,
+	$author$project$ElmDev$Debugger$FrameEvent,
+	A2($elm$json$Json$Decode$field, 'id', $elm$json$Json$Decode$int),
+	A2($elm$json$Json$Decode$field, 'duration', $elm$json$Json$Decode$float),
+	A2($elm$json$Json$Decode$field, 'renderDuration', $elm$json$Json$Decode$float));
+var $author$project$ElmDev$Debugger$InitEvent = F2(
+	function (id, model) {
+		return {id: id, model: model};
+	});
 var $author$project$ElmDev$Debugger$initEventDecoder = A3(
 	$elm$json$Json$Decode$map2,
 	$author$project$ElmDev$Debugger$InitEvent,
@@ -7053,22 +7104,42 @@ var $author$project$ElmDev$Debugger$initEventDecoder = A3(
 var $author$project$ElmDev$Debugger$PerformanceSnapshot = function (lazy) {
 	return {lazy: lazy};
 };
-var $author$project$ElmDev$Debugger$LazyStat = F8(
-	function (id, name, arity, calls, renders, hits, avgRender, maxRender) {
-		return {arity: arity, avgRender: avgRender, calls: calls, hits: hits, id: id, maxRender: maxRender, name: name, renders: renders};
+var $author$project$ElmDev$Debugger$LazyStat = F9(
+	function (id, name, arity, calls, renders, hits, avgRender, maxRender, argStats) {
+		return {argStats: argStats, arity: arity, avgRender: avgRender, calls: calls, hits: hits, id: id, maxRender: maxRender, name: name, renders: renders};
 	});
+var $author$project$ElmDev$Debugger$LazyArgStat = F3(
+	function (index, comparisons, misses) {
+		return {comparisons: comparisons, index: index, misses: misses};
+	});
+var $author$project$ElmDev$Debugger$lazyArgStatDecoder = A4(
+	$elm$json$Json$Decode$map3,
+	$author$project$ElmDev$Debugger$LazyArgStat,
+	A2($elm$json$Json$Decode$field, 'index', $elm$json$Json$Decode$int),
+	A2($elm$json$Json$Decode$field, 'comparisons', $elm$json$Json$Decode$int),
+	A2($elm$json$Json$Decode$field, 'misses', $elm$json$Json$Decode$int));
 var $elm$json$Json$Decode$map8 = _Json_map8;
-var $author$project$ElmDev$Debugger$lazyStatDecoder = A9(
-	$elm$json$Json$Decode$map8,
-	$author$project$ElmDev$Debugger$LazyStat,
-	A2($elm$json$Json$Decode$field, 'id', $elm$json$Json$Decode$int),
-	A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
-	A2($elm$json$Json$Decode$field, 'arity', $elm$json$Json$Decode$int),
-	A2($elm$json$Json$Decode$field, 'calls', $elm$json$Json$Decode$int),
-	A2($elm$json$Json$Decode$field, 'renders', $elm$json$Json$Decode$int),
-	A2($elm$json$Json$Decode$field, 'hits', $elm$json$Json$Decode$int),
-	A2($elm$json$Json$Decode$field, 'avgRender', $elm$json$Json$Decode$float),
-	A2($elm$json$Json$Decode$field, 'maxRender', $elm$json$Json$Decode$float));
+var $author$project$ElmDev$Debugger$lazyStatDecoder = A3(
+	$elm$json$Json$Decode$map2,
+	F2(
+		function (build, argStats) {
+			return build(argStats);
+		}),
+	A9(
+		$elm$json$Json$Decode$map8,
+		$author$project$ElmDev$Debugger$LazyStat,
+		A2($elm$json$Json$Decode$field, 'id', $elm$json$Json$Decode$int),
+		A2($elm$json$Json$Decode$field, 'name', $elm$json$Json$Decode$string),
+		A2($elm$json$Json$Decode$field, 'arity', $elm$json$Json$Decode$int),
+		A2($elm$json$Json$Decode$field, 'calls', $elm$json$Json$Decode$int),
+		A2($elm$json$Json$Decode$field, 'renders', $elm$json$Json$Decode$int),
+		A2($elm$json$Json$Decode$field, 'hits', $elm$json$Json$Decode$int),
+		A2($elm$json$Json$Decode$field, 'avgRender', $elm$json$Json$Decode$float),
+		A2($elm$json$Json$Decode$field, 'maxRender', $elm$json$Json$Decode$float)),
+	A2(
+		$elm$json$Json$Decode$field,
+		'argStats',
+		$elm$json$Json$Decode$list($author$project$ElmDev$Debugger$lazyArgStatDecoder)));
 var $author$project$ElmDev$Debugger$performanceSnapshotDecoder = A2(
 	$elm$json$Json$Decode$map,
 	$author$project$ElmDev$Debugger$PerformanceSnapshot,
@@ -7111,6 +7182,8 @@ var $author$project$ElmDev$Debugger$runtimeMessageDecoder = A2(
 					$author$project$ElmDev$Debugger$frameEventDecoder);
 			case 'performance':
 				return A2($elm$json$Json$Decode$map, $author$project$ElmDev$Debugger$RuntimePerformance, $author$project$ElmDev$Debugger$performanceSnapshotDecoder);
+			case 'debugLog':
+				return A2($elm$json$Json$Decode$map, $author$project$ElmDev$Debugger$RuntimeDebugLog, $author$project$ElmDev$Debugger$debugLogDecoder);
 			default:
 				return A2(
 					$elm$json$Json$Decode$map,
@@ -7119,6 +7192,19 @@ var $author$project$ElmDev$Debugger$runtimeMessageDecoder = A2(
 		}
 	},
 	A2($elm$json$Json$Decode$field, 'type', $elm$json$Json$Decode$string));
+var $author$project$ElmDev$Debugger$setInspectMode = function (enabled) {
+	return $author$project$ElmDev$Debugger$toRuntime(
+		$elm$json$Json$Encode$object(
+			_List_fromArray(
+				[
+					_Utils_Tuple2(
+					'type',
+					$elm$json$Json$Encode$string('setInspectMode')),
+					_Utils_Tuple2(
+					'enabled',
+					$elm$json$Json$Encode$bool(enabled))
+				])));
+};
 var $author$project$ElmDev$Debugger$update = F2(
 	function (msg, model) {
 		switch (msg.$) {
@@ -7126,26 +7212,39 @@ var $author$project$ElmDev$Debugger$update = F2(
 				var value = msg.a;
 				var _v1 = A2($elm$json$Json$Decode$decodeValue, $author$project$ElmDev$Debugger$runtimeMessageDecoder, value);
 				if (_v1.$ === 'Ok') {
-					if (_v1.a.$ === 'RuntimeDebuggerEvent') {
-						var event = _v1.a.a;
-						return _Utils_Tuple2(
-							_Utils_update(
-								model,
-								{
-									events: _Utils_ap(
-										model.events,
-										_List_fromArray(
-											[event])),
-									selected: A2($author$project$ElmDev$Debugger$nextSelected, model.selected, event)
-								}),
-							$elm$core$Platform$Cmd$none);
-					} else {
-						var snapshot = _v1.a.a;
-						return _Utils_Tuple2(
-							_Utils_update(
-								model,
-								{lazyStats: snapshot.lazy}),
-							$elm$core$Platform$Cmd$none);
+					switch (_v1.a.$) {
+						case 'RuntimeDebuggerEvent':
+							var event = _v1.a.a;
+							return _Utils_Tuple2(
+								_Utils_update(
+									model,
+									{
+										events: _Utils_ap(
+											model.events,
+											_List_fromArray(
+												[event])),
+										selected: A2($author$project$ElmDev$Debugger$nextSelected, model.selected, event)
+									}),
+								$elm$core$Platform$Cmd$none);
+						case 'RuntimePerformance':
+							var snapshot = _v1.a.a;
+							return _Utils_Tuple2(
+								_Utils_update(
+									model,
+									{lazyStats: snapshot.lazy}),
+								$elm$core$Platform$Cmd$none);
+						default:
+							var logEntry = _v1.a.a;
+							return _Utils_Tuple2(
+								_Utils_update(
+									model,
+									{
+										debugLogs: _Utils_ap(
+											model.debugLogs,
+											_List_fromArray(
+												[logEntry]))
+									}),
+								$elm$core$Platform$Cmd$none);
 					}
 				} else {
 					return _Utils_Tuple2(
@@ -7193,6 +7292,13 @@ var $author$project$ElmDev$Debugger$update = F2(
 						model,
 						{modelView: modelView}),
 					$elm$core$Platform$Cmd$none);
+			case 'SelectLogSource':
+				var source = msg.a;
+				return _Utils_Tuple2(
+					_Utils_update(
+						model,
+						{selectedLogSource: source}),
+					$elm$core$Platform$Cmd$none);
 			case 'ToggleOpen':
 				var nextOpen = !model.open;
 				return _Utils_Tuple2(
@@ -7200,6 +7306,33 @@ var $author$project$ElmDev$Debugger$update = F2(
 						model,
 						{open: nextOpen}),
 					$author$project$ElmDev$Debugger$setOpen(nextOpen));
+			case 'ToggleInspectMode':
+				var nextInspectMode = !model.inspectMode;
+				return nextInspectMode ? _Utils_Tuple2(
+					_Utils_update(
+						model,
+						{inspectMode: true, open: false}),
+					$elm$core$Platform$Cmd$batch(
+						_List_fromArray(
+							[
+								$author$project$ElmDev$Debugger$setInspectMode(true),
+								$author$project$ElmDev$Debugger$setOpen(false)
+							]))) : _Utils_Tuple2(
+					_Utils_update(
+						model,
+						{inspectMode: false}),
+					$author$project$ElmDev$Debugger$setInspectMode(false));
+			case 'PopOut':
+				return _Utils_Tuple2(
+					_Utils_update(
+						model,
+						{open: true}),
+					$elm$core$Platform$Cmd$batch(
+						_List_fromArray(
+							[
+								$author$project$ElmDev$Debugger$setOpen(true),
+								$author$project$ElmDev$Debugger$popOutDebugger
+							])));
 			case 'ToggleCollapse':
 				var path = msg.a;
 				var isCollapsed = msg.b;
@@ -7308,6 +7441,7 @@ var $author$project$ElmDev$Debugger$shellStyles = _List_fromArray(
 		A2($elm$html$Html$Attributes$style, 'width', '100%'),
 		A2($elm$html$Html$Attributes$style, 'height', '100%'),
 		A2($elm$html$Html$Attributes$style, 'display', 'flex'),
+		A2($elm$html$Html$Attributes$style, 'flex-direction', 'column'),
 		A2($elm$html$Html$Attributes$style, 'background', 'linear-gradient(135deg, rgba(26, 20, 10, 0.98), rgba(8, 9, 10, 0.98))'),
 		A2($elm$html$Html$Attributes$style, 'color', '#ffd77a'),
 		A2($elm$html$Html$Attributes$style, 'box-sizing', 'border-box'),
@@ -7318,6 +7452,104 @@ var $author$project$ElmDev$Debugger$shellStyles = _List_fromArray(
 	]);
 var $elm$virtual_dom$VirtualDom$text = _VirtualDom_text;
 var $elm$html$Html$text = $elm$virtual_dom$VirtualDom$text;
+var $author$project$ElmDev$Debugger$PopOut = {$: 'PopOut'};
+var $author$project$ElmDev$Debugger$headerButton = F2(
+	function (msg, label) {
+		return A2(
+			$elm$html$Html$button,
+			_List_fromArray(
+				[
+					$elm$html$Html$Events$onClick(msg),
+					A2($elm$html$Html$Attributes$style, 'background', 'rgba(246,164,0,.12)'),
+					A2($elm$html$Html$Attributes$style, 'color', '#ffd77a'),
+					A2($elm$html$Html$Attributes$style, 'border', '1px solid rgba(246,164,0,.7)'),
+					A2($elm$html$Html$Attributes$style, 'border-radius', '999px'),
+					A2($elm$html$Html$Attributes$style, 'font', 'inherit'),
+					A2($elm$html$Html$Attributes$style, 'cursor', 'pointer'),
+					A2($elm$html$Html$Attributes$style, 'padding', '3px 10px')
+				]),
+			_List_fromArray(
+				[
+					$elm$html$Html$text(label)
+				]));
+	});
+var $author$project$ElmDev$Debugger$ToggleInspectMode = {$: 'ToggleInspectMode'};
+var $author$project$ElmDev$Debugger$inspectButtonStyles = function (active) {
+	return _List_fromArray(
+		[
+			$elm$html$Html$Events$onClick($author$project$ElmDev$Debugger$ToggleInspectMode),
+			A2(
+			$elm$html$Html$Attributes$style,
+			'background',
+			active ? 'rgba(246,164,0,.9)' : 'rgba(246,164,0,.12)'),
+			A2(
+			$elm$html$Html$Attributes$style,
+			'color',
+			active ? '#140c00' : '#ffd77a'),
+			A2($elm$html$Html$Attributes$style, 'border', '1px solid rgba(246,164,0,.7)'),
+			A2($elm$html$Html$Attributes$style, 'border-radius', '999px'),
+			A2($elm$html$Html$Attributes$style, 'font', 'inherit'),
+			A2($elm$html$Html$Attributes$style, 'cursor', 'pointer'),
+			A2($elm$html$Html$Attributes$style, 'padding', '3px 10px')
+		]);
+};
+var $author$project$ElmDev$Debugger$viewDebuggerHeader = function (model) {
+	return A2(
+		$elm$html$Html$div,
+		_List_fromArray(
+			[
+				A2($elm$html$Html$Attributes$style, 'padding', '12px 14px'),
+				A2($elm$html$Html$Attributes$style, 'border-bottom', '1px solid rgba(246, 164, 0, .45)'),
+				A2($elm$html$Html$Attributes$style, 'background', 'linear-gradient(90deg, rgba(246,164,0,.24), rgba(246,164,0,.04))'),
+				A2($elm$html$Html$Attributes$style, 'font-weight', '800'),
+				A2($elm$html$Html$Attributes$style, 'letter-spacing', '0.08em'),
+				A2($elm$html$Html$Attributes$style, 'display', 'flex'),
+				A2($elm$html$Html$Attributes$style, 'align-items', 'center'),
+				A2($elm$html$Html$Attributes$style, 'justify-content', 'space-between'),
+				A2($elm$html$Html$Attributes$style, 'text-transform', 'uppercase'),
+				A2($elm$html$Html$Attributes$style, 'gap', '10px')
+			]),
+		_List_fromArray(
+			[
+				$elm$html$Html$text('Elm Dev Debugger'),
+				A2(
+				$elm$html$Html$div,
+				_List_fromArray(
+					[
+						A2($elm$html$Html$Attributes$style, 'display', 'flex'),
+						A2($elm$html$Html$Attributes$style, 'gap', '8px'),
+						A2($elm$html$Html$Attributes$style, 'align-items', 'center')
+					]),
+				_List_fromArray(
+					[
+						A2(
+						$elm$html$Html$button,
+						$author$project$ElmDev$Debugger$inspectButtonStyles(model.inspectMode),
+						_List_fromArray(
+							[
+								$elm$html$Html$text('Inspect')
+							])),
+						A2($author$project$ElmDev$Debugger$headerButton, $author$project$ElmDev$Debugger$PopOut, 'Pop Out'),
+						A2(
+						$elm$html$Html$button,
+						_List_fromArray(
+							[
+								$elm$html$Html$Events$onClick($author$project$ElmDev$Debugger$ToggleOpen),
+								A2($elm$html$Html$Attributes$style, 'background', 'rgba(246,164,0,.12)'),
+								A2($elm$html$Html$Attributes$style, 'color', '#ffd77a'),
+								A2($elm$html$Html$Attributes$style, 'border', '1px solid rgba(246,164,0,.7)'),
+								A2($elm$html$Html$Attributes$style, 'border-radius', '999px'),
+								A2($elm$html$Html$Attributes$style, 'font', 'inherit'),
+								A2($elm$html$Html$Attributes$style, 'cursor', 'pointer'),
+								A2($elm$html$Html$Attributes$style, 'padding', '3px 10px')
+							]),
+						_List_fromArray(
+							[
+								$elm$html$Html$text('Minimize')
+							]))
+					]))
+			]));
+};
 var $elm$core$List$isEmpty = function (xs) {
 	if (!xs.b) {
 		return true;
@@ -7358,10 +7590,53 @@ var $author$project$ElmDev$Debugger$lazyDiagnosis = function (stat) {
 	var renderRate = A2($author$project$ElmDev$Debugger$rate, stat.renders, stat.calls);
 	return (stat.calls < 5) ? 'warming up' : (((renderRate >= 0.95) && (stat.avgRender < 1)) ? 'likely unnecessary' : ((renderRate >= 0.95) ? 'always rendering' : (((renderRate <= 0.25) && (stat.avgRender >= 1)) ? 'helping' : ((renderRate <= 0.5) ? 'mostly helping' : 'mixed'))));
 };
-var $author$project$ElmDev$Debugger$lazySignal = function (stat) {
-	return (stat.avgRender >= 8) ? 'expensive' : ((stat.avgRender >= 1) ? 'noticeable' : 'cheap');
+var $author$project$ElmDev$Debugger$lazyArgEqualityBackground = function (equalityRate) {
+	return (equalityRate <= 0.05) ? 'rgba(246,70,0,.28)' : ((equalityRate <= 0.5) ? 'rgba(246,164,0,.18)' : 'rgba(246,164,0,.07)');
 };
-var $author$project$ElmDev$Debugger$viewMetric = F2(
+var $elm$html$Html$span = _VirtualDom_node('span');
+var $elm$html$Html$Attributes$stringProperty = F2(
+	function (key, string) {
+		return A2(
+			_VirtualDom_property,
+			key,
+			$elm$json$Json$Encode$string(string));
+	});
+var $elm$html$Html$Attributes$title = $elm$html$Html$Attributes$stringProperty('title');
+var $author$project$ElmDev$Debugger$viewLazyArgStat = function (argStat) {
+	var equalityRate = 1 - A2($author$project$ElmDev$Debugger$rate, argStat.misses, argStat.comparisons);
+	return A2(
+		$elm$html$Html$span,
+		_List_fromArray(
+			[
+				$elm$html$Html$Attributes$title(
+				'arg ' + ($elm$core$String$fromInt(argStat.index) + (' kept the same reference ' + ($elm$core$String$fromInt(argStat.comparisons - argStat.misses) + (' of ' + ($elm$core$String$fromInt(argStat.comparisons) + ' comparisons')))))),
+				A2($elm$html$Html$Attributes$style, 'border', '1px solid rgba(246,164,0,.28)'),
+				A2($elm$html$Html$Attributes$style, 'border-radius', '999px'),
+				A2($elm$html$Html$Attributes$style, 'padding', '1px 6px'),
+				A2(
+				$elm$html$Html$Attributes$style,
+				'background',
+				$author$project$ElmDev$Debugger$lazyArgEqualityBackground(equalityRate)),
+				A2($elm$html$Html$Attributes$style, 'white-space', 'nowrap')
+			]),
+		_List_fromArray(
+			[
+				$elm$html$Html$text(
+				$elm$core$String$fromInt(argStat.index) + (': ' + $author$project$ElmDev$Debugger$formatPercent(equalityRate)))
+			]));
+};
+var $author$project$ElmDev$Debugger$viewLazyArgStats = function (argStats) {
+	return $elm$core$List$isEmpty(argStats) ? $elm$html$Html$text('none') : A2(
+		$elm$html$Html$div,
+		_List_fromArray(
+			[
+				A2($elm$html$Html$Attributes$style, 'display', 'flex'),
+				A2($elm$html$Html$Attributes$style, 'flex-wrap', 'wrap'),
+				A2($elm$html$Html$Attributes$style, 'gap', '4px')
+			]),
+		A2($elm$core$List$map, $author$project$ElmDev$Debugger$viewLazyArgStat, argStats));
+};
+var $author$project$ElmDev$Debugger$viewMetricHtml = F2(
 	function (label, value_) {
 		return A2(
 			$elm$html$Html$div,
@@ -7397,10 +7672,15 @@ var $author$project$ElmDev$Debugger$viewMetric = F2(
 							A2($elm$html$Html$Attributes$style, 'overflow-wrap', 'anywhere')
 						]),
 					_List_fromArray(
-						[
-							$elm$html$Html$text(value_)
-						]))
+						[value_]))
 				]));
+	});
+var $author$project$ElmDev$Debugger$viewMetricText = F2(
+	function (label, value_) {
+		return A2(
+			$author$project$ElmDev$Debugger$viewMetricHtml,
+			label,
+			$elm$html$Html$text(value_));
 	});
 var $author$project$ElmDev$Debugger$viewLazyStat = function (stat) {
 	var renderRate = A2($author$project$ElmDev$Debugger$rate, stat.renders, stat.calls);
@@ -7479,36 +7759,28 @@ var $author$project$ElmDev$Debugger$viewLazyStat = function (stat) {
 				_List_fromArray(
 					[
 						A2($elm$html$Html$Attributes$style, 'display', 'grid'),
-						A2($elm$html$Html$Attributes$style, 'grid-template-columns', 'repeat(6, minmax(90px, 1fr))'),
+						A2($elm$html$Html$Attributes$style, 'grid-template-columns', 'repeat(auto-fit, minmax(110px, 1fr))'),
 						A2($elm$html$Html$Attributes$style, 'gap', '1px'),
 						A2($elm$html$Html$Attributes$style, 'background', 'rgba(246,164,0,.16)')
 					]),
 				_List_fromArray(
 					[
 						A2(
-						$author$project$ElmDev$Debugger$viewMetric,
+						$author$project$ElmDev$Debugger$viewMetricText,
 						'Calls',
 						$elm$core$String$fromInt(stat.calls)),
 						A2(
-						$author$project$ElmDev$Debugger$viewMetric,
-						'Rendered',
-						$elm$core$String$fromInt(stat.renders) + (' / ' + $author$project$ElmDev$Debugger$formatPercent(renderRate))),
+						$author$project$ElmDev$Debugger$viewMetricText,
+						'Cache hit rate',
+						$author$project$ElmDev$Debugger$formatPercent(hitRate) + (' / ' + ($elm$core$String$fromInt(stat.hits) + ' avoided'))),
 						A2(
-						$author$project$ElmDev$Debugger$viewMetric,
-						'Avoided renders',
-						$elm$core$String$fromInt(stat.hits) + (' / ' + $author$project$ElmDev$Debugger$formatPercent(hitRate))),
+						$author$project$ElmDev$Debugger$viewMetricText,
+						'Render time',
+						'avg ' + ($author$project$ElmDev$Debugger$formatMs(stat.avgRender) + (' / max ' + $author$project$ElmDev$Debugger$formatMs(stat.maxRender)))),
 						A2(
-						$author$project$ElmDev$Debugger$viewMetric,
-						'Avg render',
-						$author$project$ElmDev$Debugger$formatMs(stat.avgRender)),
-						A2(
-						$author$project$ElmDev$Debugger$viewMetric,
-						'Max render',
-						$author$project$ElmDev$Debugger$formatMs(stat.maxRender)),
-						A2(
-						$author$project$ElmDev$Debugger$viewMetric,
-						'Signal',
-						$author$project$ElmDev$Debugger$lazySignal(stat))
+						$author$project$ElmDev$Debugger$viewMetricHtml,
+						'Arg equality',
+						$author$project$ElmDev$Debugger$viewLazyArgStats(stat.argStats))
 					]))
 			]));
 };
@@ -7604,228 +7876,68 @@ var $author$project$ElmDev$Debugger$viewLazyStats = function (stats) {
 					$author$project$ElmDev$Debugger$rankLazyStats(stats)))
 			]));
 };
-var $elm$core$Maybe$andThen = F2(
-	function (callback, maybeValue) {
-		if (maybeValue.$ === 'Just') {
-			var value = maybeValue.a;
-			return callback(value);
-		} else {
-			return $elm$core$Maybe$Nothing;
-		}
-	});
-var $elm$core$Basics$negate = function (n) {
-	return -n;
-};
-var $author$project$ElmDev$Debugger$eventId = function (event) {
-	switch (event.$) {
-		case 'Init':
-			var initEvent = event.a;
-			return initEvent.id;
-		case 'Update':
-			var updateEvent = event.a;
-			return updateEvent.id;
-		case 'Frame':
-			var frameEvent = event.a;
-			return frameEvent.id;
-		default:
-			return -1;
+var $author$project$ElmDev$Debugger$logSourceKey = function (logEntry) {
+	var _v0 = logEntry.source;
+	if (_v0.$ === 'Just') {
+		var source = _v0.a;
+		return source.source;
+	} else {
+		return '<unknown source>';
 	}
 };
-var $author$project$ElmDev$Debugger$eventById = F2(
-	function (events, id) {
-		eventById:
+var $elm$core$List$any = F2(
+	function (isOkay, list) {
+		any:
 		while (true) {
-			if (!events.b) {
-				return $elm$core$Maybe$Nothing;
+			if (!list.b) {
+				return false;
 			} else {
-				var event = events.a;
-				var rest = events.b;
-				if (_Utils_eq(
-					$author$project$ElmDev$Debugger$eventId(event),
-					id)) {
-					return $elm$core$Maybe$Just(event);
+				var x = list.a;
+				var xs = list.b;
+				if (isOkay(x)) {
+					return true;
 				} else {
-					var $temp$events = rest,
-						$temp$id = id;
-					events = $temp$events;
-					id = $temp$id;
-					continue eventById;
+					var $temp$isOkay = isOkay,
+						$temp$list = xs;
+					isOkay = $temp$isOkay;
+					list = $temp$list;
+					continue any;
 				}
 			}
 		}
 	});
-var $author$project$ElmDev$Debugger$ToggleMessagePayload = function (a) {
-	return {$: 'ToggleMessagePayload', a: a};
+var $elm$core$List$member = F2(
+	function (x, xs) {
+		return A2(
+			$elm$core$List$any,
+			function (a) {
+				return _Utils_eq(a, x);
+			},
+			xs);
+	});
+var $author$project$ElmDev$Debugger$addUnique = F2(
+	function (value_, values) {
+		return A2($elm$core$List$member, value_, values) ? values : _Utils_ap(
+			values,
+			_List_fromArray(
+				[value_]));
+	});
+var $author$project$ElmDev$Debugger$logSources = function (logs) {
+	return A3(
+		$elm$core$List$foldl,
+		F2(
+			function (logEntry, sources) {
+				return A2(
+					$author$project$ElmDev$Debugger$addUnique,
+					$author$project$ElmDev$Debugger$logSourceKey(logEntry),
+					sources);
+			}),
+		_List_Nil,
+		logs);
 };
-var $elm$core$Maybe$map = F2(
-	function (f, maybe) {
-		if (maybe.$ === 'Just') {
-			var value = maybe.a;
-			return $elm$core$Maybe$Just(
-				f(value));
-		} else {
-			return $elm$core$Maybe$Nothing;
-		}
-	});
-var $elm$html$Html$Attributes$stringProperty = F2(
-	function (key, string) {
-		return A2(
-			_VirtualDom_property,
-			key,
-			$elm$json$Json$Encode$string(string));
-	});
-var $elm$html$Html$Attributes$title = $elm$html$Html$Attributes$stringProperty('title');
-var $elm$core$Maybe$withDefault = F2(
-	function (_default, maybe) {
-		if (maybe.$ === 'Just') {
-			var value = maybe.a;
-			return value;
-		} else {
-			return _default;
-		}
-	});
-var $author$project$ElmDev$Debugger$viewDetailHeader = F4(
-	function (label, maybeDuration, maybePayloadId, payloadOpen) {
-		return A2(
-			$elm$html$Html$div,
-			_List_fromArray(
-				[
-					A2($elm$html$Html$Attributes$style, 'padding', '18px 22px'),
-					A2($elm$html$Html$Attributes$style, 'border-bottom', '1px solid rgba(246,164,0,.34)'),
-					A2($elm$html$Html$Attributes$style, 'display', 'flex'),
-					A2($elm$html$Html$Attributes$style, 'align-items', 'baseline'),
-					A2($elm$html$Html$Attributes$style, 'gap', '18px'),
-					A2($elm$html$Html$Attributes$style, 'justify-content', 'space-between'),
-					A2($elm$html$Html$Attributes$style, 'background', 'rgba(246,164,0,.08)')
-				]),
-			_List_fromArray(
-				[
-					A2(
-					$elm$html$Html$div,
-					_List_Nil,
-					_List_fromArray(
-						[
-							A2(
-							$elm$html$Html$div,
-							_List_fromArray(
-								[
-									A2($elm$html$Html$Attributes$style, 'font-size', '11px'),
-									A2($elm$html$Html$Attributes$style, 'text-transform', 'uppercase'),
-									A2($elm$html$Html$Attributes$style, 'letter-spacing', '0.16em'),
-									A2($elm$html$Html$Attributes$style, 'color', '#9f7a31')
-								]),
-							_List_fromArray(
-								[
-									$elm$html$Html$text('message')
-								])),
-							A2(
-							$elm$html$Html$div,
-							_List_fromArray(
-								[
-									A2($elm$html$Html$Attributes$style, 'font-size', '22px'),
-									A2($elm$html$Html$Attributes$style, 'font-weight', '800'),
-									A2($elm$html$Html$Attributes$style, 'color', '#ffd77a'),
-									A2($elm$html$Html$Attributes$style, 'overflow-wrap', 'anywhere'),
-									A2($elm$html$Html$Attributes$style, 'display', 'flex'),
-									A2($elm$html$Html$Attributes$style, 'align-items', 'center'),
-									A2($elm$html$Html$Attributes$style, 'gap', '10px')
-								]),
-							_List_fromArray(
-								[
-									$elm$html$Html$text(label),
-									function () {
-									if (maybePayloadId.$ === 'Just') {
-										var id = maybePayloadId.a;
-										return A2(
-											$elm$html$Html$button,
-											_List_fromArray(
-												[
-													$elm$html$Html$Events$onClick(
-													$author$project$ElmDev$Debugger$ToggleMessagePayload(id)),
-													A2($elm$html$Html$Attributes$style, 'background', 'transparent'),
-													A2($elm$html$Html$Attributes$style, 'border', '1px solid rgba(246,164,0,.65)'),
-													A2($elm$html$Html$Attributes$style, 'border-radius', '4px'),
-													A2($elm$html$Html$Attributes$style, 'color', '#f6a400'),
-													A2($elm$html$Html$Attributes$style, 'font', 'inherit'),
-													A2($elm$html$Html$Attributes$style, 'font-weight', '900'),
-													A2($elm$html$Html$Attributes$style, 'line-height', '1'),
-													A2($elm$html$Html$Attributes$style, 'cursor', 'pointer'),
-													A2($elm$html$Html$Attributes$style, 'padding', '2px 7px'),
-													$elm$html$Html$Attributes$title('Toggle message payload')
-												]),
-											_List_fromArray(
-												[
-													$elm$html$Html$text(
-													payloadOpen ? '-' : '+')
-												]));
-									} else {
-										return $elm$html$Html$text('');
-									}
-								}()
-								]))
-						])),
-					A2(
-					$elm$html$Html$div,
-					_List_fromArray(
-						[
-							A2($elm$html$Html$Attributes$style, 'text-align', 'right'),
-							A2($elm$html$Html$Attributes$style, 'white-space', 'nowrap')
-						]),
-					_List_fromArray(
-						[
-							A2(
-							$elm$html$Html$div,
-							_List_fromArray(
-								[
-									A2($elm$html$Html$Attributes$style, 'font-size', '11px'),
-									A2($elm$html$Html$Attributes$style, 'text-transform', 'uppercase'),
-									A2($elm$html$Html$Attributes$style, 'letter-spacing', '0.16em'),
-									A2($elm$html$Html$Attributes$style, 'color', '#9f7a31')
-								]),
-							_List_fromArray(
-								[
-									$elm$html$Html$text('update duration')
-								])),
-							A2(
-							$elm$html$Html$div,
-							_List_fromArray(
-								[
-									A2($elm$html$Html$Attributes$style, 'font-size', '18px'),
-									A2($elm$html$Html$Attributes$style, 'font-weight', '800'),
-									A2($elm$html$Html$Attributes$style, 'color', '#f6a400')
-								]),
-							_List_fromArray(
-								[
-									$elm$html$Html$text(
-									A2(
-										$elm$core$Maybe$withDefault,
-										'-',
-										A2($elm$core$Maybe$map, $author$project$ElmDev$Debugger$formatMs, maybeDuration)))
-								]))
-						]))
-				]));
-	});
-var $author$project$ElmDev$Debugger$fieldByName = F2(
-	function (name, fields) {
-		fieldByName:
-		while (true) {
-			if (!fields.b) {
-				return $elm$core$Maybe$Nothing;
-			} else {
-				var field = fields.a;
-				var rest = fields.b;
-				if (_Utils_eq(field.name, name)) {
-					return $elm$core$Maybe$Just(field);
-				} else {
-					var $temp$name = name,
-						$temp$fields = rest;
-					name = $temp$name;
-					fields = $temp$fields;
-					continue fieldByName;
-				}
-			}
-		}
-	});
+var $author$project$ElmDev$Debugger$fieldPrefix = function (index) {
+	return (!index) ? '' : ', ';
+};
 var $elm$core$List$maybeCons = F3(
 	function (f, mx, xs) {
 		var _v0 = f(mx);
@@ -7844,37 +7956,6 @@ var $elm$core$List$filterMap = F2(
 			_List_Nil,
 			xs);
 	});
-var $author$project$ElmDev$Debugger$listAt = F2(
-	function (index, list) {
-		listAt:
-		while (true) {
-			if (index < 0) {
-				return $elm$core$Maybe$Nothing;
-			} else {
-				var _v0 = _Utils_Tuple2(index, list);
-				if (_v0.b.b) {
-					if (!_v0.a) {
-						var _v1 = _v0.b;
-						var item = _v1.a;
-						return $elm$core$Maybe$Just(item);
-					} else {
-						var _v2 = _v0.b;
-						var rest = _v2.b;
-						var $temp$index = index - 1,
-							$temp$list = rest;
-						index = $temp$index;
-						list = $temp$list;
-						continue listAt;
-					}
-				} else {
-					return $elm$core$Maybe$Nothing;
-				}
-			}
-		}
-	});
-var $author$project$ElmDev$Debugger$fieldPrefix = function (index) {
-	return (!index) ? '' : ', ';
-};
 var $elm$core$List$append = F2(
 	function (xs, ys) {
 		if (!ys.b) {
@@ -7891,7 +7972,16 @@ var $elm$core$List$concatMap = F2(
 		return $elm$core$List$concat(
 			A2($elm$core$List$map, f, list));
 	});
-var $elm$html$Html$span = _VirtualDom_node('span');
+var $elm$core$Maybe$map = F2(
+	function (f, maybe) {
+		if (maybe.$ === 'Just') {
+			var value = maybe.a;
+			return $elm$core$Maybe$Just(
+				f(value));
+		} else {
+			return $elm$core$Maybe$Nothing;
+		}
+	});
 var $author$project$ElmDev$Debugger$viewAtom = function (label) {
 	return A2(
 		$elm$html$Html$span,
@@ -7936,6 +8026,15 @@ var $author$project$ElmDev$Debugger$viewString = function (string) {
 				A2($elm$core$String$left, 120, rendered) + '...')
 			])) : $author$project$ElmDev$Debugger$viewAtom(rendered);
 };
+var $elm$core$Maybe$withDefault = F2(
+	function (_default, maybe) {
+		if (maybe.$ === 'Just') {
+			var value = maybe.a;
+			return value;
+		} else {
+			return _default;
+		}
+	});
 var $author$project$ElmDev$Debugger$viewInlineDebugValue = function (value_) {
 	_v0$8:
 	while (true) {
@@ -8647,6 +8746,573 @@ var $author$project$ElmDev$Debugger$viewSequence = F6(
 					items);
 			});
 	});
+var $author$project$ElmDev$Debugger$viewLogEntry = F2(
+	function (model, logEntry) {
+		return A2(
+			$elm$html$Html$div,
+			_List_fromArray(
+				[
+					A2($elm$html$Html$Attributes$style, 'border', '1px solid rgba(246,164,0,.24)'),
+					A2($elm$html$Html$Attributes$style, 'border-radius', '12px'),
+					A2($elm$html$Html$Attributes$style, 'background', 'rgba(13,10,5,.52)'),
+					A2($elm$html$Html$Attributes$style, 'overflow', 'hidden')
+				]),
+			_List_fromArray(
+				[
+					A2(
+					$elm$html$Html$div,
+					_List_fromArray(
+						[
+							A2($elm$html$Html$Attributes$style, 'padding', '10px 12px'),
+							A2($elm$html$Html$Attributes$style, 'display', 'grid'),
+							A2($elm$html$Html$Attributes$style, 'grid-template-columns', '1fr max-content'),
+							A2($elm$html$Html$Attributes$style, 'gap', '14px'),
+							A2($elm$html$Html$Attributes$style, 'align-items', 'baseline'),
+							A2($elm$html$Html$Attributes$style, 'background', 'rgba(246,164,0,.08)')
+						]),
+					_List_fromArray(
+						[
+							A2(
+							$elm$html$Html$div,
+							_List_Nil,
+							_List_fromArray(
+								[
+									A2(
+									$elm$html$Html$div,
+									_List_fromArray(
+										[
+											A2($elm$html$Html$Attributes$style, 'font-size', '15px'),
+											A2($elm$html$Html$Attributes$style, 'font-weight', '900'),
+											A2($elm$html$Html$Attributes$style, 'color', '#ffd77a'),
+											A2($elm$html$Html$Attributes$style, 'overflow-wrap', 'anywhere')
+										]),
+									_List_fromArray(
+										[
+											$elm$html$Html$text(logEntry.label)
+										])),
+									A2(
+									$elm$html$Html$div,
+									_List_fromArray(
+										[
+											A2($elm$html$Html$Attributes$style, 'color', '#9f7a31'),
+											A2($elm$html$Html$Attributes$style, 'font-size', '12px'),
+											A2($elm$html$Html$Attributes$style, 'margin-top', '3px'),
+											A2($elm$html$Html$Attributes$style, 'overflow-wrap', 'anywhere')
+										]),
+									_List_fromArray(
+										[
+											$elm$html$Html$text(
+											$author$project$ElmDev$Debugger$logSourceKey(logEntry))
+										]))
+								])),
+							A2(
+							$elm$html$Html$div,
+							_List_fromArray(
+								[
+									A2($elm$html$Html$Attributes$style, 'color', '#f6a400'),
+									A2($elm$html$Html$Attributes$style, 'font-weight', '900')
+								]),
+							_List_fromArray(
+								[
+									$elm$html$Html$text(
+									'#' + $elm$core$String$fromInt(logEntry.logId))
+								]))
+						])),
+					A2(
+					$elm$html$Html$div,
+					_List_fromArray(
+						[
+							A2($elm$html$Html$Attributes$style, 'padding', '12px'),
+							A2($elm$html$Html$Attributes$style, 'background', 'rgba(8,9,10,.66)')
+						]),
+					_List_fromArray(
+						[
+							A4(
+							$author$project$ElmDev$Debugger$viewDebugValue,
+							model,
+							0,
+							'log-' + $elm$core$String$fromInt(logEntry.logId),
+							logEntry.value)
+						]))
+				]));
+	});
+var $author$project$ElmDev$Debugger$countLogsForSource = F2(
+	function (source, logs) {
+		return $elm$core$List$length(
+			A2(
+				$elm$core$List$filter,
+				function (logEntry) {
+					return _Utils_eq(
+						$author$project$ElmDev$Debugger$logSourceKey(logEntry),
+						source);
+				},
+				logs));
+	});
+var $author$project$ElmDev$Debugger$SelectLogSource = function (a) {
+	return {$: 'SelectLogSource', a: a};
+};
+var $author$project$ElmDev$Debugger$logFilterButton = F3(
+	function (selectedSource, source, label) {
+		var selected = _Utils_eq(selectedSource, source);
+		return A2(
+			$elm$html$Html$button,
+			_List_fromArray(
+				[
+					$elm$html$Html$Events$onClick(
+					$author$project$ElmDev$Debugger$SelectLogSource(source)),
+					A2(
+					$elm$html$Html$Attributes$style,
+					'background',
+					selected ? 'rgba(246,164,0,.24)' : 'rgba(246,164,0,.06)'),
+					A2(
+					$elm$html$Html$Attributes$style,
+					'border',
+					selected ? '1px solid rgba(246,164,0,.75)' : '1px solid rgba(246,164,0,.24)'),
+					A2($elm$html$Html$Attributes$style, 'border-radius', '999px'),
+					A2($elm$html$Html$Attributes$style, 'color', '#ffd77a'),
+					A2($elm$html$Html$Attributes$style, 'font', 'inherit'),
+					A2($elm$html$Html$Attributes$style, 'font-weight', '800'),
+					A2($elm$html$Html$Attributes$style, 'cursor', 'pointer'),
+					A2($elm$html$Html$Attributes$style, 'padding', '5px 9px'),
+					$elm$html$Html$Attributes$title(label)
+				]),
+			_List_fromArray(
+				[
+					$elm$html$Html$text(label)
+				]));
+	});
+var $author$project$ElmDev$Debugger$shortSourceLabel = function (source) {
+	var _v0 = $elm$core$List$reverse(
+		A2($elm$core$String$split, '/', source));
+	if (_v0.b) {
+		var file = _v0.a;
+		return file;
+	} else {
+		return source;
+	}
+};
+var $author$project$ElmDev$Debugger$viewLogFilters = F3(
+	function (selectedSource, logs, sources) {
+		return A2(
+			$elm$html$Html$div,
+			_List_fromArray(
+				[
+					A2($elm$html$Html$Attributes$style, 'display', 'flex'),
+					A2($elm$html$Html$Attributes$style, 'flex-wrap', 'wrap'),
+					A2($elm$html$Html$Attributes$style, 'gap', '8px'),
+					A2($elm$html$Html$Attributes$style, 'margin-bottom', '18px')
+				]),
+			A2(
+				$elm$core$List$cons,
+				A3(
+					$author$project$ElmDev$Debugger$logFilterButton,
+					selectedSource,
+					$elm$core$Maybe$Nothing,
+					'All (' + ($elm$core$String$fromInt(
+						$elm$core$List$length(logs)) + ')')),
+				A2(
+					$elm$core$List$map,
+					function (source) {
+						return A3(
+							$author$project$ElmDev$Debugger$logFilterButton,
+							selectedSource,
+							$elm$core$Maybe$Just(source),
+							$author$project$ElmDev$Debugger$shortSourceLabel(source) + (' (' + ($elm$core$String$fromInt(
+								A2($author$project$ElmDev$Debugger$countLogsForSource, source, logs)) + ')')));
+					},
+					sources)));
+	});
+var $author$project$ElmDev$Debugger$viewLogs = function (model) {
+	var visibleLogs = function () {
+		var _v0 = model.selectedLogSource;
+		if (_v0.$ === 'Nothing') {
+			return model.debugLogs;
+		} else {
+			var selectedSource = _v0.a;
+			return A2(
+				$elm$core$List$filter,
+				function (logEntry) {
+					return _Utils_eq(
+						$author$project$ElmDev$Debugger$logSourceKey(logEntry),
+						selectedSource);
+				},
+				model.debugLogs);
+		}
+	}();
+	var sources = $author$project$ElmDev$Debugger$logSources(model.debugLogs);
+	return A2(
+		$elm$html$Html$div,
+		_List_fromArray(
+			[
+				A2($elm$html$Html$Attributes$style, 'overflow', 'auto'),
+				A2($elm$html$Html$Attributes$style, 'flex', '1'),
+				A2($elm$html$Html$Attributes$style, 'min-width', '0'),
+				A2($elm$html$Html$Attributes$style, 'padding', '22px')
+			]),
+		_List_fromArray(
+			[
+				A2(
+				$elm$html$Html$div,
+				_List_fromArray(
+					[
+						A2($elm$html$Html$Attributes$style, 'display', 'flex'),
+						A2($elm$html$Html$Attributes$style, 'align-items', 'baseline'),
+						A2($elm$html$Html$Attributes$style, 'justify-content', 'space-between'),
+						A2($elm$html$Html$Attributes$style, 'gap', '20px'),
+						A2($elm$html$Html$Attributes$style, 'margin-bottom', '18px')
+					]),
+				_List_fromArray(
+					[
+						A2(
+						$elm$html$Html$div,
+						_List_Nil,
+						_List_fromArray(
+							[
+								A2(
+								$elm$html$Html$div,
+								_List_fromArray(
+									[
+										A2($elm$html$Html$Attributes$style, 'font-size', '11px'),
+										A2($elm$html$Html$Attributes$style, 'text-transform', 'uppercase'),
+										A2($elm$html$Html$Attributes$style, 'letter-spacing', '0.16em'),
+										A2($elm$html$Html$Attributes$style, 'color', '#9f7a31')
+									]),
+								_List_fromArray(
+									[
+										$elm$html$Html$text('debug history')
+									])),
+								A2(
+								$elm$html$Html$div,
+								_List_fromArray(
+									[
+										A2($elm$html$Html$Attributes$style, 'font-size', '24px'),
+										A2($elm$html$Html$Attributes$style, 'font-weight', '900'),
+										A2($elm$html$Html$Attributes$style, 'color', '#ffd77a')
+									]),
+								_List_fromArray(
+									[
+										$elm$html$Html$text('Debug.log')
+									]))
+							])),
+						A2(
+						$elm$html$Html$div,
+						_List_fromArray(
+							[
+								A2($elm$html$Html$Attributes$style, 'color', '#9f7a31'),
+								A2($elm$html$Html$Attributes$style, 'text-align', 'right')
+							]),
+						_List_fromArray(
+							[
+								$elm$html$Html$text('Logs are grouped by source call site when location metadata is available.')
+							]))
+					])),
+				A3($author$project$ElmDev$Debugger$viewLogFilters, model.selectedLogSource, model.debugLogs, sources),
+				$elm$core$List$isEmpty(visibleLogs) ? A2(
+				$elm$html$Html$div,
+				_List_fromArray(
+					[
+						A2($elm$html$Html$Attributes$style, 'padding', '24px'),
+						A2($elm$html$Html$Attributes$style, 'border', '1px dashed rgba(246,164,0,.35)'),
+						A2($elm$html$Html$Attributes$style, 'border-radius', '12px'),
+						A2($elm$html$Html$Attributes$style, 'color', '#9f7a31')
+					]),
+				_List_fromArray(
+					[
+						$elm$html$Html$text('No Debug.log entries observed yet.')
+					])) : A2(
+				$elm$html$Html$div,
+				_List_fromArray(
+					[
+						A2($elm$html$Html$Attributes$style, 'display', 'grid'),
+						A2($elm$html$Html$Attributes$style, 'gap', '10px')
+					]),
+				A2(
+					$elm$core$List$map,
+					$author$project$ElmDev$Debugger$viewLogEntry(model),
+					$elm$core$List$reverse(visibleLogs)))
+			]));
+};
+var $author$project$ElmDev$Debugger$LazyView = {$: 'LazyView'};
+var $author$project$ElmDev$Debugger$LogsView = {$: 'LogsView'};
+var $author$project$ElmDev$Debugger$SelectView = function (a) {
+	return {$: 'SelectView', a: a};
+};
+var $author$project$ElmDev$Debugger$viewModeButton = F3(
+	function (current, target, label) {
+		var selected = _Utils_eq(current, target);
+		return A2(
+			$elm$html$Html$button,
+			_List_fromArray(
+				[
+					$elm$html$Html$Events$onClick(
+					$author$project$ElmDev$Debugger$SelectView(target)),
+					A2(
+					$elm$html$Html$Attributes$style,
+					'background',
+					selected ? 'rgba(246,164,0,.24)' : 'rgba(246,164,0,.06)'),
+					A2(
+					$elm$html$Html$Attributes$style,
+					'border',
+					selected ? '1px solid rgba(246,164,0,.75)' : '1px solid rgba(246,164,0,.24)'),
+					A2($elm$html$Html$Attributes$style, 'border-radius', '8px'),
+					A2($elm$html$Html$Attributes$style, 'color', '#ffd77a'),
+					A2($elm$html$Html$Attributes$style, 'font', 'inherit'),
+					A2($elm$html$Html$Attributes$style, 'font-weight', '800'),
+					A2($elm$html$Html$Attributes$style, 'cursor', 'pointer'),
+					A2($elm$html$Html$Attributes$style, 'padding', '7px 8px')
+				]),
+			_List_fromArray(
+				[
+					$elm$html$Html$text(label)
+				]));
+	});
+var $author$project$ElmDev$Debugger$viewModeTabs = F2(
+	function (viewMode, lazyStats) {
+		return A2(
+			$elm$html$Html$div,
+			_List_fromArray(
+				[
+					A2($elm$html$Html$Attributes$style, 'display', 'grid'),
+					A2($elm$html$Html$Attributes$style, 'grid-template-columns', '1fr 1fr 1fr'),
+					A2($elm$html$Html$Attributes$style, 'gap', '8px'),
+					A2($elm$html$Html$Attributes$style, 'padding', '10px 12px'),
+					A2($elm$html$Html$Attributes$style, 'border-bottom', '1px solid rgba(246, 164, 0, .28)')
+				]),
+			_List_fromArray(
+				[
+					A3($author$project$ElmDev$Debugger$viewModeButton, viewMode, $author$project$ElmDev$Debugger$TimelineView, 'Timeline'),
+					A3(
+					$author$project$ElmDev$Debugger$viewModeButton,
+					viewMode,
+					$author$project$ElmDev$Debugger$LazyView,
+					'Lazy (' + ($elm$core$String$fromInt(
+						$elm$core$List$length(lazyStats)) + ')')),
+					A3($author$project$ElmDev$Debugger$viewModeButton, viewMode, $author$project$ElmDev$Debugger$LogsView, 'Logs')
+				]));
+	});
+var $elm$core$Maybe$andThen = F2(
+	function (callback, maybeValue) {
+		if (maybeValue.$ === 'Just') {
+			var value = maybeValue.a;
+			return callback(value);
+		} else {
+			return $elm$core$Maybe$Nothing;
+		}
+	});
+var $elm$core$Basics$negate = function (n) {
+	return -n;
+};
+var $author$project$ElmDev$Debugger$eventId = function (event) {
+	switch (event.$) {
+		case 'Init':
+			var initEvent = event.a;
+			return initEvent.id;
+		case 'Update':
+			var updateEvent = event.a;
+			return updateEvent.id;
+		case 'Frame':
+			var frameEvent = event.a;
+			return frameEvent.id;
+		default:
+			return -1;
+	}
+};
+var $author$project$ElmDev$Debugger$eventById = F2(
+	function (events, id) {
+		eventById:
+		while (true) {
+			if (!events.b) {
+				return $elm$core$Maybe$Nothing;
+			} else {
+				var event = events.a;
+				var rest = events.b;
+				if (_Utils_eq(
+					$author$project$ElmDev$Debugger$eventId(event),
+					id)) {
+					return $elm$core$Maybe$Just(event);
+				} else {
+					var $temp$events = rest,
+						$temp$id = id;
+					events = $temp$events;
+					id = $temp$id;
+					continue eventById;
+				}
+			}
+		}
+	});
+var $author$project$ElmDev$Debugger$ToggleMessagePayload = function (a) {
+	return {$: 'ToggleMessagePayload', a: a};
+};
+var $author$project$ElmDev$Debugger$viewDetailHeader = F4(
+	function (label, maybeDuration, maybePayloadId, payloadOpen) {
+		return A2(
+			$elm$html$Html$div,
+			_List_fromArray(
+				[
+					A2($elm$html$Html$Attributes$style, 'padding', '18px 22px'),
+					A2($elm$html$Html$Attributes$style, 'border-bottom', '1px solid rgba(246,164,0,.34)'),
+					A2($elm$html$Html$Attributes$style, 'display', 'flex'),
+					A2($elm$html$Html$Attributes$style, 'align-items', 'baseline'),
+					A2($elm$html$Html$Attributes$style, 'gap', '18px'),
+					A2($elm$html$Html$Attributes$style, 'justify-content', 'space-between'),
+					A2($elm$html$Html$Attributes$style, 'background', 'rgba(246,164,0,.08)')
+				]),
+			_List_fromArray(
+				[
+					A2(
+					$elm$html$Html$div,
+					_List_Nil,
+					_List_fromArray(
+						[
+							A2(
+							$elm$html$Html$div,
+							_List_fromArray(
+								[
+									A2($elm$html$Html$Attributes$style, 'font-size', '11px'),
+									A2($elm$html$Html$Attributes$style, 'text-transform', 'uppercase'),
+									A2($elm$html$Html$Attributes$style, 'letter-spacing', '0.16em'),
+									A2($elm$html$Html$Attributes$style, 'color', '#9f7a31')
+								]),
+							_List_fromArray(
+								[
+									$elm$html$Html$text('message')
+								])),
+							A2(
+							$elm$html$Html$div,
+							_List_fromArray(
+								[
+									A2($elm$html$Html$Attributes$style, 'font-size', '22px'),
+									A2($elm$html$Html$Attributes$style, 'font-weight', '800'),
+									A2($elm$html$Html$Attributes$style, 'color', '#ffd77a'),
+									A2($elm$html$Html$Attributes$style, 'overflow-wrap', 'anywhere'),
+									A2($elm$html$Html$Attributes$style, 'display', 'flex'),
+									A2($elm$html$Html$Attributes$style, 'align-items', 'center'),
+									A2($elm$html$Html$Attributes$style, 'gap', '10px')
+								]),
+							_List_fromArray(
+								[
+									$elm$html$Html$text(label),
+									function () {
+									if (maybePayloadId.$ === 'Just') {
+										var id = maybePayloadId.a;
+										return A2(
+											$elm$html$Html$button,
+											_List_fromArray(
+												[
+													$elm$html$Html$Events$onClick(
+													$author$project$ElmDev$Debugger$ToggleMessagePayload(id)),
+													A2($elm$html$Html$Attributes$style, 'background', 'transparent'),
+													A2($elm$html$Html$Attributes$style, 'border', '1px solid rgba(246,164,0,.65)'),
+													A2($elm$html$Html$Attributes$style, 'border-radius', '4px'),
+													A2($elm$html$Html$Attributes$style, 'color', '#f6a400'),
+													A2($elm$html$Html$Attributes$style, 'font', 'inherit'),
+													A2($elm$html$Html$Attributes$style, 'font-weight', '900'),
+													A2($elm$html$Html$Attributes$style, 'line-height', '1'),
+													A2($elm$html$Html$Attributes$style, 'cursor', 'pointer'),
+													A2($elm$html$Html$Attributes$style, 'padding', '2px 7px'),
+													$elm$html$Html$Attributes$title('Toggle message payload')
+												]),
+											_List_fromArray(
+												[
+													$elm$html$Html$text(
+													payloadOpen ? '-' : '+')
+												]));
+									} else {
+										return $elm$html$Html$text('');
+									}
+								}()
+								]))
+						])),
+					A2(
+					$elm$html$Html$div,
+					_List_fromArray(
+						[
+							A2($elm$html$Html$Attributes$style, 'text-align', 'right'),
+							A2($elm$html$Html$Attributes$style, 'white-space', 'nowrap')
+						]),
+					_List_fromArray(
+						[
+							A2(
+							$elm$html$Html$div,
+							_List_fromArray(
+								[
+									A2($elm$html$Html$Attributes$style, 'font-size', '11px'),
+									A2($elm$html$Html$Attributes$style, 'text-transform', 'uppercase'),
+									A2($elm$html$Html$Attributes$style, 'letter-spacing', '0.16em'),
+									A2($elm$html$Html$Attributes$style, 'color', '#9f7a31')
+								]),
+							_List_fromArray(
+								[
+									$elm$html$Html$text('update duration')
+								])),
+							A2(
+							$elm$html$Html$div,
+							_List_fromArray(
+								[
+									A2($elm$html$Html$Attributes$style, 'font-size', '18px'),
+									A2($elm$html$Html$Attributes$style, 'font-weight', '800'),
+									A2($elm$html$Html$Attributes$style, 'color', '#f6a400')
+								]),
+							_List_fromArray(
+								[
+									$elm$html$Html$text(
+									A2(
+										$elm$core$Maybe$withDefault,
+										'-',
+										A2($elm$core$Maybe$map, $author$project$ElmDev$Debugger$formatMs, maybeDuration)))
+								]))
+						]))
+				]));
+	});
+var $author$project$ElmDev$Debugger$fieldByName = F2(
+	function (name, fields) {
+		fieldByName:
+		while (true) {
+			if (!fields.b) {
+				return $elm$core$Maybe$Nothing;
+			} else {
+				var field = fields.a;
+				var rest = fields.b;
+				if (_Utils_eq(field.name, name)) {
+					return $elm$core$Maybe$Just(field);
+				} else {
+					var $temp$name = name,
+						$temp$fields = rest;
+					name = $temp$name;
+					fields = $temp$fields;
+					continue fieldByName;
+				}
+			}
+		}
+	});
+var $author$project$ElmDev$Debugger$listAt = F2(
+	function (index, list) {
+		listAt:
+		while (true) {
+			if (index < 0) {
+				return $elm$core$Maybe$Nothing;
+			} else {
+				var _v0 = _Utils_Tuple2(index, list);
+				if (_v0.b.b) {
+					if (!_v0.a) {
+						var _v1 = _v0.b;
+						var item = _v1.a;
+						return $elm$core$Maybe$Just(item);
+					} else {
+						var _v2 = _v0.b;
+						var rest = _v2.b;
+						var $temp$index = index - 1,
+							$temp$list = rest;
+						index = $temp$index;
+						list = $temp$list;
+						continue listAt;
+					}
+				} else {
+					return $elm$core$Maybe$Nothing;
+				}
+			}
+		}
+	});
 var $author$project$ElmDev$Debugger$viewDeltaValue = F4(
 	function (model, path, label, value_) {
 		return A2(
@@ -9199,10 +9865,6 @@ var $elm$html$Html$Events$stopPropagationOn = F2(
 			event,
 			$elm$virtual_dom$VirtualDom$MayStopPropagation(decoder));
 	});
-var $elm$json$Json$Decode$at = F2(
-	function (fields, decoder) {
-		return A3($elm$core$List$foldr, $elm$json$Json$Decode$field, decoder, fields);
-	});
 var $elm$html$Html$Events$targetValue = A2(
 	$elm$json$Json$Decode$at,
 	_List_fromArray(
@@ -9326,63 +9988,7 @@ var $author$project$ElmDev$Debugger$viewEventSummary = F2(
 					]));
 		}
 	});
-var $author$project$ElmDev$Debugger$LazyView = {$: 'LazyView'};
-var $author$project$ElmDev$Debugger$SelectView = function (a) {
-	return {$: 'SelectView', a: a};
-};
-var $author$project$ElmDev$Debugger$viewModeButton = F3(
-	function (current, target, label) {
-		var selected = _Utils_eq(current, target);
-		return A2(
-			$elm$html$Html$button,
-			_List_fromArray(
-				[
-					$elm$html$Html$Events$onClick(
-					$author$project$ElmDev$Debugger$SelectView(target)),
-					A2(
-					$elm$html$Html$Attributes$style,
-					'background',
-					selected ? 'rgba(246,164,0,.24)' : 'rgba(246,164,0,.06)'),
-					A2(
-					$elm$html$Html$Attributes$style,
-					'border',
-					selected ? '1px solid rgba(246,164,0,.75)' : '1px solid rgba(246,164,0,.24)'),
-					A2($elm$html$Html$Attributes$style, 'border-radius', '8px'),
-					A2($elm$html$Html$Attributes$style, 'color', '#ffd77a'),
-					A2($elm$html$Html$Attributes$style, 'font', 'inherit'),
-					A2($elm$html$Html$Attributes$style, 'font-weight', '800'),
-					A2($elm$html$Html$Attributes$style, 'cursor', 'pointer'),
-					A2($elm$html$Html$Attributes$style, 'padding', '7px 8px')
-				]),
-			_List_fromArray(
-				[
-					$elm$html$Html$text(label)
-				]));
-	});
-var $author$project$ElmDev$Debugger$viewModeTabs = F2(
-	function (viewMode, lazyStats) {
-		return A2(
-			$elm$html$Html$div,
-			_List_fromArray(
-				[
-					A2($elm$html$Html$Attributes$style, 'display', 'grid'),
-					A2($elm$html$Html$Attributes$style, 'grid-template-columns', '1fr 1fr'),
-					A2($elm$html$Html$Attributes$style, 'gap', '8px'),
-					A2($elm$html$Html$Attributes$style, 'padding', '10px 12px'),
-					A2($elm$html$Html$Attributes$style, 'border-bottom', '1px solid rgba(246, 164, 0, .28)')
-				]),
-			_List_fromArray(
-				[
-					A3($author$project$ElmDev$Debugger$viewModeButton, viewMode, $author$project$ElmDev$Debugger$TimelineView, 'Timeline'),
-					A3(
-					$author$project$ElmDev$Debugger$viewModeButton,
-					viewMode,
-					$author$project$ElmDev$Debugger$LazyView,
-					'Lazy (' + ($elm$core$String$fromInt(
-						$elm$core$List$length(lazyStats)) + ')'))
-				]));
-	});
-var $author$project$ElmDev$Debugger$viewTimeline = function (model) {
+var $author$project$ElmDev$Debugger$viewTimelineSidebar = function (model) {
 	var maxId = A2(
 		$elm$core$Maybe$withDefault,
 		0,
@@ -9400,46 +10006,11 @@ var $author$project$ElmDev$Debugger$viewTimeline = function (model) {
 				A2($elm$html$Html$Attributes$style, 'border-right', '1px solid rgba(246, 164, 0, .45)'),
 				A2($elm$html$Html$Attributes$style, 'display', 'flex'),
 				A2($elm$html$Html$Attributes$style, 'flex-direction', 'column'),
-				A2($elm$html$Html$Attributes$style, 'background', 'rgba(13, 10, 5, .74)')
+				A2($elm$html$Html$Attributes$style, 'background', 'rgba(13, 10, 5, .74)'),
+				A2($elm$html$Html$Attributes$style, 'min-height', '0')
 			]),
 		_List_fromArray(
 			[
-				A2(
-				$elm$html$Html$div,
-				_List_fromArray(
-					[
-						A2($elm$html$Html$Attributes$style, 'padding', '12px 14px'),
-						A2($elm$html$Html$Attributes$style, 'border-bottom', '1px solid rgba(246, 164, 0, .45)'),
-						A2($elm$html$Html$Attributes$style, 'background', 'linear-gradient(90deg, rgba(246,164,0,.24), rgba(246,164,0,.04))'),
-						A2($elm$html$Html$Attributes$style, 'font-weight', '800'),
-						A2($elm$html$Html$Attributes$style, 'letter-spacing', '0.08em'),
-						A2($elm$html$Html$Attributes$style, 'display', 'flex'),
-						A2($elm$html$Html$Attributes$style, 'align-items', 'center'),
-						A2($elm$html$Html$Attributes$style, 'justify-content', 'space-between'),
-						A2($elm$html$Html$Attributes$style, 'text-transform', 'uppercase')
-					]),
-				_List_fromArray(
-					[
-						$elm$html$Html$text('Elm Dev Debugger'),
-						A2(
-						$elm$html$Html$button,
-						_List_fromArray(
-							[
-								$elm$html$Html$Events$onClick($author$project$ElmDev$Debugger$ToggleOpen),
-								A2($elm$html$Html$Attributes$style, 'background', 'rgba(246,164,0,.12)'),
-								A2($elm$html$Html$Attributes$style, 'color', '#ffd77a'),
-								A2($elm$html$Html$Attributes$style, 'border', '1px solid rgba(246,164,0,.7)'),
-								A2($elm$html$Html$Attributes$style, 'border-radius', '999px'),
-								A2($elm$html$Html$Attributes$style, 'font', 'inherit'),
-								A2($elm$html$Html$Attributes$style, 'cursor', 'pointer'),
-								A2($elm$html$Html$Attributes$style, 'padding', '3px 10px')
-							]),
-						_List_fromArray(
-							[
-								$elm$html$Html$text('Minimize')
-							]))
-					])),
-				A2($author$project$ElmDev$Debugger$viewModeTabs, model.viewMode, model.lazyStats),
 				A2(
 				$elm$html$Html$div,
 				_List_fromArray(
@@ -9470,7 +10041,8 @@ var $author$project$ElmDev$Debugger$viewTimeline = function (model) {
 				_List_fromArray(
 					[
 						A2($elm$html$Html$Attributes$style, 'overflow', 'auto'),
-						A2($elm$html$Html$Attributes$style, 'padding', '6px 0')
+						A2($elm$html$Html$Attributes$style, 'padding', '6px 0'),
+						A2($elm$html$Html$Attributes$style, 'min-height', '0')
 					]),
 				A2(
 					$elm$core$List$map,
@@ -9484,13 +10056,29 @@ var $author$project$ElmDev$Debugger$view = function (model) {
 		$author$project$ElmDev$Debugger$shellStyles,
 		_List_fromArray(
 			[
-				$author$project$ElmDev$Debugger$viewTimeline(model),
+				$author$project$ElmDev$Debugger$viewDebuggerHeader(model),
+				A2($author$project$ElmDev$Debugger$viewModeTabs, model.viewMode, model.lazyStats),
 				function () {
 				var _v0 = model.viewMode;
-				if (_v0.$ === 'TimelineView') {
-					return $author$project$ElmDev$Debugger$viewSelected(model);
-				} else {
-					return $author$project$ElmDev$Debugger$viewLazyStats(model.lazyStats);
+				switch (_v0.$) {
+					case 'TimelineView':
+						return A2(
+							$elm$html$Html$div,
+							_List_fromArray(
+								[
+									A2($elm$html$Html$Attributes$style, 'display', 'flex'),
+									A2($elm$html$Html$Attributes$style, 'flex', '1'),
+									A2($elm$html$Html$Attributes$style, 'min-height', '0')
+								]),
+							_List_fromArray(
+								[
+									$author$project$ElmDev$Debugger$viewTimelineSidebar(model),
+									$author$project$ElmDev$Debugger$viewSelected(model)
+								]));
+					case 'LazyView':
+						return $author$project$ElmDev$Debugger$viewLazyStats(model.lazyStats);
+					default:
+						return $author$project$ElmDev$Debugger$viewLogs(model);
 				}
 			}()
 			])) : A2(
@@ -9499,16 +10087,16 @@ var $author$project$ElmDev$Debugger$view = function (model) {
 		_List_fromArray(
 			[
 				$elm$html$Html$text(
-				'Elm Dev (' + ($elm$core$String$fromInt(
+				model.inspectMode ? 'Inspecting' : ('Elm Dev (' + ($elm$core$String$fromInt(
 					$elm$core$List$length(
-						$author$project$ElmDev$Debugger$selectableEvents(model.events))) + ')'))
+						$author$project$ElmDev$Debugger$selectableEvents(model.events))) + ')')))
 			]));
 };
 var $author$project$ElmDev$Debugger$main = $elm$browser$Browser$element(
 	{
 		init: function (_v0) {
 			return _Utils_Tuple2(
-				{collapsed: $elm$core$Set$empty, events: _List_Nil, expanded: $elm$core$Set$empty, lazyStats: _List_Nil, messageDrawers: $elm$core$Set$empty, modelView: $author$project$ElmDev$Debugger$ModelDelta, open: false, selected: $elm$core$Maybe$Nothing, viewMode: $author$project$ElmDev$Debugger$TimelineView},
+				{collapsed: $elm$core$Set$empty, debugLogs: _List_Nil, events: _List_Nil, expanded: $elm$core$Set$empty, inspectMode: false, lazyStats: _List_Nil, messageDrawers: $elm$core$Set$empty, modelView: $author$project$ElmDev$Debugger$ModelDelta, open: false, selected: $elm$core$Maybe$Nothing, selectedLogSource: $elm$core$Maybe$Nothing, viewMode: $author$project$ElmDev$Debugger$TimelineView},
 				$author$project$ElmDev$Debugger$setOpen(false));
 		},
 		subscriptions: function (_v1) {

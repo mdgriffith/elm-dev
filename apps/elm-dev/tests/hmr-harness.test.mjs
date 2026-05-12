@@ -150,8 +150,7 @@ async function startHarness(initialTokens = { mainToken: "MAIN_001", sharedToken
     },
     plugins: [
       elmDevPlugin({
-        debug: true,
-        optimize: false,
+        mode: "debug",
         useDevServer: true
       })
     ]

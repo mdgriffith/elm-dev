@@ -225,6 +225,11 @@
       createApp: createApp,
       runWithApp: runWithApp,
       installLazyProfiler: function () { installLazyProfiler(function () { return currentApp; }); },
+      recordDebugLog: function (label, value, source) {
+        if (currentApp && currentApp.recordDebugLog) {
+          currentApp.recordDebugLog(label, value, source);
+        }
+      },
       inspect: inspect,
       messageSummary: messageSummary
     };
@@ -242,6 +247,7 @@
     var lastUpdate = null;
     var lastFrame = null;
     var latestLazy = [];
+    var logCount = 0;
     var appStartedAt = now();
     var lazyProfiler = createLazyProfiler(publishPerformance);
     var app = {
@@ -253,6 +259,7 @@
       recordRender: recordRender,
       recordLazyOpportunity: lazyProfiler.recordOpportunity,
       recordLazyRender: lazyProfiler.recordRender,
+      recordDebugLog: recordDebugLog,
       run: runWithApp
     };
 
@@ -332,6 +339,21 @@
       scheduleFrameMarker();
     }
 
+    function recordDebugLog(label, value, source) {
+      logCount++;
+      publish(
+        {
+          type: "debugLog",
+          logId: logCount,
+          label: String(label),
+          source: source || null,
+          value: inspect(value, 1000),
+          timestamp: now()
+        },
+        false
+      );
+    }
+
     function scheduleFrameMarker() {
       if (frameScheduled) return;
       frameScheduled = true;
@@ -409,18 +431,48 @@
           calls: 0,
           renders: 0,
           totalRender: 0,
-          maxRender: 0
+          maxRender: 0,
+          lastRefs: null,
+          argStats: []
         };
       }
 
+      ensureArgStats(stat, refs ? refs.length - 1 : 0);
       return stat;
+    }
+
+    function ensureArgStats(stat, arity) {
+      if (arity > stat.arity) stat.arity = arity;
+
+      for (var i = stat.argStats.length; i < arity; i++) {
+        stat.argStats.push({ index: i + 1, comparisons: 0, misses: 0 });
+      }
     }
 
     function recordOpportunity(refs) {
       var stat = getStat(refs);
+      recordArgumentRefs(stat, refs);
       stat.calls++;
       schedule();
       return stat.id;
+    }
+
+    function recordArgumentRefs(stat, refs) {
+      if (!refs) return;
+
+      ensureArgStats(stat, refs.length - 1);
+
+      if (stat.lastRefs) {
+        for (var i = 1; i < refs.length; i++) {
+          var argStat = stat.argStats[i - 1];
+          argStat.comparisons++;
+          if (stat.lastRefs.length <= i || refs[i] !== stat.lastRefs[i]) {
+            argStat.misses++;
+          }
+        }
+      }
+
+      stat.lastRefs = refs.slice ? refs.slice() : refs;
     }
 
     function recordRender(id, duration) {
@@ -462,7 +514,14 @@
           hits: Math.max(0, stat.calls - stat.renders),
           avoidedRenders: Math.max(0, stat.calls - stat.renders),
           avgRender: stat.renders ? stat.totalRender / stat.renders : 0,
-          maxRender: stat.maxRender
+          maxRender: stat.maxRender,
+          argStats: stat.argStats.map(function (argStat) {
+            return {
+              index: argStat.index,
+              comparisons: argStat.comparisons,
+              misses: argStat.misses
+            };
+          })
         });
       }
 
@@ -537,6 +596,7 @@
     }
 
     host.setAttribute("data-debugger", "elm-dev");
+    host.elmDevHomeDocument = host.elmDevHomeDocument || document;
     setDebuggerOpen(host, false);
 
     var mount = document.getElementById("elm-dev-debugger-mount");
@@ -551,6 +611,7 @@
     var port = app.ports && app.ports.fromRuntime;
     if (!port || typeof port.send !== "function") return null;
 
+    var sourceInspector = createSourceInspector(host);
     var commandPort = app.ports && app.ports.toRuntime;
     if (commandPort && typeof commandPort.subscribe === "function") {
       commandPort.subscribe(function (command) {
@@ -558,6 +619,10 @@
           setDebuggerOpen(host, !!command.open);
         } else if (command && command.type === "copyText") {
           copyText(command.text || "");
+        } else if (command && command.type === "setInspectMode") {
+          sourceInspector.setEnabled(!!command.enabled);
+        } else if (command && command.type === "popOut") {
+          popOutDebugger(host);
         }
       });
     }
@@ -588,11 +653,160 @@
   }
 
   function setDebuggerOpen(root, open) {
+    if (root.getAttribute("data-popout") === "true") {
+      root.style.cssText = "position:fixed;left:0;right:0;top:0;bottom:0;width:auto;height:auto;z-index:1;box-shadow:none;pointer-events:auto";
+      return;
+    }
+
     if (open) {
       root.style.cssText = "position:fixed;left:24px;right:24px;top:24px;bottom:24px;width:auto;height:auto;z-index:2147483647;box-shadow:0 18px 80px rgba(0,0,0,.45);pointer-events:auto";
     } else {
       root.style.cssText = "position:fixed;left:16px;bottom:16px;width:168px;height:42px;z-index:2147483647;pointer-events:auto";
     }
+  }
+
+  function popOutDebugger(root) {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    var existing = root.elmDevPopoutWindow;
+    if (existing && !existing.closed) {
+      existing.focus();
+      return;
+    }
+
+    var homeDocument = root.elmDevHomeDocument || document;
+    var popup = window.open("", "elm-dev-debugger", "width=1100,height=760,resizable=yes,scrollbars=no");
+    if (!popup) return;
+
+    root.elmDevPopoutWindow = popup;
+    popup.document.open();
+    popup.document.write("<!doctype html><html><head><title>Elm Dev Debugger</title><style>html,body{width:100%;height:100%;margin:0;background:#08090a;overflow:hidden}</style></head><body></body></html>");
+    popup.document.close();
+    popup.document.body.appendChild(root);
+    root.setAttribute("data-popout", "true");
+    setDebuggerOpen(root, true);
+    popup.focus();
+
+    function dock() {
+      if (root.ownerDocument === homeDocument) return;
+      try {
+        root.setAttribute("data-popout", "false");
+        homeDocument.body.appendChild(root);
+        setDebuggerOpen(root, false);
+      } catch (_) {}
+    }
+
+    popup.addEventListener("pagehide", dock);
+    popup.addEventListener("beforeunload", dock);
+  }
+
+  function createSourceInspector(debuggerRoot) {
+    var enabled = false;
+    var target = null;
+    var location = null;
+    var outline = null;
+    var tag = null;
+
+    function setEnabled(nextEnabled) {
+      if (enabled === nextEnabled) return;
+      enabled = nextEnabled;
+
+      if (enabled) {
+        ensureElements();
+        document.addEventListener("mousemove", onMouseMove, true);
+        window.addEventListener("scroll", refresh, true);
+        window.addEventListener("resize", refresh, true);
+      } else {
+        document.removeEventListener("mousemove", onMouseMove, true);
+        window.removeEventListener("scroll", refresh, true);
+        window.removeEventListener("resize", refresh, true);
+        clear();
+      }
+    }
+
+    function ensureElements() {
+      if (outline) return;
+
+      outline = document.createElement("div");
+      outline.style.cssText = "position:fixed;z-index:2147483646;pointer-events:none;border:2px solid #f6a400;border-radius:4px;background:rgba(246,164,0,.08);box-shadow:0 0 0 1px rgba(20,12,0,.8),0 0 28px rgba(246,164,0,.35);display:none";
+
+      tag = document.createElement("button");
+      tag.type = "button";
+      tag.title = "Copy Elm source location";
+      tag.style.cssText = "position:fixed;z-index:2147483647;display:none;max-width:min(520px,calc(100vw - 24px));padding:5px 8px;border:1px solid rgba(246,164,0,.75);border-radius:999px;background:#140c00;color:#ffd77a;font:700 12px ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;box-shadow:0 8px 28px rgba(0,0,0,.45),0 0 18px rgba(246,164,0,.28);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:copy";
+      tag.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (location) copyText(location);
+      });
+
+      document.body.appendChild(outline);
+      document.body.appendChild(tag);
+    }
+
+    function onMouseMove(event) {
+      if (!enabled) return;
+      var node = event.target;
+      if (!node || insideDebugger(node) || node === outline || node === tag) return;
+
+      var match = closestSourceNode(node);
+      if (!match) {
+        clear();
+        return;
+      }
+
+      target = match.node;
+      location = match.location;
+      refresh();
+    }
+
+    function insideDebugger(node) {
+      return debuggerRoot && debuggerRoot.contains && debuggerRoot.contains(node);
+    }
+
+    function closestSourceNode(node) {
+      for (var current = node; current && current !== document; current = current.parentNode) {
+        if (current.nodeType === 1 && current.getAttribute) {
+          var attr = current.getAttribute("line-number-attribute");
+          if (attr) return { node: current, location: attr };
+        }
+      }
+      return null;
+    }
+
+    function refresh() {
+      if (!enabled || !target || !location || !target.getBoundingClientRect) return;
+
+      var rect = target.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        clear();
+        return;
+      }
+
+      ensureElements();
+      outline.style.display = "block";
+      outline.style.left = rect.left + "px";
+      outline.style.top = rect.top + "px";
+      outline.style.width = rect.width + "px";
+      outline.style.height = rect.height + "px";
+
+      tag.textContent = "Copy " + location;
+      tag.style.display = "block";
+      var tagWidth = Math.min(tag.offsetWidth || 0, window.innerWidth - 24);
+      var left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - tagWidth - 12));
+      var top = rect.top >= 34 ? rect.top - 32 : Math.min(window.innerHeight - 28, rect.bottom + 6);
+      tag.style.left = left + "px";
+      tag.style.top = Math.max(8, top) + "px";
+    }
+
+    function clear() {
+      target = null;
+      location = null;
+      if (outline) outline.style.display = "none";
+      if (tag) tag.style.display = "none";
+    }
+
+    return { setEnabled: setEnabled };
   }
 
   function installFallbackPanel(events) {

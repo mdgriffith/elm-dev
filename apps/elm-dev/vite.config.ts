@@ -32,8 +32,7 @@ export default defineConfig(({ mode }) => {
 
     plugins: [
       elmDevPlugin({
-        debug: isDev,
-        optimize: !isDev,
+        mode: isDev ? "debug" : "optimize",
       }),
     ],
   }
