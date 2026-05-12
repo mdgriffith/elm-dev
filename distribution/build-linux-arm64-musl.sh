@@ -103,7 +103,7 @@ build_binary_docker() {
     # Inexplicably the first build fails, but the second succeeds
     (cabal build $CABALOPTS --ghc-options="$GHCOPTS" || true) && cabal build $CABALOPTS --ghc-options="$GHCOPTS"
 
-    cp "$(cabal list-bin .)" "$bin"
+    cp "$(cabal list-bin exe:elm-dev)" "$bin"
     strip "$bin"
 
     # Work around ownership issues that prevent GH actions from managing the files later

@@ -69,7 +69,7 @@ COPY .git .git
 # Inexplicably the first build fails, but the second succeeds
 RUN (cabal build $CABALOPTS --ghc-options="$GHCOPTS" || true) && cabal build $CABALOPTS --ghc-options="$GHCOPTS"
 
-RUN cabal list-bin . | grep -v HEAD
-RUN cp `cabal list-bin . | grep -v HEAD` ./elm-dev
+RUN cabal list-bin exe:elm-dev
+RUN cp `cabal list-bin exe:elm-dev` ./elm-dev
 RUN ./elm-dev --version-full
 RUN strip elm-dev
