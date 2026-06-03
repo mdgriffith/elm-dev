@@ -732,9 +732,30 @@ handleHover state hoverParams = do
   let lspPos = hoverParamsPosition hoverParams
       uri = textDocumentIdentifierUri (hoverParamsTextDocument hoverParams)
   case uriToFilePath uri of
-    Nothing -> pure (Right Nothing)
+    Nothing -> do
+      PerfTrace.event
+        (Client.trace state)
+        "lsp.hover.result"
+        [ PerfTrace.text "uri" (Text.unpack uri)
+        , PerfTrace.int "line" (positionLine lspPos)
+        , PerfTrace.int "character" (positionCharacter lspPos)
+        , PerfTrace.bool "has_file_path" False
+        , PerfTrace.bool "has_hover" False
+        ]
+      pure (Right Nothing)
     Just filePath -> do
-      Helpers.showHover state filePath lspPos
+      result <- Helpers.showHover state filePath lspPos
+      PerfTrace.event
+        (Client.trace state)
+        "lsp.hover.result"
+        [ PerfTrace.text "uri" (Text.unpack uri)
+        , PerfTrace.text "path" filePath
+        , PerfTrace.int "line" (positionLine lspPos)
+        , PerfTrace.int "character" (positionCharacter lspPos)
+        , PerfTrace.bool "has_file_path" True
+        , PerfTrace.bool "has_hover" (either (const False) Maybe.isJust result)
+        ]
+      pure result
 
 handleCompletion :: Live.State -> CompletionParams -> IO (Either String CompletionList)
 handleCompletion _state _completionParams = do
