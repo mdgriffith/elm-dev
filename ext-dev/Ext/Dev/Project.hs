@@ -9,6 +9,7 @@ module Ext.Dev.Project
     getRoot,
     findByRoot,
     contains,
+    sourceContains,
     affectsCompilation,
     entrypointGroupsForChangedFiles,
     discover,
@@ -157,21 +158,26 @@ contains path (Project root _ _ _ _) =
       rootDir = FP.addTrailingPathSeparator normalizedRoot
    in normalizedPath == normalizedRoot || rootDir `List.isPrefixOf` normalizedPath
 
-
-affectsCompilation :: FilePath -> Project -> Bool
-affectsCompilation path project@(Project _ _ _ srcDirs _) =
+sourceContains :: FilePath -> Project -> Bool
+sourceContains path (Project _ _ _ srcDirs _) =
   let normalizedPath = FP.normalise path
-      fileName = FP.takeFileName normalizedPath
-      pathSegments = FP.splitDirectories normalizedPath
       inSrcDir dir =
         let normalizedDir = FP.normalise dir
             dirWithSep = FP.addTrailingPathSeparator normalizedDir
          in normalizedPath == normalizedDir || dirWithSep `List.isPrefixOf` normalizedPath
-   in contains normalizedPath project
-        && not (List.elem "elm-stuff" pathSegments)
+   in any inSrcDir srcDirs
+
+affectsCompilation :: FilePath -> Project -> Bool
+affectsCompilation path project =
+  let normalizedPath = FP.normalise path
+      fileName = FP.takeFileName normalizedPath
+      pathSegments = FP.splitDirectories normalizedPath
+   in not (List.elem "elm-stuff" pathSegments)
         && ( fileName == "elm.json"
+               && contains normalizedPath project
                || fileName == "elm.dev.json"
-                || (FP.takeExtension normalizedPath == ".elm" && any inSrcDir srcDirs)
+               && contains normalizedPath project
+               || (FP.takeExtension normalizedPath == ".elm" && sourceContains normalizedPath project)
             )
 
 entrypointGroupsForChangedFiles :: [FilePath] -> Project -> IO [NE.List FilePath]
@@ -179,8 +185,17 @@ entrypointGroupsForChangedFiles changedFiles project@(Project root _ entrypoints
   outlineResult <- Elm.Outline.read root
   case outlineResult of
     Right (Elm.Outline.App _) -> applicationEntrypointGroups changedFiles project
-    Right (Elm.Outline.Pkg _) -> pure [entrypoints]
+    Right (Elm.Outline.Pkg _) -> packageEntrypointGroups changedFiles project
     Left _ -> pure [entrypoints]
+
+packageEntrypointGroups :: [FilePath] -> Project -> IO [NE.List FilePath]
+packageEntrypointGroups changedFiles project@(Project _ _ entrypoints _ _) =
+  if null changedFiles || any isProjectConfig changedFiles
+    then pure [entrypoints]
+    else
+      case filter (\path -> isElmFile path && sourceContains path project) changedFiles of
+        [] -> pure [entrypoints]
+        path : others -> pure (singletonGroups (NE.List path others))
 
 applicationEntrypointGroups :: [FilePath] -> Project -> IO [NE.List FilePath]
 applicationEntrypointGroups changedFiles (Project _ _ entrypoints srcDirs _) = do

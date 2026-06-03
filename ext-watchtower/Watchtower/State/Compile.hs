@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.State.Compile (compile, compileRelevantProjects, scheduleDebouncedCompileRelevantProjects, scheduleDebouncedCompileRelevantProjectsWithCallback, updateVfsFromFs, compileTests, markFilesystemChanged, updateProjectFileInfo) where
+module Watchtower.State.Compile (compile, compileRelevantProjects, compileRelevantProjectsWithPrimaryCallback, scheduleDebouncedCompileRelevantProjects, scheduleDebouncedCompileRelevantProjectsWithCallback, scheduleDebouncedCompileRelevantProjectsWithCallbacks, updateVfsFromFs, compileTests, markFilesystemChanged, updateProjectFileInfo) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -13,7 +13,9 @@ import qualified Ext.Dev.Project
 import qualified Ext.Dev.Project as Project
 import qualified Ext.Sentry as Sentry
 import qualified Control.Concurrent.STM as STM
+import qualified Data.Either as Either
 import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 import qualified Ext.Common
 import qualified Gen.Generate
 import Json.Encode ((==>))
@@ -230,7 +232,7 @@ projectCompileLocks = Unsafe.unsafePerformIO (MVar.newMVar Map.empty)
 projectCompileDebounces :: MVar.MVar (Map.Map FilePath Concurrent.ThreadId)
 projectCompileDebounces = Unsafe.unsafePerformIO (MVar.newMVar Map.empty)
 
-withProjectCompileLockIfAvailable :: FilePath -> IO Bool -> IO Bool
+withProjectCompileLockIfAvailable :: FilePath -> IO a -> IO (Maybe a)
 withProjectCompileLockIfAvailable projectRoot action = do
   lock <- MVar.modifyMVar projectCompileLocks $ \locks ->
     case Map.lookup projectRoot locks of
@@ -240,8 +242,8 @@ withProjectCompileLockIfAvailable projectRoot action = do
         pure (Map.insert projectRoot newLock locks, newLock)
   acquired <- MVar.tryTakeMVar lock
   case acquired of
-    Nothing -> pure False
-    Just () -> action `Exception.finally` MVar.putMVar lock ()
+    Nothing -> pure Nothing
+    Just () -> Just <$> (action `Exception.finally` MVar.putMVar lock ())
 
 markFilesystemChanged :: Client.State -> [FilePath] -> IO ()
 markFilesystemChanged (Client.State _ mProjects _ _ _ _ _ _ _) changedPaths = do
@@ -309,26 +311,34 @@ updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
 --   fresh results when this function returns.
 compileRelevantProjects :: Client.State -> String -> [FilePath] -> IO Bool
 compileRelevantProjects state traceId elmFiles =
+  compileRelevantProjectsWithPrimaryCallback state traceId elmFiles (\_ -> pure ())
+
+compileRelevantProjectsWithPrimaryCallback :: Client.State -> String -> [FilePath] -> (Bool -> IO ()) -> IO Bool
+compileRelevantProjectsWithPrimaryCallback state traceId elmFiles afterPrimaryCompile =
   PerfTrace.span
     (Client.trace state)
     "compile.relevant_projects"
     [ PerfTrace.text "trace_id" traceId
     , PerfTrace.int "changed_file_count" (length elmFiles)
     ]
-    (compileRelevantProjectsUntraced state traceId elmFiles)
+    (compileRelevantProjectsUntraced state traceId elmFiles afterPrimaryCompile)
 
-compileRelevantProjectsUntraced :: Client.State -> String -> [FilePath] -> IO Bool
-compileRelevantProjectsUntraced state@(Client.State _ mProjects _ _ _ _ _ _ _) traceId elmFiles = do
+compileRelevantProjectsUntraced :: Client.State -> String -> [FilePath] -> (Bool -> IO ()) -> IO Bool
+compileRelevantProjectsUntraced state@(Client.State _ mProjects _ _ _ _ _ _ _) traceId elmFiles afterPrimaryCompile = do
   if elmFiles == []
     then pure False
     else do
       projects <- STM.readTVarIO mProjects
       let relevant = List.filter (projectTouchesAny elmFiles) projects
+          ownerProjects = List.filter (projectOwnedByAny elmFiles relevant) relevant
+          downstreamProjects = filterOutProjects ownerProjects relevant
       Ext.Log.log Ext.Log.Live
         ( concat
             [ "[trace " ++ traceId ++ "] compileRelevantProjects"
             , " changed=" ++ Trace.formatPaths elmFiles
             , " relevantProjects=" ++ show (length relevant)
+            , " ownerProjects=" ++ show (length ownerProjects)
+            , " downstreamProjects=" ++ show (length downstreamProjects)
             ]
         )
       case relevant of
@@ -337,32 +347,97 @@ compileRelevantProjectsUntraced state@(Client.State _ mProjects _ _ _ _ _ _ _) t
           pure False
         _ ->
           Ext.Common.track "compile relevant projects" $ do
-            counter <- STM.newTVarIO (List.length relevant)
             anyCompiled <- STM.newTVarIO False
+            compileResults <- STM.newTVarIO []
             let runOne projCache = do
-                  didCompile <- compileProjectFiles elmFiles projCache
+                  result@(didCompile, _lastPrimarySucceeded, _projectCache) <- compileProjectFiles elmFiles projCache
                   Monad.when didCompile (STM.atomically (STM.writeTVar anyCompiled True))
+                  STM.atomically $ do
+                    STM.modifyTVar' compileResults (result :)
+
+            Monad.mapM_ runOne ownerProjects
+            ownerDidCompile <- STM.readTVarIO anyCompiled
+            PerfTrace.event
+              (Client.trace state)
+              "compile.relevant_projects.owner_phase_complete"
+              [ PerfTrace.text "trace_id" traceId
+              , PerfTrace.int "owner_project_count" (length ownerProjects)
+              , PerfTrace.int "downstream_project_count" (length downstreamProjects)
+              , PerfTrace.bool "owner_did_compile" ownerDidCompile
+              , PerfTrace.text "owner_roots" (List.intercalate "," (map projectRootForCache ownerProjects))
+              ]
+            afterPrimaryCompile ownerDidCompile
+
+            counter <- STM.newTVarIO (List.length downstreamProjects)
+            let runDownstream projCache = do
+                  runOne projCache
                   STM.atomically $ do
                     n <- STM.readTVar counter
                     STM.writeTVar counter (n - 1)
-            mapM_ (\proj -> Ext.Common.trackedForkIO (runOne proj)) relevant
+            mapM_ (\proj -> Ext.Common.trackedForkIO (runDownstream proj)) downstreamProjects
             STM.atomically $ do
               n <- STM.readTVar counter
               STM.check (n == 0)
-            STM.readTVarIO anyCompiled
+            didCompile <- STM.readTVarIO anyCompiled
+            results <- STM.readTVarIO compileResults
+            runTestsForCompileResults results
+            pure didCompile
   where
     projectTouchesAny :: [FilePath] -> Client.ProjectCache -> Bool
     projectTouchesAny paths (Client.ProjectCache proj _ _ _ _) =
       any (\p -> Ext.Dev.Project.affectsCompilation p proj) paths
 
-    compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO Bool
+    projectOwnedByAny :: [FilePath] -> [Client.ProjectCache] -> Client.ProjectCache -> Bool
+    projectOwnedByAny paths allRelevant candidate =
+      any
+        (\path ->
+            case nearestOwner path allRelevant of
+              Just owner -> sameProjectCache owner candidate
+              Nothing -> False
+        )
+        paths
+
+    nearestOwner :: FilePath -> [Client.ProjectCache] -> Maybe Client.ProjectCache
+    nearestOwner path =
+      Maybe.listToMaybe
+        . List.sortBy
+            (\(Client.ProjectCache one _ _ _ _) (Client.ProjectCache two _ _ _ _) ->
+                compare (length (Ext.Dev.Project.getRoot two)) (length (Ext.Dev.Project.getRoot one))
+            )
+        . List.filter (\(Client.ProjectCache proj _ _ _ _) -> Ext.Dev.Project.contains path proj)
+
+    sameProjectCache :: Client.ProjectCache -> Client.ProjectCache -> Bool
+    sameProjectCache (Client.ProjectCache one _ _ _ _) (Client.ProjectCache two _ _ _ _) =
+      Ext.Dev.Project.equal one two
+
+    projectRootForCache :: Client.ProjectCache -> FilePath
+    projectRootForCache (Client.ProjectCache proj _ _ _ _) =
+      Ext.Dev.Project.getRoot proj
+
+    filterOutProjects :: [Client.ProjectCache] -> [Client.ProjectCache] -> [Client.ProjectCache]
+    filterOutProjects excluded =
+      List.filter (\project -> not (any (sameProjectCache project) excluded))
+
+    compileProjectFiles :: [FilePath] -> Client.ProjectCache -> IO (Bool, Maybe Bool, Client.ProjectCache)
     compileProjectFiles paths projCache@(Client.ProjectCache proj _ _ _ _) = do
       let projectRoot = Ext.Dev.Project.getRoot proj
           projectFiles = List.filter (\p -> Ext.Dev.Project.affectsCompilation p proj) paths
-          compileUntilClean didCompileAny = do
+          projectShortId = Ext.Dev.Project._shortId proj
+          compileUntilClean didCompileAny lastPrimarySucceeded iteration = do
             versions <- Versions.readVersions projectRoot
             if Versions.compileVersion versions < Versions.fsVersion versions
               then do
+                PerfTrace.event
+                  (Client.trace state)
+                  "compile.loop_iteration"
+                  [ PerfTrace.text "trace_id" traceId
+                  , PerfTrace.text "project_root" projectRoot
+                  , PerfTrace.int "project_short_id" projectShortId
+                  , PerfTrace.int "iteration" iteration
+                  , PerfTrace.int "fs_version" (Versions.fsVersion versions)
+                  , PerfTrace.int "compile_version" (Versions.compileVersion versions)
+                  , PerfTrace.int "changed_file_count" (length projectFiles)
+                  ]
                 Ext.Log.log Ext.Log.Live
                   ( concat
                       [ "[trace " ++ traceId ++ "] compiling project"
@@ -372,11 +447,21 @@ compileRelevantProjectsUntraced state@(Client.State _ mProjects _ _ _ _ _ _ _) t
                       , " compileVersion=" ++ show (Versions.compileVersion versions)
                       ]
                   )
-                _ <- compile state traceId projCache projectFiles
-                -- If this project has tests, compile them using previously discovered test files
-                compileTestsWithTrace state traceId projCache
-                compileUntilClean True
+                compileResult <- compile state traceId projCache projectFiles
+                compileUntilClean True (Just (Either.isRight compileResult)) (iteration + 1)
               else do
+                PerfTrace.event
+                  (Client.trace state)
+                  "compile.loop_clean"
+                  [ PerfTrace.text "trace_id" traceId
+                  , PerfTrace.text "project_root" projectRoot
+                  , PerfTrace.int "project_short_id" projectShortId
+                  , PerfTrace.int "iteration_count" iteration
+                  , PerfTrace.int "fs_version" (Versions.fsVersion versions)
+                  , PerfTrace.int "compile_version" (Versions.compileVersion versions)
+                  , PerfTrace.bool "did_compile" didCompileAny
+                  , PerfTrace.bool "primary_succeeded" (Maybe.fromMaybe False lastPrimarySucceeded)
+                  ]
                 Ext.Log.log Ext.Log.Live
                   ( concat
                       [ "[trace " ++ traceId ++ "] skipping compile"
@@ -386,8 +471,35 @@ compileRelevantProjectsUntraced state@(Client.State _ mProjects _ _ _ _ _ _ _) t
                       , " compileVersion=" ++ show (Versions.compileVersion versions)
                       ]
                   )
-                pure didCompileAny
-      withProjectCompileLockIfAvailable projectRoot (compileUntilClean False)
+                pure (didCompileAny, lastPrimarySucceeded)
+      lockResult <- withProjectCompileLockIfAvailable projectRoot (compileUntilClean False Nothing 0)
+      pure $ case lockResult of
+        Just (didCompile, lastPrimarySucceeded) ->
+          (didCompile, lastPrimarySucceeded, projCache)
+
+        Nothing ->
+          (False, Nothing, projCache)
+
+    runTestsForCompileResults :: [(Bool, Maybe Bool, Client.ProjectCache)] -> IO ()
+    runTestsForCompileResults results = do
+      counter <- STM.newTVarIO (List.length results)
+      let runOne (didCompile, lastPrimarySucceeded, projCache@(Client.ProjectCache proj _ _ _ _)) = do
+            case (didCompile, lastPrimarySucceeded) of
+              (True, Just True) ->
+                compileTestsWithTrace state traceId projCache
+
+              (True, Just False) ->
+                traceSkippedTests state traceId proj "primary_compile_failed"
+
+              _ ->
+                pure ()
+            STM.atomically $ do
+              n <- STM.readTVar counter
+              STM.writeTVar counter (n - 1)
+      mapM_ (\result -> Ext.Common.trackedForkIO (runOne result)) results
+      STM.atomically $ do
+        n <- STM.readTVar counter
+        STM.check (n == 0)
 
 scheduleDebouncedCompileRelevantProjects :: Client.State -> String -> Int -> [FilePath] -> IO ()
 scheduleDebouncedCompileRelevantProjects state traceId delayMicros elmFiles =
@@ -395,6 +507,10 @@ scheduleDebouncedCompileRelevantProjects state traceId delayMicros elmFiles =
 
 scheduleDebouncedCompileRelevantProjectsWithCallback :: Client.State -> String -> Int -> [FilePath] -> (Bool -> IO ()) -> IO ()
 scheduleDebouncedCompileRelevantProjectsWithCallback state@(Client.State _ mProjects _ _ _ _ _ _ _) traceId delayMicros elmFiles afterCompile = do
+  scheduleDebouncedCompileRelevantProjectsWithCallbacks state traceId delayMicros elmFiles (\_ -> pure ()) afterCompile
+
+scheduleDebouncedCompileRelevantProjectsWithCallbacks :: Client.State -> String -> Int -> [FilePath] -> (Bool -> IO ()) -> (Bool -> IO ()) -> IO ()
+scheduleDebouncedCompileRelevantProjectsWithCallbacks state@(Client.State _ mProjects _ _ _ _ _ _ _) traceId delayMicros elmFiles afterPrimaryCompile afterCompile = do
   if elmFiles == []
     then pure ()
     else do
@@ -423,7 +539,7 @@ scheduleDebouncedCompileRelevantProjectsWithCallback state@(Client.State _ mProj
       threadId <- Concurrent.forkIO $ do
         Concurrent.threadDelay delayMicros
         MVar.modifyMVar_ projectCompileDebounces (pure . Map.delete projectRoot)
-        didCompile <- compileRelevantProjects state traceId elmFiles
+        didCompile <- compileRelevantProjectsWithPrimaryCallback state traceId elmFiles afterPrimaryCompile
         afterCompile didCompile
         pure ()
       MVar.modifyMVar_ projectCompileDebounces $ \scheduled ->
@@ -433,6 +549,19 @@ scheduleDebouncedCompileRelevantProjectsWithCallback state@(Client.State _ mProj
 compileTests :: Client.State -> Client.ProjectCache -> IO ()
 compileTests state projCache =
   compileTestsWithTrace state "compile.tests" projCache
+
+traceSkippedTests :: Client.State -> String -> Ext.Dev.Project.Project -> String -> IO ()
+traceSkippedTests state traceId proj outcome =
+  PerfTrace.span
+    (Client.trace state)
+    "compile.tests"
+    [ PerfTrace.text "trace_id" traceId
+    , PerfTrace.text "project_root" (Ext.Dev.Project.getRoot proj)
+    , PerfTrace.int "project_short_id" (Ext.Dev.Project._shortId proj)
+    , PerfTrace.bool "skipped" True
+    , PerfTrace.text "outcome" outcome
+    ]
+    (pure ())
 
 compileTestsWithTrace :: Client.State -> String -> Client.ProjectCache -> IO ()
 compileTestsWithTrace state@(Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested _) traceId (Client.ProjectCache proj _ _ _ mTestVar) = do

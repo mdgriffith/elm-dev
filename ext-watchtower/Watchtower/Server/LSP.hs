@@ -160,10 +160,10 @@ defaultServerCapabilities = ServerCapabilities
     serverCapabilitiesInlayHintProvider = Just $ JSON.object
       [ "resolveProvider" .= False
       ],
-    serverCapabilitiesDiagnosticProvider = Just $ JSON.object
-      [ "interFileDependencies" .= True,
-        "workspaceDiagnostics" .= False
-      ],
+    -- Diagnostics are pushed after owner-first compiles. Advertising pull
+    -- diagnostics as well gives editors a second diagnostic collection that can
+    -- lag behind the push clear after a successful compile.
+    serverCapabilitiesDiagnosticProvider = Nothing,
     serverCapabilitiesWorkspaceSymbolProvider = Nothing,
     serverCapabilitiesWorkspace = Just $ JSON.object
       [ "fileOperations" .= JSON.object
@@ -305,8 +305,13 @@ handleDidOpen state send connId openParams = do
         Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedOpen connId filePath editors)
       Watchtower.Server.DevWS.broadcastServiceStatus state
       -- Recompile relevant projects for this file
-      didCompile <- Watchtower.State.Compile.compileRelevantProjects state traceId [filePath]
-      when didCompile (publishDiagnosticsForFile state send traceId filePath)
+      didCompile <-
+        Watchtower.State.Compile.compileRelevantProjectsWithPrimaryCallback
+          state
+          traceId
+          [filePath]
+          (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForFile state send traceId filePath))
+      when didCompile (publishTestDiagnosticsForFile state send traceId filePath)
       return $ Right JSON.Null
 
 handleDidChange :: Live.State -> JSONRPC.EventEmitter -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
@@ -344,12 +349,13 @@ handleDidChange state send changeParams = do
               )
             when changed $ do
               Watchtower.State.Compile.markFilesystemChanged state [filePath]
-              Watchtower.State.Compile.scheduleDebouncedCompileRelevantProjectsWithCallback
+              Watchtower.State.Compile.scheduleDebouncedCompileRelevantProjectsWithCallbacks
                 state
                 traceId
                 didChangeCompileDebounceMicros
                 [filePath]
-                (\didCompile -> when didCompile (publishDiagnosticsForFile state send traceId filePath))
+                (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForFile state send traceId filePath))
+                (\didCompile -> when didCompile (publishTestDiagnosticsForFile state send traceId filePath))
             return $ Right JSON.Null
 
 -- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
@@ -433,8 +439,13 @@ handleDidSave state send saveParams = do
         else pure ()
       when changed $ do
         Watchtower.State.Compile.markFilesystemChanged state [filePath]
-        didCompile <- Watchtower.State.Compile.compileRelevantProjects state traceId [filePath]
-        when didCompile (publishDiagnosticsForFile state send traceId filePath)
+        didCompile <-
+          Watchtower.State.Compile.compileRelevantProjectsWithPrimaryCallback
+            state
+            traceId
+            [filePath]
+            (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForFile state send traceId filePath))
+        when didCompile (publishTestDiagnosticsForFile state send traceId filePath)
         pure ()
       return $ Right JSON.Null
 
@@ -455,17 +466,30 @@ publishDiagnosticsForFileUntraced state send traceId filePath = do
     Right (projectCache, _) -> do
       diags <- Helpers.getDiagnosticsForProject state projectCache (Just filePath)
       (_localizer, warns) <- Helpers.getWarningsForFile state filePath
-      let allDiags = diags ++ concatMap Helpers.warningToUnusedDiagnostic warns
+      let ownerRoot = Client.getProjectRoot projectCache
+          warningDiags = concatMap Helpers.warningToUnusedDiagnostic warns
+          allDiags = diags ++ warningDiags
           params =
             PublishDiagnosticsParams
               { publishDiagnosticsParamsUri = unUri (fromFilePath filePath)
               , publishDiagnosticsParamsVersion = Nothing
               , publishDiagnosticsParamsDiagnostics = allDiags
               }
+      PerfTrace.event
+        (Client.trace state)
+        "lsp.publish_diagnostics.result"
+        [ PerfTrace.text "trace_id" traceId
+        , PerfTrace.text "path" filePath
+        , PerfTrace.text "owner_root" ownerRoot
+        , PerfTrace.int "diagnostic_count" (length allDiags)
+        , PerfTrace.int "compile_diagnostic_count" (length diags)
+        , PerfTrace.int "warning_diagnostic_count" (length warningDiags)
+        ]
       Ext.Log.log Ext.Log.LSP
         ( concat
             [ "[trace " ++ traceId ++ "] publishDiagnostics"
             , " path=" ++ filePath
+            , " owner=" ++ ownerRoot
             , " count=" ++ show (length allDiags)
             ]
         )
@@ -473,6 +497,22 @@ publishDiagnosticsForFileUntraced state send traceId filePath = do
         (JSONRPC.OutboundNotification
           (JSONRPC.Notification "2.0" "textDocument/publishDiagnostics" (Just (JSON.toJSON params))))
     _ -> pure ()
+
+publishTestDiagnosticsForFile :: Live.State -> JSONRPC.EventEmitter -> String -> FilePath -> IO ()
+publishTestDiagnosticsForFile state send traceId filePath = do
+  projectResult <- Client.getExistingProject filePath state
+  case projectResult of
+    Right (projectCache, _) ->
+      when (isProjectTestFile (Client.getProjectRoot projectCache) filePath) (publishDiagnosticsForFile state send traceId filePath)
+
+    _ ->
+      pure ()
+
+isProjectTestFile :: FilePath -> FilePath -> Bool
+isProjectTestFile projectRoot filePath =
+  let testRoot = FP.normalise (projectRoot FP.</> "tests")
+      normalisedPath = FP.normalise filePath
+   in testRoot == normalisedPath || (testRoot <> [FP.pathSeparator]) `Data.List.isPrefixOf` normalisedPath
 
 handleHover :: Live.State -> HoverParams -> IO (Either String (Maybe Hover))
 handleHover state hoverParams = do
@@ -689,8 +729,18 @@ handleDiagnostic state diagnosticParams = do
         Right (projectCache, _) ->
           do { diags <- Helpers.getDiagnosticsForProject state projectCache (Just filePath)
              ; (localizer_, warns) <- Helpers.getWarningsForFile state filePath
-             ; let allDiags = diags ++ concatMap Helpers.warningToUnusedDiagnostic warns
-             ; let resultId = diagnosticsResultId allDiags
+             ; let warningDiags = concatMap Helpers.warningToUnusedDiagnostic warns
+                   allDiags = diags ++ warningDiags
+              ; let resultId = diagnosticsResultId allDiags
+             ; PerfTrace.event
+                 (Client.trace state)
+                 "lsp.pull_diagnostic.result"
+                 [ PerfTrace.text "path" filePath
+                 , PerfTrace.text "owner_root" (Client.getProjectRoot projectCache)
+                 , PerfTrace.int "diagnostic_count" (length allDiags)
+                 , PerfTrace.int "compile_diagnostic_count" (length diags)
+                 , PerfTrace.int "warning_diagnostic_count" (length warningDiags)
+                 ]
 
               -- Encode as JSON
              ; let diagnosticsResponse =
@@ -1357,7 +1407,7 @@ buildWorkspaceDiagnosticReportUntraced state connId workspaceParams = do
                   previousIds
               )
           Nothing -> Map.empty
-  itemsAndUrisPerProject <- mapM (workspaceItemsForProject previousResultIds state) projects
+  itemsAndUrisPerProject <- mapM (workspaceItemsForProject previousResultIds state projects) projects
   let (itemsLists, uriLists) = unzip itemsAndUrisPerProject
   let currentUris = Data.List.nub (concat uriLists)
   -- Build clearing entries for URIs that previously had diagnostics but no longer do
@@ -1396,18 +1446,18 @@ buildWorkspaceDiagnosticReportUntraced state connId workspaceParams = do
   pure (JSON.object [ "items" .= JSON.toJSON allItems ])
 
 -- Build workspace diagnostic entries for a single project; also return URIs included
-workspaceItemsForProject :: Map.Map Text Text -> Live.State -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
-workspaceItemsForProject previousResultIds state projectCache@(Client.ProjectCache proj _ _ _ _mTest) =
+workspaceItemsForProject :: Map.Map Text Text -> Live.State -> [Client.ProjectCache] -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
+workspaceItemsForProject previousResultIds state allProjects projectCache@(Client.ProjectCache proj _ _ _ _mTest) =
   PerfTrace.span
     (Client.trace state)
     "lsp.workspace_diagnostic.project"
     [ PerfTrace.text "project_root" (Ext.Dev.Project.getRoot proj)
     , PerfTrace.int "project_short_id" (Ext.Dev.Project._shortId proj)
     ]
-    (workspaceItemsForProjectUntraced previousResultIds state projectCache)
+    (workspaceItemsForProjectUntraced previousResultIds state allProjects projectCache)
 
-workspaceItemsForProjectUntraced :: Map.Map Text Text -> Live.State -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
-workspaceItemsForProjectUntraced previousResultIds state projectCache@(Client.ProjectCache proj _ _ _ mTest) = do
+workspaceItemsForProjectUntraced :: Map.Map Text Text -> Live.State -> [Client.ProjectCache] -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
+workspaceItemsForProjectUntraced previousResultIds state allProjects projectCache@(Client.ProjectCache proj _ _ _ mTest) = do
   -- Compiler diagnostics grouped by file (project)
   projectDiagsMap <- Helpers.getProjectDiagnosticsByFile state projectCache
   -- Test diagnostics grouped by file (if a test reactor error exists)
@@ -1415,10 +1465,20 @@ workspaceItemsForProjectUntraced previousResultIds state projectCache@(Client.Pr
     mTi <- Control.Concurrent.STM.readTVarIO mTest
     case mTi of
       Just (Client.TestInfo _ _ (Just (Client.TestError reactorErr))) ->
-        pure (Helpers.getDiagnosticsFromTestReactorByFile reactorErr)
+        pure (Helpers.getDiagnosticsFromTestReactorByFile projectCache reactorErr)
       _ -> pure Map.empty
 
-  let diagsMap = Map.unionWith (++) projectDiagsMap testDiagsMap
+  let (ownedProjectDiagsMap, suppressedProjectFiles) = filterOwnedDiagnostics allProjects projectCache projectDiagsMap
+      diagsMap = Map.unionWith (++) ownedProjectDiagsMap testDiagsMap
+  when (not (null suppressedProjectFiles)) $
+    PerfTrace.event
+      (Client.trace state)
+      "lsp.workspace_diagnostic.suppressed"
+      [ PerfTrace.text "project_root" (Ext.Dev.Project.getRoot proj)
+      , PerfTrace.int "project_short_id" (Ext.Dev.Project._shortId proj)
+      , PerfTrace.int "suppressed_file_count" (length suppressedProjectFiles)
+      , PerfTrace.text "suppressed_files" (Trace.formatPaths suppressedProjectFiles)
+      ]
   -- Determine which files in this project are currently open
   let (Client.State _ _ _ _ _ _ mEditorsOpen _ _) = state
   editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
@@ -1475,3 +1535,28 @@ workspaceItemsForProjectUntraced previousResultIds state projectCache@(Client.Pr
           )
           fileReports
   pure (items, map (\(uri, _, _) -> uri) fileReports)
+
+filterOwnedDiagnostics :: [Client.ProjectCache] -> Client.ProjectCache -> Map.Map FilePath [Diagnostic] -> (Map.Map FilePath [Diagnostic], [FilePath])
+filterOwnedDiagnostics allProjects projectCache diagsMap =
+  Map.foldrWithKey keepOwned (Map.empty, []) diagsMap
+  where
+    keepOwned filePath diags (kept, suppressed) =
+      case nearestOwnerProject filePath allProjects of
+        Just owner | not (sameProjectCache owner projectCache) ->
+          (kept, filePath : suppressed)
+
+        _ ->
+          (Map.insert filePath diags kept, suppressed)
+
+nearestOwnerProject :: FilePath -> [Client.ProjectCache] -> Maybe Client.ProjectCache
+nearestOwnerProject filePath =
+  Maybe.listToMaybe
+    . Data.List.sortBy
+        (\(Client.ProjectCache one _ _ _ _) (Client.ProjectCache two _ _ _ _) ->
+            compare (length (Ext.Dev.Project.getRoot two)) (length (Ext.Dev.Project.getRoot one))
+        )
+    . filter (\(Client.ProjectCache proj _ _ _ _) -> Ext.Dev.Project.contains filePath proj)
+
+sameProjectCache :: Client.ProjectCache -> Client.ProjectCache -> Bool
+sameProjectCache (Client.ProjectCache one _ _ _ _) (Client.ProjectCache two _ _ _ _) =
+  Ext.Dev.Project.equal one two

@@ -80,7 +80,7 @@ versionTests =
   , runTest "project affectsCompilation is source-aware" testProjectAffectsCompilation
   , runTest "application entrypoints compile as singleton groups" testApplicationEntrypointGroupsSplit
   , runTest "application entrypoints are targeted by imports" testApplicationEntrypointGroupsTargeted
-  , runTest "package entrypoints stay grouped" testPackageEntrypointGroupsStayGrouped
+  , runTest "package changed source is targeted directly" testPackageChangedSourceIsTargeted
   , runTest "target results preserve per-entrypoint success" testTargetResultsSuccess
   , runTest "open file keeps in-memory precedence over fs watcher" testOpenFileSkipsFilesystemSync
   , runTest "disconnect cleanup removes editor and diagnostics state" testCleanupConnectionState
@@ -831,14 +831,17 @@ testProjectContainsSegmentAware = do
 testProjectAffectsCompilation :: IO Bool
 testProjectAffectsCompilation = do
   let root = "/tmp/app"
+      externalSrc = "/tmp/shared-src"
       proj = Project.Project root root (NE.List (root FilePath.</> "src" FilePath.</> "Main.elm") []) [root FilePath.</> "src"] 1
+      externalProj = Project.Project root root (NE.List (externalSrc FilePath.</> "Main.elm") []) [externalSrc] 1
       srcElm = Project.affectsCompilation "/tmp/app/src/Main.elm" proj
       elmJson = Project.affectsCompilation "/tmp/app/elm.json" proj
       elmDevJson = Project.affectsCompilation "/tmp/app/elm.dev.json" proj
+      externalSourceElm = Project.affectsCompilation "/tmp/shared-src/Main.elm" externalProj
       outsideSrc = Project.affectsCompilation "/tmp/app/tests/Main.elm" proj
       generated = Project.affectsCompilation "/tmp/app/elm-stuff/generated/Main.elm" proj
       nonElm = Project.affectsCompilation "/tmp/app/src/version.ts" proj
-  pure (srcElm && elmJson && elmDevJson && not outsideSrc && not generated && not nonElm)
+  pure (srcElm && elmJson && elmDevJson && externalSourceElm && not outsideSrc && not generated && not nonElm)
 
 testApplicationEntrypointGroupsSplit :: IO Bool
 testApplicationEntrypointGroupsSplit = do
@@ -880,19 +883,27 @@ testApplicationEntrypointGroupsTargeted = do
         && null unusedGroups
     )
 
-testPackageEntrypointGroupsStayGrouped :: IO Bool
-testPackageEntrypointGroupsStayGrouped = do
+testPackageChangedSourceIsTargeted :: IO Bool
+testPackageChangedSourceIsTargeted = do
   root <- uniqueRoot
   let srcDir = root FilePath.</> "src"
       exposedA = srcDir FilePath.</> "One.elm"
       exposedB = srcDir FilePath.</> "Two.elm"
+      internal = srcDir FilePath.</> "Internal.elm"
       proj = Project.Project root root (NE.List exposedA [exposedB]) [srcDir] 1
   writeElmPackage root
   Dir.createDirectoryIfMissing True srcDir
   writeFile exposedA "module One exposing (value)\n\nvalue = 1\n"
   writeFile exposedB "module Two exposing (value)\n\nvalue = 2\n"
-  groups <- Project.entrypointGroupsForChangedFiles [exposedA] proj
-  pure (map NE.toList groups == [[exposedA, exposedB]])
+  writeFile internal "module Internal exposing (value)\n\nvalue = 3\n"
+  exposedGroups <- Project.entrypointGroupsForChangedFiles [exposedA] proj
+  internalGroups <- Project.entrypointGroupsForChangedFiles [internal] proj
+  configGroups <- Project.entrypointGroupsForChangedFiles [root FilePath.</> "elm.json"] proj
+  pure
+    ( map NE.toList exposedGroups == [[exposedA]]
+        && map NE.toList internalGroups == [[internal]]
+        && map NE.toList configGroups == [[exposedA, exposedB]]
+    )
 
 testTargetResultsSuccess :: IO Bool
 testTargetResultsSuccess = do

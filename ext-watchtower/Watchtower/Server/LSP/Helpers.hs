@@ -53,7 +53,7 @@ getDiagnosticsForProject state projectCache maybeFilePath = do
   -- Test diagnostics (if present)
   let testDiags =
         case testInfo of
-          Just (Watchtower.Live.Client.TestInfo _ _ (Just (Watchtower.Live.Client.TestError reactorErr))) ->
+          Just (Watchtower.Live.Client.TestInfo _ _ (Just (Watchtower.Live.Client.TestError reactorErr))) | shouldIncludeTestDiagnostics projectCache maybeFilePath ->
             extractDiagnosticsFromReactor maybeFilePath reactorErr
           _ -> []
 
@@ -109,9 +109,26 @@ extractDiagnosticsFromReactorByFile reactor =
     _ -> Map.empty
 
 -- | Public wrapper to obtain diagnostics grouped by file from a test compile reactor error.
-getDiagnosticsFromTestReactorByFile :: Reporting.Exit.Reactor -> Map.Map FilePath [Diagnostic]
-getDiagnosticsFromTestReactorByFile =
-  extractDiagnosticsFromReactorByFile
+getDiagnosticsFromTestReactorByFile :: Watchtower.Live.Client.ProjectCache -> Reporting.Exit.Reactor -> Map.Map FilePath [Diagnostic]
+getDiagnosticsFromTestReactorByFile projectCache reactor =
+  Map.filterWithKey
+    (\path _ -> isProjectTestFile (Watchtower.Live.Client.getProjectRoot projectCache) path)
+    (extractDiagnosticsFromReactorByFile reactor)
+
+shouldIncludeTestDiagnostics :: Watchtower.Live.Client.ProjectCache -> Maybe FilePath -> Bool
+shouldIncludeTestDiagnostics projectCache maybeFilePath =
+  case maybeFilePath of
+    Just path ->
+      isProjectTestFile (Watchtower.Live.Client.getProjectRoot projectCache) path
+
+    Nothing ->
+      True
+
+isProjectTestFile :: FilePath -> FilePath -> Bool
+isProjectTestFile projectRoot path =
+  let testRoot = System.FilePath.normalise (projectRoot System.FilePath.</> "tests")
+      normalisedPath = System.FilePath.normalise path
+   in testRoot == normalisedPath || (testRoot <> [System.FilePath.pathSeparator]) `Data.List.isPrefixOf` normalisedPath
 
 
 -- | Convert a module's errors to diagnostics if it matches the target file
