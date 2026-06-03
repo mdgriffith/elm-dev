@@ -36,6 +36,7 @@ import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
 import qualified Data.Set as Set
 import qualified Watchtower.Trace as Trace
+import qualified Ext.Trace as PerfTrace
 
 
 entrypointsIncluded :: NE.List FilePath -> NE.List FilePath -> Bool
@@ -72,7 +73,7 @@ This means
 
 -}
 upsertVirtual :: Client.State -> CompileHelpers.Flags -> FilePath -> FilePath -> IO (Maybe Client.ProjectCache)
-upsertVirtual state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint = do
+upsertVirtual state@(Client.State mClients mProjects _ _ _ _ _ _ _) flags root entrypoint = do
   elmJsonResult <- insertVirtualElmJson root
   case elmJsonResult of
     Left err -> do
@@ -155,7 +156,7 @@ data UpsertError
   deriving (Show)
  
 upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO (Either UpsertError Client.ProjectCache)
-upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoints = do
+upsert state@(Client.State mClients mProjects _ _ _ _ _ _ _) flags root entrypoints = do
   canonicalRoot <- Dir.canonicalizePath root
   normalizedEntrypoints <- normalizeEntrypoints canonicalRoot entrypoints
 
@@ -227,8 +228,10 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
                         STM.writeTVar mProjects updatedProjects
                         pure (False, updatedProjectCache)
                   Nothing -> do
-                    STM.writeTVar mProjects (newProjectCache : existingProjects')
-                    pure (True, newProjectCache)
+                        STM.writeTVar mProjects (newProjectCache : existingProjects')
+                        pure (True, newProjectCache)
+
+              registerTraceProject state project
 
               if isNew
                 then do
@@ -248,7 +251,7 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
                                   , " relevant=" ++ Trace.formatPaths relevant
                                   ]
                               )
-                            let (Client.State _ _ _ _ _ _ mEditorsOpen _) = state
+                            let (Client.State _ _ _ _ _ _ mEditorsOpen _ _) = state
                             editorsOpen <- STM.readTVarIO mEditorsOpen
                             let syncable = filter (`shouldSyncFilesystemPath` editorsOpen) relevant
 
@@ -299,6 +302,15 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _) flags root entrypoint
                 else pure ()
 
               pure (Right project)
+
+registerTraceProject :: Client.State -> Client.ProjectCache -> IO ()
+registerTraceProject state (Client.ProjectCache proj _ _ _ _) = do
+  let root = Ext.Dev.Project._root proj
+      projectRoot = Ext.Dev.Project._projectRoot proj
+      entrypoints = NE.toList (Ext.Dev.Project._entrypoints proj)
+      srcDirs = Ext.Dev.Project._srcDirs proj
+      shortId = Ext.Dev.Project._shortId proj
+  PerfTrace.project (Client.trace state) root projectRoot entrypoints srcDirs shortId []
 
 
 missingFiles :: [FilePath] -> IO [FilePath]

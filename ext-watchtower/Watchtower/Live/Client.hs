@@ -109,6 +109,7 @@ import qualified System.Directory as Dir
 import qualified Data.ByteString.Lazy.Char8 as BL8
 import qualified Watchtower.Editor
 import qualified Watchtower.Websocket
+import qualified Ext.Trace as Trace
 import qualified Ext.CompileHelpers.Generic
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import Watchtower.Server.LSP.Protocol (Uri)
@@ -143,7 +144,8 @@ data State = State
     -- LSP connections that have fetched the current workspace diagnostics snapshot,
     -- tracking which document URIs had diagnostics reported to that connection,
     -- and whether that snapshot is out-of-date after a (re)compile trigger.
-    workspaceDiagnosticsRequested :: STM.TVar (Map.Map T.Text LspSession)
+    workspaceDiagnosticsRequested :: STM.TVar (Map.Map T.Text LspSession),
+    trace :: Trace.Trace
   }
 
 data ProjectCache = ProjectCache
@@ -167,6 +169,7 @@ data Error
 
 initState :: Urls -> IO State
 initState urls = do
+  traceHandle <- Trace.setupFromEnv
   State
     <$> Watchtower.Websocket.clientsInit
     <*> STM.newTVarIO []
@@ -176,6 +179,7 @@ initState urls = do
     <*> STM.newTVarIO Map.empty
     <*> STM.newTVarIO EditorsOpen.empty
     <*> STM.newTVarIO Map.empty
+    <*> pure traceHandle
 
 toOldJSON :: CompilationResult -> Json.Encode.Value
 toOldJSON NotCompiled =
@@ -290,18 +294,18 @@ formatFileInfoSummary fi =
    in "[" ++ [w, d, l, s, c, t] ++ "]"
 
 getFileInfo :: FilePath -> State -> IO (Maybe FileInfo)
-getFileInfo path (State _ _ mFileInfo _ _ _ _ _) = do
+getFileInfo path (State _ _ mFileInfo _ _ _ _ _ _) = do
   fileInfo <- STM.readTVarIO mFileInfo
   pure (Map.lookup path fileInfo)
 
 -- Read the entire FileInfo map
 getAllFileInfos :: State -> IO (Map.Map FilePath FileInfo)
-getAllFileInfos (State _ _ mFileInfo _ _ _ _ _) = STM.readTVarIO mFileInfo
+getAllFileInfos (State _ _ mFileInfo _ _ _ _ _ _) = STM.readTVarIO mFileInfo
 
 -- Given a project and a canonical module name, try to find the first matching FileInfo
 -- by generating potential file paths using the project's srcDirs and the module's Raw name.
 getFileInfoFromModuleName :: ProjectCache -> ModuleName.Canonical -> State -> IO (Maybe FileInfo)
-getFileInfoFromModuleName (ProjectCache proj _ _ _ _) (ModuleName.Canonical _pkg rawName) state@(State _ _ mFileInfo _ _ _ _ _) = do
+getFileInfoFromModuleName (ProjectCache proj _ _ _ _) (ModuleName.Canonical _pkg rawName) state@(State _ _ mFileInfo _ _ _ _ _ _) = do
   fileInfoMap <- STM.readTVarIO mFileInfo
   let moduleRelPath = ModuleName.toFilePath rawName ++ ".elm"
   let srcDirs = Ext.Dev.Project._srcDirs proj
@@ -312,7 +316,7 @@ getFileInfoFromModuleName (ProjectCache proj _ _ _ _) (ModuleName.Canonical _pkg
                       ) Nothing candidates)
 
 logFileInfoKeys :: State -> IO ()
-logFileInfoKeys (State _ _ mFileInfo mPackages _ _ _ _) = do
+logFileInfoKeys (State _ _ mFileInfo mPackages _ _ _ _ _) = do
   infoMap <- STM.readTVarIO mFileInfo
   let keys = Map.keys infoMap
   mapM_
@@ -378,7 +382,7 @@ watchedFiles (Watching _ files) =
   files
 
 getClientData :: ClientId -> State -> IO (Maybe Watching)
-getClientData clientId (State mClients _ _ _ _ _ _ _) = do
+getClientData clientId (State mClients _ _ _ _ _ _ _ _) = do
   clients <- STM.atomically $ STM.readTVar mClients
 
   pure
@@ -423,7 +427,7 @@ isWatchingFileForDocs file (Watching watchingProjects watchingFiles) =
       watchForDocs
 
 getRoot :: FilePath -> State -> IO (Maybe FilePath)
-getRoot path (State _ mProjects _ _ _ _ _ _) =
+getRoot path (State _ mProjects _ _ _ _ _ _ _) =
   do
     projects <- STM.readTVarIO mProjects
     pure (getRootHelp path projects Nothing)
@@ -460,7 +464,7 @@ sortProjects projects =
   List.sortBy (\(ProjectCache p1 _ _ _ _) (ProjectCache p2 _ _ _ _) -> compare (List.length (Ext.Dev.Project._root p2)) (List.length (Ext.Dev.Project._root p1))) projects
 
 getExistingProject :: FilePath -> State -> IO (Either GetExistingProjectError (ProjectCache, [ProjectCache]))
-getExistingProject path (State _ mProjects _ _ _ _ _ _) = do
+getExistingProject path (State _ mProjects _ _ _ _ _ _ _) = do
   projects <- STM.readTVarIO mProjects
   case projects of
     [] -> pure $ Left NoProjectsRegistered
@@ -482,7 +486,7 @@ findByRoot root =
   List.find (\(ProjectCache proj _ _ _ _) -> Ext.Dev.Project.getRoot proj == root)
 
 getAllStatuses :: State -> IO [ProjectStatus]
-getAllStatuses state@(State _ mProjects _ _ _ _ _ _) =
+getAllStatuses state@(State _ mProjects _ _ _ _ _ _ _) =
   do
     projects <- STM.readTVarIO mProjects
 
@@ -579,7 +583,7 @@ packageModulesForDeps pkgList depNames =
     depNames
 
 getStatus :: ProjectCache -> State -> IO ProjectStatus
-getStatus (ProjectCache proj docsInfo _ mCompileResult _) (State _ _ _ mPackages _ _ _ _) =
+getStatus (ProjectCache proj docsInfo _ mCompileResult _) (State _ _ _ mPackages _ _ _ _ _) =
   do
     result <- STM.readTVarIO mCompileResult
     let successful = compilationResultSucceeded result
@@ -1009,20 +1013,20 @@ encodeTestResults path (TestResults total passed failed failures) =
 -- Session helpers
 
 registerSession :: State -> T.Text -> IO ()
-registerSession (State _ mProjects _ _ _ mSessions _ _) connId = do
+registerSession (State _ mProjects _ _ _ mSessions _ _ _) connId = do
   -- We don't need to do anything because we only need to track the session id
   -- If they've specifically asked for a specific project.
   pure ()
   
 unregisterSession :: State -> T.Text -> IO ()
-unregisterSession state@(State _ _ _ _ _ mSessions _ _) connId = do
+unregisterSession state@(State _ _ _ _ _ mSessions _ _ _) connId = do
   cleanupConnectionState state connId
   STM.atomically $ do
     sessionsMap <- STM.readTVar mSessions
     STM.writeTVar mSessions (Map.delete connId sessionsMap)
 
 cleanupConnectionState :: State -> T.Text -> IO ()
-cleanupConnectionState (State _ _ _ _ _ _ mEditorsOpen mWorkspaceDiagsRequested) connId =
+cleanupConnectionState (State _ _ _ _ _ _ mEditorsOpen mWorkspaceDiagsRequested _) connId =
   STM.atomically $ do
     editors <- STM.readTVar mEditorsOpen
     STM.writeTVar mEditorsOpen (EditorsOpen.connectionClosed connId editors)
@@ -1030,7 +1034,7 @@ cleanupConnectionState (State _ _ _ _ _ _ mEditorsOpen mWorkspaceDiagsRequested)
     STM.writeTVar mWorkspaceDiagsRequested (Map.delete connId requested)
 
 setFocusedProjectId :: State -> T.Text -> Int -> IO Bool
-setFocusedProjectId (State _ mProjects _ _ _ mSessions _ _) connId pid = do
+setFocusedProjectId (State _ mProjects _ _ _ mSessions _ _ _) connId pid = do
   projects <- STM.readTVarIO mProjects
   let exists = any (\(ProjectCache proj _ _ _ _) -> Ext.Dev.Project._shortId proj == pid) projects
   if exists
@@ -1042,6 +1046,6 @@ setFocusedProjectId (State _ mProjects _ _ _ mSessions _ _) connId pid = do
     else pure False
 
 getFocusedProjectId :: State -> T.Text -> IO (Maybe Int)
-getFocusedProjectId (State _ _ _ _ _ mSessions _ _) connId = do
+getFocusedProjectId (State _ _ _ _ _ mSessions _ _ _) connId = do
   sessionsMap <- STM.readTVarIO mSessions
   pure (Map.lookup connId sessionsMap)

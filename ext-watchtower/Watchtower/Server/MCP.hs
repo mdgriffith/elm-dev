@@ -225,7 +225,7 @@ toolScaffoldElmApp = MCP.Tool
               canonicalRoot <- Dir.canonicalizePath dir
               Watchtower.State.Discover.discover state canonicalRoot
               -- Select the newly created project for this connection, if discover found it
-              let (Client.State _ mProjects _ _ _ _ _ _) = state
+              let (Client.State _ mProjects _ _ _ _ _ _ _) = state
               projects1 <- Control.Concurrent.STM.readTVarIO mProjects
               case Client.findByRoot canonicalRoot projects1 of
                 Just (Client.ProjectCache proj _ _ _ _) -> do
@@ -377,7 +377,7 @@ toolScaffoldElmPackage = MCP.Tool
               canonicalRoot <- Dir.canonicalizePath dir
               Watchtower.State.Discover.discover state canonicalRoot
               -- Select the newly created project for this connection, if discover found it
-              let (Client.State _ mProjects _ _ _ _ _ _) = state
+              let (Client.State _ mProjects _ _ _ _ _ _ _) = state
               projects1 <- Control.Concurrent.STM.readTVarIO mProjects
               case Client.findByRoot canonicalRoot projects1 of
                 Just (Client.ProjectCache proj _ _ _ _) -> do
@@ -767,7 +767,7 @@ toolProjectSelect = MCP.Tool
         Left e -> pure (errTxt (Text.pack e))
         Right rootDir -> do
           canonicalRoot <- Dir.canonicalizePath rootDir
-          let (Client.State _ mProjects _ _ _ _ _ _) = state
+          let (Client.State _ mProjects _ _ _ _ _ _ _) = state
           projects0 <- Control.Concurrent.STM.readTVarIO mProjects
           case Client.findByRoot canonicalRoot projects0 of
             Just (Client.ProjectCache proj _ _ mCr _) -> do
@@ -877,7 +877,7 @@ resourceOverview =
           case projectFound of
             Left msg -> do
               -- Build project list for frontmatter even when no project is selected
-              let (Client.State _ mProjects _ _ _ _ _ _) = state
+              let (Client.State _ mProjects _ _ _ _ _ _ _) = state
               projects <- Control.Concurrent.STM.readTVarIO mProjects
               mFocused <- Client.getFocusedProjectId state connId
 
@@ -961,7 +961,7 @@ resourceOverview =
                                  else []
 
               -- Build project list for frontmatter
-              let (Client.State _ mProjects _ _ _ _ _ _) = state
+              let (Client.State _ mProjects _ _ _ _ _ _ _) = state
               projects <- Control.Concurrent.STM.readTVarIO mProjects
               mFocused <- Client.getFocusedProjectId state connId
               items <- mapM
@@ -1370,7 +1370,7 @@ resourceProjectList =
       , MCP.resourceMimeType = Just "text/markdown"
       , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceUser] MCP.High Nothing)
       , MCP.read = \req state _emit connId -> do
-          let (Client.State _ mProjects _ _ _ _ _ _) = state
+          let (Client.State _ mProjects _ _ _ _ _ _ _) = state
           projects <- Control.Concurrent.STM.readTVarIO mProjects
           mFocused <- Client.getFocusedProjectId state connId
 

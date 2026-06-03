@@ -36,11 +36,25 @@ import qualified Control.Concurrent.MVar as MVar
 import qualified System.IO.Unsafe as Unsafe
 import qualified Control.Exception as Exception
 import qualified Control.Concurrent as Concurrent
+import qualified Ext.Trace as PerfTrace
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
 
 compile :: Client.State -> String -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compile state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequested) traceId projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot _entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
+compile state traceId projCache@(Client.ProjectCache (Ext.Dev.Project.Project projectRoot elmJsonRoot _entrypoints _srcDirs shortId) _docsInfo _flags _mCompileResult _) files =
+  PerfTrace.span
+    (Client.trace state)
+    "compile.project"
+    [ PerfTrace.text "trace_id" traceId
+    , PerfTrace.text "project_root" projectRoot
+    , PerfTrace.text "elm_json_root" elmJsonRoot
+    , PerfTrace.int "project_short_id" shortId
+    , PerfTrace.int "changed_file_count" (length files)
+    ]
+    (compileUntraced state traceId projCache files)
+
+compileUntraced :: Client.State -> String -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
+compileUntraced state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequested _) traceId projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot _entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
   versionsAtStart <- Versions.readVersions projectRoot
   let fsSnapshot = Versions.fsVersion versionsAtStart
   Ext.Log.log Ext.Log.Live
@@ -230,7 +244,7 @@ withProjectCompileLockIfAvailable projectRoot action = do
     Just () -> action `Exception.finally` MVar.putMVar lock ()
 
 markFilesystemChanged :: Client.State -> [FilePath] -> IO ()
-markFilesystemChanged (Client.State _ mProjects _ _ _ _ _ _) changedPaths = do
+markFilesystemChanged (Client.State _ mProjects _ _ _ _ _ _ _) changedPaths = do
   if List.null changedPaths
     then pure ()
     else do
@@ -294,7 +308,17 @@ updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
 --   Compilation is performed synchronously here so the caller can rely on
 --   fresh results when this function returns.
 compileRelevantProjects :: Client.State -> String -> [FilePath] -> IO Bool
-compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) traceId elmFiles = do
+compileRelevantProjects state traceId elmFiles =
+  PerfTrace.span
+    (Client.trace state)
+    "compile.relevant_projects"
+    [ PerfTrace.text "trace_id" traceId
+    , PerfTrace.int "changed_file_count" (length elmFiles)
+    ]
+    (compileRelevantProjectsUntraced state traceId elmFiles)
+
+compileRelevantProjectsUntraced :: Client.State -> String -> [FilePath] -> IO Bool
+compileRelevantProjectsUntraced state@(Client.State _ mProjects _ _ _ _ _ _ _) traceId elmFiles = do
   if elmFiles == []
     then pure False
     else do
@@ -350,7 +374,7 @@ compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) traceId elm
                   )
                 _ <- compile state traceId projCache projectFiles
                 -- If this project has tests, compile them using previously discovered test files
-                compileTests state projCache
+                compileTestsWithTrace state traceId projCache
                 compileUntilClean True
               else do
                 Ext.Log.log Ext.Log.Live
@@ -370,7 +394,7 @@ scheduleDebouncedCompileRelevantProjects state traceId delayMicros elmFiles =
   scheduleDebouncedCompileRelevantProjectsWithCallback state traceId delayMicros elmFiles (\_ -> pure ())
 
 scheduleDebouncedCompileRelevantProjectsWithCallback :: Client.State -> String -> Int -> [FilePath] -> (Bool -> IO ()) -> IO ()
-scheduleDebouncedCompileRelevantProjectsWithCallback state@(Client.State _ mProjects _ _ _ _ _ _) traceId delayMicros elmFiles afterCompile = do
+scheduleDebouncedCompileRelevantProjectsWithCallback state@(Client.State _ mProjects _ _ _ _ _ _ _) traceId delayMicros elmFiles afterCompile = do
   if elmFiles == []
     then pure ()
     else do
@@ -407,40 +431,83 @@ scheduleDebouncedCompileRelevantProjectsWithCallback state@(Client.State _ mProj
 
 -- | Compile tests for a project if test files have been discovered.
 compileTests :: Client.State -> Client.ProjectCache -> IO ()
-compileTests state@(Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested) (Client.ProjectCache proj _ _ _ mTestVar) = do
+compileTests state projCache =
+  compileTestsWithTrace state "compile.tests" projCache
+
+compileTestsWithTrace :: Client.State -> String -> Client.ProjectCache -> IO ()
+compileTestsWithTrace state@(Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested _) traceId (Client.ProjectCache proj _ _ _ mTestVar) = do
   currentTest <- STM.readTVarIO mTestVar
   case currentTest of
-    Nothing -> pure ()
+    Nothing ->
+      PerfTrace.span
+        (Client.trace state)
+        "compile.tests"
+        [ PerfTrace.text "trace_id" traceId
+        , PerfTrace.text "project_root" (Ext.Dev.Project.getRoot proj)
+        , PerfTrace.int "project_short_id" (Ext.Dev.Project._shortId proj)
+        , PerfTrace.bool "has_tests" False
+        , PerfTrace.text "outcome" "not_discovered"
+        ]
+        (pure ())
     Just ti -> do
       let files = Client.testFiles ti
       case files of
-        [] -> pure ()
+        [] ->
+          PerfTrace.span
+            (Client.trace state)
+            "compile.tests"
+            [ PerfTrace.text "trace_id" traceId
+            , PerfTrace.text "project_root" (Ext.Dev.Project.getRoot proj)
+            , PerfTrace.int "project_short_id" (Ext.Dev.Project._shortId proj)
+            , PerfTrace.bool "has_tests" True
+            , PerfTrace.int "test_file_count" 0
+            , PerfTrace.text "outcome" "no_test_files"
+            ]
+            (pure ())
         (x:xs) -> do
           let root = Ext.Dev.Project.getRoot proj
-          compiledR <- TestCompile.compile root (NE.List x xs)
-          STM.atomically $ do
-            cur <- STM.readTVar mTestVar
-            case cur of
-              Nothing -> pure ()
-              Just info ->
-                case compiledR of
-                  Left reactorErr ->
-                    STM.writeTVar mTestVar (Just info { Client.testCompilation = Just (Client.TestError reactorErr) })
-                  Right () ->
-                    STM.writeTVar mTestVar (Just info { Client.testCompilation = Just Client.TestSuccess })
-          -- Mark workspace diagnostics snapshots as out-of-date when test compilation changes
-          STM.atomically $ do
-            cur <- STM.readTVar mWorkspaceDiagsRequested
-            let updated =
-                  Map.map
-                    (\s -> Client.LspSession
-                      { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
-                      , Client.workspaceDiagnosticsSnapshotOutOfDate = True
-                      , Client.lspRoot = Client.lspRoot s
-                      }
-                    )
-                    cur
-            STM.writeTVar mWorkspaceDiagsRequested updated
+          PerfTrace.span
+            (Client.trace state)
+            "compile.tests"
+            [ PerfTrace.text "trace_id" traceId
+            , PerfTrace.text "project_root" root
+            , PerfTrace.int "project_short_id" (Ext.Dev.Project._shortId proj)
+            , PerfTrace.bool "has_tests" True
+            , PerfTrace.int "test_file_count" (length files)
+            ]
+            $ do
+              compiledR <- TestCompile.compile root (NE.List x xs)
+              PerfTrace.event
+                (Client.trace state)
+                "compile.tests.result"
+                [ PerfTrace.text "trace_id" traceId
+                , PerfTrace.text "project_root" root
+                , PerfTrace.int "project_short_id" (Ext.Dev.Project._shortId proj)
+                , PerfTrace.text "outcome" (case compiledR of Left _ -> "error"; Right () -> "success")
+                ]
+              STM.atomically $ do
+                cur <- STM.readTVar mTestVar
+                case cur of
+                  Nothing -> pure ()
+                  Just info ->
+                    case compiledR of
+                      Left reactorErr ->
+                        STM.writeTVar mTestVar (Just info { Client.testCompilation = Just (Client.TestError reactorErr) })
+                      Right () ->
+                        STM.writeTVar mTestVar (Just info { Client.testCompilation = Just Client.TestSuccess })
+              -- Mark workspace diagnostics snapshots as out-of-date when test compilation changes
+              STM.atomically $ do
+                cur <- STM.readTVar mWorkspaceDiagsRequested
+                let updated =
+                      Map.map
+                        (\s -> Client.LspSession
+                          { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
+                          , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                          , Client.lspRoot = Client.lspRoot s
+                          }
+                        )
+                        cur
+                STM.writeTVar mWorkspaceDiagsRequested updated
 
 updateProjectFileInfo :: Project.Project -> Either a b -> Map.Map FilePath Client.FileInfo -> Map.Map FilePath Client.FileInfo -> Map.Map FilePath Client.FileInfo
 updateProjectFileInfo proj compileResult current fileInfoByPath =

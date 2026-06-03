@@ -53,6 +53,7 @@ Executable elm-dev
         ext-debug
         ext-generate
         ext-optimization
+        ext-trace
         ext-watchtower
 
     other-extensions:
@@ -241,6 +242,11 @@ Executable elm-dev
         Ext.Test.Result
         Ext.Test.Result.Report
         Ext.Install
+
+        -- ext-trace
+        Ext.Trace
+        Ext.Trace.Schema
+        Ext.Trace.Types
 
         -- 
         Ext.MemoryCached.BackgroundWriter
@@ -435,7 +441,8 @@ Executable elm-dev
         websockets,
         websockets-snap,
         aeson,
-        aeson-pretty
+        aeson-pretty,
+        sqlite-simple
 
     if os(windows)
         Build-depends:
@@ -461,6 +468,7 @@ Test-Suite elm-dev-tests
         ext-debug
         ext-generate
         ext-optimization
+        ext-trace
         ext-watchtower
 
     main-is: TestMain.hs
@@ -536,6 +544,9 @@ Test-Suite elm-dev-tests
         Ext.Test.Compile
         Ext.Test.Discover
         Ext.Test.Generate
+        Ext.Trace
+        Ext.Trace.Schema
+        Ext.Trace.Types
         Ext.VirtualFile
         Gen.Config
         Gen.Generate
@@ -694,7 +705,8 @@ Test-Suite elm-dev-tests
         websockets,
         websockets-snap,
         aeson,
-        aeson-pretty
+        aeson-pretty,
+        sqlite-simple
 
     if os(windows)
         build-depends:

@@ -22,6 +22,7 @@ import qualified Ext.Test.Discover as TestDiscover
 import qualified Control.Concurrent.STM as STM
 import qualified Data.NonEmptyList as NE
 import qualified Elm.ModuleName as ModuleName
+import qualified Ext.Trace as PerfTrace
 
 discover :: Client.State -> FilePath -> IO ()
 discover state root = do
@@ -49,7 +50,19 @@ initializeProject state accum project = do
       do
         -- Populate tests for this project (best-effort)
         discoverTests state projectCache
+        registerTraceDiscoveredProject state project projectCache
         pure (projectCache : accum)
+
+registerTraceDiscoveredProject :: Client.State -> Ext.Dev.Project.Project -> Client.ProjectCache -> IO ()
+registerTraceDiscoveredProject state discoveredProject (Client.ProjectCache cachedProject _ _ _ _) = do
+  PerfTrace.project
+    (Client.trace state)
+    (Ext.Dev.Project._root discoveredProject)
+    (Ext.Dev.Project._projectRoot discoveredProject)
+    (NE.toList (Ext.Dev.Project._entrypoints discoveredProject))
+    (Ext.Dev.Project._srcDirs discoveredProject)
+    (Ext.Dev.Project._shortId cachedProject)
+    []
 
 -- | Discover test suites for a project and store TestInfo on its cache
 discoverTests :: Client.State -> Client.ProjectCache -> IO ()

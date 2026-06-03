@@ -48,6 +48,7 @@ import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.MCP.Uri as Uri
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
 import qualified Control.Concurrent.STM as STM
+import qualified Ext.Trace as PerfTrace
 
 -- * MCP Core Types
 
@@ -410,7 +411,18 @@ json req val =
 -- * Server
 
 serve :: [Tool] -> [Resource] -> [Prompt] -> Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
-serve tools resources prompts state emit connId req@(JSONRPC.Request _ reqId method params) = do
+serve tools resources prompts state emit connId req@(JSONRPC.Request _ reqId method _params) =
+  PerfTrace.span
+    (Client.trace state)
+    "mcp.request"
+    [ PerfTrace.text "method" (Text.unpack method)
+    , PerfTrace.text "connection_id" (Text.unpack connId)
+    , PerfTrace.text "request_id" (show reqId)
+    ]
+    (serveUntraced tools resources prompts state emit connId req)
+
+serveUntraced :: [Tool] -> [Resource] -> [Prompt] -> Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
+serveUntraced tools resources prompts state emit connId req@(JSONRPC.Request _ reqId method params) = do
   -- Basic logging for MCP method invocations
   Ext.Log.log Ext.Log.Misc ("MCP method: " ++ Text.unpack method)
   case Text.unpack method of
@@ -456,7 +468,14 @@ serve tools resources prompts state emit connId req@(JSONRPC.Request _ reqId met
                           Nothing -> "null"
                   Ext.Log.log Ext.Log.Misc ("MCP tool start: " ++ Text.unpack toolName' ++ " args=" ++ Text.unpack argsTxt)
                   tStart <- getCurrentTime
-                  response <- call tool' args state emit connId
+                  response <-
+                    PerfTrace.span
+                      (Client.trace state)
+                      "mcp.tool"
+                      [ PerfTrace.text "tool" (Text.unpack toolName')
+                      , PerfTrace.text "connection_id" (Text.unpack connId)
+                      ]
+                      (call tool' args state emit connId)
                   tEnd <- getCurrentTime
                   let durationMs :: Integer
                       durationMs = round (realToFrac (diffUTCTime tEnd tStart) * 1000 :: Double)
@@ -485,7 +504,15 @@ serve tools resources prompts state emit connId req@(JSONRPC.Request _ reqId met
               let matched = [ r | r <- resources, Uri.match (resourceUri r) (readResourceUri readReq) /= Nothing ]
               case matched of
                 (r:_) -> do
-                  response <- Watchtower.Server.MCP.Protocol.read r readReq state emit connId
+                  response <-
+                    PerfTrace.span
+                      (Client.trace state)
+                      "mcp.resource_read"
+                      [ PerfTrace.text "uri" (Text.unpack (readResourceUri readReq))
+                      , PerfTrace.text "resource" (Text.unpack (resourceName r))
+                      , PerfTrace.text "connection_id" (Text.unpack connId)
+                      ]
+                      (Watchtower.Server.MCP.Protocol.read r readReq state emit connId)
                   return $ success reqId (JSON.toJSON response)
                 [] -> do
                   let response =

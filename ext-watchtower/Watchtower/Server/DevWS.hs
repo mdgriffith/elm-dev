@@ -36,7 +36,7 @@ websocket state =
     ]
 
 websocket_ :: Client.State -> Snap ()
-websocket_ state@(Client.State mClients _ _ _ _ _ _ _) = do
+websocket_ state@(Client.State mClients _ _ _ _ _ _ _ _) = do
   mKey <- getHeader "sec-websocket-key" <$> getRequest
   case mKey of
     Just key -> do
@@ -79,7 +79,7 @@ handleIncoming _ = pure ()
 -- Outgoing helpers
 
 broadcastCompiled :: Client.State -> T.Text -> IO ()
-broadcastCompiled (Client.State mClients _ _ _ _ _ _ _) codeText = do
+broadcastCompiled (Client.State mClients _ _ _ _ _ _ _ _) codeText = do
   let payload = JSON.object
         [ "msg" JSON..= JSON.String (T.pack "Compiled")
         , "details" JSON..= JSON.String codeText
@@ -87,7 +87,7 @@ broadcastCompiled (Client.State mClients _ _ _ _ _ _ _) codeText = do
   Watchtower.Websocket.broadcastWith mClients (\_ -> True) (aesonToText payload)
 
 broadcastCompiledTarget :: Client.State -> FilePath -> T.Text -> IO ()
-broadcastCompiledTarget (Client.State mClients _ _ _ _ _ _ _) entrypoint codeText = do
+broadcastCompiledTarget (Client.State mClients _ _ _ _ _ _ _ _) entrypoint codeText = do
   let payload = JSON.object
         [ "msg" JSON..= JSON.String (T.pack "Compiled")
         , "entrypoint" JSON..= entrypoint
@@ -96,7 +96,7 @@ broadcastCompiledTarget (Client.State mClients _ _ _ _ _ _ _) entrypoint codeTex
   Watchtower.Websocket.broadcastWith mClients (\_ -> True) (aesonToText payload)
 
 broadcastCompilationError :: Client.State -> JSON.Value -> IO ()
-broadcastCompilationError (Client.State mClients _ _ _ _ _ _ _) errVal = do
+broadcastCompilationError (Client.State mClients _ _ _ _ _ _ _ _) errVal = do
   let payload = JSON.object
         [ "msg" JSON..= JSON.String (T.pack "CompilationError")
         , "details" JSON..= errVal
@@ -104,7 +104,7 @@ broadcastCompilationError (Client.State mClients _ _ _ _ _ _ _) errVal = do
   Watchtower.Websocket.broadcastWith mClients (\_ -> True) (aesonToText payload)
 
 broadcastCompilationTargetError :: Client.State -> FilePath -> JSON.Value -> IO ()
-broadcastCompilationTargetError (Client.State mClients _ _ _ _ _ _ _) entrypoint errVal = do
+broadcastCompilationTargetError (Client.State mClients _ _ _ _ _ _ _ _) entrypoint errVal = do
   let payload = JSON.object
         [ "msg" JSON..= JSON.String (T.pack "CompilationError")
         , "entrypoint" JSON..= entrypoint
@@ -117,7 +117,7 @@ aesonToText = T.decodeUtf8 . LBS.toStrict . JSON.encode
 
 -- Broadcast current sessions and editors-open status to all clients
 broadcastServiceStatus :: Client.State -> IO ()
-broadcastServiceStatus (Client.State mClients _ _ _ _ mSessions mEditors _) = do
+broadcastServiceStatus (Client.State mClients _ _ _ _ mSessions mEditors _ _) = do
   sessionsMap <- STM.readTVarIO mSessions
   editorsOpen <- STM.readTVarIO mEditors
   let editorsJson =
