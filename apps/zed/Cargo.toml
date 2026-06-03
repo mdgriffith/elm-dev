@@ -1,0 +1,13 @@
+[package]
+name = "zed_elm_dev"
+version = "0.0.1"
+edition = "2021"
+publish = false
+license = "BSD-3-Clause"
+
+[lib]
+path = "src/elm.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.7.0"
