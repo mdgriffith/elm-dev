@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.Server.LSP.Helpers (getDiagnosticsForProject, getProjectDiagnosticsByFile, getUnchangedProjectDiagnosticsByFile, getDiagnosticsFromTestReactorByFile, getWarningsForFile, warningToUnusedDiagnostic, warningToCodeLens, findAllReferences, findDefinition, showHover) where
+module Watchtower.Server.LSP.Helpers (getDiagnosticsForProject, getProjectDiagnosticsByFile, getUnchangedProjectDiagnosticsByFile, getDiagnosticsFromTestReactorByFile, getWarningsForFile, warningToUnusedDiagnostic, unusedModuleDiagnosticForFile, warningToCodeLens, findAllReferences, findDefinition, showHover) where
 
 import Data.Aeson
 import qualified Watchtower.Live.Client
@@ -35,8 +35,12 @@ import qualified Watchtower.AST.Lookup
 import qualified Watchtower.AST.Definition
 import qualified Watchtower.AST.References
 import qualified Elm.ModuleName
+import qualified Ext.Dev.Project
+import qualified Ext.FileCache
+import qualified Data.ByteString as BS
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text.Encoding
 import Watchtower.Server.LSP.Protocol
 
 
@@ -235,6 +239,58 @@ warningToUnusedDiagnostic warn =
           }
       ]
     _ -> []
+
+unusedModuleDiagnosticForFile :: Ext.Dev.Project.Project -> FilePath -> IO [Diagnostic]
+unusedModuleDiagnosticForFile project filePath = do
+  maybeUnused <- Ext.Dev.Project.unusedModuleForFile filePath project
+  case maybeUnused of
+    Nothing -> pure []
+    Just unusedModule -> do
+      range <- moduleDeclarationRangeForFile filePath
+      pure
+        [ Diagnostic
+            { diagnosticRange = range,
+              diagnosticSeverity = Just (DiagnosticSeverity 2),
+              diagnosticCode = Just (JSON.String "unused-module"),
+              diagnosticCodeDescription = Nothing,
+              diagnosticSource = Just "elm",
+              diagnosticMessage = Text.pack ("Unused module: " ++ Elm.ModuleName.toChars (Ext.Dev.Project.unusedModuleName unusedModule)),
+              diagnosticTags = Just [1],
+              diagnosticRelatedInformation = Nothing,
+              diagnosticData = Nothing
+            }
+        ]
+
+moduleDeclarationRangeForFile :: FilePath -> IO Range
+moduleDeclarationRangeForFile filePath = do
+  cached <- Ext.FileCache.lookup filePath
+  bytes <- case cached of
+    Just (_, contents) -> pure contents
+    Nothing -> BS.readFile filePath
+  let fileText = Text.Encoding.decodeUtf8 bytes
+      numberedLines = zip [0..] (Text.lines fileText)
+      isModuleLine line =
+        let trimmed = Text.strip line
+        in Text.isPrefixOf "module " trimmed
+            || Text.isPrefixOf "port module " trimmed
+            || Text.isPrefixOf "effect module " trimmed
+      moduleStart =
+        case filter (isModuleLine . snd) numberedLines of
+          (lineNumber, _) : _ -> lineNumber
+          [] -> 0
+      moduleLines = drop moduleStart numberedLines
+      moduleEnd =
+        case filter (Text.isInfixOf "exposing" . snd) moduleLines of
+          (lineNumber, lineText) : _ -> (lineNumber, lineText)
+          [] ->
+            case drop moduleStart numberedLines of
+              (_, lineText) : _ -> (moduleStart, lineText)
+              [] -> (0, "")
+  pure
+    Range
+      { rangeStart = Position moduleStart 0,
+        rangeEnd = Position (fst moduleEnd) (Text.length (snd moduleEnd))
+      }
 
 
 -- Convert a warning to a code lens if it's a MissingTypeAnnotation

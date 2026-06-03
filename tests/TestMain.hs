@@ -35,6 +35,7 @@ import qualified System.Process as Process
 import qualified Data.List as List
 import qualified Data.Text as Text
 import qualified Data.Time.Clock.POSIX as POSIX
+import qualified Elm.ModuleName as ModuleName
 
 main :: IO ()
 main = do
@@ -80,7 +81,9 @@ versionTests =
   , runTest "project affectsCompilation is source-aware" testProjectAffectsCompilation
   , runTest "application entrypoints compile as singleton groups" testApplicationEntrypointGroupsSplit
   , runTest "application entrypoints are targeted by imports" testApplicationEntrypointGroupsTargeted
+  , runTest "application unused modules are detected" testApplicationUnusedModuleDetection
   , runTest "package changed source is targeted directly" testPackageChangedSourceIsTargeted
+  , runTest "package unused modules are detected from exposed roots" testPackageUnusedModuleDetection
   , runTest "target results preserve per-entrypoint success" testTargetResultsSuccess
   , runTest "open file keeps in-memory precedence over fs watcher" testOpenFileSkipsFilesystemSync
   , runTest "disconnect cleanup removes editor and diagnostics state" testCleanupConnectionState
@@ -883,6 +886,28 @@ testApplicationEntrypointGroupsTargeted = do
         && null unusedGroups
     )
 
+testApplicationUnusedModuleDetection :: IO Bool
+testApplicationUnusedModuleDetection = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      mainA = srcDir FilePath.</> "Main.elm"
+      shared = srcDir FilePath.</> "Shared.elm"
+      unused = srcDir FilePath.</> "Unused.elm"
+      proj = Project.Project root root (NE.List mainA []) [srcDir] 1
+  writeElmApp root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainA "module Main exposing (main)\n\nimport Shared\n\nmain = Shared.value\n"
+  writeFile shared "module Shared exposing (value)\n\nvalue = 1\n"
+  writeFile unused "module Unused exposing (value)\n\nvalue = 1\n"
+  usedResult <- Project.unusedModuleForFile shared proj
+  unusedResult <- Project.unusedModuleForFile unused proj
+  pure
+    ( usedResult == Nothing
+        && case unusedResult of
+             Just unusedModule -> ModuleName.toChars (Project.unusedModuleName unusedModule) == "Unused"
+             Nothing -> False
+    )
+
 testPackageChangedSourceIsTargeted :: IO Bool
 testPackageChangedSourceIsTargeted = do
   root <- uniqueRoot
@@ -903,6 +928,32 @@ testPackageChangedSourceIsTargeted = do
     ( map NE.toList exposedGroups == [[exposedA]]
         && map NE.toList internalGroups == [[internal]]
         && map NE.toList configGroups == [[exposedA, exposedB]]
+    )
+
+testPackageUnusedModuleDetection :: IO Bool
+testPackageUnusedModuleDetection = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      exposedA = srcDir FilePath.</> "One.elm"
+      exposedB = srcDir FilePath.</> "Two.elm"
+      internal = srcDir FilePath.</> "Internal.elm"
+      unused = srcDir FilePath.</> "Unused.elm"
+      proj = Project.Project root root (NE.List exposedA [exposedB]) [srcDir] 1
+  writeElmPackage root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile exposedA "module One exposing (value)\n\nimport Internal\n\nvalue = Internal.value\n"
+  writeFile exposedB "module Two exposing (value)\n\nvalue = 2\n"
+  writeFile internal "module Internal exposing (value)\n\nvalue = 3\n"
+  writeFile unused "module Unused exposing (value)\n\nvalue = 4\n"
+  exposedResult <- Project.unusedModuleForFile exposedA proj
+  internalResult <- Project.unusedModuleForFile internal proj
+  unusedResult <- Project.unusedModuleForFile unused proj
+  pure
+    ( exposedResult == Nothing
+        && internalResult == Nothing
+        && case unusedResult of
+             Just unusedModule -> ModuleName.toChars (Project.unusedModuleName unusedModule) == "Unused"
+             Nothing -> False
     )
 
 testTargetResultsSuccess :: IO Bool
@@ -959,7 +1010,7 @@ testUpdateProjectFileInfo = do
       mkFileInfo = Client.FileInfo [] Nothing Nothing Nothing Nothing Nothing
       current = Map.fromList [(stalePath, mkFileInfo), (keptPath, mkFileInfo), (otherPath, mkFileInfo)]
       latest = Map.fromList [(keptPath, mkFileInfo)]
-      updated = CompileState.updateProjectFileInfo proj (Right ()) current latest
+      updated = CompileState.updateProjectFileInfo proj True (Right ()) current latest
   pure (Map.notMember stalePath updated && Map.member keptPath updated && Map.member otherPath updated)
 
 testDuplicateChangeEventsMarkDirtyOnce :: IO Bool

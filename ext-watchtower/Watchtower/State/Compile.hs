@@ -105,7 +105,7 @@ compileUntraced state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiag
             -- from renamed or deleted files do not accumulate indefinitely.
             STM.atomically $ do
               current <- STM.readTVar mFileInfo
-              STM.writeTVar mFileInfo (updateProjectFileInfo proj eitherCompiled current fileInfoByPath)
+              STM.writeTVar mFileInfo (updateProjectFileInfo proj (shouldReplaceProjectFileInfo files) eitherCompiled current fileInfoByPath)
 
             -- Mark workspace diagnostics snapshots as out-of-date after compile result and file info updates
             STM.atomically $ do
@@ -115,6 +115,7 @@ compileUntraced state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiag
                       (\s -> Client.LspSession
                         { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
                         , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                        , Client.publishedDiagnosticFiles = Client.publishedDiagnosticFiles s
                         , Client.lspRoot = Client.lspRoot s
                         }
                       )
@@ -172,6 +173,7 @@ compileUntraced state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiag
                   (\s -> Client.LspSession
                     { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
                     , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                    , Client.publishedDiagnosticFiles = Client.publishedDiagnosticFiles s
                     , Client.lspRoot = Client.lspRoot s
                     }
                   )
@@ -632,17 +634,27 @@ compileTestsWithTrace state@(Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested
                         (\s -> Client.LspSession
                           { Client.workspaceDiagnosticsSnapshotFiles = Client.workspaceDiagnosticsSnapshotFiles s
                           , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                          , Client.publishedDiagnosticFiles = Client.publishedDiagnosticFiles s
                           , Client.lspRoot = Client.lspRoot s
                           }
                         )
                         cur
                 STM.writeTVar mWorkspaceDiagsRequested updated
 
-updateProjectFileInfo :: Project.Project -> Either a b -> Map.Map FilePath Client.FileInfo -> Map.Map FilePath Client.FileInfo -> Map.Map FilePath Client.FileInfo
-updateProjectFileInfo proj compileResult current fileInfoByPath =
+updateProjectFileInfo :: Project.Project -> Bool -> Either a b -> Map.Map FilePath Client.FileInfo -> Map.Map FilePath Client.FileInfo -> Map.Map FilePath Client.FileInfo
+updateProjectFileInfo proj replaceProject compileResult current fileInfoByPath =
   let withoutProject = Map.filterWithKey (\path _ -> not (Ext.Dev.Project.contains path proj)) current
       merged = Map.foldlWithKey' (\acc path info -> Map.insert path info acc) current fileInfoByPath
       replaced = Map.union fileInfoByPath withoutProject
    in case compileResult of
-        Right _ -> replaced
+        Right _ ->
+          if replaceProject then replaced else merged
         Left _ -> merged
+
+shouldReplaceProjectFileInfo :: [FilePath] -> Bool
+shouldReplaceProjectFileInfo files =
+  null files || any isProjectConfig files
+  where
+    isProjectConfig path =
+      let fileName = FP.takeFileName (FP.normalise path)
+       in fileName == "elm.json" || fileName == "elm.dev.json"

@@ -204,6 +204,7 @@ handleInitialize state connId initParams = do
                 (Client.LspSession
                   { Client.workspaceDiagnosticsSnapshotFiles = []
                   , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                  , Client.publishedDiagnosticFiles = []
                   , Client.lspRoot = folderRoots
                   }
                 )
@@ -224,6 +225,7 @@ handleInitialize state connId initParams = do
                     (Client.LspSession
                       { Client.workspaceDiagnosticsSnapshotFiles = []
                       , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                      , Client.publishedDiagnosticFiles = []
                       , Client.lspRoot = [root]
                       }
                     )
@@ -243,6 +245,7 @@ handleInitialize state connId initParams = do
                         (Client.LspSession
                           { Client.workspaceDiagnosticsSnapshotFiles = []
                           , Client.workspaceDiagnosticsSnapshotOutOfDate = True
+                          , Client.publishedDiagnosticFiles = []
                           , Client.lspRoot = [root]
                           }
                         )
@@ -310,12 +313,12 @@ handleDidOpen state send connId openParams = do
           state
           traceId
           [filePath]
-          (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForFile state send traceId filePath))
-      when didCompile (publishTestDiagnosticsForFile state send traceId filePath)
+          (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath]))
+      when didCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath])
       return $ Right JSON.Null
 
-handleDidChange :: Live.State -> JSONRPC.EventEmitter -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
-handleDidChange state send changeParams = do
+handleDidChange :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
+handleDidChange state send connId changeParams = do
   -- Handle document change notification
   let doc = didChangeTextDocumentParamsTextDocument changeParams
       uri = versionedTextDocumentIdentifierUri doc
@@ -354,8 +357,8 @@ handleDidChange state send changeParams = do
                 traceId
                 didChangeCompileDebounceMicros
                 [filePath]
-                (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForFile state send traceId filePath))
-                (\didCompile -> when didCompile (publishTestDiagnosticsForFile state send traceId filePath))
+                (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath]))
+                (\didCompile -> when didCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath]))
             return $ Right JSON.Null
 
 -- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
@@ -400,8 +403,8 @@ handleDidClose state connId closeParams = do
       Watchtower.Server.DevWS.broadcastServiceStatus state
       return $ Right JSON.Null
 
-handleDidSave :: Live.State -> JSONRPC.EventEmitter -> DidSaveTextDocumentParams -> IO (Either String JSON.Value)
-handleDidSave state send saveParams = do
+handleDidSave :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> DidSaveTextDocumentParams -> IO (Either String JSON.Value)
+handleDidSave state send connId saveParams = do
   -- Handle document save notification
   let doc = didSaveTextDocumentParamsTextDocument saveParams
       uri = textDocumentIdentifierUri doc
@@ -444,8 +447,8 @@ handleDidSave state send saveParams = do
             state
             traceId
             [filePath]
-            (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForFile state send traceId filePath))
-        when didCompile (publishTestDiagnosticsForFile state send traceId filePath)
+            (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath]))
+        when didCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath])
         pure ()
       return $ Right JSON.Null
 
@@ -466,9 +469,11 @@ publishDiagnosticsForFileUntraced state send traceId filePath = do
     Right (projectCache, _) -> do
       diags <- Helpers.getDiagnosticsForProject state projectCache (Just filePath)
       (_localizer, warns) <- Helpers.getWarningsForFile state filePath
+      let Client.ProjectCache proj _ _ _ _ = projectCache
+      unusedModuleDiags <- Helpers.unusedModuleDiagnosticForFile proj filePath
       let ownerRoot = Client.getProjectRoot projectCache
           warningDiags = concatMap Helpers.warningToUnusedDiagnostic warns
-          allDiags = diags ++ warningDiags
+          allDiags = diags ++ warningDiags ++ unusedModuleDiags
           params =
             PublishDiagnosticsParams
               { publishDiagnosticsParamsUri = unUri (fromFilePath filePath)
@@ -484,6 +489,7 @@ publishDiagnosticsForFileUntraced state send traceId filePath = do
         , PerfTrace.int "diagnostic_count" (length allDiags)
         , PerfTrace.int "compile_diagnostic_count" (length diags)
         , PerfTrace.int "warning_diagnostic_count" (length warningDiags)
+        , PerfTrace.int "unused_module_diagnostic_count" (length unusedModuleDiags)
         ]
       Ext.Log.log Ext.Log.LSP
         ( concat
@@ -497,6 +503,151 @@ publishDiagnosticsForFileUntraced state send traceId filePath = do
         (JSONRPC.OutboundNotification
           (JSONRPC.Notification "2.0" "textDocument/publishDiagnostics" (Just (JSON.toJSON params))))
     _ -> pure ()
+
+publishDiagnosticsForWorkspaceSnapshot :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> [FilePath] -> IO ()
+publishDiagnosticsForWorkspaceSnapshot state send connId traceId changedPaths =
+  PerfTrace.span
+    (Client.trace state)
+    "lsp.publish_diagnostics.workspace_snapshot"
+    [ PerfTrace.text "trace_id" traceId
+    , PerfTrace.text "connection_id" (Text.unpack connId)
+    , PerfTrace.int "changed_file_count" (length changedPaths)
+    ]
+    (publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId changedPaths)
+
+publishDiagnosticsForWorkspaceSnapshotUntraced :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> [FilePath] -> IO ()
+publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId changedPaths = do
+  let (Client.State _ mProjects _ _ _ _ mEditorsOpen mWorkspaceDiagsRequested _) = state
+  projects <- Control.Concurrent.STM.readTVarIO mProjects
+  projectMaps <- mapM (projectPublishDiagnosticsByFile state projects) projects
+  let currentMap = Map.filter (not . null) (Map.unionsWith (++) projectMaps)
+      currentPaths = Map.keys currentMap
+      currentUris = map fromFilePath currentPaths
+  editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
+  let openPaths = Map.keys (EditorsOpen.toCounts editorsOpen)
+      changedFirst = filter (`elem` currentPaths) (Data.List.nub changedPaths)
+      openNext = filter (`elem` currentPaths) (Data.List.nub openPaths)
+      orderedPaths = Data.List.nub (changedFirst ++ openNext ++ currentPaths)
+  sessions <- Control.Concurrent.STM.readTVarIO mWorkspaceDiagsRequested
+  let maybeSession = Map.lookup connId sessions
+      previousUris = maybe [] Client.publishedDiagnosticFiles maybeSession
+      staleUris = filter (`notElem` currentUris) previousUris
+
+  mapM_
+    (\filePath -> publishDiagnosticsParams send filePath (Map.findWithDefault [] filePath currentMap))
+    orderedPaths
+  mapM_ (\uri -> publishDiagnosticsUri send uri []) staleUris
+
+  Control.Concurrent.STM.atomically $ do
+    cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
+    let currentSession = Map.lookup connId cur
+        updatedSession =
+          Client.LspSession
+            { Client.workspaceDiagnosticsSnapshotFiles = maybe [] Client.workspaceDiagnosticsSnapshotFiles currentSession
+            , Client.workspaceDiagnosticsSnapshotOutOfDate = maybe True Client.workspaceDiagnosticsSnapshotOutOfDate currentSession
+            , Client.publishedDiagnosticFiles = currentUris
+            , Client.lspRoot = maybe [] Client.lspRoot currentSession
+            }
+    Control.Concurrent.STM.writeTVar mWorkspaceDiagsRequested (Map.insert connId updatedSession cur)
+
+  PerfTrace.event
+    (Client.trace state)
+    "lsp.publish_diagnostics.workspace_snapshot.result"
+    [ PerfTrace.text "trace_id" traceId
+    , PerfTrace.int "published_file_count" (length orderedPaths)
+    , PerfTrace.int "cleared_file_count" (length staleUris)
+    ]
+  Ext.Log.log Ext.Log.LSP
+    ( concat
+        [ "[trace " ++ traceId ++ "] publishDiagnostics.workspaceSnapshot"
+        , " published=" ++ show (length orderedPaths)
+        , " cleared=" ++ show (length staleUris)
+        ]
+    )
+
+projectPublishDiagnosticsByFile :: Live.State -> [Client.ProjectCache] -> Client.ProjectCache -> IO (Map.Map FilePath [Diagnostic])
+projectPublishDiagnosticsByFile state allProjects projectCache@(Client.ProjectCache _ _ _ _ mTest) = do
+  projectDiagsMap <- Helpers.getProjectDiagnosticsByFile state projectCache
+  testDiagsMap <- do
+    mTi <- Control.Concurrent.STM.readTVarIO mTest
+    case mTi of
+      Just (Client.TestInfo _ _ (Just (Client.TestError reactorErr))) ->
+        pure (Helpers.getDiagnosticsFromTestReactorByFile projectCache reactorErr)
+      _ -> pure Map.empty
+  let ownedProjectDiagsMap = filterOwnedProjectDiagnosticsForPush allProjects projectCache projectDiagsMap
+      diagsMap = Map.unionWith (++) ownedProjectDiagsMap testDiagsMap
+  let Client.ProjectCache proj _ _ _ _ = projectCache
+  fileInfoByPath <- Client.getAllFileInfos state
+  let projectWarningMap =
+        Map.mapMaybeWithKey
+          (\path info ->
+              if Ext.Dev.Project.contains path proj && isOwnedByProject path allProjects projectCache
+                then
+                  case concatMap Helpers.warningToUnusedDiagnostic (Client.warnings info) of
+                    [] -> Nothing
+                    warningDiags -> Just warningDiags
+                else Nothing
+          )
+          fileInfoByPath
+  let (Client.State _ _ _ _ _ _ mEditorsOpen _ _) = state
+  editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
+  let openFilesInProject =
+        case editorsOpen of
+          EditorsOpen.EditorsOpen m _ ->
+            filter (\p -> Ext.Dev.Project.affectsCompilation p proj && isOwnedByProject p allProjects projectCache) (Map.keys m)
+  openUnusedModulePairs <-
+    mapM
+      ( \path -> do
+          unusedModuleDiags <- Helpers.unusedModuleDiagnosticForFile proj path
+          pure (path, unusedModuleDiags)
+      )
+      openFilesInProject
+  let openUnusedModuleMap = Map.fromList (filter (\(_path, ds) -> not (null ds)) openUnusedModulePairs)
+  pure (Map.unionsWith (++) [diagsMap, projectWarningMap, openUnusedModuleMap])
+
+publishDiagnosticsParams :: JSONRPC.EventEmitter -> FilePath -> [Diagnostic] -> IO ()
+publishDiagnosticsParams send filePath diagnostics =
+  publishDiagnosticsUri send (fromFilePath filePath) diagnostics
+
+publishDiagnosticsUri :: JSONRPC.EventEmitter -> Uri -> [Diagnostic] -> IO ()
+publishDiagnosticsUri send uri diagnostics = do
+  let params =
+        PublishDiagnosticsParams
+          { publishDiagnosticsParamsUri = unUri uri
+          , publishDiagnosticsParamsVersion = Nothing
+          , publishDiagnosticsParamsDiagnostics = diagnostics
+          }
+  send
+    (JSONRPC.OutboundNotification
+      (JSONRPC.Notification "2.0" "textDocument/publishDiagnostics" (Just (JSON.toJSON params))))
+
+filterOwnedProjectDiagnosticsForPush :: [Client.ProjectCache] -> Client.ProjectCache -> Map.Map FilePath [Diagnostic] -> Map.Map FilePath [Diagnostic]
+filterOwnedProjectDiagnosticsForPush allProjects projectCache =
+  Map.filterWithKey
+    (\filePath _diags ->
+        case nearestOwnerProjectForPush filePath allProjects of
+          Just owner -> sameProjectCacheForPush owner projectCache
+          Nothing -> True
+    )
+
+nearestOwnerProjectForPush :: FilePath -> [Client.ProjectCache] -> Maybe Client.ProjectCache
+nearestOwnerProjectForPush filePath =
+  Maybe.listToMaybe
+    . Data.List.sortBy
+        (\(Client.ProjectCache one _ _ _ _) (Client.ProjectCache two _ _ _ _) ->
+            compare (length (Ext.Dev.Project.getRoot two)) (length (Ext.Dev.Project.getRoot one))
+        )
+    . filter (\(Client.ProjectCache proj _ _ _ _) -> Ext.Dev.Project.contains filePath proj)
+
+sameProjectCacheForPush :: Client.ProjectCache -> Client.ProjectCache -> Bool
+sameProjectCacheForPush (Client.ProjectCache one _ _ _ _) (Client.ProjectCache two _ _ _ _) =
+  Ext.Dev.Project.equal one two
+
+isOwnedByProject :: FilePath -> [Client.ProjectCache] -> Client.ProjectCache -> Bool
+isOwnedByProject filePath allProjects projectCache =
+  case nearestOwnerProjectForPush filePath allProjects of
+    Just owner -> sameProjectCacheForPush owner projectCache
+    Nothing -> True
 
 publishTestDiagnosticsForFile :: Live.State -> JSONRPC.EventEmitter -> String -> FilePath -> IO ()
 publishTestDiagnosticsForFile state send traceId filePath = do
@@ -1280,8 +1431,8 @@ handleNotificationUntraced state send connId (JSONRPC.Notification _ method para
         Just p -> do
           case JSON.fromJSON p of
             JSON.Success changeParams -> do
-              _ <- handleDidChange state send changeParams
-              -- Emit code lens refresh; diagnostics are provided via pull (DocumentDiagnostic)
+              _ <- handleDidChange state send connId changeParams
+              -- Emit code lens refresh; diagnostics are pushed after compile callbacks.
               send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
               send (logMessage LogMessageTypeLog "Document changed")
               return ()
@@ -1308,8 +1459,8 @@ handleNotificationUntraced state send connId (JSONRPC.Notification _ method para
         Just p -> do
           case JSON.fromJSON p of
             JSON.Success saveParams -> do
-              _ <- handleDidSave state send saveParams
-              -- Emit code lens refresh; diagnostics are provided via pull (DocumentDiagnostic)
+              _ <- handleDidSave state send connId saveParams
+              -- Emit code lens refresh; diagnostics are pushed after compile callbacks.
               send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
               send (logMessage LogMessageTypeInfo "Saved document")
               return ()
@@ -1435,6 +1586,10 @@ buildWorkspaceDiagnosticReportUntraced state connId workspaceParams = do
             (Client.LspSession
               { Client.workspaceDiagnosticsSnapshotFiles = currentUris
               , Client.workspaceDiagnosticsSnapshotOutOfDate = False
+              , Client.publishedDiagnosticFiles =
+                  case maybeSnap of
+                    Just snap -> Client.publishedDiagnosticFiles snap
+                    Nothing -> []
               , Client.lspRoot =
                   case maybeSnap of
                     Just snap -> Client.lspRoot snap
@@ -1495,17 +1650,27 @@ workspaceItemsForProjectUntraced previousResultIds state allProjects projectCach
           pure (p, unusedDiags)
       )
       openFilesInProject
+  openUnusedModulePairs <-
+    mapM
+      ( \p -> do
+          unusedModuleDiags <- Helpers.unusedModuleDiagnosticForFile proj p
+          pure (p, unusedModuleDiags)
+      )
+      openFilesInProject
   let openUnusedMap =
         Map.fromList (filter (\(_p, ds) -> not (null ds)) openUnusedPairs)
+  let openUnusedModuleMap =
+        Map.fromList (filter (\(_p, ds) -> not (null ds)) openUnusedModulePairs)
   -- Union of files that have errors and files that have unused warnings (open only)
   let errorFiles = Map.keys diagsMap
-  let allFiles = Data.List.nub (errorFiles ++ Map.keys openUnusedMap)
+  let allFiles = Data.List.nub (errorFiles ++ Map.keys openUnusedMap ++ Map.keys openUnusedModuleMap)
   let fileReports =
         map
           (\filePath ->
              let fileErrs = Map.findWithDefault [] filePath diagsMap
                  unusedWarns = Map.findWithDefault [] filePath openUnusedMap
-                 allDiags = fileErrs ++ unusedWarns
+                 unusedModuleWarns = Map.findWithDefault [] filePath openUnusedModuleMap
+                 allDiags = fileErrs ++ unusedWarns ++ unusedModuleWarns
                  uri = fromFilePath filePath
                  resultId = diagnosticsResultId allDiags
               in (uri, resultId, allDiags)

@@ -12,8 +12,10 @@ module Ext.Dev.Project
     sourceContains,
     affectsCompilation,
     entrypointGroupsForChangedFiles,
+    unusedModuleForFile,
     discover,
     decodeProject,
+    UnusedModule (..),
     Project (..),
     encodeProjectJson,
     equal,
@@ -141,6 +143,12 @@ data SourceGraph = SourceGraph
   , graphImports :: Map.Map ModuleName.Raw [ModuleName.Raw]
   }
 
+data UnusedModule = UnusedModule
+  { unusedModulePath :: FilePath
+  , unusedModuleName :: ModuleName.Raw
+  }
+  deriving (Show, Eq)
+
 
 
 equal :: Project -> Project -> Bool
@@ -187,6 +195,25 @@ entrypointGroupsForChangedFiles changedFiles project@(Project root _ entrypoints
     Right (Elm.Outline.App _) -> applicationEntrypointGroups changedFiles project
     Right (Elm.Outline.Pkg _) -> packageEntrypointGroups changedFiles project
     Left _ -> pure [entrypoints]
+
+unusedModuleForFile :: FilePath -> Project -> IO (Maybe UnusedModule)
+unusedModuleForFile filePath project@(Project _ _ entrypoints srcDirs _) = do
+  if not (isElmFile filePath) || not (sourceContains filePath project)
+    then pure Nothing
+    else do
+      maybeGraph <- parseSourceGraph srcDirs
+      case maybeGraph of
+        Nothing -> pure Nothing
+        Just graph -> do
+          let normalizedPath = FP.normalise filePath
+          case Map.lookup normalizedPath (graphPathToModule graph) of
+            Nothing -> pure Nothing
+            Just moduleName -> do
+              let entryModules = Maybe.mapMaybe (\entrypoint -> Map.lookup (FP.normalise entrypoint) (graphPathToModule graph)) (NE.toList entrypoints)
+                  reachable = Set.unions (map (moduleClosure graph) entryModules)
+              if Set.member moduleName reachable
+                then pure Nothing
+                else pure (Just (UnusedModule normalizedPath moduleName))
 
 packageEntrypointGroups :: [FilePath] -> Project -> IO [NE.List FilePath]
 packageEntrypointGroups changedFiles project@(Project _ _ entrypoints _ _) =
