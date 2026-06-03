@@ -56,4 +56,4 @@ run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
 
 -- Dynamically adjusted by build.sh to make sure haskell doesn't bamboozle us.
 version :: String
-version = "7fa90b5e8324ec9a"
+version = "48ffdac08a69f7ff"

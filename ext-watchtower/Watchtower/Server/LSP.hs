@@ -264,8 +264,8 @@ handleInitialize state connId initParams = do
     then return $ Left "No workspace root provided and no projects are registered"
     else return $ Right initResult
 
-handleDidOpen :: Live.State -> JSONRPC.ConnectionId -> DidOpenTextDocumentParams -> IO (Either String JSON.Value)
-handleDidOpen state connId openParams = do
+handleDidOpen :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> DidOpenTextDocumentParams -> IO (Either String JSON.Value)
+handleDidOpen state send connId openParams = do
   -- Handle document open notification
   let doc = didOpenTextDocumentParamsTextDocument openParams
       uri = textDocumentItemUri doc
@@ -297,11 +297,12 @@ handleDidOpen state connId openParams = do
         Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedOpen connId filePath editors)
       Watchtower.Server.DevWS.broadcastServiceStatus state
       -- Recompile relevant projects for this file
-      _ <- Watchtower.State.Compile.compileRelevantProjects state traceId [filePath]
+      didCompile <- Watchtower.State.Compile.compileRelevantProjects state traceId [filePath]
+      when didCompile (publishDiagnosticsForFile state send traceId filePath)
       return $ Right JSON.Null
 
-handleDidChange :: Live.State -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
-handleDidChange state changeParams = do
+handleDidChange :: Live.State -> JSONRPC.EventEmitter -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
+handleDidChange state send changeParams = do
   -- Handle document change notification
   let doc = didChangeTextDocumentParamsTextDocument changeParams
       uri = versionedTextDocumentIdentifierUri doc
@@ -334,7 +335,12 @@ handleDidChange state changeParams = do
               )
             when changed $ do
               Watchtower.State.Compile.markFilesystemChanged state [filePath]
-              Watchtower.State.Compile.scheduleDebouncedCompileRelevantProjects state traceId didChangeCompileDebounceMicros [filePath]
+              Watchtower.State.Compile.scheduleDebouncedCompileRelevantProjectsWithCallback
+                state
+                traceId
+                didChangeCompileDebounceMicros
+                [filePath]
+                (\didCompile -> when didCompile (publishDiagnosticsForFile state send traceId filePath))
             return $ Right JSON.Null
 
 -- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
@@ -379,8 +385,8 @@ handleDidClose state connId closeParams = do
       Watchtower.Server.DevWS.broadcastServiceStatus state
       return $ Right JSON.Null
 
-handleDidSave :: Live.State -> DidSaveTextDocumentParams -> IO (Either String JSON.Value)
-handleDidSave state saveParams = do
+handleDidSave :: Live.State -> JSONRPC.EventEmitter -> DidSaveTextDocumentParams -> IO (Either String JSON.Value)
+handleDidSave state send saveParams = do
   -- Handle document save notification
   let doc = didSaveTextDocumentParamsTextDocument saveParams
       uri = textDocumentIdentifierUri doc
@@ -417,9 +423,36 @@ handleDidSave state saveParams = do
         else pure ()
       when changed $ do
         Watchtower.State.Compile.markFilesystemChanged state [filePath]
-        _ <- Watchtower.State.Compile.compileRelevantProjects state traceId [filePath]
+        didCompile <- Watchtower.State.Compile.compileRelevantProjects state traceId [filePath]
+        when didCompile (publishDiagnosticsForFile state send traceId filePath)
         pure ()
       return $ Right JSON.Null
+
+publishDiagnosticsForFile :: Live.State -> JSONRPC.EventEmitter -> String -> FilePath -> IO ()
+publishDiagnosticsForFile state send traceId filePath = do
+  projectResult <- Client.getExistingProject filePath state
+  case projectResult of
+    Right (projectCache, _) -> do
+      diags <- Helpers.getDiagnosticsForProject state projectCache (Just filePath)
+      (_localizer, warns) <- Helpers.getWarningsForFile state filePath
+      let allDiags = diags ++ concatMap Helpers.warningToUnusedDiagnostic warns
+          params =
+            PublishDiagnosticsParams
+              { publishDiagnosticsParamsUri = unUri (fromFilePath filePath)
+              , publishDiagnosticsParamsVersion = Nothing
+              , publishDiagnosticsParamsDiagnostics = allDiags
+              }
+      Ext.Log.log Ext.Log.LSP
+        ( concat
+            [ "[trace " ++ traceId ++ "] publishDiagnostics"
+            , " path=" ++ filePath
+            , " count=" ++ show (length allDiags)
+            ]
+        )
+      send
+        (JSONRPC.OutboundNotification
+          (JSONRPC.Notification "2.0" "textDocument/publishDiagnostics" (Just (JSON.toJSON params))))
+    _ -> pure ()
 
 handleHover :: Live.State -> HoverParams -> IO (Either String (Maybe Hover))
 handleHover state hoverParams = do
@@ -1143,7 +1176,7 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
         Just p -> do
           case JSON.fromJSON p of
             JSON.Success openParams -> do
-              _ <- handleDidOpen state connId openParams
+              _ <- handleDidOpen state send connId openParams
               send (logMessage LogMessageTypeInfo "Opened document")
               return ()
             JSON.Error err -> do
@@ -1156,7 +1189,7 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
         Just p -> do
           case JSON.fromJSON p of
             JSON.Success changeParams -> do
-              _ <- handleDidChange state changeParams
+              _ <- handleDidChange state send changeParams
               -- Emit code lens refresh; diagnostics are provided via pull (DocumentDiagnostic)
               send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
               send (logMessage LogMessageTypeLog "Document changed")
@@ -1184,7 +1217,7 @@ handleNotification state send connId (JSONRPC.Notification _ method params) = do
         Just p -> do
           case JSON.fromJSON p of
             JSON.Success saveParams -> do
-              _ <- handleDidSave state saveParams
+              _ <- handleDidSave state send saveParams
               -- Emit code lens refresh; diagnostics are provided via pull (DocumentDiagnostic)
               send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
               send (logMessage LogMessageTypeInfo "Saved document")

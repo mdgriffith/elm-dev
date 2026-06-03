@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.State.Compile (compile, compileRelevantProjects, scheduleDebouncedCompileRelevantProjects, updateVfsFromFs, compileTests, markFilesystemChanged, updateProjectFileInfo) where
+module Watchtower.State.Compile (compile, compileRelevantProjects, scheduleDebouncedCompileRelevantProjects, scheduleDebouncedCompileRelevantProjectsWithCallback, updateVfsFromFs, compileTests, markFilesystemChanged, updateProjectFileInfo) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -366,7 +366,11 @@ compileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) traceId elm
       withProjectCompileLockIfAvailable projectRoot (compileUntilClean False)
 
 scheduleDebouncedCompileRelevantProjects :: Client.State -> String -> Int -> [FilePath] -> IO ()
-scheduleDebouncedCompileRelevantProjects state@(Client.State _ mProjects _ _ _ _ _ _) traceId delayMicros elmFiles = do
+scheduleDebouncedCompileRelevantProjects state traceId delayMicros elmFiles =
+  scheduleDebouncedCompileRelevantProjectsWithCallback state traceId delayMicros elmFiles (\_ -> pure ())
+
+scheduleDebouncedCompileRelevantProjectsWithCallback :: Client.State -> String -> Int -> [FilePath] -> (Bool -> IO ()) -> IO ()
+scheduleDebouncedCompileRelevantProjectsWithCallback state@(Client.State _ mProjects _ _ _ _ _ _) traceId delayMicros elmFiles afterCompile = do
   if elmFiles == []
     then pure ()
     else do
@@ -395,7 +399,8 @@ scheduleDebouncedCompileRelevantProjects state@(Client.State _ mProjects _ _ _ _
       threadId <- Concurrent.forkIO $ do
         Concurrent.threadDelay delayMicros
         MVar.modifyMVar_ projectCompileDebounces (pure . Map.delete projectRoot)
-        _ <- compileRelevantProjects state traceId elmFiles
+        didCompile <- compileRelevantProjects state traceId elmFiles
+        afterCompile didCompile
         pure ()
       MVar.modifyMVar_ projectCompileDebounces $ \scheduled ->
         pure (Map.insert projectRoot threadId scheduled)

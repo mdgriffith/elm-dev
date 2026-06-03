@@ -81,7 +81,8 @@ getUnchangedProjectDiagnosticsByFile state projectCache = do
             WorkspaceDocumentDiagnosticsUnchanged
               { workspaceDocumentDiagnosticsUnchangedUri = fromFilePath path,
                 workspaceDocumentDiagnosticsUnchangedVersion = Nothing,
-                workspaceDocumentDiagnosticsUnchangedKind = ("unchanged" :: Text)
+                workspaceDocumentDiagnosticsUnchangedKind = ("unchanged" :: Text),
+                workspaceDocumentDiagnosticsUnchangedResultId = Nothing
               }
         )
         (Map.toList diags)
@@ -189,7 +190,7 @@ warningToUnusedDiagnostic warn =
     Warning.UnusedImport region moduleName ->
       [ Diagnostic
           { diagnosticRange = regionToRange region,
-            diagnosticSeverity = Just (DiagnosticSeverity 3), -- Information
+            diagnosticSeverity = Just (DiagnosticSeverity 2), -- Warning
             diagnosticCode = Nothing,
             diagnosticCodeDescription = Nothing,
             diagnosticSource = Just "elm",
@@ -206,7 +207,7 @@ warningToUnusedDiagnostic warn =
       in
       [ Diagnostic
           { diagnosticRange = regionToRange region,
-            diagnosticSeverity = Just (DiagnosticSeverity 3), -- Information
+            diagnosticSeverity = Just (DiagnosticSeverity 2), -- Warning
             diagnosticCode = Nothing,
             diagnosticCodeDescription = Nothing,
             diagnosticSource = Just "elm",
