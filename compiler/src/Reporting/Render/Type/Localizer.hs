@@ -44,7 +44,25 @@ data Exposing
 
 empty :: Localizer
 empty =
-  Localizer Map.empty
+  Localizer defaultImports
+
+
+defaultImports :: Map.Map Name.Name Import
+defaultImports =
+  Map.fromList $ map toDefaultImport
+    [ "Basics"
+    , "String"
+    , "List"
+    , "Maybe"
+    , "Result"
+    , "Char"
+    , "Tuple"
+    ]
+
+
+toDefaultImport :: String -> (Name.Name, Import)
+toDefaultImport moduleName =
+  (Name.fromChars moduleName, Import Nothing All)
 
 
 
@@ -82,7 +100,7 @@ toChars (Localizer localizer) moduleName@(ModuleName.Canonical _ home) name =
 
 fromNames :: Map.Map Name.Name a -> Localizer
 fromNames names =
-  Localizer $ Map.map (\_ -> Import Nothing All) names
+  Localizer $ Map.union (Map.map (\_ -> Import Nothing All) names) defaultImports
 
 
 
@@ -91,8 +109,12 @@ fromNames names =
 
 fromModule :: Src.Module -> Localizer
 fromModule modul@(Src.Module _ _ _ imports _ _ _ _ _) =
-  Localizer $ Map.fromList $
-    (Src.getName modul, Import Nothing All) : map toPair imports
+  Localizer $
+    Map.union
+      defaultImports
+      ( Map.fromList $
+          (Src.getName modul, Import Nothing All) : map toPair imports
+      )
 
 
 toPair :: Src.Import -> (Name.Name, Import)

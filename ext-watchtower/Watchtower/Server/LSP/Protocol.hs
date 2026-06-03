@@ -469,6 +469,14 @@ data CodeLensResolveParams = CodeLensResolveParams
   }
   deriving stock (Show, Eq, Generic)
 
+-- | Execute command request parameters
+data ExecuteCommandParams = ExecuteCommandParams
+  { executeCommandParamsCommand :: Text,
+    executeCommandParamsArguments :: Maybe [JSON.Value],
+    executeCommandParamsWorkDoneToken :: Maybe JSON.Value
+  }
+  deriving stock (Show, Eq, Generic)
+
 -- | Code action resolve parameters (the original code action to resolve)
 data CodeActionResolveParams = CodeActionResolveParams
   { codeActionResolveParamsTitle :: Text,
@@ -744,6 +752,7 @@ $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDeca
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "previousResultId", omitNothingFields = True} ''PreviousResultId)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceDiagnosticParams", omitNothingFields = True} ''WorkspaceDiagnosticParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "codeLensResolveParams", omitNothingFields = True} ''CodeLensResolveParams)
+$(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "executeCommandParams", omitNothingFields = True} ''ExecuteCommandParams)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "diagnostic", omitNothingFields = True} ''Diagnostic)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "workspaceEdit", omitNothingFields = True} ''WorkspaceEdit)
 $(deriveJSON defaultOptions {fieldLabelModifier = Ext.Common.removePrefixAndDecapitalize "codeActionResolveParams", omitNothingFields = True} ''CodeActionResolveParams)

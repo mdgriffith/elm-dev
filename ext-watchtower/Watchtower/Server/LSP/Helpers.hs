@@ -293,27 +293,40 @@ moduleDeclarationRangeForFile filePath = do
       }
 
 
--- Convert a warning to a code lens if it's a MissingTypeAnnotation
-warningToCodeLens :: Reporting.Render.Type.Localizer.Localizer -> Warning.Warning -> [CodeLens]
-warningToCodeLens localizer warning =
+-- Convert a warning to a code lens if it's a MissingTypeAnnotation.
+-- Anchor at the declaration line, not the full warning region, so editors keep
+-- the lens positioned above the declaration while nearby text changes.
+warningToCodeLens :: Reporting.Render.Type.Localizer.Localizer -> FilePath -> Warning.Warning -> [CodeLens]
+warningToCodeLens localizer filePath warning =
   case warning of
     Warning.MissingTypeAnnotation region name type_ ->
       let typeSignature = Reporting.Doc.toString $
             Reporting.Render.Type.canToDoc localizer Reporting.Render.Type.None type_
-          range = regionToRange region
-
+          range = declarationLineRange region
           withTypeSignature = Name.toChars name ++ " : " ++ typeSignature 
       in [ CodeLens
              { codeLensRange = range,
                codeLensCommand = Just $ JSON.object
                  [ "title" .= withTypeSignature,
                    "command" .= ("elm.addTypeSignature" :: Text),
-                   "arguments" .= [JSON.String (Text.pack withTypeSignature)]
+                   "arguments" .=
+                     [ JSON.object
+                         [ "uri" .= unUri (fromFilePath filePath),
+                           "line" .= positionLine (rangeStart range),
+                           "signature" .= Text.pack withTypeSignature
+                         ]
+                     ]
                  ],
                codeLensData = Nothing
              }
          ]
     _ -> []
+
+declarationLineRange :: Ann.Region -> Range
+declarationLineRange (Ann.Region start _) =
+  let Position line _ = positionToLSPPosition start
+      pos = Position line 0
+  in Range pos pos
 
 -- Convert LSP Position to Elm Ann.Position (1-based)
 lspPositionToElmPosition :: Position -> Ann.Position

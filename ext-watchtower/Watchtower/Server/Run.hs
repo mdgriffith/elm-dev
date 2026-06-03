@@ -71,6 +71,19 @@ emit notif = do
 outboudnName :: JSONRPC.Outbound -> String
 outboudnName (JSONRPC.OutboundNotification (JSONRPC.Notification _ method _)) = "notification: " ++ T.unpack method
 outboudnName (JSONRPC.OutboundRequest method _) = "req: " ++ T.unpack method
+
+encodeOutbound :: JSONRPC.Outbound -> IO LBS.ByteString
+encodeOutbound outbound =
+  case outbound of
+    JSONRPC.OutboundNotification notif ->
+      pure (JSON.encode (JSONRPC.NotificationMessage notif))
+    JSONRPC.OutboundRequest method params -> do
+      reqId <- JSONRPC.StringId <$> generateShortId
+      pure $
+        JSON.encode $
+          JSONRPC.RequestMessage $
+            JSONRPC.Request "2.0" reqId method params
+
 -- | Generate a short unique id suitable for identifying a connection/session
 -- Uses current time and a per-process unique to make collisions across processes extremely unlikely
 generateShortId :: IO T.Text
@@ -160,9 +173,7 @@ runTcp state handler notificationHandler host port = do
         -- Forward events to this TCP connection
         _ <- forkIO $ forever $ do
           outbound <- STM.atomically (STM.readTChan eventsChan)
-          let msg = case outbound of
-                      JSONRPC.OutboundNotification notif -> JSON.encode (JSONRPC.NotificationMessage notif)
-                      JSONRPC.OutboundRequest method params -> JSON.encode (JSONRPC.NotificationMessage (JSONRPC.Notification "2.0" method params))
+          msg <- encodeOutbound outbound
           ok <- tryIO (sendWithContentLengthHandleLocked writeLock h msg)
           case ok of
             Left _ -> IO.hClose h
@@ -311,15 +322,8 @@ runStdIO state handler notificationHandler = do
 
   _ <- forkIO $ forever $ do
     outbound <- STM.atomically (STM.readTChan eventsChan)
-    case outbound of
-      JSONRPC.OutboundNotification notif -> do
-        let msg = JSON.encode (JSONRPC.NotificationMessage notif)
-        sendWithContentLength msg
-      JSONRPC.OutboundRequest method params -> do
-        -- For stdio, encode as a JSON-RPC request without id (notification) since there is no reply path here
-        let notif = JSONRPC.Notification "2.0" method params
-        let msg = JSON.encode (JSONRPC.NotificationMessage notif)
-        sendWithContentLength msg
+    msg <- encodeOutbound outbound
+    sendWithContentLength msg
   
   forever $ do
     maybeMessage <- readStdInMessage

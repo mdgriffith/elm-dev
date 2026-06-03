@@ -17,6 +17,8 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Aeson
 import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Encode.Pretty
+import qualified Data.Aeson.Key as JSON.Key
+import qualified Data.Aeson.Types as JSON.Types
 import qualified Data.Text as T
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.TH
@@ -68,7 +70,9 @@ import qualified Elm.Docs
 import qualified Json.String
 import qualified System.Directory as Dir
 import qualified System.FilePath as FP
-import Control.Monad (when)
+import Control.Monad (filterM, when)
+import qualified Data.Set as Set
+import qualified System.IO.Unsafe
 import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Watchtower.AST.Lookup
@@ -83,6 +87,52 @@ import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.DevWS
 import qualified Ext.Test.Compile as TestCompile
 import qualified Watchtower.Trace as Trace
+
+type SuppressedCodeLens = (Text, Int, Text)
+
+{-# NOINLINE suppressedCodeLenses #-}
+suppressedCodeLenses :: Control.Concurrent.STM.TVar (Set.Set SuppressedCodeLens)
+suppressedCodeLenses = System.IO.Unsafe.unsafePerformIO (Control.Concurrent.STM.newTVarIO Set.empty)
+
+suppressCodeLens :: Text -> Int -> Text -> IO ()
+suppressCodeLens uri line signature =
+  Control.Concurrent.STM.atomically $
+    Control.Concurrent.STM.modifyTVar' suppressedCodeLenses (Set.insert (uri, line, signature))
+
+clearSuppressedCodeLensesForUri :: Text -> IO ()
+clearSuppressedCodeLensesForUri uri =
+  Control.Concurrent.STM.atomically $
+    Control.Concurrent.STM.modifyTVar' suppressedCodeLenses (Set.filter (\(u, _, _) -> u /= uri))
+
+isCodeLensSuppressed :: CodeLens -> IO Bool
+isCodeLensSuppressed codeLens =
+  case codeLensSuppressionKey codeLens of
+    Nothing -> pure False
+    Just key -> Set.member key <$> Control.Concurrent.STM.readTVarIO suppressedCodeLenses
+
+codeLensSuppressionKey :: CodeLens -> Maybe SuppressedCodeLens
+codeLensSuppressionKey codeLens = do
+  command <- codeLensCommand codeLens
+  JSON.Types.parseMaybe parseCommand command
+  where
+    parseCommand =
+      JSON.withObject "CodeLens command" $ \obj -> do
+        commandName <- obj JSON..: "command"
+        if commandName == ("elm.addTypeSignature" :: Text)
+          then do
+            args <- obj JSON..: "arguments"
+            case args of
+              [arg] -> parseAddTypeSignatureArgParser arg
+              _ -> fail "Expected one elm.addTypeSignature argument"
+          else fail "Not an elm.addTypeSignature command"
+
+parseAddTypeSignatureArgParser :: JSON.Value -> JSON.Types.Parser SuppressedCodeLens
+parseAddTypeSignatureArgParser =
+  JSON.withObject "elm.addTypeSignature argument" $ \obj -> do
+    uri <- obj JSON..: "uri"
+    line <- obj JSON..: "line"
+    signature <- obj JSON..: "signature"
+    pure (uri, line, signature)
 
 
 
@@ -149,7 +199,9 @@ defaultServerCapabilities = ServerCapabilities
       [ "prepareProvider" .= True
       ],
     serverCapabilitiesFoldingRangeProvider = Nothing,
-    serverCapabilitiesExecuteCommandProvider = Nothing,
+    serverCapabilitiesExecuteCommandProvider = Just $ JSON.object
+      [ "commands" .= (["elm.addTypeSignature"] :: [Text])
+      ],
     serverCapabilitiesSelectionRangeProvider = Just True,
     serverCapabilitiesLinkedEditingRangeProvider = Nothing,
     serverCapabilitiesCallHierarchyProvider = Nothing,
@@ -313,8 +365,8 @@ handleDidOpen state send connId openParams = do
           state
           traceId
           [filePath]
-          (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath]))
-      when didCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath])
+          (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath]))
+      when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath])
       return $ Right JSON.Null
 
 handleDidChange :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
@@ -330,6 +382,7 @@ handleDidChange state send connId changeParams = do
     Just filePath -> do
       traceId <- Trace.newTraceId "lsp.didChange"
       PerfTrace.event (Client.trace state) "lsp.didChange" [PerfTrace.text "trace_id" traceId, PerfTrace.text "path" filePath, PerfTrace.int "edit_count" (length changes)]
+      clearSuppressedCodeLensesForUri uri
       -- Convert LSP changes to FileCache edits
       let fileEdits = map lspChangeToFileEdit changes
       
@@ -357,8 +410,8 @@ handleDidChange state send connId changeParams = do
                 traceId
                 didChangeCompileDebounceMicros
                 [filePath]
-                (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath]))
-                (\didCompile -> when didCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath]))
+                (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath]))
+                (\didCompile -> when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath]))
             return $ Right JSON.Null
 
 -- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
@@ -447,8 +500,8 @@ handleDidSave state send connId saveParams = do
             state
             traceId
             [filePath]
-            (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath]))
-        when didCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId [filePath])
+            (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath]))
+        when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath])
         pure ()
       return $ Right JSON.Null
 
@@ -514,6 +567,15 @@ publishDiagnosticsForWorkspaceSnapshot state send connId traceId changedPaths =
     , PerfTrace.int "changed_file_count" (length changedPaths)
     ]
     (publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId changedPaths)
+
+publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> [FilePath] -> IO ()
+publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId changedPaths = do
+  publishDiagnosticsForWorkspaceSnapshot state send connId traceId changedPaths
+  refreshCodeLens send
+
+refreshCodeLens :: JSONRPC.EventEmitter -> IO ()
+refreshCodeLens send =
+  send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
 
 publishDiagnosticsForWorkspaceSnapshotUntraced :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> [FilePath] -> IO ()
 publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId changedPaths = do
@@ -1048,8 +1110,9 @@ handleCodeLens state codeLensParams = do
       return $ Right []
     Just filePath -> do
       (localizer, warns) <- Helpers.getWarningsForFile state filePath
-      let codeLenses = concatMap (Helpers.warningToCodeLens localizer) warns
+      let codeLenses0 = concatMap (Helpers.warningToCodeLens localizer filePath) warns
           missingAnnotationCount = length $ filter isMissingTypeAnnotation warns
+      codeLenses <- filterM (fmap not . isCodeLensSuppressed) codeLenses0
       Ext.Log.log Ext.Log.LSP $ "CodeLens: Found " ++ show (length warns) ++ " total warnings, " ++ show missingAnnotationCount ++ " missing type annotations, " ++ show (length codeLenses) ++ " code lenses"
       return $ Right codeLenses
 
@@ -1115,6 +1178,43 @@ handleCodeLensResolve _state codeLensResolveParams = do
           codeLensData = codeLensResolveParamsData codeLensResolveParams
         }
   return $ Right resolvedCodeLens
+
+handleExecuteCommand :: Live.State -> JSONRPC.EventEmitter -> ExecuteCommandParams -> IO (Either String JSON.Value)
+handleExecuteCommand _state emit executeCommandParams =
+  case executeCommandParamsCommand executeCommandParams of
+    "elm.addTypeSignature" ->
+      case executeCommandParamsArguments executeCommandParams of
+        Just (arg : _) ->
+          case parseAddTypeSignatureArg arg of
+            Left parseErr -> pure $ Left parseErr
+            Right (uri, line, signature) -> do
+              suppressCodeLens uri line signature
+              let pos = Position line 0
+                  edit = JSON.object
+                    [ "range" .= Range pos pos,
+                      "newText" .= (signature <> "\n")
+                    ]
+                  params = JSON.object
+                    [ "label" .= ("Add type signature" :: Text),
+                      "edit" .= JSON.object
+                        [ "changes" .= JSON.Object (KeyMap.singleton (JSON.Key.fromText uri) (JSON.toJSON [edit]))
+                        ]
+                    ]
+              Ext.Log.log Ext.Log.LSP $ "ExecuteCommand: elm.addTypeSignature uri=" ++ Text.unpack uri ++ " line=" ++ show line
+              emit (JSONRPC.OutboundRequest "workspace/applyEdit" (Just params))
+              refreshCodeLens emit
+              pure $ Right JSON.Null
+        _ -> pure $ Left "elm.addTypeSignature requires one argument"
+    other -> pure $ Left ("Unsupported command: " ++ Text.unpack other)
+
+parseAddTypeSignatureArg :: JSON.Value -> Either String (Text, Int, Text)
+parseAddTypeSignatureArg =
+  JSON.Types.parseEither $
+    JSON.withObject "elm.addTypeSignature argument" $ \obj -> do
+      uri <- obj JSON..: "uri"
+      line <- obj JSON..: "line"
+      signature <- obj JSON..: "signature"
+      pure (uri, line, signature)
 
 handleCodeActionResolve :: Live.State -> CodeActionResolveParams -> IO (Either String CodeAction)
 handleCodeActionResolve _state codeActionResolveParams = do
@@ -1233,7 +1333,7 @@ serve state emit connId req@(JSONRPC.Request _ reqId method _params) =
     (serveUntraced state emit connId req)
 
 serveUntraced :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> JSONRPC.Request -> IO (Either JSONRPC.Error JSONRPC.Response)
-serveUntraced state _emit connId req@(JSONRPC.Request _ reqId method params) = do
+serveUntraced state emit connId req@(JSONRPC.Request _ reqId method params) = do
   
   -- case params of
   --   Just p -> Ext.Log.log Ext.Log.LSP $ "REQ: " ++Text.unpack method ++ " (id: " ++ show reqId ++ "): " ++ (Text.unpack . Data.Text.Encoding.decodeUtf8 . LBS.toStrict . Data.Aeson.Encode.Pretty.encodePretty $ p)
@@ -1365,6 +1465,9 @@ serveUntraced state _emit connId req@(JSONRPC.Request _ reqId method params) = d
     "codeLens/resolve" -> 
       handleLSPRequest reqId params "codeLensResolve" (handleCodeLensResolve state)
 
+    "workspace/executeCommand" ->
+      handleLSPRequest reqId params "executeCommand" (handleExecuteCommand state emit)
+
     -- Code Action Provider: Quick fixes and refactoring actions
     -- Provides light bulb menu with fixes like "Add missing import", "Extract function", etc.
     -- https://code.visualstudio.com/api/language-extensions/programmatic-language-features#code-actions-quick-fixes-and-refactorings
@@ -1432,8 +1535,6 @@ handleNotificationUntraced state send connId (JSONRPC.Notification _ method para
           case JSON.fromJSON p of
             JSON.Success changeParams -> do
               _ <- handleDidChange state send connId changeParams
-              -- Emit code lens refresh; diagnostics are pushed after compile callbacks.
-              send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
               send (logMessage LogMessageTypeLog "Document changed")
               return ()
             JSON.Error err -> do
@@ -1460,8 +1561,6 @@ handleNotificationUntraced state send connId (JSONRPC.Notification _ method para
           case JSON.fromJSON p of
             JSON.Success saveParams -> do
               _ <- handleDidSave state send connId saveParams
-              -- Emit code lens refresh; diagnostics are pushed after compile callbacks.
-              send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
               send (logMessage LogMessageTypeInfo "Saved document")
               return ()
             JSON.Error err -> do
