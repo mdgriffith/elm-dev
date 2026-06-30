@@ -1,10 +1,16 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import Control.Monad (when)
 import qualified Control.Concurrent.STM as STM
+import qualified Data.Aeson as JSON
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Lazy.Char8 as LazyChar8
+import qualified Data.Foldable as Foldable
 import qualified Ext.FileCache as FileCache
 import qualified Ext.Filewatch as Filewatch
 import qualified Data.Map.Strict as Map
@@ -28,6 +34,7 @@ import qualified Watchtower.State.Compile as CompileState
 import qualified Watchtower.State.Versions as Versions
 import qualified Watchtower.State.Project as ProjectState
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
+import qualified Watchtower.Server.MCP as MCP
 import qualified System.Exit as Exit
 import qualified System.Directory as Dir
 import qualified System.FilePath as FilePath
@@ -43,7 +50,8 @@ main = do
   versionResults <- sequence versionTests
   generationResults <- sequence generationTests
   optimizationResults <- sequence optimizationTests
-  let results = fileCacheResults ++ versionResults ++ generationResults ++ optimizationResults
+  mcpResults <- sequence mcpTests
+  let results = fileCacheResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults
       failures = [name | (name, False) <- results]
   if null failures
     then do
@@ -108,6 +116,141 @@ optimizationTests =
   , runTest "ported elm-optimize-level-2 replacement suite passes O0/O2/O3" testPortedReplacementSuite
   , runTest "O2/O3 optimization edge cases preserve runtime behavior" testOptimizationEdgeCases
   ]
+
+mcpTests :: [NamedTest]
+mcpTests =
+  [ runTest "MCP exposes composite tools" testMcpCompositeToolsExposed
+  , runTest "MCP hides retired single-purpose tools" testMcpRetiredToolsHidden
+  , runTest "MCP tool surface is exact" testMcpToolSurfaceExact
+  , runTest "MCP composite schemas advertise tagged unions" testMcpCompositeSchemas
+  , runTest "MCP stale test summaries can be cleared" testMcpClearTestResults
+  , runTest "MCP XML blocks preserve tag attributes and body" testMcpXmlBlockShape
+  , runTest "MCP XML attributes are escaped" testMcpXmlAttributeEscaping
+  ]
+
+testMcpCompositeToolsExposed :: IO Bool
+testMcpCompositeToolsExposed = do
+  let names = MCP.availableToolNamesForTests
+  pure (all (`elem` names) ["docs", "add", "check"])
+
+testMcpRetiredToolsHidden :: IO Bool
+testMcpRetiredToolsHidden = do
+  let names = MCP.availableToolNamesForTests
+      retired =
+        [ "docs_package"
+        , "docs_module"
+        , "docs_file"
+        , "docs_value"
+        , "docs_search"
+        , "docs_modules"
+        , "docs_project"
+        , "add_page"
+        , "add_store"
+        , "add_effect"
+        , "add_listener"
+        , "add_theme"
+        , "diagnostics"
+        , "test_run"
+        , "compile"
+        , "project_select"
+        ]
+  pure (not (any (`elem` names) retired))
+
+testMcpToolSurfaceExact :: IO Bool
+testMcpToolSurfaceExact = do
+  let names = List.sort MCP.availableToolNamesForTests
+      expected = List.sort
+        [ "add"
+        , "check"
+        , "docs"
+        , "generate_scaffold_app"
+        , "generate_scaffold_package"
+        , "install"
+        , "test_install"
+        ]
+  pure (names == expected)
+
+testMcpCompositeSchemas :: IO Bool
+testMcpCompositeSchemas = do
+  let schemas = MCP.availableToolSchemasForTests
+      docsOk = schemaHasProperty "queries" schemas "docs"
+        && schemaRequires "queries" schemas "docs"
+        && schemaDescriptionMentions ["project", "modules", "module", "file", "value", "search", "package"] schemas "docs" "queries"
+      addOk = schemaHasProperty "additions" schemas "add"
+        && schemaRequires "additions" schemas "add"
+        && schemaHasProperty "dir" schemas "add"
+        && schemaDescriptionMentions ["page", "store", "effect", "listener", "theme"] schemas "add" "additions"
+      checkOk = schemaHasProperty "dir" schemas "check"
+        && schemaHasProperty "targets" schemas "check"
+        && schemaHasProperty "tests" schemas "check"
+        && schemaDescriptionMentions ["all", "only"] schemas "check" "targets"
+        && schemaDescriptionMentions ["all", "only"] schemas "check" "tests"
+  pure (docsOk && addOk && checkOk)
+
+schemaHasProperty :: Text.Text -> [(Text.Text, JSON.Value)] -> Text.Text -> Bool
+schemaHasProperty propertyName schemas toolName =
+  case lookup toolName schemas >>= objectProperties of
+    Just props -> KeyMap.member (Key.fromText propertyName) props
+    Nothing -> False
+
+schemaRequires :: Text.Text -> [(Text.Text, JSON.Value)] -> Text.Text -> Bool
+schemaRequires fieldName schemas toolName =
+  case lookup toolName schemas >>= objectRequired of
+    Just required -> JSON.String fieldName `elem` required
+    Nothing -> False
+
+schemaDescriptionMentions :: [Text.Text] -> [(Text.Text, JSON.Value)] -> Text.Text -> Text.Text -> Bool
+schemaDescriptionMentions needles schemas toolName propertyName =
+  case lookup toolName schemas >>= objectProperties >>= KeyMap.lookup (Key.fromText propertyName) of
+    Just (JSON.Object prop) ->
+      case KeyMap.lookup "description" prop of
+        Just (JSON.String desc) -> all (`Text.isInfixOf` desc) needles
+        _ -> False
+    _ -> False
+
+objectProperties :: JSON.Value -> Maybe JSON.Object
+objectProperties value =
+  case value of
+    JSON.Object obj ->
+      case KeyMap.lookup "properties" obj of
+        Just (JSON.Object props) -> Just props
+        _ -> Nothing
+    _ -> Nothing
+
+objectRequired :: JSON.Value -> Maybe [JSON.Value]
+objectRequired value =
+  case value of
+    JSON.Object obj ->
+      case KeyMap.lookup "required" obj of
+        Just (JSON.Array required) -> Just (Foldable.toList required)
+        _ -> Nothing
+    _ -> Nothing
+
+testMcpClearTestResults :: IO Bool
+testMcpClearTestResults = do
+  testVar <- STM.newTVarIO (Just (Client.TestInfo
+    { Client.testFiles = ["tests/Main.elm"]
+    , Client.testResults = Just (Client.TestResults 3 3 0 [])
+    , Client.testCompilation = Just Client.TestSuccess
+    }))
+  STM.atomically $ CompileState.clearTestResults testVar
+  cleared <- STM.readTVarIO testVar
+  pure $ case cleared of
+    Just info ->
+      Client.testFiles info == ["tests/Main.elm"]
+        && maybe True (const False) (Client.testResults info)
+        && maybe True (const False) (Client.testCompilation info)
+    Nothing -> False
+
+testMcpXmlBlockShape :: IO Bool
+testMcpXmlBlockShape = do
+  let block = MCP.xmlBlockForTests "docs" [("index", "0"), ("kind", "module"), ("status", "ok")] "body"
+  pure (block == "<docs index=\"0\" kind=\"module\" status=\"ok\">\nbody\n</docs>")
+
+testMcpXmlAttributeEscaping :: IO Bool
+testMcpXmlAttributeEscaping = do
+  let block = MCP.xmlBlockForTests "diagnostics" [("file", "A&B<\"C\">")] "body"
+  pure (block == "<diagnostics file=\"A&amp;B&lt;&quot;C&quot;&gt;\">\nbody\n</diagnostics>")
 
 testO2FunctionHelpers :: IO Bool
 testO2FunctionHelpers = do

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.State.Compile (compile, compileRelevantProjects, compileRelevantProjectsWithPrimaryCallback, scheduleDebouncedCompileRelevantProjects, scheduleDebouncedCompileRelevantProjectsWithCallback, scheduleDebouncedCompileRelevantProjectsWithCallbacks, updateVfsFromFs, compileTests, markFilesystemChanged, updateProjectFileInfo) where
+module Watchtower.State.Compile (compile, compileRelevantProjects, compileRelevantProjectsWithPrimaryCallback, scheduleDebouncedCompileRelevantProjects, scheduleDebouncedCompileRelevantProjectsWithCallback, scheduleDebouncedCompileRelevantProjectsWithCallbacks, updateVfsFromFs, ensureProjectFresh, compileTests, markFilesystemChanged, clearTestResults, updateProjectFileInfo) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
@@ -265,6 +265,22 @@ markFilesystemChanged (Client.State _ mProjects _ _ _ _ _ _ _) changedPaths = do
                   )
               )
       Monad.mapM_ Versions.bumpFsVersion touchedRoots
+      STM.atomically $
+        Monad.mapM_
+          (\(Client.ProjectCache proj _ _ _ mTestVar) ->
+            if Ext.Dev.Project.getRoot proj `elem` touchedRoots
+              then clearTestResults mTestVar
+              else pure ()
+          )
+          projects
+
+clearTestResults :: STM.TVar (Maybe Client.TestInfo) -> STM.STM ()
+clearTestResults mTestVar = do
+  current <- STM.readTVar mTestVar
+  case current of
+    Nothing -> pure ()
+    Just info ->
+      STM.writeTVar mTestVar (Just info { Client.testResults = Nothing, Client.testCompilation = Nothing })
 
 -- | Recursively gather Elm source files under a directory.
 listElmFilesRecursive :: FilePath -> IO [FilePath]
@@ -305,6 +321,24 @@ updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
       -- bump filesystem version when anything changed
       _ <- Versions.bumpFsVersion projectRoot
       pure True
+
+ensureProjectFresh :: Client.State -> String -> Client.ProjectCache -> IO Bool
+ensureProjectFresh state traceId pc@(Client.ProjectCache proj _ _ mCompileResult mTestVar) = do
+  vfsChanged <- updateVfsFromFs proj
+  Monad.when vfsChanged $
+    STM.atomically $ clearTestResults mTestVar
+  let projectRoot = Ext.Dev.Project.getRoot proj
+  versions <- Versions.readVersions projectRoot
+  currentResult <- STM.readTVarIO mCompileResult
+  let needsCompile =
+        Versions.compileVersion versions < Versions.fsVersion versions
+          || case currentResult of
+               Client.NotCompiled -> True
+               _ -> False
+  Monad.when needsCompile $ do
+    _ <- compile state traceId pc []
+    pure ()
+  pure vfsChanged
 
 
 -- | Compile any projects that are relevant to the given file paths.
@@ -581,6 +615,7 @@ compileTestsWithTrace state@(Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested
         ]
         (pure ())
     Just ti -> do
+      STM.atomically $ clearTestResults mTestVar
       let files = Client.testFiles ti
       case files of
         [] ->

@@ -37,6 +37,7 @@ import qualified Control.Monad as Monad
 import qualified Data.Set as Set
 import qualified Watchtower.Trace as Trace
 import qualified Ext.Trace as PerfTrace
+import qualified System.IO.Error as IOError
 
 
 entrypointsIncluded :: NE.List FilePath -> NE.List FilePath -> Bool
@@ -259,20 +260,7 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _ _) flags root entrypoi
                             let existingSet = Set.fromList existing
                             let removed = filter (\p -> not (Set.member p existingSet)) syncable
 
-                            changedExisting <-
-                              Monad.filterM
-                                (\path -> do
-                                     bytes <- File.readUtf8 path
-                                     Ext.Log.log Ext.Log.Live
-                                       ( concat
-                                           [ "[trace " ++ traceId ++ "] watcher.sync"
-                                           , " path=" ++ path
-                                           , " hash=" ++ Trace.fingerprintBytes bytes
-                                           ]
-                                       )
-                                     Ext.FileCache.insertIfChanged path bytes
-                                )
-                                existing
+                            changedExisting <- justs <$> Monad.mapM (syncExistingPath traceId) existing
 
                             Monad.mapM_ Ext.FileCache.delete removed
 
@@ -318,6 +306,36 @@ missingFiles paths = do
   statuses <- mapM Dir.doesFileExist paths
   let combined = zip paths statuses
   pure [p | (p, exists) <- combined, not exists]
+
+justs :: [Maybe a] -> [a]
+justs maybes =
+  [value | Just value <- maybes]
+
+syncExistingPath :: String -> FilePath -> IO (Maybe FilePath)
+syncExistingPath traceId path = do
+  readResult <- Exception.try (File.readUtf8 path)
+  case readResult of
+    Right bytes -> do
+      Ext.Log.log Ext.Log.Live
+        ( concat
+            [ "[trace " ++ traceId ++ "] watcher.sync"
+            , " path=" ++ path
+            , " hash=" ++ Trace.fingerprintBytes bytes
+            ]
+        )
+      changed <- Ext.FileCache.insertIfChanged path bytes
+      pure (if changed then Just path else Nothing)
+    Left err
+      | IOError.isDoesNotExistError err -> do
+          Ext.Log.log Ext.Log.Live
+            ( concat
+                [ "[trace " ++ traceId ++ "] watcher.sync_missing"
+                , " path=" ++ path
+                ]
+            )
+          Ext.FileCache.delete path
+          pure (Just path)
+      | otherwise -> Exception.throwIO (err :: IOError.IOError)
 
 readDocsInfo :: FilePath -> IO Gen.Config.DocsConfig
 readDocsInfo root = do

@@ -19,6 +19,7 @@ import qualified Data.Unique as Unique
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Ext.Common
 import qualified Ext.Log
+import qualified Ext.Trace
 import Snap.Core hiding (method)
 import qualified Snap.Http.Server as Server
 import qualified Snap.Util.CORS as CORS
@@ -97,14 +98,16 @@ generateShortId = do
 
 run :: Live.State -> Mode -> Handler -> NotificationHandler -> IO ()
 run state mode handler notificationHandler =
-  case mode of
-    StdIO -> runStdIO state handler notificationHandler
-    HTTP maybePort -> do
-      let port = Ext.Common.withDefault 51213 maybePort
-      debug <- Ext.Log.isActive Ext.Log.VerboseServer
-      Ext.Common.atomicPutStrLn $ "elm-dev is now running at http://localhost:" ++ show port
-      Server.httpServe (config port debug) $
-        runHttp state handler notificationHandler
+  ( case mode of
+      StdIO -> runStdIO state handler notificationHandler
+      HTTP maybePort -> do
+        let port = Ext.Common.withDefault 51213 maybePort
+        debug <- Ext.Log.isActive Ext.Log.VerboseServer
+        Ext.Common.atomicPutStrLn $ "elm-dev is now running at http://localhost:" ++ show port
+        Server.httpServe (config port debug) $
+          runHttp state handler notificationHandler
+  )
+    `finally` Ext.Trace.shutdown (Client.trace state)
 
 -- | Read a JSON-RPC message framed with Content-Length from a Handle
 readHandleMessage :: Handle -> IO (Maybe LBS.ByteString)

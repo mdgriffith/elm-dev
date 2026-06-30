@@ -213,7 +213,7 @@ span trace name attrs action =
         started <- monotonicNanos
         (spanId, traceId) <- MVar.withMVar (sqliteConnection sqlite) $ \conn -> do
           projectId <- lookupProjectIdForAttributes conn (sqliteSessionId sqlite) attrs
-          let traceId = Maybe.fromMaybe name (traceIdFromAttributes attrs)
+          let traceId = Maybe.fromMaybe (name <> "#" <> Text.pack (show started)) (traceIdFromAttributes attrs)
           activeParentSpanId <- currentParentSpanId sqlite traceId
           openParentSpanId <- lookupOpenParentSpanId conn (sqliteSessionId sqlite) traceId
           let parentSpanId = activeParentSpanId <|> openParentSpanId
@@ -352,16 +352,18 @@ traceIdFromAttributes :: [Attribute] -> Maybe Text.Text
 traceIdFromAttributes attrs =
   lookupTextAttribute "trace_id" attrs
     <|> lspRequestTraceId attrs
-    <|> lspNotificationTraceId attrs
   where
     lspRequestTraceId values = do
       method <- lookupTextAttribute "method" values
       requestId <- lookupTextAttribute "request_id" values
-      pure ("lsp.request:" <> method <> "#" <> requestId)
+      let connectionSuffix =
+            case lookupTextAttribute "connection_id" values of
+              Just connectionId ->
+                "@" <> connectionId
 
-    lspNotificationTraceId values = do
-      method <- lookupTextAttribute "method" values
-      pure ("lsp.notification:" <> method)
+              Nothing ->
+                ""
+      pure ("lsp.request:" <> method <> "#" <> requestId <> connectionSuffix)
 
 currentActiveSpan :: SQLiteState -> IO (Maybe ActiveSpan)
 currentActiveSpan sqlite = do

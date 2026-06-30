@@ -13,7 +13,7 @@
 
 ### Import aliases
 
-If you *do* import using an alias, the import alais must be capitalized.  Like
+If you *do* import using an alias, the import alias must be capitalized.  Like
 
 ```elm
 import Html.Attributes as Attr
@@ -44,7 +44,6 @@ The `Event` portion of the `Msg` can also be standardized on a per-project level
   - Expose only what callers need; keep implementation details private.
   - Every module should have a brief module doc with at least 1–3 sentences and (ideally) example usage.
   - All exposed values/types should have succinct doc comments.
-
 
 - **Anchor modules around a core type**
   - Most modules center on a primary type and the functions that operate on it (`User`, `Session`, `Decoder User`, etc.).

@@ -5,7 +5,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Watchtower.Server.MCP (serve) where
+module Watchtower.Server.MCP
+  ( serve
+  , availableToolNamesForTests
+  , availableToolSchemasForTests
+  , xmlBlockForTests
+  ) where
 
 {-
 Can test via https://modelcontextprotocol.io/docs/tools/inspector
@@ -106,18 +111,20 @@ availableTools :: [MCP.Tool]
 availableTools =
   [ toolScaffoldElmApp
   , toolScaffoldElmPackage
-  , toolCompile
-  , toolUnused
+  , toolCheck
+  , toolDocs
   , toolInstall
-  , toolAddPage
-  , toolAddStore
-  , toolAddEffect
-  , toolAddListener
-  , toolAddTheme
+  , toolAdd
   , toolTestInstall
-  , toolTestRun
-  , toolProjectSelect
   ]
+
+availableToolNamesForTests :: [Text]
+availableToolNamesForTests =
+  map MCP.toolName availableTools
+
+availableToolSchemasForTests :: [(Text, JSON.Value)]
+availableToolSchemasForTests =
+  map (\tool -> (MCP.toolName tool, MCP.toolInputSchema tool)) availableTools
 
 -- helpers
 getStringArg :: JSON.Object -> Text -> Maybe String
@@ -137,6 +144,17 @@ getIntArg obj key =
         _ -> Nothing
     _ -> Nothing
 
+getBoolArg :: JSON.Object -> Text -> Maybe Bool
+getBoolArg obj key =
+  case KeyMap.lookup (Key.fromText key) obj of
+    Just (JSON.Bool b) -> Just b
+    Just (JSON.String t) ->
+      case Text.toLower t of
+        "true" -> Just True
+        "false" -> Just False
+        _ -> Nothing
+    _ -> Nothing
+
 requireStringArg :: Text -> JSON.Object -> Either String String
 requireStringArg key obj =
   case getStringArg obj key of
@@ -151,6 +169,62 @@ ok msg = MCP.ToolCallResponse [MCP.ToolResponseText Nothing msg]
 
 errTxt :: Text -> MCP.ToolCallResponse
 errTxt msg = MCP.ToolCallResponse [MCP.ToolResponseError Nothing msg]
+
+xmlBlock :: Text -> [(Text, Text)] -> Text -> Text
+xmlBlock tag attrs body =
+  let attrsText = Text.concat (map (\(k, v) -> " " <> k <> "=\"" <> xmlAttrEscape v <> "\"") attrs)
+  in "<" <> tag <> attrsText <> ">\n" <> body <> "\n</" <> tag <> ">"
+
+xmlBlockForTests :: Text -> [(Text, Text)] -> Text -> Text
+xmlBlockForTests = xmlBlock
+
+xmlAttrEscape :: Text -> Text
+xmlAttrEscape =
+  Text.replace "\"" "&quot;"
+    . Text.replace "<" "&lt;"
+    . Text.replace ">" "&gt;"
+    . Text.replace "&" "&amp;"
+
+getArrayArg :: JSON.Object -> Text -> Maybe [JSON.Value]
+getArrayArg obj key =
+  case KeyMap.lookup (Key.fromText key) obj of
+    Just (JSON.Array values) -> Just (Data.Vector.toList values)
+    _ -> Nothing
+
+objectField :: JSON.Object -> Text -> Maybe JSON.Object
+objectField obj key =
+  case KeyMap.lookup (Key.fromText key) obj of
+    Just (JSON.Object child) -> Just child
+    _ -> Nothing
+
+stringField :: JSON.Object -> Text -> Maybe Text
+stringField obj key =
+  case KeyMap.lookup (Key.fromText key) obj of
+    Just (JSON.String value) -> Just value
+    _ -> Nothing
+
+intField :: JSON.Object -> Text -> Maybe Int
+intField obj key =
+  case KeyMap.lookup (Key.fromText key) obj of
+    Just (JSON.Number n) -> Scientific.toBoundedInteger n
+    _ -> Nothing
+
+projectRootText :: Client.ProjectCache -> Text
+projectRootText (Client.ProjectCache proj _ _ _ _) =
+  Text.pack (Ext.Dev.Project.getRoot proj)
+
+rootAttrs :: Client.ProjectCache -> [(Text, Text)]
+rootAttrs pc =
+  [("root", projectRootText pc)]
+
+maybeRootAttrs :: Maybe Client.ProjectCache -> [(Text, Text)]
+maybeRootAttrs maybeProject =
+  maybe [] rootAttrs maybeProject
+
+resourceAsTool :: MCP.Resource -> Text -> Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> IO MCP.ToolCallResponse
+resourceAsTool resource uri state emit connId = do
+  MCP.ReadResourceResponse contents <- MCP.read resource (MCP.ReadResourceRequest uri) state emit connId
+  pure (MCP.ToolCallResponse (map (MCP.ToolResponseText Nothing . MCP.resourceContentText) contents))
 
 
 
@@ -193,6 +267,27 @@ schemaProjectPlus extras =
     [ "type" .= ("object" :: Text)
     , "properties" .= JSON.object fields
     , "required" .= requiredFields
+    ]
+
+schemaDocsTool :: [(Text, Text)] -> [(Text, Text)] -> JSON.Value
+schemaDocsTool required optional =
+  schemaDocsToolHelp required (optional ++ [("dir", "Optional local Elm project directory to use instead of the focused project")])
+
+schemaDocsToolNoDir :: [(Text, Text)] -> [(Text, Text)] -> JSON.Value
+schemaDocsToolNoDir = schemaDocsToolHelp
+
+schemaDocsToolHelp :: [(Text, Text)] -> [(Text, Text)] -> JSON.Value
+schemaDocsToolHelp required optional =
+  let
+    field (name, desc) = Key.fromText name .= JSON.object
+      [ "type" .= ("string" :: Text)
+      , "description" .= (desc :: Text)
+      ]
+  in
+  JSON.object
+    [ "type" .= ("object" :: Text)
+    , "properties" .= JSON.object (fmap field (required ++ optional))
+    , "required" .= fmap fst required
     ]
 
 -- scaffold app
@@ -254,50 +349,45 @@ toolScaffoldElmApp = MCP.Tool
 
 -- (no-op placeholder; colors are controlled at render-time)
 
--- unused warnings (as a tool)
-toolUnused :: MCP.Tool
-toolUnused = MCP.Tool
-  { MCP.toolName = "unused"
-  , MCP.toolDescription = "List unused warnings for the project or for a specific file."
+-- diagnostics
+toolDiagnostics :: MCP.Tool
+toolDiagnostics = MCP.Tool
+  { MCP.toolName = "diagnostics"
+  , MCP.toolDescription = "Show Elm compiler diagnostics for a project or file. Warnings are suppressed by default."
   , MCP.toolInputSchema =
       JSON.object
         [ "type" .= ("object" :: Text)
         , "properties" .= JSON.object
-            [ Key.fromText "file" .= JSON.object
+            [ Key.fromText "dir" .= JSON.object
                 [ "type" .= ("string" :: Text)
-                , "description" .= ("Absolute path to a file to filter warnings (optional)" :: Text)
+                , "description" .= ("Optional local Elm project directory to use instead of the focused project" :: Text)
+                ]
+            , Key.fromText "file" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Optional absolute path to a file to filter diagnostics" :: Text)
+                ]
+            , Key.fromText "includeWarnings" .= JSON.object
+                [ "type" .= ("boolean" :: Text)
+                , "description" .= ("Include warnings in the report. Defaults to false." :: Text)
+                ]
+            , Key.fromText "limit" .= JSON.object
+                [ "type" .= ("integer" :: Text)
+                , "description" .= ("Maximum number of diagnostics to render. Defaults to 100." :: Text)
                 ]
             ]
         , "required" .= ([] :: [Text])
         ]
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args state _emit connId -> do
-      selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
+      selection <- resolveDiagnosticsProjectFromArgs args state connId
       case selection of
         Left msg -> pure (errTxt msg)
-        Right pc@(Client.ProjectCache proj _ _ _ _) -> do
-          _ <- Watchtower.State.Compile.compile state "mcp.unused" pc []
-          case getStringArg args "file" of
-            Just filePath -> do
-              (_loc, warns) <- Helpers.getWarningsForFile state filePath
-              let (unusedImports, unusedValues) = partitionUnused warns
-              let body = renderUnusedMarkdown [(filePath, unusedImports, unusedValues)]
-              pure (MCP.ToolCallResponse [MCP.ToolResponseText Nothing body])
-            Nothing -> do
-              allInfos <- Client.getAllFileInfos state
-              let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.affectsCompilation p proj) (Map.toList allInfos)
-              perFile <- mapM
-                          (\p -> do
-                              (_loc, warns) <- Helpers.getWarningsForFile state p
-                              let (uimps, uvals) = partitionUnused warns
-                              pure (p, uimps, uvals)
-                          )
-                          projectFiles
-              let nonEmpty = filter (\(_, imps, vals) -> not (null imps) || not (null vals)) perFile
-              let body = if null nonEmpty
-                           then "No unused warnings."
-                           else renderUnusedMarkdown nonEmpty
-              pure (MCP.ToolCallResponse [MCP.ToolResponseText Nothing body])
+        Right pc -> do
+          let includeWarnings = Maybe.fromMaybe False (getBoolArg args "includeWarnings")
+              limit = Maybe.fromMaybe 100 (getIntArg args "limit")
+              maybeFile = getStringArg args "file"
+          body <- diagnosticsReport state pc maybeFile includeWarnings limit
+          pure (ok body)
   }
 
 -- scaffold package
@@ -415,17 +505,16 @@ toolCompile = MCP.Tool
         Right projCache -> do
           -- Ensure VFS is updated from disk and bump fs version if needed
           let (Client.ProjectCache proj _ _ _ _) = projCache
-          _ <- Watchtower.State.Compile.updateVfsFromFs proj
-          -- Perform compile
-          compileResult <- Watchtower.State.Compile.compile state "mcp.compile" projCache []
+          _ <- Watchtower.State.Compile.ensureProjectFresh state "mcp.compile" projCache
+          currentResult <- Control.Concurrent.STM.readTVarIO (Client.compileResult projCache)
           -- Also compile tests regardless of main compile result
           _ <- Watchtower.State.Compile.compileTests state projCache
           -- Mark compiled version = current fs version snapshot, regardless of success or error
           let projectRoot = Ext.Dev.Project.getRoot proj
           cur <- Versions.readVersions projectRoot
           Versions.setCompileVersionTo projectRoot (Versions.fsVersion cur)
-          case compileResult of
-            Left clientErr -> do
+          case currentResult of
+            Client.Error clientErr -> do
               -- Render errors as terminal-style text, like `elm make`
               let doc =
                     case clientErr of
@@ -435,7 +524,494 @@ toolCompile = MCP.Tool
                         Help.reportToDoc (Help.report "GENERATION ERROR" Nothing msg [])
               let txt = Text.pack (Help.toString doc)
               pure (errTxt txt)
-            Right _ -> pure (ok "Compiled successfully")
+            _ -> pure (ok "Compiled successfully")
+  }
+
+-- check
+toolCheck :: MCP.Tool
+toolCheck = MCP.Tool
+  { MCP.toolName = "check"
+  , MCP.toolDescription = "Run Elm diagnostics and/or tests for a project in one batched call. Omit targets or tests to skip that check. Use { kind: \"all\" } for the whole project."
+  , MCP.toolInputSchema =
+      JSON.object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= JSON.object
+            [ Key.fromText "dir" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Optional local Elm project directory to use instead of the focused project" :: Text)
+                ]
+            , Key.fromText "includeWarnings" .= JSON.object
+                [ "type" .= ("boolean" :: Text)
+                , "description" .= ("Include warnings in diagnostics. Defaults to false." :: Text)
+                ]
+            , Key.fromText "limit" .= JSON.object
+                [ "type" .= ("integer" :: Text)
+                , "description" .= ("Maximum diagnostics per diagnostic target. Defaults to 100." :: Text)
+                ]
+            , Key.fromText "targets" .= JSON.object
+                [ "type" .= ("object" :: Text)
+                , "description" .= ("Tagged union: { kind: \"all\" } or { kind: \"only\", targets: [{ kind: \"project\" } | { kind: \"file\", file } | { kind: \"module\", module }] }" :: Text)
+                ]
+            , Key.fromText "tests" .= JSON.object
+                [ "type" .= ("object" :: Text)
+                , "description" .= ("Tagged union: { kind: \"all\" } or { kind: \"only\", runs: [{ glob?, fuzz?, seed?, timeoutSeconds? }] }" :: Text)
+                ]
+            ]
+        , "required" .= ([] :: [Text])
+        ]
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state _emit connId -> do
+      selection <- resolveDiagnosticsProjectFromArgs args state connId
+      case selection of
+        Left msg -> pure (errTxt msg)
+        Right pc -> do
+          let includeWarnings = Maybe.fromMaybe False (getBoolArg args "includeWarnings")
+              limit = Maybe.fromMaybe 100 (getIntArg args "limit")
+          diagBlocks <- runCheckDiagnostics state pc includeWarnings limit (objectField args "targets")
+          testBlocks <- runCheckTests pc (objectField args "tests")
+          let blocks = diagBlocks ++ testBlocks
+          if null blocks
+            then pure (errTxt "Provide targets and/or tests. Use { kind: \"all\" } to check the whole project.")
+            else pure (ok (Text.intercalate "\n\n" blocks))
+  }
+
+runCheckDiagnostics :: Client.State -> Client.ProjectCache -> Bool -> Int -> Maybe JSON.Object -> IO [Text]
+runCheckDiagnostics state pc includeWarnings limit maybeTargets =
+  case maybeTargets of
+    Nothing -> pure []
+    Just targetsObj ->
+      case stringField targetsObj "kind" of
+        Just "all" -> do
+          body <- diagnosticsReport state pc Nothing includeWarnings limit
+          pure [xmlBlock "diagnostics" ([("index", "0"), ("kind", "all"), ("status", "ok")] ++ rootAttrs pc) body]
+        Just "only" ->
+          case getArrayArg targetsObj "targets" of
+            Nothing -> pure [xmlBlock "diagnostics" [("status", "error")] "Expected targets: { kind: \"only\", targets: [...] }." ]
+            Just targets -> fmap concat (mapM (runOneDiagnosticTarget state pc includeWarnings limit) (zip [(0 :: Int)..] targets))
+        Just other -> pure [xmlBlock "diagnostics" [("status", "error"), ("kind", other)] "Unknown diagnostics target selection kind."]
+        Nothing -> pure [xmlBlock "diagnostics" [("status", "error")] "Missing targets.kind."]
+
+runOneDiagnosticTarget :: Client.State -> Client.ProjectCache -> Bool -> Int -> (Int, JSON.Value) -> IO [Text]
+runOneDiagnosticTarget state pc includeWarnings limit (index, value) =
+  case value of
+    JSON.Object targetObj ->
+      case stringField targetObj "kind" of
+        Just "project" -> do
+          body <- diagnosticsReport state pc Nothing includeWarnings limit
+          pure [xmlBlock "diagnostics" ([("index", Text.pack (show index)), ("kind", "project"), ("status", "ok")] ++ rootAttrs pc) body]
+        Just "file" ->
+          case stringField targetObj "file" of
+            Nothing -> pure [xmlBlock "diagnostics" [("index", Text.pack (show index)), ("kind", "file"), ("status", "error")] "Missing file."]
+            Just filePath -> do
+              body <- diagnosticsReport state pc (Just (Text.unpack filePath)) includeWarnings limit
+              pure [xmlBlock "diagnostics" ([("index", Text.pack (show index)), ("kind", "file"), ("file", filePath), ("status", "ok")] ++ rootAttrs pc) body]
+        Just "module" ->
+          case stringField targetObj "module" of
+            Nothing -> pure [xmlBlock "diagnostics" [("index", Text.pack (show index)), ("kind", "module"), ("status", "error")] "Missing module."]
+            Just moduleName -> do
+              resolved <- resolveModuleSpecScoped state (Just pc) (ModuleByName (Name.fromChars (Text.unpack moduleName)))
+              case resolved of
+                Right (ModuleResolved _ (Just filePath) _ _) -> do
+                  body <- diagnosticsReport state pc (Just filePath) includeWarnings limit
+                  pure [xmlBlock "diagnostics" ([("index", Text.pack (show index)), ("kind", "module"), ("module", moduleName), ("file", Text.pack filePath), ("status", "ok")] ++ rootAttrs pc) body]
+                Right _ -> pure [xmlBlock "diagnostics" [("index", Text.pack (show index)), ("kind", "module"), ("module", moduleName), ("status", "error")] "Module resolved to package docs, not a local file."]
+                Left msg -> pure [xmlBlock "diagnostics" [("index", Text.pack (show index)), ("kind", "module"), ("module", moduleName), ("status", "error")] msg]
+        Just other -> pure [xmlBlock "diagnostics" [("index", Text.pack (show index)), ("kind", other), ("status", "error")] "Unknown diagnostic target kind."]
+        Nothing -> pure [xmlBlock "diagnostics" [("index", Text.pack (show index)), ("status", "error")] "Missing target.kind."]
+    _ -> pure [xmlBlock "diagnostics" [("index", Text.pack (show index)), ("status", "error")] "Expected target object."]
+
+runCheckTests :: Client.ProjectCache -> Maybe JSON.Object -> IO [Text]
+runCheckTests pc maybeTests =
+  case maybeTests of
+    Nothing -> pure []
+    Just testsObj ->
+      case stringField testsObj "kind" of
+        Just "all" -> (:[]) <$> runOneCheckTest pc 0 JSON.Null
+        Just "only" ->
+          case getArrayArg testsObj "runs" of
+            Nothing -> pure [xmlBlock "tests" [("status", "error")] "Expected tests: { kind: \"only\", runs: [...] }." ]
+            Just runs -> mapM (uncurry (runOneCheckTest pc)) (zip [(0 :: Int)..] runs)
+        Just other -> pure [xmlBlock "tests" [("status", "error"), ("kind", other)] "Unknown test selection kind."]
+        Nothing -> pure [xmlBlock "tests" [("status", "error")] "Missing tests.kind."]
+
+runOneCheckTest :: Client.ProjectCache -> Int -> JSON.Value -> IO Text
+runOneCheckTest (Client.ProjectCache proj _ _ _ mTestVar) index value = do
+  let dir = Ext.Dev.Project.getRoot proj
+      runObj = case value of
+        JSON.Object obj -> obj
+        _ -> KeyMap.empty
+      mTimeoutSeconds = intField runObj "timeoutSeconds"
+      mGlobText = stringField runObj "glob"
+      mGlobString = fmap Text.unpack mGlobText
+      mGlobs = fmap (\g -> [g]) mGlobString
+      mSeed = intField runObj "seed"
+      mFuzz = intField runObj "fuzz"
+      timeoutSeconds = maybe 10 id mTimeoutSeconds
+      baseAttrs = [("index", Text.pack (show index)), ("status", "ok"), ("root", Text.pack dir)] ++ maybe [] (\g -> [("glob", g)]) mGlobText
+      isUnfilteredRun = Maybe.isNothing mGlobText
+  Control.Concurrent.STM.atomically $ Watchtower.State.Compile.clearTestResults mTestVar
+  startPs <- CPUTime.getCPUTime
+  result <- TestRunner.run (Just timeoutSeconds) mGlobs mSeed mFuzz dir
+  case result of
+    Left e ->
+      let msg = case e of
+            TestRunner.TimedOut _ -> Text.pack ("Tests timed out after " ++ show (timeoutSeconds * 1000) ++ "ms")
+            TestRunner.RunFailed runMsg -> Text.pack runMsg
+      in pure (xmlBlock "tests" ([("index", Text.pack (show index)), ("status", "error"), ("root", Text.pack dir)] ++ maybe [] (\g -> [("glob", g)]) mGlobText) msg)
+    Right (TestRunner.RunSuccess info reports seed fuzz) -> do
+      endPs <- CPUTime.getCPUTime
+      let durationMs :: Int
+          durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
+          rendered = TestReport.renderReportsWithDuration False (Just durationMs) (Just seed) (Just fuzz) reports
+          summary = TestRunner.tiSummary info
+          total = TestRunner.summaryTotal summary
+          passed = TestRunner.summaryPassed summary
+          failed = TestRunner.summaryFailed summary
+          failures = TestRunner.summaryFailures summary
+          tr = Client.TestResults total passed failed failures
+          clientInfo = Client.TestInfo
+                         { Client.testFiles = TestRunner.tiFiles info
+                         , Client.testResults = Just tr
+                         , Client.testCompilation = Just Client.TestSuccess
+                         }
+          attrs = baseAttrs ++ [("passed", Text.pack (show passed)), ("failed", Text.pack (show failed)), ("total", Text.pack (show total))]
+      when isUnfilteredRun $
+        Control.Concurrent.STM.atomically $ Control.Concurrent.STM.writeTVar mTestVar (Just clientInfo)
+      Ext.Log.log Ext.Log.Test rendered
+      pure (xmlBlock "tests" attrs (Text.pack rendered))
+
+-- docs_package
+toolDocs :: MCP.Tool
+toolDocs = MCP.Tool
+  { MCP.toolName = "docs"
+  , MCP.toolDescription = "Get multiple Elm docs results in one call. queries is an array of tagged unions: project, modules, module, file, value, search, package."
+  , MCP.toolInputSchema =
+      JSON.object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= JSON.object
+            [ Key.fromText "dir" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Optional local Elm project directory to use instead of the focused project" :: Text)
+                ]
+            , Key.fromText "queries" .= JSON.object
+                [ "type" .= ("array" :: Text)
+                , "description" .= ("Tagged docs queries: { kind: \"project\" }, { kind: \"modules\" }, { kind: \"module\", module }, { kind: \"file\", file }, { kind: \"value\", value }, { kind: \"search\", query, package?, version? }, { kind: \"package\", package, version? }" :: Text)
+                , "items" .= JSON.object [ "type" .= ("object" :: Text) ]
+                ]
+            ]
+        , "required" .= (["queries"] :: [Text])
+        ]
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state _emit connId -> do
+      case getArrayArg args "queries" of
+        Nothing -> pure (errTxt "Missing queries array.")
+        Just queries -> do
+          blocks <- mapM (runDocsQuery args state connId) (zip [(0 :: Int)..] queries)
+          pure (ok (Text.intercalate "\n\n" blocks))
+  }
+
+runDocsQuery :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> (Int, JSON.Value) -> IO Text
+runDocsQuery args state connId (index, value) =
+  case value of
+    JSON.Object query ->
+      case stringField query "kind" of
+        Just "project" -> do
+          mProject <- resolveDocsProjectFromArgs args state connId
+          case mProject of
+            Left msg -> pure (docsError index "project" [] msg)
+            Right Nothing -> pure (docsError index "project" [] "No project selected")
+            Right (Just pc) -> do
+              localDocs <- localModulesForProject state pc
+              pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+              outline <- Elm.Outline.read (Ext.Dev.Project.getRoot (projectFromCache pc))
+              pure (xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", "project"), ("status", "ok")] ++ rootAttrs pc) (renderDocsProject pc outline localDocs pkgs))
+        Just "modules" -> do
+          mProject <- resolveDocsProjectFromArgs args state connId
+          case mProject of
+            Left msg -> pure (docsError index "modules" [] msg)
+            Right maybeProject -> do
+              localDocs <- maybe (pure []) (localModulesForProject state) maybeProject
+              pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+              outline <- traverse (Elm.Outline.read . Ext.Dev.Project.getRoot . projectFromCache) maybeProject
+              pure (xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", "modules"), ("status", "ok")] ++ maybeRootAttrs maybeProject) (renderDocsModules maybeProject outline localDocs pkgs))
+        Just "module" ->
+          case stringField query "module" of
+            Nothing -> pure (docsError index "module" [] "Missing module.")
+            Just moduleName -> do
+              mProject <- resolveDocsProjectFromArgs args state connId
+              case mProject of
+                Left msg -> pure (docsError index "module" [("module", moduleName)] msg)
+                Right maybeProject -> do
+                  let wantName = Name.fromChars (Text.unpack moduleName)
+                  r <- resolveModuleSpecScoped state maybeProject (ModuleByName wantName)
+                  case r of
+                    Right (ModuleResolved _ maybePath maybePkg docsMod) -> do
+                      let meta = DocsRender.ModuleMeta moduleName (fmap (Ext.Dev.Project.getRoot . projectFromCache) maybeProject) maybePath (fmap (Text.pack . Pkg.toChars) maybePkg)
+                      pure (xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", "module"), ("module", moduleName), ("status", "ok")] ++ maybeRootAttrs maybeProject) (DocsRender.renderModule meta docsMod))
+                    Left _ -> pure (docsError index "module" [("module", moduleName)] ("No module found named " <> moduleName))
+        Just "file" ->
+          case stringField query "file" of
+            Nothing -> pure (docsError index "file" [] "Missing file.")
+            Just filePath -> do
+              mProject <- resolveDocsProjectFromArgs args state connId
+              case mProject of
+                Left msg -> pure (docsError index "file" [("file", filePath)] msg)
+                Right maybeProject -> do
+                  r <- resolveModuleSpecScoped state maybeProject (ModuleByFilePath (Text.unpack filePath))
+                  case r of
+                    Right (ModuleResolved moduleName maybePath maybePkg docsMod) -> do
+                      let moduleText = Text.pack (Name.toChars moduleName)
+                          meta = DocsRender.ModuleMeta moduleText (fmap (Ext.Dev.Project.getRoot . projectFromCache) maybeProject) maybePath (fmap (Text.pack . Pkg.toChars) maybePkg)
+                      pure (xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", "file"), ("file", filePath), ("module", moduleText), ("status", "ok")] ++ maybeRootAttrs maybeProject) (DocsRender.renderModule meta docsMod))
+                    Left msg -> pure (docsError index "file" [("file", filePath)] msg)
+        Just "value" ->
+          case stringField query "value" of
+            Nothing -> pure (docsError index "value" [] "Missing value.")
+            Just valueName -> do
+              mProject <- resolveDocsProjectFromArgs args state connId
+              case mProject of
+                Left msg -> pure (docsError index "value" [("value", valueName)] msg)
+                Right maybeProject ->
+                  case splitModuleAndValue valueName of
+                    Nothing -> pure (docsError index "value" [("value", valueName)] "Expected fully-qualified value name, e.g. List.map")
+                    Just (modName, valName) -> do
+                      r <- resolveModuleSpecScoped state maybeProject (ModuleByName modName)
+                      case r of
+                        Right (ModuleResolved _ maybePath maybePkg docsMod) -> do
+                          let moduleText = Text.pack (Name.toChars modName)
+                              valueText = Text.pack (Name.toChars valName)
+                              meta = DocsRender.ValueMeta moduleText valueText (fmap (Ext.Dev.Project.getRoot . projectFromCache) maybeProject) maybePath (fmap (Text.pack . Pkg.toChars) maybePkg)
+                          pure (xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", "value"), ("value", valueName), ("status", "ok")] ++ maybeRootAttrs maybeProject) (DocsRender.renderValue meta docsMod valName))
+                        Left _ -> pure (docsError index "value" [("value", valueName)] ("No value found that matches " <> valueName))
+        Just "search" ->
+          case stringField query "query" of
+            Nothing -> pure (docsError index "search" [] "Missing query.")
+            Just searchQuery -> do
+              packageDocs <- case stringField query "package" of
+                Nothing -> pure (Right Nothing)
+                Just pkg -> case parsePkgName pkg of
+                  Nothing -> pure (Left "Invalid package name. Expected author/project")
+                  Just pkgName -> do
+                    let mVersionText = stringField query "version"
+                    case traverse parseVersionText mVersionText of
+                      Nothing -> pure (Left "Invalid version. Expected MAJOR.MINOR.PATCH, e.g. 1.1.3")
+                      Just mVersion -> do
+                        mRoot <- docsRootFromArgs args state connId
+                        docsResult <- loadPackageDocsForTool state pkgName mVersion mRoot
+                        case docsResult of
+                          Left msg -> pure (Left msg)
+                          Right docsMap -> pure (Right (Just (pkgName, Map.elems docsMap)))
+              case packageDocs of
+                Left msg -> pure (docsError index "search" [("query", searchQuery)] msg)
+                Right scopedPackage -> do
+                  mProject <- case (scopedPackage, getStringArg args "dir") of
+                    (Just _, Nothing) -> pure (Right Nothing)
+                    _ -> resolveDocsProjectFromArgs args state connId
+                  case mProject of
+                    Left msg -> pure (docsError index "search" [("query", searchQuery)] msg)
+                    Right maybeProject -> do
+                      localDocs <- maybe (pure []) (localModulesForProject state) maybeProject
+                      pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+                      let packageDocsList = case scopedPackage of
+                            Just (pkgName, docsMods) -> [(pkgName, docsMods)]
+                            Nothing -> fmap (\(pkgName, info) -> (pkgName, fmap Client.packageModuleDocs (Map.elems (Client.packageModules info)))) (Map.toList pkgs)
+                      pure (xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", "search"), ("query", searchQuery), ("status", "ok")] ++ maybeRootAttrs maybeProject) (renderDocsSearch searchQuery localDocs packageDocsList))
+        Just "package" ->
+          case stringField query "package" of
+            Nothing -> pure (docsError index "package" [] "Missing package.")
+            Just pkg ->
+              case parsePkgName pkg of
+                Nothing -> pure (docsError index "package" [("package", pkg)] "Invalid package name. Expected author/project")
+                Just pkgName -> do
+                  mRoot <- docsRootFromArgs args state connId
+                  let mVersionText = stringField query "version"
+                  case traverse parseVersionText mVersionText of
+                    Nothing -> pure (docsError index "package" [("package", pkg)] "Invalid version. Expected MAJOR.MINOR.PATCH, e.g. 1.1.3")
+                    Just mVersion -> do
+                      result <- renderPackageDocsText state pkgName mVersion mRoot
+                      case result of
+                        Left msg -> pure (docsError index "package" [("package", pkg)] msg)
+                        Right body -> pure (xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", "package"), ("package", pkg), ("status", "ok")] ++ maybe [] (\root -> [("root", Text.pack root)]) mRoot) body)
+        Just other -> pure (docsError index other [] "Unknown docs query kind.")
+        Nothing -> pure (docsError index "unknown" [] "Missing query.kind.")
+    _ -> pure (docsError index "unknown" [] "Expected query object.")
+
+docsError :: Int -> Text -> [(Text, Text)] -> Text -> Text
+docsError index kind extraAttrs msg =
+  xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", kind), ("status", "error")] ++ extraAttrs) msg
+
+toolDocsPackage :: MCP.Tool
+toolDocsPackage = MCP.Tool
+  { MCP.toolName = "docs_package"
+  , MCP.toolDescription = "Get rendered Elm package documentation (author/project), e.g. elm/json. Uses the focused project's elm.json version when available, otherwise the latest registry version."
+  , MCP.toolInputSchema = schemaDocsTool [("package", "Elm package name, e.g. elm/json")] [("version", "Optional exact package version, e.g. 1.1.3")]
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state emit connId -> do
+      case requireStringArg "package" args of
+        Left e -> pure (errTxt (Text.pack e))
+        Right pkg ->
+          case parsePkgName (Text.pack pkg) of
+            Nothing -> pure (errTxt "Invalid package name. Expected author/project")
+            Just pkgName -> do
+              mRoot <- docsRootFromArgs args state connId
+              let mVersionText = fmap Text.pack (getStringArg args "version")
+              case traverse parseVersionText mVersionText of
+                Nothing -> pure (errTxt "Invalid version. Expected MAJOR.MINOR.PATCH, e.g. 1.1.3")
+                Just mVersion -> renderPackageDocsTool state pkgName mVersion mRoot
+  }
+
+-- docs_module
+toolDocsModule :: MCP.Tool
+toolDocsModule = MCP.Tool
+  { MCP.toolName = "docs_module"
+  , MCP.toolDescription = "Get rendered documentation for a local project or dependency module, e.g. List or App.Main."
+  , MCP.toolInputSchema = schemaDocsTool [("module", "Elm module name, e.g. List or App.Main")] []
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state emit connId -> do
+      case requireStringArg "module" args of
+        Left e -> pure (errTxt (Text.pack e))
+        Right moduleName -> do
+          mProject <- resolveDocsProjectFromArgs args state connId
+          case mProject of
+            Left msg -> pure (errTxt msg)
+            Right maybeProject -> do
+              let wantName = Name.fromChars moduleName
+              r <- resolveModuleSpecScoped state maybeProject (ModuleByName wantName)
+              case r of
+                Right (ModuleResolved _ maybePath maybePkg docsMod) -> do
+                  let meta = DocsRender.ModuleMeta (Text.pack moduleName) (fmap (Ext.Dev.Project.getRoot . projectFromCache) maybeProject) maybePath (fmap (Text.pack . Pkg.toChars) maybePkg)
+                      body = DocsRender.renderModule meta docsMod
+                  pure (ok body)
+                Left _ -> pure (errTxt ("No module found named " <> Text.pack moduleName))
+  }
+
+-- docs_file
+toolDocsFile :: MCP.Tool
+toolDocsFile = MCP.Tool
+  { MCP.toolName = "docs_file"
+  , MCP.toolDescription = "Get rendered documentation for a local Elm file by absolute path."
+  , MCP.toolInputSchema = schemaDocsToolNoDir [("file", "Absolute path to an Elm file")] []
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state emit connId -> do
+      case requireStringArg "file" args of
+        Left e -> pure (errTxt (Text.pack e))
+        Right filePath -> do
+          let uri = Text.concat ["elm://docs/file?file=", Text.pack filePath]
+          resourceAsTool resourceFileDocs uri state emit connId
+  }
+
+-- docs_value
+toolDocsValue :: MCP.Tool
+toolDocsValue = MCP.Tool
+  { MCP.toolName = "docs_value"
+  , MCP.toolDescription = "Get rendered documentation for a value, type alias, custom type, or operator, e.g. List.map."
+  , MCP.toolInputSchema = schemaDocsTool [("value", "Fully-qualified Elm value name, e.g. List.map")] []
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state emit connId -> do
+      case requireStringArg "value" args of
+        Left e -> pure (errTxt (Text.pack e))
+        Right valueName -> do
+          mProject <- resolveDocsProjectFromArgs args state connId
+          case mProject of
+            Left msg -> pure (errTxt msg)
+            Right maybeProject ->
+              case splitModuleAndValue (Text.pack valueName) of
+                Nothing -> pure (errTxt "Expected fully-qualified value name, e.g. List.map")
+                Just (modName, valName) -> do
+                  r <- resolveModuleSpecScoped state maybeProject (ModuleByName modName)
+                  case r of
+                    Right (ModuleResolved _ maybePath maybePkg docsMod) -> do
+                      let meta = DocsRender.ValueMeta
+                                   (Text.pack (Name.toChars modName))
+                                   (Text.pack (Name.toChars valName))
+                                   (fmap (Ext.Dev.Project.getRoot . projectFromCache) maybeProject)
+                                   maybePath
+                                   (fmap (Text.pack . Pkg.toChars) maybePkg)
+                          body = DocsRender.renderValue meta docsMod valName
+                      pure (ok body)
+                    Left _ -> pure (errTxt ("No value found that matches " <> Text.pack valueName))
+  }
+
+-- docs_search
+toolDocsSearch :: MCP.Tool
+toolDocsSearch = MCP.Tool
+  { MCP.toolName = "docs_search"
+  , MCP.toolDescription = "Search local project and dependency documentation by module, value/type/operator name, or doc comment."
+  , MCP.toolInputSchema = schemaDocsTool [("query", "Search query")]
+      [("package", "Optional package name to search, e.g. elm/json"), ("version", "Optional exact package version when package is provided")]
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state _emit connId -> do
+      case requireStringArg "query" args of
+        Left e -> pure (errTxt (Text.pack e))
+        Right query -> do
+          packageDocs <- case getStringArg args "package" of
+            Nothing -> pure (Right Nothing)
+            Just pkg -> case parsePkgName (Text.pack pkg) of
+              Nothing -> pure (Left "Invalid package name. Expected author/project")
+              Just pkgName -> do
+                let mVersionText = fmap Text.pack (getStringArg args "version")
+                case traverse parseVersionText mVersionText of
+                  Nothing -> pure (Left "Invalid version. Expected MAJOR.MINOR.PATCH, e.g. 1.1.3")
+                  Just mVersion -> do
+                    mRoot <- docsRootFromArgs args state connId
+                    docsResult <- loadPackageDocsForTool state pkgName mVersion mRoot
+                    case docsResult of
+                      Left msg -> pure (Left msg)
+                      Right docsMap -> pure (Right (Just (pkgName, Map.elems docsMap)))
+          case packageDocs of
+            Left msg -> pure (errTxt msg)
+            Right scopedPackage -> do
+              mProject <- case (scopedPackage, getStringArg args "dir") of
+                (Just _, Nothing) -> pure (Right Nothing)
+                _ -> resolveDocsProjectFromArgs args state connId
+              case mProject of
+                Left msg -> pure (errTxt msg)
+                Right maybeProject -> do
+                  localDocs <- maybe (pure []) (localModulesForProject state) maybeProject
+                  pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+                  let packageDocsList = case scopedPackage of
+                        Just (pkgName, docsMods) -> [(pkgName, docsMods)]
+                        Nothing -> fmap (\(pkgName, info) -> (pkgName, fmap Client.packageModuleDocs (Map.elems (Client.packageModules info)))) (Map.toList pkgs)
+                      body = renderDocsSearch (Text.pack query) localDocs packageDocsList
+                  pure (ok body)
+  }
+
+-- docs_modules
+toolDocsModules :: MCP.Tool
+toolDocsModules = MCP.Tool
+  { MCP.toolName = "docs_modules"
+  , MCP.toolDescription = "List documented modules for a project and loaded dependencies, grouped by local/public/private and package."
+  , MCP.toolInputSchema = schemaDocsTool [] []
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state _emit connId -> do
+      mProject <- resolveDocsProjectFromArgs args state connId
+      case mProject of
+        Left msg -> pure (errTxt msg)
+        Right maybeProject -> do
+          localDocs <- maybe (pure []) (localModulesForProject state) maybeProject
+          pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+          outline <- traverse (Elm.Outline.read . Ext.Dev.Project.getRoot . projectFromCache) maybeProject
+          let body = renderDocsModules maybeProject outline localDocs pkgs
+          pure (ok body)
+  }
+
+-- docs_project
+toolDocsProject :: MCP.Tool
+toolDocsProject = MCP.Tool
+  { MCP.toolName = "docs_project"
+  , MCP.toolDescription = "Show a documentation-oriented overview for a local Elm project without dumping all module docs."
+  , MCP.toolInputSchema = schemaDocsTool [] []
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state _emit connId -> do
+      mProject <- resolveDocsProjectFromArgs args state connId
+      case mProject of
+        Left msg -> pure (errTxt msg)
+        Right Nothing -> pure (errTxt "No project selected")
+        Right (Just pc) -> do
+          localDocs <- localModulesForProject state pc
+          pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+          outline <- Elm.Outline.read (Ext.Dev.Project.getRoot (projectFromCache pc))
+          pure (ok (renderDocsProject pc outline localDocs pkgs))
   }
 
 -- install elm package
@@ -485,6 +1061,91 @@ toolInstall = MCP.Tool
   }
 
 -- add_page
+toolAdd :: MCP.Tool
+toolAdd = MCP.Tool
+  { MCP.toolName = "add"
+  , MCP.toolDescription = "Add multiple elm-dev artifacts in one call. additions is an array of tagged unions: page, store, effect, listener, theme."
+  , MCP.toolInputSchema =
+      JSON.object
+        [ "type" .= ("object" :: Text)
+        , "properties" .= JSON.object
+            [ Key.fromText "dir" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Optional local Elm project directory to use instead of the focused project" :: Text)
+                ]
+            , Key.fromText "additions" .= JSON.object
+                [ "type" .= ("array" :: Text)
+                , "description" .= ("Tagged additions: { kind: \"page\", url }, { kind: \"store\", module }, { kind: \"effect\", module }, { kind: \"listener\", module }, { kind: \"theme\" }" :: Text)
+                , "items" .= JSON.object [ "type" .= ("object" :: Text) ]
+                ]
+            ]
+        , "required" .= (["additions"] :: [Text])
+        ]
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state _emit connId -> do
+      case getArrayArg args "additions" of
+        Nothing -> pure (errTxt "Missing additions array.")
+        Just additions -> do
+          selection <- resolveProjectFromDirArg args state connId
+          case selection of
+            Left msg -> pure (errTxt msg)
+            Right pc -> do
+              blocks <- mapM (runOneAdd pc) (zip [(0 :: Int)..] additions)
+              pure (ok (Text.intercalate "\n\n" blocks))
+  }
+
+runOneAdd :: Client.ProjectCache -> (Int, JSON.Value) -> IO Text
+runOneAdd (Client.ProjectCache proj _ _ _ _) (index, value) =
+  case value of
+    JSON.Object addition -> do
+      let dir = Ext.Dev.Project.getRoot proj
+      case stringField addition "kind" of
+        Just "page" ->
+          case stringField addition "url" of
+            Nothing -> pure (addError index "page" [] "Missing url.")
+            Just url -> withDir dir $ do
+              cfg <- Gen.Generate.readConfigOrFail dir
+              let name = urlToElmModuleName (Text.unpack url)
+              Templates.write "Page" Config.elmSrc name
+              let updated = case Config.configPages cfg of
+                    Nothing -> cfg { Config.configPages = Just (Map.singleton (Text.pack name) (Config.PageConfig url [] False)) }
+                    Just pagesMap -> cfg { Config.configPages = Just (Map.insert (Text.pack name) (Config.PageConfig url [] False) pagesMap) }
+              LBS.writeFile "elm.dev.json" (Aeson.encodePretty updated)
+              pure (xmlBlock "add" ([("index", Text.pack (show index)), ("kind", "page"), ("url", url), ("module", Text.pack name), ("status", "ok")] ++ [("root", Text.pack dir)]) (Text.pack ("Created page " ++ name)))
+        Just "store" ->
+          runModuleAdd index dir "store" "Store" Nothing addition
+        Just "effect" ->
+          runModuleAdd index dir "effect" "Effect" (Just ("effect", Config.effectTsSrc)) addition
+        Just "listener" ->
+          runModuleAdd index dir "listener" "Listen" Nothing addition
+        Just "theme" -> withDir dir $ do
+          cfg <- Gen.Generate.readConfigOrFail dir
+          case Config.configTheme cfg of
+            Just _ -> pure (addError index "theme" [] "Theme already exists")
+            Nothing -> do
+              let updated = cfg { Config.configTheme = Nothing }
+              LBS.writeFile "elm.dev.json" (Aeson.encodePretty updated)
+              pure (xmlBlock "add" [("index", Text.pack (show index)), ("kind", "theme"), ("status", "ok"), ("root", Text.pack dir)] "Added theme")
+        Just other -> pure (addError index other [] "Unknown addition kind.")
+        Nothing -> pure (addError index "unknown" [] "Missing addition.kind.")
+    _ -> pure (addError index "unknown" [] "Expected addition object.")
+
+runModuleAdd :: Int -> FilePath -> Text -> String -> Maybe (String, FilePath) -> JSON.Object -> IO Text
+runModuleAdd index dir kind template maybeTs addition =
+  case stringField addition "module" of
+    Nothing -> pure (addError index kind [] "Missing module.")
+    Just moduleName -> withDir dir $ do
+      _ <- Gen.Generate.readConfigOrFail dir
+      Templates.write template Config.elmSrc (Text.unpack moduleName)
+      case maybeTs of
+        Nothing -> pure ()
+        Just (tsTemplate, tsSrc) -> Templates.writeTs tsTemplate tsSrc (Text.unpack moduleName)
+      pure (xmlBlock "add" [("index", Text.pack (show index)), ("kind", kind), ("module", moduleName), ("status", "ok"), ("root", Text.pack dir)] ("Created " <> kind <> " " <> moduleName))
+
+addError :: Int -> Text -> [(Text, Text)] -> Text -> Text
+addError index kind extraAttrs msg =
+  xmlBlock "add" ([("index", Text.pack (show index)), ("kind", kind), ("status", "error")] ++ extraAttrs) msg
+
 toolAddPage :: MCP.Tool
 toolAddPage = MCP.Tool
   { MCP.toolName = "add_page"
@@ -919,14 +1580,8 @@ resourceOverview =
                   body = Text.intercalate "\n" frontmatter
               pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
             Right pc@(Client.ProjectCache proj _ _ mCompileResult mTest) -> do
-              -- For MCP: ensure VFS is fresh, then compile only if versions indicate staleness
-              _ <- Watchtower.State.Compile.updateVfsFromFs proj
-              let projectRoot = Ext.Dev.Project.getRoot proj
-              vers <- Versions.readVersions projectRoot
-              when (Versions.compileVersion vers < Versions.fsVersion vers) $ do
-                _ <- Watchtower.State.Compile.compile state "mcp.project_overview" pc []
-                cur <- Versions.readVersions projectRoot
-                Versions.setCompileVersionTo projectRoot (Versions.fsVersion cur)
+              -- For MCP: ensure disk, VFS, and compile state are current before reporting status.
+              _ <- Watchtower.State.Compile.ensureProjectFresh state "mcp.project_overview" pc
               currentResult <- Control.Concurrent.STM.readTVarIO mCompileResult
 
               -- Determine compilation status text (for YAML)
@@ -1098,8 +1753,8 @@ resourceDiagnostics =
                 Left msg -> do
                   let body = Text.concat ["Error: ", msg]
                   pure (MCP.ReadResourceResponse [ MCP.markdown req body ])
-                Right pc@(Client.ProjectCache proj _ _ _ _) -> do
-                  _ <- Watchtower.State.Compile.compile state "mcp.diagnostics" pc []
+                Right pc -> do
+                  _ <- Watchtower.State.Compile.ensureProjectFresh state "mcp.diagnostics.resource" pc
                   case mFile of
                     Just fileTxt -> do
                       let filePath = Text.unpack fileTxt
@@ -1455,8 +2110,106 @@ renderDiagnosticsProject byFile =
   in if null nonEmpty
        then "No diagnostics."
        else
-         let sections = map (\(fp, ds) -> renderDiagnosticsForFile fp ds) nonEmpty
-         in Text.intercalate "\n\n" sections
+          let sections = map (\(fp, ds) -> renderDiagnosticsForFile fp ds) nonEmpty
+          in Text.intercalate "\n\n" sections
+
+resolveDiagnosticsProjectFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Either Text Client.ProjectCache)
+resolveDiagnosticsProjectFromArgs args state connId =
+  do
+    resolved <- resolveProjectFromDirArg args state connId
+    case resolved of
+      Left msg -> pure (Left msg)
+      Right pc -> do
+        _ <- Watchtower.State.Compile.ensureProjectFresh state "mcp.diagnostics" pc
+        pure (Right pc)
+
+resolveProjectFromDirArg :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Either Text Client.ProjectCache)
+resolveProjectFromDirArg args state connId =
+  case getStringArg args "dir" of
+    Just dir -> do
+      canonical <- Dir.canonicalizePath dir
+      Watchtower.State.Discover.discover state canonical
+      existing <- Client.getExistingProject canonical state
+      case existing of
+        Right (pc, _) -> pure (Right pc)
+        Left _ -> pure (Left ("No Elm project found for dir: " <> Text.pack canonical))
+    Nothing -> do
+      ProjectLookup.resolveProjectFromSession Nothing connId state
+
+diagnosticsReport :: Client.State -> Client.ProjectCache -> Maybe FilePath -> Bool -> Int -> IO Text
+diagnosticsReport state pc@(Client.ProjectCache proj _ _ _ _) maybeFile includeWarnings limitRaw = do
+  errorsByFile <- case maybeFile of
+    Just filePath -> do
+      diags <- Helpers.getDiagnosticsForProject state pc (Just filePath)
+      pure [(filePath, diags)]
+    Nothing -> Map.toList <$> Helpers.getProjectDiagnosticsByFile state pc
+
+  warningsByFile <- case maybeFile of
+    Just filePath -> do
+      diags <- warningDiagnosticsForFile state proj filePath
+      pure [(filePath, diags)]
+    Nothing -> do
+      allInfos <- Client.getAllFileInfos state
+      let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.affectsCompilation p proj) (Map.toList allInfos)
+      mapM (\p -> do
+              diags <- warningDiagnosticsForFile state proj p
+              pure (p, diags)
+           ) projectFiles
+
+  let errors = concatMap (\(fp, ds) -> fmap (\d -> (fp, d)) ds) errorsByFile
+      warnings = concatMap (\(fp, ds) -> fmap (\d -> (fp, d)) ds) warningsByFile
+      rendered = if includeWarnings then errors ++ warnings else errors
+      limit = max 0 limitRaw
+      shown = take limit rendered
+      truncated = length rendered - length shown
+      body = renderDiagnosticsToolBody shown truncated limit
+      summary = renderDiagnosticsSummary (length errors) (length warnings) includeWarnings
+  pure (Text.intercalate "\n\n" [body, summary])
+
+warningDiagnosticsForFile :: Client.State -> Ext.Dev.Project.Project -> FilePath -> IO [LSPProtocol.Diagnostic]
+warningDiagnosticsForFile state proj filePath = do
+  (_loc, warns) <- Helpers.getWarningsForFile state filePath
+  unusedModule <- Helpers.unusedModuleDiagnosticForFile proj filePath
+  pure (concatMap Helpers.warningToUnusedDiagnostic warns ++ unusedModule)
+
+renderDiagnosticsToolBody :: [(FilePath, LSPProtocol.Diagnostic)] -> Int -> Int -> Text
+renderDiagnosticsToolBody shown truncated limit =
+  if null shown then
+    "No diagnostics to show."
+  else
+    let grouped = Map.toList (Map.fromListWith (++) [ (fp, [diag]) | (fp, diag) <- shown ])
+        sections = map (\(fp, ds) -> renderDiagnosticsToolFile fp (reverse ds)) grouped
+        truncLine = if truncated > 0 then ["", "_Output limited to " <> Text.pack (show limit) <> " diagnostics; " <> Text.pack (show truncated) <> " not shown._"] else []
+    in Text.intercalate "\n\n" sections <> Text.intercalate "\n" truncLine
+
+renderDiagnosticsToolFile :: FilePath -> [LSPProtocol.Diagnostic] -> Text
+renderDiagnosticsToolFile filePath diags =
+  Text.intercalate "\n" (Text.concat ["### ", Text.pack filePath] : "" : map formatDiagWithSeverity diags)
+
+formatDiagWithSeverity :: LSPProtocol.Diagnostic -> Text
+formatDiagWithSeverity d =
+  let start = LSPProtocol.rangeStart (LSPProtocol.diagnosticRange d)
+      line = 1 + LSPProtocol.positionLine start
+      col  = 1 + LSPProtocol.positionCharacter start
+      msg  = LSPProtocol.diagnosticMessage d
+  in Text.concat ["- ", diagnosticSeverityLabel d, " ", Text.pack (show line), ":", Text.pack (show col), " - ", msg]
+
+diagnosticSeverityLabel :: LSPProtocol.Diagnostic -> Text
+diagnosticSeverityLabel d =
+  case LSPProtocol.diagnosticSeverity d of
+    Just (LSPProtocol.DiagnosticSeverity 2) -> "warning"
+    Just (LSPProtocol.DiagnosticSeverity 3) -> "info"
+    Just (LSPProtocol.DiagnosticSeverity 4) -> "hint"
+    _ -> "error"
+
+renderDiagnosticsSummary :: Int -> Int -> Bool -> Text
+renderDiagnosticsSummary errorCount warningCount includeWarnings =
+  Text.intercalate "\n"
+    [ "## Summary"
+    , ""
+    , "- Total errors: " <> Text.pack (show errorCount)
+    , "- Total warnings: " <> Text.pack (show warningCount) <> if includeWarnings then " (included)" else " (suppressed)"
+    ]
 
 partitionUnused :: [Warning.Warning] -> ([Text], [(Int, Text)])
 partitionUnused warns =
@@ -1503,6 +2256,124 @@ parsePkgName t =
     [author, project] -> Just (Pkg.toName (Utf8.fromChars (Text.unpack author)) (Text.unpack project))
     _ -> Nothing
 
+parseVersionText :: Text -> Maybe V.Version
+parseVersionText t =
+  case traverse readInt (Text.splitOn "." t) of
+    Just [major, minor, patch] -> Just (V.Version (fromIntegral major) (fromIntegral minor) (fromIntegral patch))
+    _ -> Nothing
+  where
+    readInt part =
+      case reads (Text.unpack part) of
+        [(n, "")] | n >= (0 :: Int) && n <= 65535 -> Just n
+        _ -> Nothing
+
+projectFromCache :: Client.ProjectCache -> Ext.Dev.Project.Project
+projectFromCache (Client.ProjectCache proj _ _ _ _) = proj
+
+compileDocsProject :: Client.State -> Client.ProjectCache -> IO ()
+compileDocsProject state pc = do
+  _ <- Watchtower.State.Compile.ensureProjectFresh state "mcp.docs" pc
+  pure ()
+
+resolveDocsProjectFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Either Text (Maybe Client.ProjectCache))
+resolveDocsProjectFromArgs args state connId =
+  case getStringArg args "dir" of
+    Just dir -> do
+      canonical <- Dir.canonicalizePath dir
+      Watchtower.State.Discover.discover state canonical
+      existing <- Client.getExistingProject canonical state
+      case existing of
+        Right (pc, _) -> do
+          compileDocsProject state pc
+          pure (Right (Just pc))
+        Left _ -> pure (Left ("No Elm project found for dir: " <> Text.pack canonical))
+    Nothing -> do
+      resolved <- ProjectLookup.resolveProjectFromSession Nothing connId state
+      case resolved of
+        Left msg -> pure (Left msg)
+        Right pc -> do
+          compileDocsProject state pc
+          pure (Right (Just pc))
+
+docsRootFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Maybe FilePath)
+docsRootFromArgs args state connId =
+  case getStringArg args "dir" of
+    Just dir -> do
+      resolved <- resolveDocsProjectFromArgs args state connId
+      case resolved of
+        Right (Just pc) -> pure (Just (Ext.Dev.Project.getRoot (projectFromCache pc)))
+        _ -> Dir.canonicalizePath dir >>= pure . Just
+    Nothing -> do
+      resolved <- ProjectLookup.resolveProjectFromSession Nothing connId state
+      case resolved of
+        Right pc -> pure (Just (Ext.Dev.Project.getRoot (projectFromCache pc)))
+        Left _ -> pure Nothing
+
+loadPackageDocsForTool :: Client.State -> Pkg.Name -> Maybe V.Version -> Maybe FilePath -> IO (Either Text Docs.Documentation)
+loadPackageDocsForTool state pkgName mExplicitVersion mRoot = do
+  mVersion <- case mExplicitVersion of
+    Just v -> pure (Just v)
+    Nothing -> case mRoot of
+      Just root -> Ext.Dev.Package.getCurrentlyUsedOrLatestVersion root pkgName
+      Nothing -> Ext.Dev.Package.getPackageNewestPackageVersionFromRegistry pkgName
+  case mVersion of
+    Nothing -> pure (Left ("Package not found in cache or registry: " <> Text.pack (Pkg.toChars pkgName)))
+    Just vsn -> do
+      docsResult <- Ext.Dev.Package.getDocs pkgName vsn
+      case docsResult of
+        Left _ -> pure (Left ("Failed to fetch docs for: " <> Text.pack (Pkg.toChars pkgName)))
+        Right docsMap -> do
+          case mExplicitVersion of
+            Just _ -> pure ()
+            Nothing -> do
+              let mods = Map.map (\m -> Client.PackageModule { Client.packageModuleDocs = m }) docsMap
+                  pkgInfo = Client.PackageInfo { Client.name = pkgName, Client.readme = Nothing, Client.packageModules = mods }
+              Control.Concurrent.STM.atomically $ do
+                cur <- Control.Concurrent.STM.readTVar (Client.packages state)
+                Control.Concurrent.STM.writeTVar (Client.packages state) (Map.insert pkgName pkgInfo cur)
+          pure (Right docsMap)
+
+renderPackageDocsTool :: Client.State -> Pkg.Name -> Maybe V.Version -> Maybe FilePath -> IO MCP.ToolCallResponse
+renderPackageDocsTool state pkgName mExplicitVersion mRoot = do
+  result <- renderPackageDocsText state pkgName mExplicitVersion mRoot
+  case result of
+    Left msg -> pure (errTxt msg)
+    Right body -> pure (ok body)
+
+renderPackageDocsText :: Client.State -> Pkg.Name -> Maybe V.Version -> Maybe FilePath -> IO (Either Text Text)
+renderPackageDocsText state pkgName mExplicitVersion mRoot = do
+  cached <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+  case (mExplicitVersion, Map.lookup pkgName cached) of
+    (Nothing, Just (Client.PackageInfo { Client.readme = r, Client.packageModules = mods })) -> do
+      let modulesDocs = [ Client.packageModuleDocs pm | pm <- Map.elems mods ]
+          readme = fmap Text.pack r
+          body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack (Pkg.toChars pkgName)) mRoot) readme modulesDocs
+      pure (Right body)
+    _ -> do
+      docsResult <- loadPackageDocsForTool state pkgName mExplicitVersion mRoot
+      case docsResult of
+        Left msg -> pure (Left msg)
+        Right docsMap -> do
+          let body = DocsRender.renderPackage (DocsRender.PackageMeta (Text.pack (Pkg.toChars pkgName)) mRoot) Nothing (Map.elems docsMap)
+          pure (Right body)
+
+localModulesForProject :: Client.State -> Client.ProjectCache -> IO [(FilePath, Docs.Module)]
+localModulesForProject state pc = do
+  infos <- Client.getAllFileInfos state
+  let proj = projectFromCache pc
+      isInProject fp = Ext.Dev.Project.contains fp proj
+      pick (fp, Client.FileInfo { Client.docs = Just m }) | isInProject fp = Just (fp, m)
+      pick _ = Nothing
+  pure (List.sortOn (moduleSortName . snd) (Maybe.mapMaybe pick (Map.toList infos)))
+
+moduleSortName :: Docs.Module -> String
+moduleSortName (Docs.Module name _ _ _ _ _) = Name.toChars name
+
+findLocalModuleDocsInProject :: Client.State -> Client.ProjectCache -> Name.Name -> IO (Maybe (FilePath, Docs.Module))
+findLocalModuleDocsInProject state pc wantName = do
+  modules <- localModulesForProject state pc
+  pure (List.find (\(_, Docs.Module name _ _ _ _ _) -> name == wantName) modules)
+
 findLocalModuleDocs :: Client.State -> Name.Name -> IO (Maybe (FilePath, Docs.Module))
 findLocalModuleDocs state wantName = do
   infos <- Client.getAllFileInfos state
@@ -1544,9 +2415,15 @@ data ModuleResolved = ModuleResolved
 -- Tries local project first, compiling when needed; then falls back to packages when given a name.
 resolveModuleSpec :: Client.State -> ModuleSpec -> IO (Either Text ModuleResolved)
 resolveModuleSpec state spec =
+  resolveModuleSpecScoped state Nothing spec
+
+resolveModuleSpecScoped :: Client.State -> Maybe Client.ProjectCache -> ModuleSpec -> IO (Either Text ModuleResolved)
+resolveModuleSpecScoped state maybeProject spec =
   case spec of
     ModuleByName wantName -> do
-      mLocal <- findLocalModuleDocs state wantName
+      mLocal <- case maybeProject of
+        Just pc -> findLocalModuleDocsInProject state pc wantName
+        Nothing -> findLocalModuleDocs state wantName
       case mLocal of
         Just (fp, m) -> pure (Right (ModuleResolved wantName (Just fp) Nothing m))
         Nothing -> do
@@ -1566,12 +2443,148 @@ resolveModuleSpec state spec =
           case projectResult of
             Left _ -> pure (Left "file not associated with a known project")
             Right (pc, _) -> do
-              _ <- Watchtower.State.Compile.compile state "mcp.module_by_filepath" pc []
+              _ <- Watchtower.State.Compile.ensureProjectFresh state "mcp.module_by_filepath" pc
               mInfo2 <- Client.getFileInfo fp state
               case mInfo2 of
                 Just (Client.FileInfo { Client.docs = Just m@(Docs.Module name _ _ _ _ _) }) ->
                   pure (Right (ModuleResolved name (Just fp) Nothing m))
                 _ -> pure (Left "no docs for file")
+
+renderDocsModules :: Maybe Client.ProjectCache -> Maybe (Either a Elm.Outline.Outline) -> [(FilePath, Docs.Module)] -> Map.Map Pkg.Name Client.PackageInfo -> Text
+renderDocsModules maybeProject maybeOutline localDocs pkgs =
+  let exposed = case maybeOutline of
+        Just (Right (Elm.Outline.Pkg pkg)) -> Set.fromList (Elm.Outline.flattenExposed (Elm.Outline._pkg_exposed pkg))
+        _ -> Set.empty
+      isPackage = case maybeOutline of
+        Just (Right (Elm.Outline.Pkg _)) -> True
+        _ -> False
+      localName (Docs.Module name _ _ _ _ _) = name
+      localPublic = filter (\(_, m) -> Set.member (localName m) exposed) localDocs
+      localPrivate = filter (\(_, m) -> not (Set.member (localName m) exposed)) localDocs
+      localSection =
+        if null localDocs then []
+        else if isPackage then
+          section "Public Local Modules" (map (moduleLink . snd) localPublic)
+          ++ section "Private Local Modules" (map (moduleLink . snd) localPrivate)
+        else section "Local Project Modules" (map (moduleLink . snd) localDocs)
+      packageSection (pkgName, Client.PackageInfo { Client.packageModules = mods }) =
+        section (Text.pack (Pkg.toChars pkgName)) (map (moduleLink . Client.packageModuleDocs) (Map.elems mods))
+      header = case maybeProject of
+        Just pc -> ["# Modules", "", "Project: `" <> Text.pack (Ext.Dev.Project.getRoot (projectFromCache pc)) <> "`"]
+        Nothing -> ["# Modules"]
+      dependencySections = concatMap packageSection (Map.toList pkgs)
+  in Text.intercalate "\n" (header ++ [""] ++ localSection ++ ["", "## Dependencies", ""] ++ if null dependencySections then ["- None loaded"] else dependencySections)
+
+renderDocsProject :: Client.ProjectCache -> Either a Elm.Outline.Outline -> [(FilePath, Docs.Module)] -> Map.Map Pkg.Name Client.PackageInfo -> Text
+renderDocsProject pc outlineResult localDocs pkgs =
+  let proj = projectFromCache pc
+      root = Ext.Dev.Project.getRoot proj
+      srcDirs = Ext.Dev.Project._srcDirs proj
+      projectKind = case outlineResult of
+        Right (Elm.Outline.App _) -> "application"
+        Right (Elm.Outline.Pkg _) -> "package"
+        Left _ -> "unknown"
+      packageMeta = case outlineResult of
+        Right (Elm.Outline.Pkg pkg) ->
+          [ "Package: `" <> Text.pack (Pkg.toChars (Elm.Outline._pkg_name pkg)) <> "`"
+          , "Version: `" <> Text.pack (V.toChars (Elm.Outline._pkg_version pkg)) <> "`"
+          ]
+        _ -> []
+      dependencies = case outlineResult of
+        Right (Elm.Outline.App app) -> Map.keys (Elm.Outline._app_deps_direct app)
+        Right (Elm.Outline.Pkg pkg) -> Map.keys (Elm.Outline._pkg_deps pkg)
+        Left _ -> []
+      exposed = case outlineResult of
+        Right (Elm.Outline.Pkg pkg) -> Set.fromList (Elm.Outline.flattenExposed (Elm.Outline._pkg_exposed pkg))
+        _ -> Set.empty
+      publicCount = length (filter (\(_, Docs.Module name _ _ _ _ _) -> Set.member name exposed) localDocs)
+      privateCount = if Set.null exposed then length localDocs else length localDocs - publicCount
+  in Text.intercalate "\n"
+      ( [ "# Elm Project Docs"
+        , ""
+        , "Root: `" <> Text.pack root <> "`"
+        , "Type: `" <> projectKind <> "`"
+        ]
+        ++ packageMeta
+        ++ [ ""
+           , "## Source Directories"
+           , "" ]
+        ++ map (\d -> "- `" <> Text.pack d <> "`") srcDirs
+        ++ [ ""
+           , "## Local Modules"
+           , ""
+           , "- Total: " <> Text.pack (show (length localDocs))
+           , "- Public: " <> Text.pack (show publicCount)
+           , "- Private/app-local: " <> Text.pack (show privateCount)
+           , ""
+           , "## Direct Dependencies"
+           , "" ]
+        ++ (if null dependencies then ["- None"] else map (\p -> "- `" <> Text.pack (Pkg.toChars p) <> "`") dependencies)
+        ++ [ ""
+           , "## Loaded Dependency Docs"
+           , "" ]
+        ++ (if Map.null pkgs then ["- None loaded"] else map (\(p, info) -> "- `" <> Text.pack (Pkg.toChars p) <> "` (" <> Text.pack (show (Map.size (Client.packageModules info))) <> " modules)") (Map.toList pkgs))
+        ++ [ ""
+           , "## Follow-up Tools"
+           , ""
+           , "- `docs_modules` to list modules grouped by visibility/package."
+           , "- `docs_search` to find modules, values, types, and operators."
+           , "- `docs_module` with an exact module name for full module docs."
+           , "- `docs_value` with `Module.name` for a specific declaration."
+           ]
+      )
+
+section :: Text -> [Text] -> [Text]
+section title items =
+  ["## " <> title, ""] ++ (if null items then ["- None"] else items) ++ [""]
+
+moduleLink :: Docs.Module -> Text
+moduleLink (Docs.Module name _ _ _ _ _) =
+  let t = Text.pack (Name.toChars name)
+  in "- [`" <> t <> "`](elm://docs/module/" <> t <> ")"
+
+renderDocsSearch :: Text -> [(FilePath, Docs.Module)] -> [(Pkg.Name, [Docs.Module])] -> Text
+renderDocsSearch query localDocs packageDocsList =
+  let q = Text.toLower query
+      localResults = concatMap (searchLocalModule q) localDocs
+      packageResults = concatMap (\(pkgName, docsMods) -> concatMap (searchPackageModule q pkgName) docsMods) packageDocsList
+      results = take 50 (localResults ++ packageResults)
+  in Text.intercalate "\n" (["# Docs Search", "", "Query: `" <> query <> "`", ""] ++ if null results then ["No matches."] else results)
+
+searchLocalModule :: Text -> (FilePath, Docs.Module) -> [Text]
+searchLocalModule q (fp, modu) =
+  searchModule q (Just (Text.pack fp)) Nothing modu
+
+searchPackageModule :: Text -> Pkg.Name -> Docs.Module -> [Text]
+searchPackageModule q pkgName modu =
+  searchModule q Nothing (Just (Text.pack (Pkg.toChars pkgName))) modu
+
+searchModule :: Text -> Maybe Text -> Maybe Text -> Docs.Module -> [Text]
+searchModule q _maybePath maybePkg (Docs.Module modName comment unions aliases values binops) =
+  let modTxt = Text.pack (Name.toChars modName)
+      origin = maybe "local" (\p -> "package " <> p) maybePkg
+      moduleHit = if matchesText q modTxt || matchesText q (commentText comment)
+        then ["- module `" <> modTxt <> "` (" <> origin <> ") -> `docs_module`"]
+        else []
+      declaration kind name docs =
+        let nameTxt = Text.pack (Name.toChars name)
+            full = modTxt <> "." <> nameTxt
+        in if matchesText q nameTxt || matchesText q full || matchesText q docs
+          then Just ("- " <> kind <> " `" <> full <> "` (" <> origin <> ") -> `docs_value`")
+          else Nothing
+      unionHits = Maybe.mapMaybe (\(n, Docs.Union c _ _) -> declaration "type" n (commentText c)) (Map.toList unions)
+      aliasHits = Maybe.mapMaybe (\(n, Docs.Alias c _ _) -> declaration "alias" n (commentText c)) (Map.toList aliases)
+      valueHits = Maybe.mapMaybe (\(n, Docs.Value c _) -> declaration "value" n (commentText c)) (Map.toList values)
+      binopHits = Maybe.mapMaybe (\(n, Docs.Binop c _ _ _) -> declaration "operator" n (commentText c)) (Map.toList binops)
+  in moduleHit ++ unionHits ++ aliasHits ++ valueHits ++ binopHits
+
+matchesText :: Text -> Text -> Bool
+matchesText needle haystack =
+  Text.toLower needle `Text.isInfixOf` Text.toLower haystack
+
+commentText :: Docs.Comment -> Text
+commentText comment =
+  Text.pack (Json.toChars comment)
 
 splitModuleAndValue :: Text -> Maybe (Name.Name, Name.Name)
 splitModuleAndValue t =

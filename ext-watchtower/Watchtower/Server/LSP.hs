@@ -342,31 +342,32 @@ handleDidOpen state send connId openParams = do
       traceId <- Trace.newTraceId "lsp.didOpen"
       PerfTrace.event (Client.trace state) "lsp.didOpen" [PerfTrace.text "trace_id" traceId, PerfTrace.text "path" filePath]
       -- Update in-memory cache with the full document text
-      Ext.FileCache.insert filePath (Data.Text.Encoding.encodeUtf8 text)
-      bytes <- Ext.FileCache.readUtf8 filePath
+      changed <- Ext.FileCache.insertIfChanged filePath (Data.Text.Encoding.encodeUtf8 text)
+      let bytes = Data.Text.Encoding.encodeUtf8 text
       Ext.Log.log Ext.Log.LSP
         ( concat
             [ "[trace " ++ traceId ++ "] didOpen"
             , " conn=" ++ Text.unpack connId
             , " path=" ++ filePath
             , " hash=" ++ Trace.fingerprintBytes bytes
+            , " changed=" ++ show changed
             ]
         )
-      Watchtower.State.Compile.markFilesystemChanged state [filePath]
       -- Track editor open
       let (Client.State _ _ _ _ _ _ mEditorsOpen _ _) = state
       Control.Concurrent.STM.atomically $ do
         editors <- Control.Concurrent.STM.readTVar mEditorsOpen
         Control.Concurrent.STM.writeTVar mEditorsOpen (EditorsOpen.fileMarkedOpen connId filePath editors)
       Watchtower.Server.DevWS.broadcastServiceStatus state
-      -- Recompile relevant projects for this file
-      didCompile <-
-        Watchtower.State.Compile.compileRelevantProjectsWithPrimaryCallback
+      when changed $ do
+        Watchtower.State.Compile.markFilesystemChanged state [filePath]
+        Watchtower.State.Compile.scheduleDebouncedCompileRelevantProjectsWithCallbacks
           state
           traceId
+          didOpenCompileDebounceMicros
           [filePath]
-          (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath]))
-      when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath])
+          (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "owner" [filePath]))
+          (\didCompile -> when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "final" [filePath]))
       return $ Right JSON.Null
 
 handleDidChange :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> DidChangeTextDocumentParams -> IO (Either String JSON.Value)
@@ -410,8 +411,8 @@ handleDidChange state send connId changeParams = do
                 traceId
                 didChangeCompileDebounceMicros
                 [filePath]
-                (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath]))
-                (\didCompile -> when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath]))
+                (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "owner" [filePath]))
+                (\didCompile -> when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "final" [filePath]))
             return $ Right JSON.Null
 
 -- | Convert LSP TextDocumentContentChangeEvent to FileCache TextEdit
@@ -424,6 +425,9 @@ lspChangeToFileEdit change =
 
 didChangeCompileDebounceMicros :: Int
 didChangeCompileDebounceMicros = 350000
+
+didOpenCompileDebounceMicros :: Int
+didOpenCompileDebounceMicros = didChangeCompileDebounceMicros
 
 -- | Convert LSP Range to FileCache Range
 lspRangeToFileRange :: Range -> Ext.FileCache.Range
@@ -500,8 +504,8 @@ handleDidSave state send connId saveParams = do
             state
             traceId
             [filePath]
-            (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath]))
-        when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId [filePath])
+            (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "owner" [filePath]))
+        when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "final" [filePath])
         pure ()
       return $ Right JSON.Null
 
@@ -557,34 +561,37 @@ publishDiagnosticsForFileUntraced state send traceId filePath = do
           (JSONRPC.Notification "2.0" "textDocument/publishDiagnostics" (Just (JSON.toJSON params))))
     _ -> pure ()
 
-publishDiagnosticsForWorkspaceSnapshot :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> [FilePath] -> IO ()
-publishDiagnosticsForWorkspaceSnapshot state send connId traceId changedPaths =
+publishDiagnosticsForWorkspaceSnapshot :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> String -> [FilePath] -> IO ()
+publishDiagnosticsForWorkspaceSnapshot state send connId traceId phase changedPaths =
   PerfTrace.span
     (Client.trace state)
     "lsp.publish_diagnostics.workspace_snapshot"
     [ PerfTrace.text "trace_id" traceId
+    , PerfTrace.text "phase" phase
     , PerfTrace.text "connection_id" (Text.unpack connId)
     , PerfTrace.int "changed_file_count" (length changedPaths)
+    , PerfTrace.text "changed_paths" (Data.List.intercalate "," changedPaths)
     ]
-    (publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId changedPaths)
+    (publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId phase changedPaths)
 
-publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> [FilePath] -> IO ()
-publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId changedPaths = do
-  publishDiagnosticsForWorkspaceSnapshot state send connId traceId changedPaths
+publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> String -> [FilePath] -> IO ()
+publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId phase changedPaths = do
+  publishDiagnosticsForWorkspaceSnapshot state send connId traceId phase changedPaths
   refreshCodeLens send
 
 refreshCodeLens :: JSONRPC.EventEmitter -> IO ()
 refreshCodeLens send =
   send (JSONRPC.OutboundRequest "workspace/codeLens/refresh" Nothing)
 
-publishDiagnosticsForWorkspaceSnapshotUntraced :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> [FilePath] -> IO ()
-publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId changedPaths = do
+publishDiagnosticsForWorkspaceSnapshotUntraced :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> String -> [FilePath] -> IO ()
+publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId phase changedPaths = do
   let (Client.State _ mProjects _ _ _ _ mEditorsOpen mWorkspaceDiagsRequested _) = state
   projects <- Control.Concurrent.STM.readTVarIO mProjects
   projectMaps <- mapM (projectPublishDiagnosticsByFile state projects) projects
   let currentMap = Map.filter (not . null) (Map.unionsWith (++) projectMaps)
       currentPaths = Map.keys currentMap
       currentUris = map fromFilePath currentPaths
+      diagnosticCount = sum (map length (Map.elems currentMap))
   editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
   let openPaths = Map.keys (EditorsOpen.toCounts editorsOpen)
       changedFirst = filter (`elem` currentPaths) (Data.List.nub changedPaths)
@@ -616,14 +623,26 @@ publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId changed
     (Client.trace state)
     "lsp.publish_diagnostics.workspace_snapshot.result"
     [ PerfTrace.text "trace_id" traceId
+    , PerfTrace.text "phase" phase
+    , PerfTrace.text "connection_id" (Text.unpack connId)
+    , PerfTrace.int "project_count" (length projects)
+    , PerfTrace.int "diagnostic_file_count" (Map.size currentMap)
+    , PerfTrace.int "diagnostic_count" diagnosticCount
+    , PerfTrace.int "current_uri_count" (length currentUris)
+    , PerfTrace.int "previous_uri_count" (length previousUris)
+    , PerfTrace.int "open_file_count" (length openPaths)
+    , PerfTrace.int "changed_file_count" (length changedPaths)
+    , PerfTrace.int "changed_published_file_count" (length changedFirst)
     , PerfTrace.int "published_file_count" (length orderedPaths)
     , PerfTrace.int "cleared_file_count" (length staleUris)
     ]
   Ext.Log.log Ext.Log.LSP
     ( concat
         [ "[trace " ++ traceId ++ "] publishDiagnostics.workspaceSnapshot"
+        , " phase=" ++ phase
         , " published=" ++ show (length orderedPaths)
         , " cleared=" ++ show (length staleUris)
+        , " diagnostics=" ++ show diagnosticCount
         ]
     )
 

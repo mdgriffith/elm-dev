@@ -646,6 +646,12 @@ Test-Suite elm-dev-tests
         Watchtower.Live.Client
         Watchtower.Server.DevWS
         Watchtower.Server.JSONRPC
+        Watchtower.Server.MCP
+        Watchtower.Server.MCP.Docs
+        Watchtower.Server.MCP.Guides
+        Watchtower.Server.MCP.ProjectLookup
+        Watchtower.Server.MCP.Protocol
+        Watchtower.Server.MCP.Uri
         Watchtower.Server.LSP.EditorsOpen
         Watchtower.Server.LSP.Protocol
         Watchtower.Trace

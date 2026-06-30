@@ -3,6 +3,7 @@
 module Watchtower.Server (Flags (..), serve) where
 
 import Control.Applicative ((<|>))
+import Control.Exception (finally)
 import Control.Monad.Trans (MonadIO (liftIO))
 import Data.Maybe as Maybe
 import qualified Data.Text as T
@@ -12,6 +13,7 @@ import qualified Ext.Common
 import qualified Ext.CompileMode
 import qualified Ext.Filewatch
 import qualified Ext.Log
+import qualified Ext.Trace
 import qualified Json.Encode
 import qualified Reporting.Annotation as Ann
 import Snap.Core hiding (path)
@@ -42,11 +44,13 @@ serve maybeRoot (Flags maybePort) =
     -- Start file watcher for the memory mode
     -- Ext.Filewatch.watch root (Watchtower.Live.recompile liveState)
 
-    Snap.Http.Server.httpServe (config port debug) $
-      serveAssets
-        <|> Watchtower.Live.websocket liveState
-        <|> Watchtower.Questions.serve liveState
-        <|> error404
+    Snap.Http.Server.httpServe (config port debug)
+      ( serveAssets
+          <|> Watchtower.Live.websocket liveState
+          <|> Watchtower.Questions.serve liveState
+          <|> error404
+      )
+      `finally` Ext.Trace.shutdown (Client.trace liveState)
 
 config :: Int -> Bool -> Snap.Http.Server.Config Snap a
 config port isDebug =
