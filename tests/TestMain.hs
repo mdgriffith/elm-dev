@@ -40,9 +40,11 @@ import qualified System.Directory as Dir
 import qualified System.FilePath as FilePath
 import qualified System.Process as Process
 import qualified Data.List as List
+import qualified Data.IORef as IORef
 import qualified Data.Text as Text
 import qualified Data.Time.Clock.POSIX as POSIX
 import qualified Elm.ModuleName as ModuleName
+import qualified Gen.Commands.Init as InitCommand
 
 main :: IO ()
 main = do
@@ -103,6 +105,8 @@ generationTests :: [NamedTest]
 generationTests =
   [ runTest "code generation succeeds with basic config" testGenerateBasicConfig
   , runTest "code generation returns generator errors clearly" testGenerateThemeDecodeError
+  , runTest "scaffold init stops before writing files when elm.json init fails" testScaffoldInitStopsOnElmJsonFailure
+  , runTest "scaffold init surfaces generation failure" testScaffoldInitSurfacesGenerationFailure
   ]
 
 optimizationTests :: [NamedTest]
@@ -1213,6 +1217,40 @@ testGenerateThemeDecodeError = do
       (List.isInfixOf "Generation failed:" err || List.isInfixOf "Error decoding flags" err)
         && not (List.isInfixOf "key \"generated\" not found" err)
     Right _ -> False
+
+testScaffoldInitStopsOnElmJsonFailure :: IO Bool
+testScaffoldInitStopsOnElmJsonFailure = do
+  root <- uniqueRoot
+  Dir.createDirectoryIfMissing True root
+  generationCalled <- IORef.newIORef False
+  result <-
+    InitCommand.runWith
+      (\_ -> pure (Left ReportingExit.InitAlreadyExists))
+      (\_ -> IORef.writeIORef generationCalled True >> pure (Right ()))
+      root
+  readmeExists <- Dir.doesFileExist (root FilePath.</> "README.md")
+  elmDevExists <- Dir.doesFileExist (root FilePath.</> "elm.dev.json")
+  called <- IORef.readIORef generationCalled
+  pure $ case result of
+    Left err ->
+      Text.isInfixOf "EXISTING PROJECT" err
+        && not called
+        && not readmeExists
+        && not elmDevExists
+    Right () -> False
+
+testScaffoldInitSurfacesGenerationFailure :: IO Bool
+testScaffoldInitSurfacesGenerationFailure = do
+  root <- uniqueRoot
+  Dir.createDirectoryIfMissing True root
+  result <-
+    InitCommand.runWith
+      (\_ -> pure (Right ()))
+      (\_ -> pure (Left "Generation blew up"))
+      root
+  pure $ case result of
+    Left err -> Text.isInfixOf "Generation blew up" err
+    Right () -> False
 
 writeElmDevConfig :: FilePath -> String -> IO ()
 writeElmDevConfig root configContents =

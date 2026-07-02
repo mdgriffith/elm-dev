@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 
-module Gen.Commands.Init (flags, args, run) where
+module Gen.Commands.Init (flags, args, run, runWith) where
 
 import qualified CommandParser
 import qualified Control.Monad as Monad
@@ -9,6 +9,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
+import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.Map as Map
 import qualified Data.NonEmptyList as NE
@@ -26,8 +27,11 @@ import qualified Gen.Templates
 import qualified Gen.Templates.Loader
 import qualified Gen.Generate
 import qualified Ext.Log
+import qualified Ext.FileProxy
+import qualified Json.Encode as JE
 import qualified Make
 import qualified Reporting.Exit as Exit
+import qualified Reporting.Exit.Help as Help
 import qualified System.Directory as Dir (createDirectoryIfMissing, doesFileExist, getCurrentDirectory, removeFile)
 import System.Exit
 import System.FilePath ((</>))
@@ -44,40 +48,52 @@ args =
 
 
 -- | Initialize a new Elm Dev app in the given directory
-run :: FilePath -> IO ()
-run dir = do
+run :: FilePath -> IO (Either Text.Text ())
+run = runWith initElmJson Gen.Generate.run
 
-  -- Create elm.dev.json
-  let defaultConfig =
-        Config.Config
-          { Config.configPages =
-              Just (Map.singleton "Home" (Config.PageConfig "/" [] False)),
-            Config.configAssets =
-              Just (Map.fromList [("./public", "assets")]),
-            Config.configTheme = Nothing,
-            Config.configGraphQL = Nothing,
-            Config.configDocs = Nothing
-          }
-  BS.writeFile (dir </> "elm.dev.json") (Aeson.encodePretty defaultConfig)
+runWith :: (FilePath -> IO (Either Exit.Init ())) -> (FilePath -> IO (Either String ())) -> FilePath -> IO (Either Text.Text ())
+runWith initElmJsonFn generateFn dir = do
 
-  -- Create README.md
-  TIO.writeFile (dir </> "README.md") defaultReadme
+  initResult <- initElmJsonFn dir
+  case initResult of
+    Left initErr ->
+      pure (Left (Text.pack (Help.toString (Help.reportToDoc (Exit.initToReport initErr)))))
 
-  -- Create elm.json
-  initResult <- initElmJson dir
+    Right () -> do
 
-  Gen.Templates.writeGroupCustomizable Gen.Templates.Loader.Customizable (dir </> "src/app") (dir </> "elm-stuff/generated")
-  Gen.Templates.writeGroup Gen.Templates.Loader.ToHidden (dir </> "elm-stuff/generated")
-  Gen.Templates.writeGroup Gen.Templates.Loader.ToSrc (dir </> "src/app")
-  Gen.Templates.writeGroup Gen.Templates.Loader.ToJs (dir </> "src")
-  Gen.Templates.writeGroup Gen.Templates.Loader.ToRoot dir
+      -- Create elm.dev.json
+      let defaultConfig =
+            Config.Config
+              { Config.configPages =
+                  Just (Map.singleton "Home" (Config.PageConfig "/" [] False)),
+                Config.configAssets =
+                  Just (Map.fromList [("./public", "assets")]),
+                Config.configTheme = Nothing,
+                Config.configGraphQL = Nothing,
+                Config.configDocs = Nothing
+              }
+      BS.writeFile (dir </> "elm.dev.json") (Aeson.encodePretty defaultConfig)
 
-  -- Create Page/Home.elm
-  Gen.Templates.write "Page" (dir </> "src/app") "Home"
-  
-  Gen.Generate.run dir
+      -- Create README.md
+      TIO.writeFile (dir </> "README.md") defaultReadme
 
-  putStrLn "I've generated a new Elm project for you using the Elm Dev codegen!\n\nCheckout the README.md to get started!"
+      Gen.Templates.writeGroupCustomizable Gen.Templates.Loader.Customizable (dir </> "src/app") (dir </> "elm-stuff/generated")
+      Gen.Templates.writeGroup Gen.Templates.Loader.ToHidden (dir </> "elm-stuff/generated")
+      Gen.Templates.writeGroup Gen.Templates.Loader.ToSrc (dir </> "src/app")
+      Gen.Templates.writeGroup Gen.Templates.Loader.ToJs (dir </> "src")
+      Gen.Templates.writeGroup Gen.Templates.Loader.ToRoot dir
+
+      -- Create Page/Home.elm
+      Gen.Templates.write "Page" (dir </> "src/app") "Home"
+
+      generateResult <- generateFn dir
+      case generateResult of
+        Left err ->
+          pure (Left (Text.pack err))
+
+        Right () -> do
+          putStrLn "I've generated a new Elm project for you using the Elm Dev codegen!\n\nCheckout the README.md to get started!"
+          pure (Right ())
 
 defaultPackages :: Map.Map Pkg.Name Con.Constraint
 defaultPackages =
@@ -205,21 +221,23 @@ initElmJson dir =
             Solver.NoOfflineSolution ->
               return (Left (Exit.InitNoOfflineSolution (Map.keys defaultPackages)))
             Solver.Ok details ->
-              let solution = Map.map (\(Solver.Details vsn _) -> vsn) details
-                  directs = Map.intersection solution defaultPackages
-                  indirects = Map.difference solution defaultPackages
-               in do
-                    Dir.createDirectoryIfMissing True (dir </> "src")
-                    Outline.write dir $
-                      Outline.App $
-                        Outline.AppOutline
-                          V.compiler
-                          (NE.List (Outline.RelativeSrcDir "src/app") [Outline.RelativeSrcDir "elm-stuff/generated"])
-                          directs
-                          indirects
-                          Map.empty
-                          Map.empty
-                    return (Right ())
+               let solution = Map.map (\(Solver.Details vsn _) -> vsn) details
+                   directs = Map.intersection solution defaultPackages
+                   indirects = Map.difference solution defaultPackages
+                   outline =
+                     Outline.App $
+                       Outline.AppOutline
+                         V.compiler
+                         (NE.List (Outline.RelativeSrcDir "src/app") [Outline.RelativeSrcDir "elm-stuff/generated"])
+                         directs
+                         indirects
+                         Map.empty
+                         Map.empty
+                in do
+                     Dir.createDirectoryIfMissing True (dir </> "src")
+                     let builder = JE.encode (Outline.encode outline) <> BB.char7 '\n'
+                     Ext.FileProxy.writeUtf8AllTheWayToDisk (dir </> "elm.json") (BS.toStrict (BB.toLazyByteString builder))
+                     return (Right ())
 
 
 -- | Helper function to run shell commands

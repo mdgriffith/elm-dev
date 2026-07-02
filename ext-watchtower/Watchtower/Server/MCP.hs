@@ -308,10 +308,11 @@ toolScaffoldElmApp = MCP.Tool
       case requireStringArg "dir" args of
         Left e -> pure (errTxt (Text.pack e))
         Right dir -> do
-          r <- Exception.try (GenInit.run dir) :: IO (Either SomeException ())
+          r <- Exception.try (GenInit.run dir) :: IO (Either SomeException (Either Text ()))
           case r of
             Left _ -> pure (errTxt "Failed to initialize project")
-            Right _ -> do
+            Right (Left msg) -> pure (errTxt msg)
+            Right (Right ()) -> do
               -- Ensure elm-explorations/test is available in test-dependencies
               _ <- withDir dir $ do
                 let testPkg = Pkg.toName (Utf8.fromChars "elm-explorations") "test"

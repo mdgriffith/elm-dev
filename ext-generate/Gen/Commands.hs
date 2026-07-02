@@ -34,6 +34,7 @@ import qualified System.Directory as Dir (createDirectoryIfMissing, doesFileExis
 import System.FilePath ((<.>), (</>))
 import qualified System.FilePath as FP
 import qualified System.IO as IO
+import qualified System.Exit as SysExit
 import Terminal ((!), (...), (?))
 import qualified Terminal
 import qualified Terminal.Colors
@@ -59,7 +60,13 @@ initialize =
     Gen.Commands.Init.flags
     (\_ _ -> do
       cwd <- Dir.getCurrentDirectory
-      Gen.Commands.Init.run cwd
+      result <- Gen.Commands.Init.run cwd
+      case result of
+        Left err -> do
+          TIO.hPutStrLn IO.stderr err
+          SysExit.exitFailure
+        Right () ->
+          pure ()
     )
 
 addGroup :: Maybe String
