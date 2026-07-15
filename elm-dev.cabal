@@ -305,6 +305,7 @@ Executable elm-dev
         Watchtower.State.Compile
         Watchtower.State.Discover
         Watchtower.State.Project
+        Watchtower.State.TestJobs
         Watchtower.State.Versions
         
 
@@ -544,6 +545,9 @@ Test-Suite elm-dev-tests
         Ext.Test.Compile
         Ext.Test.Discover
         Ext.Test.Generate
+        Ext.Test.Result
+        Ext.Test.Result.Report
+        Ext.Test.Runner
         Ext.Trace
         Ext.Trace.Schema
         Ext.Trace.Types
@@ -657,6 +661,7 @@ Test-Suite elm-dev-tests
         Watchtower.Trace
         Watchtower.State.Compile
         Watchtower.State.Project
+        Watchtower.State.TestJobs
         Watchtower.State.Versions
         Watchtower.Version
         Watchtower.Websocket

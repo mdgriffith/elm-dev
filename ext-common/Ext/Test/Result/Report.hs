@@ -8,6 +8,7 @@ module Ext.Test.Result.Report
   ) where
 
 import qualified Data.List
+import Data.Ord (Down(..))
 import qualified ElmDevVersion
 import qualified Ext.Common
 import qualified Ext.Test.Result as R
@@ -43,6 +44,7 @@ renderReportsWithDuration useColors maybeDuration maybeSeed maybeFuzz reports =
             , ""
             ]
           _ -> []
+      durationLines = renderTestDurations reports
       body =
         if anyFailed
           then
@@ -57,8 +59,27 @@ renderReportsWithDuration useColors maybeDuration maybeSeed maybeFuzz reports =
                 failingReports = filter nonEmpty (fmap onlyFailures reports)
             in Data.List.intercalate "\n\n" (fmap (renderReportWith fns) failingReports)
           else ""
-      fullOutput = versionHeader ++ (if not (null versionHeader) then [""] else []) ++ reproductionMessage ++ (if null body then [summary] else [body, "", summary])
+      fullOutput = versionHeader ++ (if not (null versionHeader) then [""] else []) ++ reproductionMessage ++ durationLines ++ (if null body then [summary] else [body, "", summary])
   in Data.List.intercalate "\n" fullOutput
+
+
+renderTestDurations :: [R.Report] -> [String]
+renderTestDurations reports =
+  let measured =
+        Data.List.sortOn (Down . snd)
+          [ (R.reportId report, durationMs)
+          | report <- reports
+          , Just durationMs <- [R.reportDurationMs report]
+          ]
+      shown = take 20 measured
+      remaining = length measured - length shown
+      suffix = if remaining > 0 then ["  ... " ++ show remaining ++ " more"] else []
+  in if null measured
+       then []
+       else ["Slowest test values:"]
+         ++ map (\(testId, durationMs) -> "  " ++ show durationMs ++ "ms  " ++ testId) shown
+         ++ suffix
+         ++ [""]
 
 
 renderReport :: R.Report -> String

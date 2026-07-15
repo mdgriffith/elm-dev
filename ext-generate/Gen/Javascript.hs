@@ -4,8 +4,7 @@
 
 module Gen.Javascript where
 
-import Control.Exception (SomeException, fromException, try)
-import qualified Control.Exception as Exception
+import Control.Exception (IOException, try)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Data.FileEmbed
@@ -14,7 +13,6 @@ import System.FilePath ((</>))
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import qualified System.Process
-import qualified Ext.Log
 
 -- | Error type for JavaScript execution
 data RunError
@@ -43,15 +41,11 @@ run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
   -- Write the embedded code to a temporary file
   BS.hPut handle jsCode
   hClose handle -- Close the handle after writing
-  -- Execute using Bun and pass input through stdin
-  let process = System.Process.shell $ "node " ++ tempPath
+  -- Launch Node directly so cancellation targets the runtime rather than a shell.
+  let process = System.Process.proc "node" [tempPath]
   result <- try $ System.Process.readCreateProcess process (UTF8.toString input)
   case result of
-    Left err -> 
-      -- Check if this is a timeout exception (ThreadKilled)
-      case Exception.fromException err of
-        Just Exception.ThreadKilled -> return $ Left ThreadKilled
-        _ -> return $ Left $ Other $ "Error executing script: " ++ show (err :: SomeException)
+    Left err -> return $ Left $ Other $ "Error executing script: " ++ show (err :: IOException)
     Right output -> return $ Right output
 
 -- Dynamically adjusted by build.sh to make sure haskell doesn't bamboozle us.

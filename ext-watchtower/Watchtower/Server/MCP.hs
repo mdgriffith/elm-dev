@@ -74,6 +74,7 @@ import qualified Data.Text as T
 import qualified Watchtower.Server.MCP.Guides as Guides
 import qualified Watchtower.State.Compile
 import qualified Watchtower.State.Discover
+import qualified Watchtower.State.TestJobs as TestJobs
 import qualified Watchtower.State.Versions as Versions
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.LSP.Helpers as Helpers
@@ -105,6 +106,8 @@ import qualified Ext.Install
 import qualified Watchtower.Server.LSP.Protocol as LSPProtocol
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
+import qualified Data.Time.Clock as Time
+import qualified System.Timeout as Timeout
 
 
 availableTools :: [MCP.Tool]
@@ -532,7 +535,7 @@ toolCompile = MCP.Tool
 toolCheck :: MCP.Tool
 toolCheck = MCP.Tool
   { MCP.toolName = "check"
-  , MCP.toolDescription = "Run Elm diagnostics and/or tests for a project in one batched call. Omit targets or tests to skip that check. Use { kind: \"all\" } for the whole project."
+  , MCP.toolDescription = "Run Elm diagnostics and/or start background tests for a project. Poll or cancel test jobs with testJobs. Omit targets or tests to skip that check."
   , MCP.toolInputSchema =
       JSON.object
         [ "type" .= ("object" :: Text)
@@ -555,25 +558,38 @@ toolCheck = MCP.Tool
                 ]
             , Key.fromText "tests" .= JSON.object
                 [ "type" .= ("object" :: Text)
-                , "description" .= ("Tagged union: { kind: \"all\" } or { kind: \"only\", runs: [{ glob?, fuzz?, seed?, timeoutSeconds? }] }" :: Text)
+                , "description" .= ("Start one background test job: { kind: \"all\", waitSeconds?, executionTimeoutSeconds? } or { kind: \"only\", runs: [{ glob?, fuzz?, seed?, timeoutSeconds? }], waitSeconds?, executionTimeoutSeconds? }. Defaults: wait 5 seconds (maximum 20), execute the job for up to 900 seconds." :: Text)
+                ]
+            , Key.fromText "testJobs" .= JSON.object
+                [ "type" .= ("array" :: Text)
+                , "description" .= ("Inspect or cancel background test jobs: [{ kind: \"status\", runId? } | { kind: \"cancel\", runId }]. Omit runId from status to list recent jobs." :: Text)
                 ]
             ]
         , "required" .= ([] :: [Text])
         ]
   , MCP.toolOutputSchema = Nothing
   , MCP.call = \args state _emit connId -> do
-      selection <- resolveDiagnosticsProjectFromArgs args state connId
-      case selection of
-        Left msg -> pure (errTxt msg)
-        Right pc -> do
-          let includeWarnings = Maybe.fromMaybe False (getBoolArg args "includeWarnings")
-              limit = Maybe.fromMaybe 100 (getIntArg args "limit")
-          diagBlocks <- runCheckDiagnostics state pc includeWarnings limit (objectField args "targets")
-          testBlocks <- runCheckTests pc (objectField args "tests")
-          let blocks = diagBlocks ++ testBlocks
-          if null blocks
-            then pure (errTxt "Provide targets and/or tests. Use { kind: \"all\" } to check the whole project.")
-            else pure (ok (Text.intercalate "\n\n" blocks))
+      let maybeTargets = objectField args "targets"
+          maybeTests = objectField args "tests"
+      case (maybeTargets, maybeTests) of
+        (Nothing, Nothing) -> do
+          jobActionBlocks <- runCheckTestJobActions args
+          if null jobActionBlocks
+            then pure (errTxt "Provide targets, tests, and/or testJobs. Use { kind: \"all\" } to check the whole project.")
+            else pure (ok (Text.intercalate "\n\n" jobActionBlocks))
+        _ -> do
+          selection <- resolveDiagnosticsProjectFromArgs args state connId
+          case selection of
+            Left msg -> pure (errTxt msg)
+            Right pc -> do
+              jobActionBlocks <- runCheckTestJobActions args
+              let includeWarnings = Maybe.fromMaybe False (getBoolArg args "includeWarnings")
+                  limit = Maybe.fromMaybe 100 (getIntArg args "limit")
+              diagBlocks <- runCheckDiagnostics state pc includeWarnings limit maybeTargets
+              testBlocks <- maybe (pure []) (startCheckTests pc) maybeTests
+              jobsSummary <- renderTestJobsSummary (Text.unpack (projectRootText pc))
+              let blocks = jobActionBlocks ++ diagBlocks ++ testBlocks ++ [jobsSummary]
+              pure (ok (Text.intercalate "\n\n" blocks))
   }
 
 runCheckDiagnostics :: Client.State -> Client.ProjectCache -> Bool -> Int -> Maybe JSON.Object -> IO [Text]
@@ -621,48 +637,101 @@ runOneDiagnosticTarget state pc includeWarnings limit (index, value) =
         Nothing -> pure [xmlBlock "diagnostics" [("index", Text.pack (show index)), ("status", "error")] "Missing target.kind."]
     _ -> pure [xmlBlock "diagnostics" [("index", Text.pack (show index)), ("status", "error")] "Expected target object."]
 
-runCheckTests :: Client.ProjectCache -> Maybe JSON.Object -> IO [Text]
-runCheckTests pc maybeTests =
-  case maybeTests of
-    Nothing -> pure []
-    Just testsObj ->
-      case stringField testsObj "kind" of
-        Just "all" -> (:[]) <$> runOneCheckTest pc 0 JSON.Null
-        Just "only" ->
-          case getArrayArg testsObj "runs" of
-            Nothing -> pure [xmlBlock "tests" [("status", "error")] "Expected tests: { kind: \"only\", runs: [...] }." ]
-            Just runs -> mapM (uncurry (runOneCheckTest pc)) (zip [(0 :: Int)..] runs)
-        Just other -> pure [xmlBlock "tests" [("status", "error"), ("kind", other)] "Unknown test selection kind."]
-        Nothing -> pure [xmlBlock "tests" [("status", "error")] "Missing tests.kind."]
+data CheckTestRun = CheckTestRun
+  { checkTestBlock :: Text
+  , checkTestPassed :: Int
+  , checkTestFailed :: Int
+  , checkTestTotal :: Int
+  , checkTestInfrastructureFailed :: Bool
+  }
 
-runOneCheckTest :: Client.ProjectCache -> Int -> JSON.Value -> IO Text
+
+startCheckTests :: Client.ProjectCache -> JSON.Object -> IO [Text]
+startCheckTests pc testsObj = do
+  let waitSeconds = max 0 (min 20 (Maybe.fromMaybe 5 (intField testsObj "waitSeconds")))
+      executionTimeoutSeconds = max 1 (Maybe.fromMaybe 900 (intField testsObj "executionTimeoutSeconds"))
+      root = Text.unpack (projectRootText pc)
+  submitted <- TestJobs.submit root $ \reportProgress ->
+    do
+      result <- Timeout.timeout (executionTimeoutSeconds * 1000000)
+        (runCheckTestsNow pc reportProgress testsObj)
+      pure $ case result of
+        Nothing -> TestJobs.ActionFailed ("Test job timed out after " <> Text.pack (show executionTimeoutSeconds) <> " seconds.")
+        Just completed -> completed
+  waited <- TestJobs.waitFor (TestJobs.jobId submitted) waitSeconds
+  pure [renderTestJob True (Maybe.fromMaybe submitted waited)]
+
+
+runCheckTestsNow :: Client.ProjectCache -> (Text -> IO ()) -> JSON.Object -> IO TestJobs.ActionResult
+runCheckTestsNow pc reportProgress testsObj =
+  case stringField testsObj "kind" of
+    Just "all" -> do
+      reportProgress "Running test configuration 1/1"
+      result <- runOneCheckTest pc 0 JSON.Null
+      pure (combineCheckTestRuns [result])
+    Just "only" ->
+      case getArrayArg testsObj "runs" of
+        Nothing -> pure (TestJobs.ActionFailed "Expected tests: { kind: \"only\", runs: [...] }.")
+        Just [] -> pure (TestJobs.ActionFailed "Expected at least one test run.")
+        Just runs -> do
+          let totalRuns = length runs
+          results <- mapM
+            (\(index, value) -> do
+                reportProgress ("Running test configuration " <> Text.pack (show (index + 1)) <> "/" <> Text.pack (show totalRuns))
+                runOneCheckTest pc index value
+            )
+            (zip [(0 :: Int)..] runs)
+          pure (combineCheckTestRuns results)
+    Just other -> pure (TestJobs.ActionFailed ("Unknown test selection kind: " <> other))
+    Nothing -> pure (TestJobs.ActionFailed "Missing tests.kind.")
+
+
+combineCheckTestRuns :: [CheckTestRun] -> TestJobs.ActionResult
+combineCheckTestRuns results =
+  let body = Text.intercalate "\n\n" (map checkTestBlock results)
+      passed = sum (map checkTestPassed results)
+      failed = sum (map checkTestFailed results)
+      total = sum (map checkTestTotal results)
+  in if any checkTestInfrastructureFailed results
+       then TestJobs.ActionFailed body
+       else TestJobs.ActionCompleted TestJobs.Completion
+         { TestJobs.completionOutcome = if failed > 0 then TestJobs.TestsFailed else TestJobs.TestsPassed
+         , TestJobs.completionBody = body
+         , TestJobs.completionPassed = passed
+         , TestJobs.completionFailed = failed
+         , TestJobs.completionTotal = total
+         }
+
+
+runOneCheckTest :: Client.ProjectCache -> Int -> JSON.Value -> IO CheckTestRun
 runOneCheckTest (Client.ProjectCache proj _ _ _ mTestVar) index value = do
   let dir = Ext.Dev.Project.getRoot proj
       runObj = case value of
         JSON.Object obj -> obj
         _ -> KeyMap.empty
-      mTimeoutSeconds = intField runObj "timeoutSeconds"
+      mTimeoutSeconds = fmap (max 1) (intField runObj "timeoutSeconds")
       mGlobText = stringField runObj "glob"
       mGlobString = fmap Text.unpack mGlobText
       mGlobs = fmap (\g -> [g]) mGlobString
       mSeed = intField runObj "seed"
       mFuzz = intField runObj "fuzz"
-      timeoutSeconds = maybe 10 id mTimeoutSeconds
-      baseAttrs = [("index", Text.pack (show index)), ("status", "ok"), ("root", Text.pack dir)] ++ maybe [] (\g -> [("glob", g)]) mGlobText
+      baseAttrs = [("index", Text.pack (show index)), ("root", Text.pack dir)] ++ maybe [] (\g -> [("glob", g)]) mGlobText
       isUnfilteredRun = Maybe.isNothing mGlobText
   Control.Concurrent.STM.atomically $ Watchtower.State.Compile.clearTestResults mTestVar
-  startPs <- CPUTime.getCPUTime
-  result <- TestRunner.run (Just timeoutSeconds) mGlobs mSeed mFuzz dir
+  versionsVar <- Versions.getOrInit dir
+  versionsAtStart <- Control.Concurrent.STM.readTVarIO versionsVar
+  startedAt <- Time.getCurrentTime
+  result <- TestRunner.run mTimeoutSeconds mGlobs mSeed mFuzz dir
   case result of
     Left e ->
       let msg = case e of
-            TestRunner.TimedOut _ -> Text.pack ("Tests timed out after " ++ show (timeoutSeconds * 1000) ++ "ms")
+            TestRunner.TimedOut timeoutSeconds -> Text.pack ("Tests timed out after " ++ show (timeoutSeconds * 1000) ++ "ms")
             TestRunner.RunFailed runMsg -> Text.pack runMsg
-      in pure (xmlBlock "tests" ([("index", Text.pack (show index)), ("status", "error"), ("root", Text.pack dir)] ++ maybe [] (\g -> [("glob", g)]) mGlobText) msg)
+          block = xmlBlock "tests" ([("index", Text.pack (show index)), ("status", "error"), ("root", Text.pack dir)] ++ maybe [] (\g -> [("glob", g)]) mGlobText) msg
+      in pure (CheckTestRun block 0 0 0 True)
     Right (TestRunner.RunSuccess info reports seed fuzz) -> do
-      endPs <- CPUTime.getCPUTime
-      let durationMs :: Int
-          durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
+      finishedAt <- Time.getCurrentTime
+      let durationMs = round (realToFrac (Time.diffUTCTime finishedAt startedAt) * 1000 :: Double)
           rendered = TestReport.renderReportsWithDuration False (Just durationMs) (Just seed) (Just fuzz) reports
           summary = TestRunner.tiSummary info
           total = TestRunner.summaryTotal summary
@@ -675,11 +744,121 @@ runOneCheckTest (Client.ProjectCache proj _ _ _ mTestVar) index value = do
                          , Client.testResults = Just tr
                          , Client.testCompilation = Just Client.TestSuccess
                          }
-          attrs = baseAttrs ++ [("passed", Text.pack (show passed)), ("failed", Text.pack (show failed)), ("total", Text.pack (show total))]
-      when isUnfilteredRun $
-        Control.Concurrent.STM.atomically $ Control.Concurrent.STM.writeTVar mTestVar (Just clientInfo)
+          attrs = baseAttrs ++ [("status", if failed > 0 then "failed" else "ok"), ("passed", Text.pack (show passed)), ("failed", Text.pack (show failed)), ("total", Text.pack (show total))]
+      when isUnfilteredRun $ Control.Concurrent.STM.atomically $ do
+        versionsAtEnd <- Control.Concurrent.STM.readTVar versionsVar
+        when (Versions.fsVersion versionsAtStart == Versions.fsVersion versionsAtEnd) $
+          Control.Concurrent.STM.writeTVar mTestVar (Just clientInfo)
       Ext.Log.log Ext.Log.Test rendered
-      pure (xmlBlock "tests" attrs (Text.pack rendered))
+      pure (CheckTestRun (xmlBlock "tests" attrs (Text.pack rendered)) passed failed total False)
+
+
+runCheckTestJobActions :: JSON.Object -> IO [Text]
+runCheckTestJobActions args =
+  case KeyMap.lookup "testJobs" args of
+    Nothing -> pure []
+    Just (JSON.Array actions) -> mapM runCheckTestJobAction (zip [(0 :: Int)..] (Data.Vector.toList actions))
+    Just _ -> pure [xmlBlock "test-job" [("status", "error")] "Expected testJobs to be an array."]
+
+
+runCheckTestJobAction :: (Int, JSON.Value) -> IO Text
+runCheckTestJobAction (index, value) =
+  case value of
+    JSON.Object actionObj ->
+      case stringField actionObj "kind" of
+        Just "status" ->
+          case stringField actionObj "runId" of
+            Just runId -> do
+              found <- TestJobs.lookupJob runId
+              pure $ case found of
+                Nothing -> xmlBlock "test-job" [("index", Text.pack (show index)), ("runId", runId), ("status", "error")] "Unknown or expired test job."
+                Just job -> renderTestJob True job
+            Nothing -> renderTestJobsCollection Nothing <$> TestJobs.listJobs
+        Just "cancel" ->
+          case stringField actionObj "runId" of
+            Nothing -> pure (xmlBlock "test-job" [("index", Text.pack (show index)), ("status", "error")] "Missing runId.")
+            Just runId -> do
+              cancelled <- TestJobs.cancel runId
+              pure $ case cancelled of
+                Nothing -> xmlBlock "test-job" [("index", Text.pack (show index)), ("runId", runId), ("status", "error")] "Unknown or expired test job."
+                Just job -> renderTestJob False job
+        Just other -> pure (xmlBlock "test-job" [("index", Text.pack (show index)), ("kind", other), ("status", "error")] "Unknown testJobs action kind.")
+        Nothing -> pure (xmlBlock "test-job" [("index", Text.pack (show index)), ("status", "error")] "Missing testJobs action kind.")
+    _ -> pure (xmlBlock "test-job" [("index", Text.pack (show index)), ("status", "error")] "Expected testJobs action object.")
+
+
+renderTestJobsSummary :: FilePath -> IO Text
+renderTestJobsSummary root =
+  renderTestJobsCollection (Just root) <$> TestJobs.listJobsForRoot root
+
+
+renderTestJobsCollection :: Maybe FilePath -> [TestJobs.JobView] -> Text
+renderTestJobsCollection maybeRoot jobs =
+  let running = length (filter (\job -> TestJobs.jobStatus job == TestJobs.JobRunning || TestJobs.jobStatus job == TestJobs.JobQueued) jobs)
+      completed = length (filter ((== TestJobs.JobCompleted) . TestJobs.jobStatus) jobs)
+      failed = length (filter ((== TestJobs.JobFailed) . TestJobs.jobStatus) jobs)
+      testsFailed = length
+        [ ()
+        | job <- jobs
+        , Just completion <- [TestJobs.jobCompletion job]
+        , TestJobs.completionOutcome completion == TestJobs.TestsFailed
+        ]
+      cancelled = length (filter ((== TestJobs.JobCancelled) . TestJobs.jobStatus) jobs)
+      attrs =
+        maybe [] (\root -> [("root", Text.pack root)]) maybeRoot
+          ++ [("running", Text.pack (show running)), ("completed", Text.pack (show completed)), ("testsFailed", Text.pack (show testsFailed)), ("failed", Text.pack (show failed)), ("cancelled", Text.pack (show cancelled))]
+      body = if null jobs then "No test jobs." else Text.intercalate "\n" (map renderTestJobSummaryLine (take 20 jobs))
+  in xmlBlock "test-jobs" attrs body
+
+
+renderTestJobSummaryLine :: TestJobs.JobView -> Text
+renderTestJobSummaryLine job =
+  let counts = case TestJobs.jobCompletion job of
+        Nothing -> ""
+        Just completion ->
+          " outcome=" <> jobOutcomeText (TestJobs.completionOutcome completion)
+            <> " passed=" <> Text.pack (show (TestJobs.completionPassed completion))
+            <> " failed=" <> Text.pack (show (TestJobs.completionFailed completion))
+            <> " total=" <> Text.pack (show (TestJobs.completionTotal completion))
+  in TestJobs.jobId job <> " " <> jobStatusText (TestJobs.jobStatus job) <> counts <> " " <> TestJobs.jobMessage job
+
+
+renderTestJob :: Bool -> TestJobs.JobView -> Text
+renderTestJob detailed job =
+  let completionAttrs = case TestJobs.jobCompletion job of
+        Nothing -> []
+        Just completion ->
+          [("outcome", jobOutcomeText (TestJobs.completionOutcome completion)), ("passed", Text.pack (show (TestJobs.completionPassed completion))), ("failed", Text.pack (show (TestJobs.completionFailed completion))), ("total", Text.pack (show (TestJobs.completionTotal completion)))]
+      attrs =
+        [("runId", TestJobs.jobId job), ("status", jobStatusText (TestJobs.jobStatus job)), ("root", Text.pack (TestJobs.jobRoot job)), ("createdAt", Text.pack (show (TestJobs.jobCreatedAt job)))]
+          ++ maybe [] (\startedAt -> [("startedAt", Text.pack (show startedAt))]) (TestJobs.jobStartedAt job)
+          ++ maybe [] (\completedAt -> [("completedAt", Text.pack (show completedAt))]) (TestJobs.jobCompletedAt job)
+          ++ maybe [] (\expiresAt -> [("expiresNoLaterThan", Text.pack (show expiresAt))]) (TestJobs.jobExpiresNoLaterThan job)
+          ++ completionAttrs
+      body
+        | detailed = case (TestJobs.jobCompletion job, TestJobs.jobFailure job) of
+            (Just completion, _) -> TestJobs.completionBody completion
+            (_, Just failure) -> failure
+            _ -> TestJobs.jobMessage job
+        | otherwise = TestJobs.jobMessage job
+  in xmlBlock "test-job" attrs body
+
+
+jobStatusText :: TestJobs.JobStatus -> Text
+jobStatusText status =
+  case status of
+    TestJobs.JobQueued -> "queued"
+    TestJobs.JobRunning -> "running"
+    TestJobs.JobCompleted -> "completed"
+    TestJobs.JobFailed -> "failed"
+    TestJobs.JobCancelled -> "cancelled"
+
+
+jobOutcomeText :: TestJobs.JobOutcome -> Text
+jobOutcomeText outcome =
+  case outcome of
+    TestJobs.TestsPassed -> "passed"
+    TestJobs.TestsFailed -> "tests_failed"
 
 -- docs_package
 toolDocs :: MCP.Tool
@@ -2145,17 +2324,20 @@ diagnosticsReport state pc@(Client.ProjectCache proj _ _ _ _) maybeFile includeW
       pure [(filePath, diags)]
     Nothing -> Map.toList <$> Helpers.getProjectDiagnosticsByFile state pc
 
-  warningsByFile <- case maybeFile of
-    Just filePath -> do
-      diags <- warningDiagnosticsForFile state proj filePath
-      pure [(filePath, diags)]
-    Nothing -> do
-      allInfos <- Client.getAllFileInfos state
-      let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.affectsCompilation p proj) (Map.toList allInfos)
-      mapM (\p -> do
-              diags <- warningDiagnosticsForFile state proj p
-              pure (p, diags)
-           ) projectFiles
+  warningsByFile <-
+    if not includeWarnings
+      then pure []
+      else case maybeFile of
+        Just filePath -> do
+          diags <- warningDiagnosticsForFile state proj filePath
+          pure [(filePath, diags)]
+        Nothing -> do
+          allInfos <- Client.getAllFileInfos state
+          let projectFiles = fmap fst $ filter (\(p, _) -> Ext.Dev.Project.affectsCompilation p proj) (Map.toList allInfos)
+          mapM (\p -> do
+                  diags <- warningDiagnosticsForFile state proj p
+                  pure (p, diags)
+               ) projectFiles
 
   let errors = concatMap (\(fp, ds) -> fmap (\d -> (fp, d)) ds) errorsByFile
       warnings = concatMap (\(fp, ds) -> fmap (\d -> (fp, d)) ds) warningsByFile
@@ -2209,7 +2391,9 @@ renderDiagnosticsSummary errorCount warningCount includeWarnings =
     [ "## Summary"
     , ""
     , "- Total errors: " <> Text.pack (show errorCount)
-    , "- Total warnings: " <> Text.pack (show warningCount) <> if includeWarnings then " (included)" else " (suppressed)"
+    , if includeWarnings
+        then "- Total warnings: " <> Text.pack (show warningCount) <> " (included)"
+        else "- Warnings: not computed (suppressed)"
     ]
 
 partitionUnused :: [Warning.Warning] -> ([Text], [(Int, Text)])

@@ -3,7 +3,9 @@
 module Main where
 
 import Control.Monad (when)
+import qualified Control.Concurrent.MVar as MVar
 import qualified Control.Concurrent.STM as STM
+import qualified Control.Exception as Exception
 import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -13,6 +15,8 @@ import qualified Data.ByteString.Lazy.Char8 as LazyChar8
 import qualified Data.Foldable as Foldable
 import qualified Ext.FileCache as FileCache
 import qualified Ext.Filewatch as Filewatch
+import qualified Ext.Test.Result as TestResult
+import qualified Ext.Test.Result.Report as TestReport
 import qualified Data.Map.Strict as Map
 import qualified Data.NonEmptyList as NE
 import qualified Ext.CompileHelpers.Disk as DiskCompile
@@ -33,6 +37,7 @@ import qualified Watchtower.Server.LSP.Protocol as Protocol
 import qualified Watchtower.State.Compile as CompileState
 import qualified Watchtower.State.Versions as Versions
 import qualified Watchtower.State.Project as ProjectState
+import qualified Watchtower.State.TestJobs as TestJobs
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Server.MCP as MCP
 import qualified System.Exit as Exit
@@ -45,6 +50,7 @@ import qualified Data.Text as Text
 import qualified Data.Time.Clock.POSIX as POSIX
 import qualified Elm.ModuleName as ModuleName
 import qualified Gen.Commands.Init as InitCommand
+import qualified System.Timeout as Timeout
 
 main :: IO ()
 main = do
@@ -130,6 +136,11 @@ mcpTests =
   , runTest "MCP stale test summaries can be cleared" testMcpClearTestResults
   , runTest "MCP XML blocks preserve tag attributes and body" testMcpXmlBlockShape
   , runTest "MCP XML attributes are escaped" testMcpXmlAttributeEscaping
+  , runTest "MCP test jobs complete and retain results" testMcpTestJobCompletion
+  , runTest "MCP test jobs cancel running actions" testMcpTestJobCancellation
+  , runTest "MCP test jobs cancel while queued" testMcpQueuedTestJobCancellation
+  , runTest "MCP test jobs retain only recent terminal results" testMcpTestJobRetentionBound
+  , runTest "test reports decode and render exported-value durations" testReportDuration
   ]
 
 testMcpCompositeToolsExposed :: IO Bool
@@ -187,6 +198,7 @@ testMcpCompositeSchemas = do
       checkOk = schemaHasProperty "dir" schemas "check"
         && schemaHasProperty "targets" schemas "check"
         && schemaHasProperty "tests" schemas "check"
+        && schemaHasProperty "testJobs" schemas "check"
         && schemaDescriptionMentions ["all", "only"] schemas "check" "targets"
         && schemaDescriptionMentions ["all", "only"] schemas "check" "tests"
   pure (docsOk && addOk && checkOk)
@@ -255,6 +267,118 @@ testMcpXmlAttributeEscaping :: IO Bool
 testMcpXmlAttributeEscaping = do
   let block = MCP.xmlBlockForTests "diagnostics" [("file", "A&B<\"C\">")] "body"
   pure (block == "<diagnostics file=\"A&amp;B&lt;&quot;C&quot;&gt;\">\nbody\n</diagnostics>")
+
+
+testMcpTestJobCompletion :: IO Bool
+testMcpTestJobCompletion = do
+  registry <- TestJobs.newRegistry
+  started <- MVar.newEmptyMVar
+  release <- MVar.newEmptyMVar
+  submitted <- TestJobs.submitWith registry "/tmp/project" $ \reportProgress -> do
+    reportProgress "Running test configuration 1/1"
+    MVar.putMVar started ()
+    MVar.takeMVar release
+    pure (TestJobs.ActionCompleted TestJobs.Completion
+      { TestJobs.completionOutcome = TestJobs.TestsPassed
+      , TestJobs.completionBody = "report"
+      , TestJobs.completionPassed = 3
+      , TestJobs.completionFailed = 0
+      , TestJobs.completionTotal = 3
+      })
+  didStart <- Timeout.timeout 1000000 (MVar.takeMVar started)
+  running <- TestJobs.lookupJobWith registry (TestJobs.jobId submitted)
+  MVar.putMVar release ()
+  completed <- TestJobs.waitForWith registry (TestJobs.jobId submitted) 1
+  pure $ case (didStart, running, completed) of
+    (Just (), Just runningJob, Just completedJob) ->
+      TestJobs.jobStatus runningJob == TestJobs.JobRunning
+        && TestJobs.jobMessage runningJob == "Running test configuration 1/1"
+        && TestJobs.jobStatus completedJob == TestJobs.JobCompleted
+        && case TestJobs.jobCompletion completedJob of
+             Just completion ->
+               TestJobs.completionPassed completion == 3
+                 && TestJobs.completionBody completion == "report"
+             Nothing -> False
+    _ -> False
+
+
+testMcpTestJobCancellation :: IO Bool
+testMcpTestJobCancellation = do
+  registry <- TestJobs.newRegistry
+  started <- MVar.newEmptyMVar
+  blocker <- MVar.newEmptyMVar
+  cleaned <- MVar.newEmptyMVar
+  submitted <- TestJobs.submitWith registry "/tmp/project" $ \_ -> do
+    _ <- (MVar.putMVar started () >> MVar.takeMVar blocker)
+      `Exception.finally` MVar.putMVar cleaned ()
+    pure (TestJobs.ActionFailed "unexpected completion")
+  didStart <- Timeout.timeout 1000000 (MVar.takeMVar started)
+  cancelled <- TestJobs.cancelWith registry (TestJobs.jobId submitted)
+  didClean <- Timeout.timeout 1000000 (MVar.takeMVar cleaned)
+  final <- TestJobs.lookupJobWith registry (TestJobs.jobId submitted)
+  pure $ case (didStart, cancelled, didClean, final) of
+    (Just (), Just cancelledJob, Just (), Just finalJob) ->
+      TestJobs.jobStatus cancelledJob == TestJobs.JobCancelled
+        && TestJobs.jobStatus finalJob == TestJobs.JobCancelled
+    _ -> False
+
+
+testMcpQueuedTestJobCancellation :: IO Bool
+testMcpQueuedTestJobCancellation = do
+  registry <- TestJobs.newRegistry
+  firstStarted <- MVar.newEmptyMVar
+  releaseFirst <- MVar.newEmptyMVar
+  secondStarted <- MVar.newEmptyMVar
+  first <- TestJobs.submitWith registry "/tmp/project" $ \_ -> do
+    MVar.putMVar firstStarted ()
+    MVar.takeMVar releaseFirst
+    pure (TestJobs.ActionFailed "first finished")
+  didStart <- Timeout.timeout 1000000 (MVar.takeMVar firstStarted)
+  second <- TestJobs.submitWith registry "/tmp/project" $ \_ -> do
+    MVar.putMVar secondStarted ()
+    pure (TestJobs.ActionFailed "second started")
+  cancelled <- TestJobs.cancelWith registry (TestJobs.jobId second)
+  MVar.putMVar releaseFirst ()
+  _ <- TestJobs.waitForWith registry (TestJobs.jobId first) 1
+  unexpectedlyStarted <- MVar.tryTakeMVar secondStarted
+  final <- TestJobs.lookupJobWith registry (TestJobs.jobId second)
+  pure $ case (didStart, cancelled, final) of
+    (Just (), Just cancelledJob, Just finalJob) ->
+      TestJobs.jobStatus cancelledJob == TestJobs.JobCancelled
+        && TestJobs.jobStatus finalJob == TestJobs.JobCancelled
+        && unexpectedlyStarted == Nothing
+    _ -> False
+
+
+testMcpTestJobRetentionBound :: IO Bool
+testMcpTestJobRetentionBound = do
+  registry <- TestJobs.newRegistry
+  submitted <- mapM
+    (\_ -> TestJobs.submitWith registry "/tmp/project" $ \_ ->
+      pure (TestJobs.ActionCompleted TestJobs.Completion
+        { TestJobs.completionOutcome = TestJobs.TestsPassed
+        , TestJobs.completionBody = "report"
+        , TestJobs.completionPassed = 1
+        , TestJobs.completionFailed = 0
+        , TestJobs.completionTotal = 1
+        }))
+    [(1 :: Int)..22]
+  mapM_ (\job -> TestJobs.waitForWith registry (TestJobs.jobId job) 1) submitted
+  retained <- TestJobs.listJobsForRootWith registry "/tmp/project"
+  let retainedIds = map TestJobs.jobId retained
+  pure (length retained == 20 && "test-1" `notElem` retainedIds && "test-2" `notElem` retainedIds)
+
+
+testReportDuration :: IO Bool
+testReportDuration = do
+  let encoded = "[{\"id\":\"Suite.slow\",\"runs\":[],\"isOnly\":false,\"durationMs\":123}]"
+      legacy = "[{\"id\":\"Suite.legacy\",\"runs\":[],\"isOnly\":false}]"
+  pure $ case (TestResult.decodeReportsString encoded, TestResult.decodeReportsString legacy) of
+    (Right [report], Right [legacyReport]) ->
+      TestResult.reportDurationMs report == Just 123
+        && TestResult.reportDurationMs legacyReport == Nothing
+        && "123ms  Suite.slow" `List.isInfixOf` TestReport.renderReportsWithDuration False Nothing Nothing Nothing [report]
+    _ -> False
 
 testO2FunctionHelpers :: IO Bool
 testO2FunctionHelpers = do

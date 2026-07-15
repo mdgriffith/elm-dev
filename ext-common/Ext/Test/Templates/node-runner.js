@@ -91,7 +91,7 @@ if (isMainThread) {
             const tests = input.tests;
             const cpuCount = (os.cpus() && os.cpus().length) || 1;
             const desiredByTests = Math.floor(tests.length / 4);
-            const concurrency = Math.max(1, Math.min(cpuCount, desiredByTests));
+            const concurrency = Math.max(1, Math.min(4, cpuCount, desiredByTests));
 
             let nextIndex = 0;
             const reports = [];
@@ -102,9 +102,11 @@ if (isMainThread) {
                 workers.map(
                     (w) =>
                         new Promise((resolve) => {
+                            let startedAt = 0;
                             const tryAssign = () => {
                                 if (nextIndex < tests.length) {
                                     const id = tests[nextIndex++];
+                                    startedAt = performance.now();
                                     w.postMessage({ type: 'run', id });
                                 } else {
                                     w.postMessage({ type: 'shutdown' });
@@ -118,7 +120,7 @@ if (isMainThread) {
                                         break;
                                     case 'result':
                                         // Check if this report indicates the test was skipped because it's not a test
-                                        const report = msg.report;
+                                        const report = { ...msg.report, durationMs: Math.max(0, Math.round(performance.now() - startedAt)) };
                                         if (!report.skippedBecauseNotATest) {
                                             reports.push(report);
                                         }
@@ -173,4 +175,3 @@ if (isMainThread) {
         process.exit(1);
     }
 }
-

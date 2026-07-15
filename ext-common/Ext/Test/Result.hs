@@ -13,11 +13,10 @@ module Ext.Test.Result
 
 import qualified Data.Aeson
 import qualified Data.Aeson.Types
-import           Data.Aeson ((.:), (.:?), withObject, (.!=))
+import           Data.Aeson ((.:), (.:?), withObject)
 import qualified Data.ByteString
 import qualified Data.ByteString.Lazy
 import qualified Data.ByteString.UTF8
-import qualified Data.Text
 
 
 type TestId = String
@@ -27,6 +26,7 @@ data Report = Report
   { reportId   :: TestId
   , reportRuns :: [TestRun]
   , reportIsOnly :: Bool
+  , reportDurationMs :: Maybe Int
   } deriving (Eq, Show)
 
 
@@ -69,6 +69,7 @@ instance Data.Aeson.FromJSON Report where
     reportId <- o .: "id"
     reportRuns <- o .: "runs"
     reportIsOnly <- o .: "isOnly"
+    reportDurationMs <- o .:? "durationMs"
     pure Report{..}
 
 
