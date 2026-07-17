@@ -19,7 +19,7 @@ import qualified Control.Monad as Monad
 import qualified Control.Exception as Exception
 import qualified Data.Aeson as JSON
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.List as List
+import qualified Data.Digest.Pure.SHA as SHA
 import qualified Ext.CompileMode
 import qualified Ext.Log
 import Data.Time.Clock (getCurrentTime)
@@ -27,8 +27,10 @@ import qualified System.Directory as Dir
 import qualified System.Environment as Env
 import qualified System.FilePath as Path
 import qualified System.IO as IO
+import qualified System.FileLock as FileLock
 import qualified Network.Socket as Net
 import qualified Watchtower.Server.DevWS as DevWS
+import Watchtower.Server.Daemon.State (StateInfo(..), fingerprintMatches)
 import qualified Watchtower.Live.Client
 import qualified Stuff
 import qualified Watchtower.Server.Run
@@ -37,14 +39,10 @@ import qualified Watchtower.Server.MCP as MCP
 import qualified Snap.Http.Server as Server
 import qualified Watchtower.Server.Dev
 import qualified Snap.Core (route)
-import qualified Data.Bits as Bits
-import qualified Data.Word as Word
 import qualified System.Process as Process
-import qualified Control.Exception as Exception
 
 #if !defined(mingw32_HOST_OS)
 import qualified System.Posix.Process as Posix
-import qualified System.Posix.IO as PosixIO
 import qualified System.Posix.Types as PosixTypes
 import qualified System.Posix.Signals as PosixSig
 #endif
@@ -52,39 +50,6 @@ import qualified System.Posix.Signals as PosixSig
 #if defined(mingw32_HOST_OS)
 import qualified System.Win32.Process as Win32
 #endif
-
-data StateInfo = StateInfo
-  { pid :: !Int
-  , domain :: !String
-  , lspPort :: !Int
-  , mcpPort :: !Int
-  , httpPort :: !Int
-  , startedAt :: !String
-  , version :: !String
-  } deriving (Show, Eq)
-
-instance JSON.ToJSON StateInfo where
-  toJSON s = JSON.object
-    [ ("pid", JSON.toJSON (pid s))
-    , ("domain", JSON.toJSON (domain s))
-    , ("lspPort", JSON.toJSON (lspPort s))
-    , ("mcpPort", JSON.toJSON (mcpPort s))
-    , ("httpPort", JSON.toJSON (httpPort s))
-    , ("startedAt", JSON.toJSON (startedAt s))
-    , ("version", JSON.toJSON (version s))
-    ]
-
-instance JSON.FromJSON StateInfo where
-  parseJSON = JSON.withObject "StateInfo" $ \o -> do
-    -- domain was introduced later; default to 127.0.0.1 for older state files
-    domainVal <- o JSON..:? "domain" JSON..!= "127.0.0.1"
-    StateInfo <$> o JSON..: "pid"
-              <*> pure domainVal
-              <*> o JSON..: "lspPort"
-              <*> o JSON..: "mcpPort"
-              <*> o JSON..: "httpPort"
-              <*> o JSON..: "startedAt"
-              <*> o JSON..: "version"
 
 -- Global daemon state directory/file (single daemon across all workspaces)
 stateDir :: IO FilePath
@@ -150,6 +115,11 @@ getPid = do
 versionString :: String
 versionString = "1.0.0"
 
+currentExecutableFingerprint :: IO String
+currentExecutableFingerprint = do
+  exe <- Env.getExecutablePath
+  SHA.showDigest . SHA.sha256 <$> LBS.readFile exe
+
 -- Parameters for starting the daemon services
 data ServeParams = ServeParams
   { spDomain :: !String
@@ -169,19 +139,33 @@ allocateServeParams = do
 -- | Start the daemon servers for a workspace root; if already running and healthy, return its state
 ensureRunning :: IO StateInfo
 ensureRunning = do
-  mState <- status
+  currentFingerprint <- currentExecutableFingerprint
+  mState <- statusForFingerprint currentFingerprint
   case mState of
     Just s -> pure s
     Nothing -> withDaemonLock $ do
-      -- Double-check under lock in case another process just started it
-      m2 <- status
+      -- Another launcher may have replaced the stale daemon while we waited.
+      m2 <- statusForFingerprint currentFingerprint
       case m2 of
         Just s2 -> pure s2
-        Nothing -> start
+        _ -> replaceDaemon currentFingerprint
+
+replaceDaemon :: String -> IO StateInfo
+replaceDaemon currentFingerprint = do
+  existing <- readState
+  case existing of
+    Just _ -> stop
+    Nothing -> pure ()
+  startForFingerprint currentFingerprint
 
 -- | Launch the daemon in the background if not running, wait until state is ready, and return it
 start :: IO StateInfo
 start = do
+  currentFingerprint <- currentExecutableFingerprint
+  startForFingerprint currentFingerprint
+
+startForFingerprint :: String -> IO StateInfo
+startForFingerprint currentFingerprint = do
   exe <- Env.getExecutablePath
   let cp = (Process.proc exe ["dev","serve","--silent"])
               { Process.std_in = Process.NoStream
@@ -194,7 +178,7 @@ start = do
   _ <- Process.createProcess cp
   -- Wait for state.json to appear and for services to become healthy
   let waitLoop n = do
-        ms <- status
+        ms <- statusForFingerprint currentFingerprint
         case ms of
           Just s -> pure s
           Nothing -> if n <= 0 then ioError (userError "dev did not become healthy") else do
@@ -239,7 +223,8 @@ serve params = do
       waitReady (100 :: Int)
       now <- fmap show getCurrentTime
       p <- getPid
-      let st = StateInfo { pid = p, domain = spDomain params, lspPort = spLspPort params, mcpPort = spMcpPort params, httpPort = spHttpPort params, startedAt = now, version = versionString }
+      fingerprint <- currentExecutableFingerprint
+      let st = StateInfo { pid = p, domain = spDomain params, lspPort = spLspPort params, mcpPort = spMcpPort params, httpPort = spHttpPort params, startedAt = now, version = versionString, executableFingerprint = Just fingerprint }
       writeState st
       -- Block forever
       let loop = do Concurrent.threadDelay 10000000 >> loop
@@ -274,11 +259,16 @@ stop = do
 
 status :: IO (Maybe StateInfo)
 status = do
+  currentFingerprint <- currentExecutableFingerprint
+  statusForFingerprint currentFingerprint
+
+statusForFingerprint :: String -> IO (Maybe StateInfo)
+statusForFingerprint currentFingerprint = do
   ms <- readState
   case ms of
     Just s -> do
       ok <- isHealthy s
-      if ok then pure (Just s) else pure Nothing
+      if ok && fingerprintMatches currentFingerprint s then pure (Just s) else pure Nothing
     Nothing -> pure Nothing
 
 -- | Try to connect to host:port, return True if successful
@@ -325,41 +315,11 @@ printBanner sp = do
 
 
 
--- | Acquire a simple inter-process lock to serialize daemon startup.
--- On POSIX, use O_EXCL file creation for atomicity; on other platforms, best-effort fallback.
+-- | Serialize daemon inspection, stale replacement, and startup across processes.
 withDaemonLock :: IO a -> IO a
 withDaemonLock action = do
   path <- lockFilePath
-#if !defined(mingw32_HOST_OS)
-  let flags = PosixIO.defaultFileFlags { PosixIO.exclusive = True, PosixIO.trunc = False, PosixIO.noctty = True }
-  let acquire = Exception.try (PosixIO.openFd path PosixIO.WriteOnly (Just 0o600) flags) :: IO (Either IOError PosixTypes.Fd)
-  res <- acquire
-  case res of
-    Right fd -> Exception.bracket (pure fd)
-                                  (\fd' -> PosixIO.closeFd fd' >> safeRemove path)
-                                  (\_ -> action)
-    Left _ -> do
-      -- Another process holds the lock; wait briefly for a healthy daemon
-      _ <- waitForHealthy 50
-      action
-#else
-  -- Fallback without atomic lock; proceed directly
-  action
-#endif
-
--- | Wait up to N attempts for an existing daemon to become healthy.
-waitForHealthy :: Int -> IO Bool
-waitForHealthy n = do
-  ms <- status
-  case ms of
-    Just _ -> pure True
-    Nothing -> delayAndRetry
-  where
-    delayAndRetry = if n <= 0
-      then pure False
-      else do
-        Concurrent.threadDelay 200000 -- 200ms
-        waitForHealthy (n - 1)
+  FileLock.withFileLock path FileLock.Exclusive (\_ -> action)
 
 safeRemove :: FilePath -> IO ()
 safeRemove p = do
@@ -402,4 +362,3 @@ waitPortsClosed st n = do
     else if n <= 0 then pure False else do
       Concurrent.threadDelay 200000
       waitPortsClosed st (n - 1)
-

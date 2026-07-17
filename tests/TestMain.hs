@@ -40,6 +40,7 @@ import qualified Watchtower.State.Project as ProjectState
 import qualified Watchtower.State.TestJobs as TestJobs
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Server.MCP as MCP
+import qualified Watchtower.Server.Daemon.State as DaemonState
 import qualified System.Exit as Exit
 import qualified System.Directory as Dir
 import qualified System.FilePath as FilePath
@@ -59,7 +60,8 @@ main = do
   generationResults <- sequence generationTests
   optimizationResults <- sequence optimizationTests
   mcpResults <- sequence mcpTests
-  let results = fileCacheResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults
+  daemonResults <- sequence daemonTests
+  let results = fileCacheResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults ++ daemonResults
       failures = [name | (name, False) <- results]
   if null failures
     then do
@@ -142,6 +144,38 @@ mcpTests =
   , runTest "MCP test jobs retain only recent terminal results" testMcpTestJobRetentionBound
   , runTest "test reports decode and render exported-value durations" testReportDuration
   ]
+
+daemonTests :: [NamedTest]
+daemonTests =
+  [ runTest "daemon state decodes a missing executable fingerprint as unknown" testDaemonStateBackwardCompatibility
+  , runTest "daemon state fingerprint round-trips and controls freshness" testDaemonFingerprintRoundTrip
+  ]
+
+testDaemonStateBackwardCompatibility :: IO Bool
+testDaemonStateBackwardCompatibility = do
+  let oldState = "{\"pid\":1,\"domain\":\"127.0.0.1\",\"lspPort\":2,\"mcpPort\":3,\"httpPort\":4,\"startedAt\":\"now\",\"version\":\"1.0.0\"}"
+  pure $ case JSON.eitherDecode oldState of
+    Right state -> DaemonState.executableFingerprint state == Nothing
+      && not (DaemonState.fingerprintMatches "current" state)
+    Left _ -> False
+
+testDaemonFingerprintRoundTrip :: IO Bool
+testDaemonFingerprintRoundTrip = do
+  let state = DaemonState.StateInfo
+        { DaemonState.pid = 1
+        , DaemonState.domain = "127.0.0.1"
+        , DaemonState.lspPort = 2
+        , DaemonState.mcpPort = 3
+        , DaemonState.httpPort = 4
+        , DaemonState.startedAt = "now"
+        , DaemonState.version = "1.0.0"
+        , DaemonState.executableFingerprint = Just "abc123"
+        }
+  pure $ case JSON.eitherDecode (JSON.encode state) of
+    Right decoded -> decoded == state
+      && DaemonState.fingerprintMatches "abc123" decoded
+      && not (DaemonState.fingerprintMatches "different" decoded)
+    Left _ -> False
 
 testMcpCompositeToolsExposed :: IO Bool
 testMcpCompositeToolsExposed = do

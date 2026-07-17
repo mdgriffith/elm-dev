@@ -37,10 +37,6 @@ fi
 
 cd "$repo_dir"
 
-# Prefer `stack exec` for fast startup (no rebuild checks like `stack run`).
-# If the binary has not been built yet, fall back to `stack run`.
-if "$stack_bin" exec --cwd "$original_dir" elm-dev -- "$@"; then
-  exit 0
-fi
-
-"$stack_bin" run --cwd "$original_dir" -- "$@"
+# Build first so the launcher and daemon always use the current executable.
+"$stack_bin" build elm-dev:exe:elm-dev
+exec "$stack_bin" exec --cwd "$original_dir" elm-dev -- "$@"
