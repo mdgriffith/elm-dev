@@ -22,7 +22,11 @@ check_value "distribution/common.sh" "$(awk -F'"' '/^export version=/ { print $2
 check_value "installers-elm-dev/npm/scripts/download-binaries.sh" "$(awk -F'"' '/^VERSION=/ { print $2; exit }' installers-elm-dev/npm/scripts/download-binaries.sh)"
 
 for package_json in installers-elm-dev/npm/packages/*/package.json; do
+  package_name="$(node -p "require('./$package_json').name")"
   check_value "$package_json" "$(node -p "require('./$package_json').version")"
+  check_value "optionalDependencies[$package_name]" "$(node -p "require('./installers-elm-dev/npm/package.json').optionalDependencies['$package_name']")"
 done
+
+check_value "generated project template" "$(node -p "require('./ext-generate/generator/app/templates/toRoot/package.json').devDependencies['elm-dev'].replace(/^\^/, '')")"
 
 echo "Release version metadata is aligned at $VERSION"

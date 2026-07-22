@@ -1,5 +1,5 @@
 Name: elm-dev
-Version: 0.3.0
+Version: 0.4.0
 
 Synopsis:
     The `elm-dev` command line interface.
@@ -213,6 +213,8 @@ Executable elm-dev
         -- elmx
         -- ext-common
         Ext.Common
+        Ext.DependencyManager
+        Ext.DependencyManager.Cli
         Ext.ElmFormat
         Ext.CompileHelpers.Generic
         Ext.CompileHelpers.Disk
@@ -527,6 +529,7 @@ Test-Suite elm-dev-tests
         Ext.CompileHelpers.Memory
         Ext.CompileProxy
         Ext.CompileMode
+        Ext.DependencyManager
         Ext.Dev.Docs
         Ext.Dev.Find.Canonical
         Ext.Dev.Project

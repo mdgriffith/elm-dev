@@ -2,6 +2,7 @@ module Ext.Test.Compile
   ( compileRunner
   , compile
   , regenerateTestElmJson
+  , regenerateTestElmJsonPersisted
   ) where
 
 import qualified BackgroundWriter
@@ -63,6 +64,18 @@ regenerateTestElmJson root = do
         Outline.App appOutline -> do
           writeTestElmJson testRoot appOutline
           pure (Right ())
+
+
+regenerateTestElmJsonPersisted :: FilePath -> IO (Either Exit.Reactor ())
+regenerateTestElmJsonPersisted root =
+  do  result <- regenerateTestElmJson root
+      case result of
+        Left problem -> pure (Left problem)
+        Right () ->
+          do  let path = Generate.generatedDir root </> "elm.json"
+              bytes <- File.readUtf8 path
+              File.writeUtf8AllTheWayToDisk path bytes
+              pure (Right ())
 
 
 -- For getting compilation status quickly
@@ -254,5 +267,4 @@ rewriteEntrypoint :: FilePath -> FilePath -> FilePath
 rewriteEntrypoint root path =
   let rel = FP.makeRelative root path
   in ("../../" </> rel)
-
 

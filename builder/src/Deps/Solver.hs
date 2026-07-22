@@ -9,6 +9,9 @@ module Deps.Solver
   --
   , AppSolution(..)
   , addToApp
+  , solveApp
+  , solveAppWith
+  , classifyApp
   --
   , Env(..)
   , initEnv
@@ -156,6 +159,28 @@ addToApp cache connection registry pkg outline@(Outline.AppOutline _ _ direct in
         (\e     -> return $ Err e)
 
 
+-- SOLVE APP
+
+
+solveApp :: Stuff.PackageCache -> Connection -> Registry.Registry -> Map.Map Pkg.Name C.Constraint -> Map.Map Pkg.Name C.Constraint -> Outline.AppOutline -> IO (Result AppSolution)
+solveApp cache connection registry directConstraints testConstraints outline@(Outline.AppOutline _ _ direct indirect testDirect testIndirect) =
+  solveAppWith cache connection registry directConstraints testConstraints Map.empty outline
+
+
+solveAppWith :: Stuff.PackageCache -> Connection -> Registry.Registry -> Map.Map Pkg.Name C.Constraint -> Map.Map Pkg.Name C.Constraint -> Map.Map Pkg.Name C.Constraint -> Outline.AppOutline -> IO (Result AppSolution)
+solveAppWith cache connection registry directConstraints testConstraints extraConstraints outline@(Outline.AppOutline _ _ direct indirect testDirect testIndirect) =
+  Stuff.withRegistryLock cache $
+  case try (Map.unions [directConstraints, testConstraints, extraConstraints]) of
+    Solver solver ->
+      let
+        old = Map.unions [direct, indirect, testDirect, testIndirect]
+      in
+      solver (State cache connection registry Map.empty)
+        (\s new _ -> return $ Ok (toAppWithRoots s outline old directConstraints testConstraints new))
+        (\_       -> return $ noSolution connection)
+        (\e       -> return $ Err e)
+
+
 toApp :: State -> Pkg.Name -> Outline.AppOutline -> Map.Map Pkg.Name V.Version -> Map.Map Pkg.Name V.Version -> AppSolution
 toApp (State _ _ _ constraints) pkg (Outline.AppOutline elm srcDirs direct _ testDirect _) old new =
   let
@@ -165,6 +190,50 @@ toApp (State _ _ _ constraints) pkg (Outline.AppOutline elm srcDirs direct _ tes
     ti  = Map.difference new (Map.unions [d,i,td])
   in
   AppSolution old new (Outline.AppOutline elm srcDirs d i td ti)
+
+
+toAppWithRoots :: State -> Outline.AppOutline -> Map.Map Pkg.Name V.Version -> Map.Map Pkg.Name C.Constraint -> Map.Map Pkg.Name C.Constraint -> Map.Map Pkg.Name V.Version -> AppSolution
+toAppWithRoots state outline old directConstraints testConstraints new =
+  AppSolution old new (classifyApp outline directConstraints testConstraints (Map.mapWithKey (addDeps state) new))
+
+
+classifyApp :: Outline.AppOutline -> Map.Map Pkg.Name C.Constraint -> Map.Map Pkg.Name C.Constraint -> Map.Map Pkg.Name Details -> Outline.AppOutline
+classifyApp (Outline.AppOutline elm srcDirs _ _ _ _) directConstraints testConstraints solution =
+  let
+    versions = Map.map (\(Details version _) -> version) solution
+    directNames = Map.map (const V.one) directConstraints
+    testNames = Map.map (const V.one) testConstraints
+    direct = Map.intersection versions directNames
+    indirect = Map.difference (getDetailsTransitive solution (Map.toList direct) Map.empty) direct
+    production = Map.union direct indirect
+    testRoots = Map.difference (Map.intersection versions testNames) production
+    testClosure = getDetailsTransitive solution (Map.toList testRoots) Map.empty
+    testDirect = Map.difference testRoots production
+    testIndirect = Map.difference testClosure (Map.unions [production, testDirect])
+  in
+  Outline.AppOutline elm srcDirs direct indirect testDirect testIndirect
+
+
+getDetailsTransitive :: Map.Map Pkg.Name Details -> [(Pkg.Name,V.Version)] -> Map.Map Pkg.Name V.Version -> Map.Map Pkg.Name V.Version
+getDetailsTransitive solution unvisited visited =
+  case unvisited of
+    [] ->
+      visited
+
+    (pkg,vsn) : remaining ->
+      if Map.member pkg visited
+      then getDetailsTransitive solution remaining visited
+      else
+        case Map.lookup pkg solution of
+          Nothing ->
+            getDetailsTransitive solution remaining (Map.insert pkg vsn visited)
+
+          Just (Details _ deps) ->
+            let
+              versions = Map.map (\(Details version _) -> version) solution
+              newUnvisited = Map.toList (Map.intersection versions (Map.difference deps visited))
+            in
+            getDetailsTransitive solution (newUnvisited ++ remaining) (Map.insert pkg vsn visited)
 
 
 getTransitive :: Map.Map (Pkg.Name, V.Version) Constraints -> Map.Map Pkg.Name V.Version -> [(Pkg.Name,V.Version)] -> Map.Map Pkg.Name V.Version -> Map.Map Pkg.Name V.Version

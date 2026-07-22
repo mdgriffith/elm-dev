@@ -12,6 +12,7 @@ module Elm.Constraint
   , defaultElm
   , untilNextMajor
   , untilNextMinor
+  , atLeast
   , expand
   --
   , Error(..)
@@ -134,7 +135,7 @@ intersect (Range lo lop hop hi) (Range lo_ lop_ hop_ hi_) =
         EQ -> (hi, if elem Less [hop, hop_] then Less else LessOrEqual)
         GT -> (hi_, hop_)
   in
-    if newLo <= newHi then
+    if newLo < newHi || (newLo == newHi && newLop == LessOrEqual && newHop == LessOrEqual) then
       Just (Range newLo newLop newHop newHi)
     else
       Nothing
@@ -168,6 +169,11 @@ untilNextMajor version =
 untilNextMinor :: V.Version -> Constraint
 untilNextMinor version =
   Range version LessOrEqual Less (V.bumpMinor version)
+
+
+atLeast :: V.Version -> Constraint
+atLeast version =
+  Range version LessOrEqual LessOrEqual V.max
 
 
 expand :: Constraint -> V.Version -> Constraint

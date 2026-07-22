@@ -45,6 +45,7 @@ import qualified Ext.Dev.Lookup
 import qualified Ext.Dev.Package
 import qualified Ext.Dev.Project
 import qualified Ext.Dev.Usage
+import qualified Ext.DependencyManager.Cli as DependencyCli
 import qualified Ext.Log
 import qualified File
 import qualified Gen.Commands
@@ -910,16 +911,15 @@ mapError :: (a -> c) -> Either a b -> Either c b
 mapError f (Left x) = Left (f x)
 mapError _ (Right x) = Right x
 
-formatCommandWithEllipsis :: String -> String -> String
-formatCommandWithEllipsis cmd desc =
-  let maxLength = 80
-      cmdLength = length cmd
-      descLength = length desc
-      minSpacing = 2 -- Minimum number of spaces between cmd and desc
-      availableSpace = maxLength - cmdLength - descLength
-      spacing = max minSpacing (availableSpace - 2)
-      dots = replicate spacing '.'
-   in cmd ++ " " ++ dots ++ " " ++ desc
+formatCommandSummary :: String -> String -> String -> String
+formatCommandSummary plain colored desc =
+  let descriptionColumn = 42
+      indentation = "  "
+      commandWidth = length plain + length indentation
+  in
+  if commandWidth < descriptionColumn
+  then indentation ++ colored ++ replicate (descriptionColumn - commandWidth) ' ' ++ desc
+  else indentation ++ colored ++ "\n" ++ replicate descriptionColumn ' ' ++ desc
 
 version :: String
 version = ElmDevVersion.version
@@ -950,20 +950,66 @@ main = do
               ++ 
         -- Group commands by their group (if any)
         let includeDev = elem "dev" givenCommand
-            visibleCommands = filter (\m -> CommandParser.cmdGroup m /= devGroup || includeDev) commands
-            groupedCommands = Data.List.groupBy (\a b -> CommandParser.cmdGroup a == CommandParser.cmdGroup b) visibleCommands
+            isTopLevel = null givenCommand
+            isTestDependency metadata =
+              CommandParser.cmdGroup metadata == Just "Dependencies"
+                && case CommandParser.cmdName metadata of
+                     "test" : _ -> True
+                     _ -> False
+            visibleCommands = filter
+              (\m -> CommandParser.cmdGroup m /= devGroup || includeDev)
+              (if isTopLevel then filter (not . isTestDependency) commands else commands)
+            discoveredGroupKeys = Data.List.nub (map CommandParser.cmdGroup visibleCommands)
+            preferredGroupKeys =
+              [ Nothing
+              , Just "Documentation"
+              , Just "Add to your Elm app"
+              , Just "Move an elm-dev-generated file into your project"
+              , Just "Dependencies"
+              , Just "Testing"
+              ]
+            groupKeys =
+              filter (`elem` discoveredGroupKeys) preferredGroupKeys
+                ++ filter (`notElem` preferredGroupKeys) discoveredGroupKeys
+            groupedCommands = filter (not . null) (map (\key -> filter ((== key) . CommandParser.cmdGroup) visibleCommands) groupKeys)
+            commandRank metadata =
+              case CommandParser.cmdName metadata of
+                ["install"] -> 0 :: Int
+                ["uninstall"] -> 1
+                ["uninstall", "unused"] -> 2
+                ["upgrade"] -> 3
+                ["dep", "tree"] -> 4
+                _ -> 10
+            displayGroupName group =
+              case group of
+                "Add to your Elm app" -> "Generate"
+                "Move an elm-dev-generated file into your project" -> "Customize"
+                _ -> group
             formatCommand (CommandParser.CommandMetadata name argList group desc) =
-              formatCommandWithEllipsis
-                ("  elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name) ++ Terminal.Colors.grey (joinArgs argList))
+              let
+                plain = "elm-dev " ++ Data.List.intercalate " " name ++ joinArgs argList
+                colored = "elm-dev " ++ Terminal.Colors.green (Data.List.intercalate " " name) ++ Terminal.Colors.grey (joinArgs argList)
+              in
+              formatCommandSummary
+                plain
+                colored
                 desc
-            formatGroup cmds = case CommandParser.cmdGroup (head cmds) of
-              Just group -> ["", group ++ ":", ""] ++ map formatCommand cmds
-              Nothing -> map formatCommand cmds
+            formatGroup unsortedCommands =
+              let cmds = Data.List.sortOn commandRank unsortedCommands
+              in
+              case CommandParser.cmdGroup (head cmds) of
+                Just group ->
+                  let scopeHint =
+                        if isTopLevel && group == "Dependencies"
+                        then ["", "  For test dependencies, prefix the command with " ++ Terminal.Colors.green "elm-dev test" ++ "."]
+                        else []
+                  in ["", displayGroupName group ++ ":", ""] ++ map formatCommand cmds ++ scopeHint
+                Nothing -> ["Project:", ""] ++ map formatCommand cmds
           in concatMap (unlines . formatGroup) groupedCommands
     )
+    (DependencyCli.commands ++
     [ Gen.Commands.initialize,
       Gen.Commands.Make.command,
-      installCommand,
       docsMarkdownCommand,
       Gen.Commands.addPage,
       Gen.Commands.addStore,
@@ -976,7 +1022,6 @@ main = do
       
       
       testInitCommand,
-      testInstallCommand,
       testCommand,
       devServeCommand,
       devStartCommand,
@@ -992,7 +1037,7 @@ main = do
       -- usageCommand,
       -- explainCommand,
       
-    ]
+    ])
 
 testGroup :: Maybe String
 testGroup = Just "Testing"
@@ -1041,7 +1086,7 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
 
 -- elm-dev test init
 testInitCommand :: CommandParser.Command
-testInitCommand = CommandParser.command ["test","init"] "Setup testing" testGroup CommandParser.noArg parseFlags runCmd
+testInitCommand = CommandParser.command ["test","init"] "Set up testing" testGroup CommandParser.noArg parseFlags runCmd
   where
     parseFlags = CommandParser.noFlag
     runCmd _ _ = do

@@ -1,6 +1,6 @@
 {
   "name": "@elm_dev_binaries/linux_arm64",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Download the Elm Dev binary for Linux (arm64)",
   "repository": {
     "type": "git",

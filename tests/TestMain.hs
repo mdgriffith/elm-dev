@@ -9,6 +9,7 @@ import qualified Control.Exception as Exception
 import qualified Data.Aeson as JSON
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
+import qualified Data.Aeson.Types as JSONTypes
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Lazy.Char8 as LazyChar8
@@ -19,6 +20,7 @@ import qualified Ext.Test.Result as TestResult
 import qualified Ext.Test.Result.Report as TestReport
 import qualified Data.Map.Strict as Map
 import qualified Data.NonEmptyList as NE
+import qualified Data.Set as Set
 import qualified Ext.CompileHelpers.Disk as DiskCompile
 import qualified Ext.Optimization.Level as Optimization
 import qualified Gen.Generate as Generate
@@ -48,10 +50,27 @@ import qualified System.Process as Process
 import qualified Data.List as List
 import qualified Data.IORef as IORef
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TextEncoding
 import qualified Data.Time.Clock.POSIX as POSIX
+import qualified Data.Utf8 as Utf8
+import qualified Deps.Solver as Solver
+import qualified Deps.Registry as Registry
+import qualified Elm.Constraint as Constraint
 import qualified Elm.ModuleName as ModuleName
+import qualified Elm.Outline as Outline
+import qualified Elm.Package as Package
+import qualified Elm.Version as ElmVersion
+import qualified Ext.DependencyManager as DependencyManager
+import qualified Ext.DependencyManager.Cli as DependencyCli
+import qualified CommandParser
+import qualified Json.Encode as Encode
+import qualified Watchtower.Server.MCP.Protocol as MCPProtocol
 import qualified Gen.Commands.Init as InitCommand
 import qualified System.Timeout as Timeout
+import qualified System.Environment as Environment
+import qualified System.IO.Temp as Temp
+import qualified Http
+import qualified Stuff
 
 main :: IO ()
 main = do
@@ -61,7 +80,8 @@ main = do
   optimizationResults <- sequence optimizationTests
   mcpResults <- sequence mcpTests
   daemonResults <- sequence daemonTests
-  let results = fileCacheResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults ++ daemonResults
+  dependencyResults <- sequence dependencyTests
+  let results = fileCacheResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults ++ daemonResults ++ dependencyResults
       failures = [name | (name, False) <- results]
   if null failures
     then do
@@ -151,6 +171,895 @@ daemonTests =
   , runTest "daemon state fingerprint round-trips and controls freshness" testDaemonFingerprintRoundTrip
   ]
 
+dependencyTests :: [NamedTest]
+dependencyTests =
+  [ runTest "package requirements parse latest, major, and exact versions" testPackageRequirementParsing
+  , runTest "malformed package requirements are rejected" testPackageRequirementRejection
+  , runTest "atLeast excludes dependency downgrades" testAtLeastConstraint
+  , runTest "application solutions classify production and test closures" testDependencyClassification
+  , runTest "production transitive packages are not duplicated as test roots" testSharedDependencyClassification
+  , runTest "unreachable solver goals are excluded from application maps" testUnreachableDependencyClassification
+  , runTest "cyclic dependency metadata terminates classification" testCyclicDependencyClassification
+  , runTest "production install constraints promote test roots transactionally" testProductionInstallConstraints
+  , runTest "test install constraints do not duplicate production packages" testTestInstallConstraints
+  , runTest "test install fallback constraints keep production roots exact" testTestInstallFallbackConstraints
+  , runTest "test requirements validate packages already available in production" testAvailableProductionRequirementValidation
+  , runTest "package requirements retain major constraints and reject exact constraints" testPackageRequirementPersistence
+  , runTest "constraint intersections reject excluded touching endpoints" testConstraintIntersectionEndpoints
+  , runTest "duplicate install requirements are rejected" testDuplicateInstallRequirements
+  , runTest "uninstall constraints affect only the requested scope" testUninstallConstraints
+  , runTest "upgrade constraints preserve the non-target scope" testScopedUpgradeConstraints
+  , runTest "all-scopes upgrades relax production and test roots" testAllScopesUpgradeConstraints
+  , runTest "production dependency trees exclude test-only packages" testProductionDependencyTree
+  , runTest "test dependency trees include and label test roots" testCombinedTestDependencyTree
+  , runTest "dependency tree filtering keeps every path to a package" testDependencyTreeFiltering
+  , runTest "unused dependency candidates retain used and protected packages" testUnusedDependencyCandidates
+  , runTest "dependency changes are deterministic" testDependencyChangesDeterministic
+  , runTest "dependency diff reports scope promotion" testDependencyScopePromotion
+  , runTest "dependency diff reports direct to indirect moves" testDependencyReclassification
+  , runTest "dependency transaction writes disk and cache on success" testDependencyTransactionSuccess
+  , runTest "dependency transaction restores exact bytes after verification failure" testDependencyTransactionVerificationRollback
+  , runTest "dependency transaction restores exact bytes after refresh failure" testDependencyTransactionRefreshRollback
+  , runTest "dependency transaction rejects stale plans" testDependencyTransactionRejectsStalePlan
+  , runTest "dependency transaction rejects unsaved cached manifests" testDependencyTransactionRejectsUnsavedCache
+  , runTest "dependency transaction rolls back thrown exceptions" testDependencyTransactionExceptionRollback
+  , runTest "outline-only normalization is treated as a changed plan" testDependencyPlanDetectsOutlineChange
+  , runTest "MCP dependency arguments reject malformed optional fields" testMcpDependencyArgumentValidation
+  , runTest "MCP dependency JSON includes operation and scope" testMcpDependencyPlanJson
+  , runTest "MCP dependency tree mirrors CLI dependency context" testMcpDependencyTreeJson
+  , runTest "legacy MCP install responses retain docs links" testLegacyMcpInstallResponse
+  , runTest "command parser detects JSON error mode" testCommandParserJsonMode
+  , runTest "dependency CLI separates direct and indirect removals" testDependencyCliRemovalRendering
+  , runTest "solver distinguishes warm offline cache behavior" testOfflineSolverCacheBehavior
+  , runTest "offline application plans cover install uninstall and upgrades" testOfflineApplicationPlanMatrix
+  , runTest "offline package plans persist solved major lower bounds" testOfflinePackagePlanMatrix
+  ]
+
+testPackageRequirementParsing :: IO Bool
+testPackageRequirementParsing =
+  pure $
+    DependencyManager.parsePackageRequirement "elm/http"
+      == Just (DependencyManager.PackageRequirement Package.http DependencyManager.Latest)
+      && DependencyManager.parsePackageRequirement "elm/http@2"
+      == Just (DependencyManager.PackageRequirement Package.http (DependencyManager.Major 2))
+      && DependencyManager.parsePackageRequirement "elm/http@2.1.3"
+      == Just (DependencyManager.PackageRequirement Package.http (DependencyManager.Exact (ElmVersion.Version 2 1 3)))
+
+testPackageRequirementRejection :: IO Bool
+testPackageRequirementRejection =
+  pure $
+    all ((== Nothing) . DependencyManager.parsePackageRequirement)
+      [ "elm/http@"
+      , "elm/http@2.0"
+      , "elm/http@65536"
+      , "Elm/http"
+      , "elm//http"
+      , "elm/http@latest"
+      ]
+
+testAtLeastConstraint :: IO Bool
+testAtLeastConstraint =
+  let current = ElmVersion.Version 2 1 0
+  in pure $
+    not (Constraint.satisfies (Constraint.atLeast current) (ElmVersion.Version 2 0 0))
+      && Constraint.satisfies (Constraint.atLeast current) current
+      && Constraint.satisfies (Constraint.atLeast current) (ElmVersion.Version 3 0 0)
+
+testDependencyClassification :: IO Bool
+testDependencyClassification =
+  let
+    production = testPackage "author/production"
+    shared = testPackage "author/shared"
+    testRoot = testPackage "author/test-root"
+    testOnly = testPackage "author/test-only"
+    version = ElmVersion.Version 1 0 0
+    details dependencies = Solver.Details version (Map.fromList (map (\name -> (name, Constraint.anything)) dependencies))
+    solution = Map.fromList
+      [ (production, details [shared])
+      , (shared, details [])
+      , (testRoot, details [shared, testOnly])
+      , (testOnly, details [])
+      ]
+    app = Solver.classifyApp emptyDependencyApp (Map.singleton production Constraint.anything) (Map.singleton testRoot Constraint.anything) solution
+  in pure $
+    Map.keys (Outline._app_deps_direct app) == [production]
+      && Map.keys (Outline._app_deps_indirect app) == [shared]
+      && Map.keys (Outline._app_test_direct app) == [testRoot]
+      && Map.keys (Outline._app_test_indirect app) == [testOnly]
+
+testSharedDependencyClassification :: IO Bool
+testSharedDependencyClassification =
+  let
+    production = testPackage "author/production"
+    shared = testPackage "author/shared"
+    version = ElmVersion.Version 1 0 0
+    solution = Map.fromList
+      [ (production, Solver.Details version (Map.singleton shared Constraint.anything))
+      , (shared, Solver.Details version Map.empty)
+      ]
+    app = Solver.classifyApp emptyDependencyApp (Map.singleton production Constraint.anything) (Map.singleton shared Constraint.anything) solution
+  in pure $
+    Map.member shared (Outline._app_deps_indirect app)
+      && Map.notMember shared (Outline._app_test_direct app)
+      && Map.notMember shared (Outline._app_test_indirect app)
+
+testUnreachableDependencyClassification :: IO Bool
+testUnreachableDependencyClassification =
+  let
+    production = testPackage "author/production"
+    unreachable = testPackage "author/unreachable"
+    version = ElmVersion.Version 1 0 0
+    solution = Map.fromList
+      [ (production, Solver.Details version Map.empty)
+      , (unreachable, Solver.Details version Map.empty)
+      ]
+    app = Solver.classifyApp emptyDependencyApp (Map.singleton production Constraint.anything) Map.empty solution
+  in pure $
+    Map.member production (Outline._app_deps_direct app)
+      && all (Map.notMember unreachable)
+        [ Outline._app_deps_direct app
+        , Outline._app_deps_indirect app
+        , Outline._app_test_direct app
+        , Outline._app_test_indirect app
+        ]
+
+testCyclicDependencyClassification :: IO Bool
+testCyclicDependencyClassification =
+  let
+    production = testPackage "author/production"
+    indirect = testPackage "author/indirect"
+    version = ElmVersion.Version 1 0 0
+    solution = Map.fromList
+      [ (production, Solver.Details version (Map.singleton indirect Constraint.anything))
+      , (indirect, Solver.Details version (Map.singleton production Constraint.anything))
+      ]
+    app = Solver.classifyApp emptyDependencyApp (Map.singleton production Constraint.anything) Map.empty solution
+  in pure $
+    Map.keys (Outline._app_deps_direct app) == [production]
+      && Map.keys (Outline._app_deps_indirect app) == [indirect]
+
+testProductionInstallConstraints :: IO Bool
+testProductionInstallConstraints =
+  let
+    existing = testPackage "author/existing"
+    promoted = testPackage "author/promoted"
+    exactTarget = testPackage "author/exact-target"
+    oldVersion = ElmVersion.Version 1 0 0
+    exactVersion = ElmVersion.Version 3 2 1
+    app = emptyDependencyApp
+      { Outline._app_deps_direct = Map.singleton existing oldVersion
+      , Outline._app_test_direct = Map.singleton promoted oldVersion
+      }
+    requirements =
+      [ DependencyManager.PackageRequirement promoted DependencyManager.Latest
+      , DependencyManager.PackageRequirement exactTarget (DependencyManager.Exact exactVersion)
+      ]
+    (production, test) = DependencyManager.installAppRoots Constraint.exactly DependencyManager.Production requirements app
+  in pure $
+    Map.lookup existing production == Just (Constraint.exactly oldVersion)
+      && Map.lookup promoted production == Just (Constraint.exactly oldVersion)
+      && Map.lookup exactTarget production == Just (Constraint.exactly exactVersion)
+      && Map.notMember promoted test
+
+testTestInstallConstraints :: IO Bool
+testTestInstallConstraints =
+  let
+    production = testPackage "author/production"
+    newTest = testPackage "author/new-test"
+    version = ElmVersion.Version 1 0 0
+    app = emptyDependencyApp { Outline._app_deps_direct = Map.singleton production version }
+    requirements =
+      [ DependencyManager.PackageRequirement production DependencyManager.Latest
+      , DependencyManager.PackageRequirement newTest (DependencyManager.Major 2)
+      ]
+    (productionRoots, testRoots) = DependencyManager.installAppRoots Constraint.exactly DependencyManager.Test requirements app
+  in pure $
+    Map.member production productionRoots
+      && Map.notMember production testRoots
+      && maybe False (\constraint -> Constraint.satisfies constraint (ElmVersion.Version 2 9 0) && not (Constraint.satisfies constraint (ElmVersion.Version 3 0 0))) (Map.lookup newTest testRoots)
+
+testTestInstallFallbackConstraints :: IO Bool
+testTestInstallFallbackConstraints =
+  let
+    production = testPackage "author/production"
+    existingTest = testPackage "author/existing-test"
+    newTest = testPackage "author/new-test"
+    productionVersion = ElmVersion.Version 1 2 3
+    testVersion = ElmVersion.Version 2 3 4
+    app = emptyDependencyApp
+      { Outline._app_deps_direct = Map.singleton production productionVersion
+      , Outline._app_test_direct = Map.singleton existingTest testVersion
+      }
+    requirements = [DependencyManager.PackageRequirement newTest DependencyManager.Latest]
+    (productionRoots, testRoots) = DependencyManager.installAppRootsWith Constraint.exactly Constraint.untilNextMajor DependencyManager.Test requirements app
+  in pure $
+    Map.lookup production productionRoots == Just (Constraint.exactly productionVersion)
+      && Map.lookup existingTest testRoots == Just (Constraint.untilNextMajor testVersion)
+
+testAvailableProductionRequirementValidation :: IO Bool
+testAvailableProductionRequirementValidation =
+  let
+    package = testPackage "author/production"
+    version = ElmVersion.Version 2 1 0
+    app = emptyDependencyApp { Outline._app_deps_direct = Map.singleton package version }
+    outline = Outline.App app
+    compatible = DependencyManager.PackageRequirement package (DependencyManager.Major 2)
+    incompatible = DependencyManager.PackageRequirement package (DependencyManager.Exact (ElmVersion.Version 3 0 0))
+    unusedEnv = error "compatible production requirements must not invoke the solver"
+  in do
+    compatibleResult <- DependencyManager.planInstallRequirementsWith unusedEnv DependencyManager.Test [compatible] outline
+    incompatibleResult <- DependencyManager.planInstallRequirementsWith unusedEnv DependencyManager.Test [incompatible] outline
+    pure (isUnchangedPlan compatibleResult && isNoSolutionPlan incompatibleResult)
+
+isUnchangedPlan :: Either DependencyManager.Error DependencyManager.Plan -> Bool
+isUnchangedPlan result =
+  case result of
+    Right plan -> not (DependencyManager.planChanged plan)
+    Left _ -> False
+
+isNoSolutionPlan :: Either DependencyManager.Error DependencyManager.Plan -> Bool
+isNoSolutionPlan result =
+  case result of
+    Left DependencyManager.NoSolution -> True
+    _ -> False
+
+testPackageRequirementPersistence :: IO Bool
+testPackageRequirementPersistence =
+  let
+    package = testPackage "author/package"
+    solved = ElmVersion.Version 2 7 0
+    exact = ElmVersion.Version 2 1 3
+    exactRequirement = DependencyManager.PackageRequirement package (DependencyManager.Exact exact)
+    majorConstraint = DependencyManager.packageConstraintForRequirement (DependencyManager.PackageRequirement package (DependencyManager.Major 2)) solved
+  in pure $
+    not (DependencyManager.packageRequirementSupported exactRequirement)
+      && Constraint.satisfies majorConstraint solved
+      && not (Constraint.satisfies majorConstraint (ElmVersion.Version 2 0 0))
+      && not (Constraint.satisfies majorConstraint (ElmVersion.Version 3 0 0))
+
+testConstraintIntersectionEndpoints :: IO Bool
+testConstraintIntersectionEndpoints =
+  let
+    one = Constraint.untilNextMajor (ElmVersion.Version 1 0 0)
+    two = Constraint.untilNextMajor (ElmVersion.Version 2 0 0)
+  in pure (Constraint.intersect one two == Nothing)
+
+testDuplicateInstallRequirements :: IO Bool
+testDuplicateInstallRequirements =
+  let
+    package = testPackage "author/package"
+    outline = Outline.App emptyDependencyApp
+    requirements =
+      [ DependencyManager.PackageRequirement package (DependencyManager.Major 1)
+      , DependencyManager.PackageRequirement package (DependencyManager.Major 2)
+      ]
+    unusedEnv = error "duplicate requirements must not invoke the solver"
+  in do
+    result <- DependencyManager.planInstallRequirementsWith unusedEnv DependencyManager.Production requirements outline
+    pure $
+      case result of
+        Left (DependencyManager.DuplicateRequirement duplicate) -> duplicate == package
+        _ -> False
+
+testUninstallConstraints :: IO Bool
+testUninstallConstraints =
+  let
+    production = testPackage "author/production"
+    testRoot = testPackage "author/test-root"
+    version = ElmVersion.Version 1 0 0
+    app = emptyDependencyApp
+      { Outline._app_deps_direct = Map.singleton production version
+      , Outline._app_test_direct = Map.singleton testRoot version
+      }
+    (productionAfterTestRemoval, testAfterTestRemoval) = DependencyManager.uninstallAppRoots DependencyManager.Test [testRoot] app
+    (productionAfterProdRemoval, testAfterProdRemoval) = DependencyManager.uninstallAppRoots DependencyManager.Production [production] app
+  in pure $
+    Map.member production productionAfterTestRemoval
+      && Map.null testAfterTestRemoval
+      && Map.null productionAfterProdRemoval
+      && Map.member testRoot testAfterProdRemoval
+
+testScopedUpgradeConstraints :: IO Bool
+testScopedUpgradeConstraints =
+  let
+    production = testPackage "author/production"
+    testRoot = testPackage "author/test-root"
+    version = ElmVersion.Version 1 2 3
+    app = emptyDependencyApp
+      { Outline._app_deps_direct = Map.singleton production version
+      , Outline._app_test_direct = Map.singleton testRoot version
+      }
+    (productionRoots, testRoots) = DependencyManager.upgradeAppRoots DependencyManager.Production DependencyManager.Compatible Nothing False app
+  in pure $
+    maybe False (\constraint -> Constraint.satisfies constraint (ElmVersion.Version 1 9 0) && not (Constraint.satisfies constraint (ElmVersion.Version 2 0 0))) (Map.lookup production productionRoots)
+      && Map.lookup testRoot testRoots == Just (Constraint.exactly version)
+
+testAllScopesUpgradeConstraints :: IO Bool
+testAllScopesUpgradeConstraints =
+  let
+    production = testPackage "author/production"
+    testRoot = testPackage "author/test-root"
+    version = ElmVersion.Version 1 2 3
+    app = emptyDependencyApp
+      { Outline._app_deps_direct = Map.singleton production version
+      , Outline._app_test_direct = Map.singleton testRoot version
+      }
+    (productionRoots, testRoots) = DependencyManager.upgradeAppRoots DependencyManager.Production DependencyManager.AllowMajor Nothing True app
+    acceptsMajor constraints name = maybe False (\constraint -> Constraint.satisfies constraint (ElmVersion.Version 3 0 0)) (Map.lookup name constraints)
+  in pure (acceptsMajor productionRoots production && acceptsMajor testRoots testRoot)
+
+testProductionDependencyTree :: IO Bool
+testProductionDependencyTree =
+  let
+    (outline, solution, production, shared, testRoot, testOnly) = dependencyTreeFixture
+    tree = DependencyManager.dependencyTreeFromSolution DependencyManager.Production outline solution
+    names = map DependencyManager.treePackage (DependencyManager.treeNodes tree)
+    nodeKind name = DependencyManager.treeKind <$> List.find ((== name) . DependencyManager.treePackage) (DependencyManager.treeNodes tree)
+  in pure $
+    DependencyManager.treeRoot tree == "project"
+      && all (`elem` names) [production, shared]
+      && all (`notElem` names) [testRoot, testOnly]
+      && nodeKind production == Just DependencyManager.ProductionRoot
+      && nodeKind shared == Just DependencyManager.Indirect
+
+testCombinedTestDependencyTree :: IO Bool
+testCombinedTestDependencyTree =
+  let
+    (outline, solution, _, _, testRoot, testOnly) = dependencyTreeFixture
+    tree = DependencyManager.dependencyTreeFromSolution DependencyManager.Test outline solution
+    names = map DependencyManager.treePackage (DependencyManager.treeNodes tree)
+    nodeKind name = DependencyManager.treeKind <$> List.find ((== name) . DependencyManager.treePackage) (DependencyManager.treeNodes tree)
+  in pure $
+    all (`elem` names) [testRoot, testOnly]
+      && nodeKind testRoot == Just DependencyManager.TestRoot
+      && nodeKind testOnly == Just DependencyManager.Indirect
+
+testDependencyTreeFiltering :: IO Bool
+testDependencyTreeFiltering =
+  let
+    (outline, solution, production, shared, testRoot, testOnly) = dependencyTreeFixture
+    tree = DependencyManager.dependencyTreeFromSolution DependencyManager.Test outline solution
+    filtered = DependencyManager.filterDependencyTree shared tree
+    names = map DependencyManager.treePackage (DependencyManager.treeNodes filtered)
+  in pure $
+    all (`elem` names) [production, shared, testRoot]
+      && testOnly `notElem` names
+
+dependencyTreeFixture :: (Outline.Outline, Map.Map Package.Name Solver.Details, Package.Name, Package.Name, Package.Name, Package.Name)
+dependencyTreeFixture =
+  let
+    production = testPackage "author/production"
+    shared = testPackage "author/shared"
+    testRoot = testPackage "author/test-root"
+    testOnly = testPackage "author/test-only"
+    version = ElmVersion.Version 1 0 0
+    app = emptyDependencyApp
+      { Outline._app_deps_direct = Map.singleton production version
+      , Outline._app_deps_indirect = Map.singleton shared version
+      , Outline._app_test_direct = Map.singleton testRoot version
+      , Outline._app_test_indirect = Map.singleton testOnly version
+      }
+    details dependencies = Solver.Details version (Map.fromList (map (\name -> (name, Constraint.anything)) dependencies))
+    solution = Map.fromList
+      [ (production, details [shared])
+      , (shared, details [])
+      , (testRoot, details [shared, testOnly])
+      , (testOnly, details [])
+      ]
+  in (Outline.App app, solution, production, shared, testRoot, testOnly)
+
+testUnusedDependencyCandidates :: IO Bool
+testUnusedDependencyCandidates =
+  let
+    used = testPackage "author/used"
+    unused = testPackage "author/unused"
+    candidates = [Package.core, used, unused]
+  in pure (DependencyManager.unusedDirectDependencies candidates (Set.singleton used) == [unused])
+
+testDependencyChangesDeterministic :: IO Bool
+testDependencyChangesDeterministic =
+  let
+    alpha = testPackage "author/alpha"
+    beta = testPackage "author/beta"
+    old = Map.fromList [(beta, 1 :: Int), (alpha, 1)]
+    new = Map.fromList [(beta, 2 :: Int)]
+  in pure $
+    DependencyManager.detectChanges old new
+      == [(alpha, DependencyManager.Removed 1), (beta, DependencyManager.Changed 1 2)]
+
+testDependencyScopePromotion :: IO Bool
+testDependencyScopePromotion =
+  let
+    package = testPackage "author/package"
+    version = ElmVersion.Version 1 0 0
+    old = emptyDependencyApp { Outline._app_test_direct = Map.singleton package version }
+    new = emptyDependencyApp { Outline._app_deps_direct = Map.singleton package version }
+  in pure $
+    DependencyManager.diffAppOutlines old new
+      == [DependencyManager.DependencyMoved DependencyManager.Test DependencyManager.Production package (DependencyManager.AppVersion version) (DependencyManager.AppVersion version)]
+
+testDependencyReclassification :: IO Bool
+testDependencyReclassification =
+  let
+    package = testPackage "author/package"
+    version = ElmVersion.Version 1 0 0
+    old = emptyDependencyApp { Outline._app_deps_direct = Map.singleton package version }
+    new = emptyDependencyApp { Outline._app_deps_indirect = Map.singleton package version }
+  in pure $
+    DependencyManager.diffAppOutlines old new
+      == [DependencyManager.DependencyReclassified DependencyManager.Production package DependencyManager.DirectDependency DependencyManager.IndirectDependency (DependencyManager.AppVersion version)]
+
+testDependencyTransactionSuccess :: IO Bool
+testDependencyTransactionSuccess =
+  withDependencyTransactionFixture $ \root path original plan ->
+    do  result <- DependencyManager.applyPlanWith root (\_ -> pure (Right ())) (pure (Right ())) plan
+        disk <- BS.readFile path
+        cached <- FileCache.lookup path
+        pure (isRightUnit result && disk /= original && maybe False ((== disk) . snd) cached)
+
+testDependencyTransactionVerificationRollback :: IO Bool
+testDependencyTransactionVerificationRollback =
+  withDependencyTransactionFixture $ \root path original plan ->
+    do  result <- DependencyManager.applyPlanWith root (\_ -> pure (Left DependencyManager.NoSolution)) (pure (Right ())) plan
+        disk <- BS.readFile path
+        cached <- FileCache.lookup path
+        pure (isNoSolution result && disk == original && maybe False ((== original) . snd) cached)
+
+testDependencyTransactionRefreshRollback :: IO Bool
+testDependencyTransactionRefreshRollback =
+  withDependencyTransactionFixture $ \root path original plan ->
+    do  let testPath = root FilePath.</> "elm-stuff" FilePath.</> "elm-dev-test" FilePath.</> "elm.json"
+            oldTestBytes = BS.pack [1, 2, 3]
+            newTestBytes = BS.pack [4, 5, 6]
+        Dir.createDirectoryIfMissing True (root FilePath.</> "elm-stuff" FilePath.</> "elm-dev-test")
+        BS.writeFile testPath oldTestBytes
+        FileCache.insert testPath oldTestBytes
+        let failingRefresh = BS.writeFile testPath newTestBytes >> FileCache.insert testPath newTestBytes >> pure (Left DependencyManager.NoOfflineSolution)
+        result <- DependencyManager.applyPlanWith root (\_ -> pure (Right ())) failingRefresh plan
+        disk <- BS.readFile path
+        cached <- FileCache.lookup path
+        testDisk <- BS.readFile testPath
+        testCached <- FileCache.lookup testPath
+        pure (isNoOfflineSolution result && disk == original && maybe False ((== original) . snd) cached && testDisk == oldTestBytes && maybe False ((== oldTestBytes) . snd) testCached)
+
+testDependencyTransactionRejectsStalePlan :: IO Bool
+testDependencyTransactionRejectsStalePlan =
+  withDependencyTransactionFixture $ \root path _ plan ->
+    do  let staleOutline = addTestDependency (testPackage "author/concurrent") (DependencyManager.oldOutline plan)
+            staleBytes = dependencyOutlineBytes staleOutline
+        BS.writeFile path staleBytes
+        FileCache.insert path staleBytes
+        result <- DependencyManager.applyPlanWith root (\_ -> pure (Right ())) (pure (Right ())) plan
+        disk <- BS.readFile path
+        pure (isStalePlan result && disk == staleBytes)
+
+testDependencyTransactionRejectsUnsavedCache :: IO Bool
+testDependencyTransactionRejectsUnsavedCache =
+  withDependencyTransactionFixture $ \root path original plan ->
+    do  let unsaved = BS.snoc original 32
+        FileCache.insert path unsaved
+        result <- DependencyManager.applyPlanWith root (\_ -> pure (Right ())) (pure (Right ())) plan
+        disk <- BS.readFile path
+        cached <- FileCache.lookup path
+        pure (isUnsavedChanges result && disk == original && maybe False ((== unsaved) . snd) cached)
+
+testDependencyTransactionExceptionRollback :: IO Bool
+testDependencyTransactionExceptionRollback =
+  withDependencyTransactionFixture $ \root path original plan ->
+    do  result <- Exception.try (DependencyManager.applyPlanWith root (\_ -> Exception.throwIO (userError "verification crashed")) (pure (Right ())) plan) :: IO (Either Exception.SomeException (Either DependencyManager.Error ()))
+        disk <- BS.readFile path
+        cached <- FileCache.lookup path
+        pure (isLeftException result && disk == original && maybe False ((== original) . snd) cached)
+
+testDependencyPlanDetectsOutlineChange :: IO Bool
+testDependencyPlanDetectsOutlineChange =
+  let
+    package = testPackage "author/shared"
+    version = ElmVersion.Version 1 0 0
+    oldApp = emptyDependencyApp
+      { Outline._app_deps_indirect = Map.singleton package version
+      , Outline._app_test_direct = Map.singleton package version
+      }
+    newApp = oldApp { Outline._app_test_direct = Map.empty }
+    plan = DependencyManager.Plan (Outline.App oldApp) (Outline.App newApp) []
+  in pure (DependencyManager.planChanged plan)
+
+testMcpDependencyArgumentValidation :: IO Bool
+testMcpDependencyArgumentValidation =
+  let
+    valid = jsonObject ["dir" JSON..= ("/project" :: Text.Text), "scope" JSON..= ("test" :: Text.Text), "packages" JSON..= (["elm/http"] :: [Text.Text]), "dryRun" JSON..= True]
+    badPackages = jsonObject ["packages" JSON..= ("elm/http" :: Text.Text)]
+    badScope = jsonObject ["scope" JSON..= JSON.Null]
+    badDryRun = jsonObject ["dryRun" JSON..= ("false" :: Text.Text)]
+    badDir = jsonObject ["dir" JSON..= JSON.Null]
+    unknownField = jsonObject ["operation" JSON..= ("upgrade" :: Text.Text), "dryrun" JSON..= True]
+    installWithUnsafe = jsonObject ["unsafe" JSON..= True]
+    unusedWithPackages = jsonObject ["packages" JSON..= (["elm/http"] :: [Text.Text])]
+  in pure $
+    MCP.dependencyArgumentsValidForTests valid
+      && all (not . MCP.dependencyArgumentsValidForTests) [badPackages, badScope, badDryRun, badDir, unknownField]
+      && not (MCP.dependencyOperationArgumentsValidForTests "install" installWithUnsafe)
+      && not (MCP.dependencyOperationArgumentsValidForTests "uninstall-unused" unusedWithPackages)
+
+testMcpDependencyPlanJson :: IO Bool
+testMcpDependencyPlanJson =
+  let
+    outline = Outline.App emptyDependencyApp
+    plan = DependencyManager.Plan outline outline []
+    bytes = TextEncoding.encodeUtf8 (MCP.dependencyPlanJsonForTests "upgrade" DependencyManager.Test "planned" False plan)
+  in pure $
+    case JSON.decodeStrict bytes of
+      Just (JSON.Object object) ->
+        KeyMap.lookup "operation" object == Just (JSON.String "upgrade")
+          && KeyMap.lookup "scope" object == Just (JSON.String "test")
+      _ -> False
+
+testMcpDependencyTreeJson :: IO Bool
+testMcpDependencyTreeJson =
+  let
+    directPackage = testPackage "author/direct"
+    indirectPackage = testPackage "author/indirect"
+    directNode = DependencyManager.TreeNode directPackage (ElmVersion.Version 2 0 0) DependencyManager.ProductionRoot [indirectPackage]
+    indirectNode = DependencyManager.TreeNode indirectPackage (ElmVersion.Version 1 0 0) DependencyManager.Indirect []
+    tree = DependencyManager.DependencyTree "project" DependencyManager.Production [directNode, indirectNode]
+    bytes = TextEncoding.encodeUtf8 (MCP.dependencyTreeJsonForTests (Set.singleton directPackage) tree)
+  in pure $
+    case JSON.decodeStrict bytes of
+      Just (JSON.Object object) ->
+        case (KeyMap.lookup "direct" object, KeyMap.lookup "indirect" object) of
+          (Just (JSON.Array directValues), Just (JSON.Array indirectValues)) ->
+            case (Foldable.toList directValues, Foldable.toList indirectValues) of
+              ([JSON.Object direct], [JSON.Object indirect]) ->
+                KeyMap.lookup "unused" direct == Just (JSON.Bool True)
+                  && KeyMap.lookup "usedBy" direct == Just (JSON.Array mempty)
+                  && dependencyReferenceMatches indirectPackage (KeyMap.lookup "dependencies" direct)
+                  && KeyMap.lookup "unused" indirect == Just (JSON.Bool False)
+                  && KeyMap.lookup "usedBy" indirect == Just (JSON.toJSON (["author/direct"] :: [String]))
+              _ -> False
+          _ -> False
+      _ -> False
+
+
+dependencyReferenceMatches :: Package.Name -> Maybe JSON.Value -> Bool
+dependencyReferenceMatches expected value =
+  case value of
+    Just (JSON.Array dependencies) ->
+      case Foldable.toList dependencies of
+        [JSON.Object dependency] ->
+          KeyMap.lookup "package" dependency == Just (JSON.String (Text.pack (Package.toChars expected)))
+            && KeyMap.lookup "version" dependency == Just (JSON.String "1.0.0")
+            && KeyMap.lookup "kind" dependency == Just (JSON.String "indirect")
+        _ -> False
+    _ -> False
+
+
+testDependencyCliRemovalRendering :: IO Bool
+testDependencyCliRemovalRendering =
+  let
+    directPackage = testPackage "author/direct"
+    indirectPackage = testPackage "author/indirect"
+    directVersion = ElmVersion.Version 2 0 0
+    indirectVersion = ElmVersion.Version 1 0 0
+    oldApp = emptyDependencyApp
+      { Outline._app_deps_direct = Map.singleton directPackage directVersion
+      , Outline._app_deps_indirect = Map.singleton indirectPackage indirectVersion
+      }
+    plan = DependencyManager.Plan
+      (Outline.App oldApp)
+      (Outline.App emptyDependencyApp)
+      [ DependencyManager.DependencyRemoved DependencyManager.Production directPackage (DependencyManager.AppVersion directVersion)
+      , DependencyManager.DependencyRemoved DependencyManager.Production indirectPackage (DependencyManager.AppVersion indirectVersion)
+      ]
+  in pure $
+    DependencyCli.renderPlanForTests "uninstall-unused" DependencyManager.Production plan
+      == [ "Unused direct dependency"
+         , ""
+         , "  author/direct @ 2.0.0"
+         , ""
+         , "Also removing 1 now-unneeded indirect dependency"
+         , ""
+         , "  author/indirect @ 1.0.0"
+         ]
+
+
+testOfflineSolverCacheBehavior :: IO Bool
+testOfflineSolverCacheBehavior =
+  withOfflineDependencyFixture $ \fixture ->
+    do  let Solver.Env cache manager _ registry = offlineEnv fixture
+            package = fixtureUpgradePackage fixture
+            exactTwo = Map.singleton package (Constraint.exactly (ElmVersion.Version 2 0 0))
+            impossible = Map.singleton package (Constraint.exactly (ElmVersion.Version 3 0 0))
+            source = Stuff.package cache package (ElmVersion.Version 2 0 0) FilePath.</> "src"
+        warmOffline <- Solver.verify cache Solver.Offline registry exactTwo
+        Dir.removeDirectoryRecursive source
+        missingSourceOffline <- Solver.verify cache Solver.Offline registry exactTwo
+        metadataOnlyOnline <- Solver.verify cache (Solver.Online manager) registry exactTwo
+        impossibleOffline <- Solver.verify cache Solver.Offline registry impossible
+        impossibleOnline <- Solver.verify cache (Solver.Online manager) registry impossible
+        pure $
+          isSolverOk warmOffline
+            && isSolverNoOfflineSolution missingSourceOffline
+            && isSolverOk metadataOnlyOnline
+            && isSolverNoOfflineSolution impossibleOffline
+            && isSolverNoSolution impossibleOnline
+
+
+testOfflineApplicationPlanMatrix :: IO Bool
+testOfflineApplicationPlanMatrix =
+  withOfflineDependencyFixture $ \fixture ->
+    do  let coreVersion = ElmVersion.Version 1 0 5
+            jsonVersion = ElmVersion.Version 1 1 3
+            oldUpgradeVersion = ElmVersion.Version 1 0 0
+            upgradePackage = fixtureUpgradePackage fixture
+            extraPackage = fixtureExtraPackage fixture
+            baseApp = emptyDependencyApp
+              { Outline._app_deps_direct = Map.fromList
+                  [ (Package.core, coreVersion)
+                  , (Package.json, jsonVersion)
+                  , (upgradePackage, oldUpgradeVersion)
+                  ]
+              }
+            baseOutline = Outline.App baseApp
+        installed <- DependencyManager.planInstallWith (offlineEnv fixture) DependencyManager.Production [extraPackage] baseOutline
+        uninstalled <- DependencyManager.planUninstallWith (offlineEnv fixture) DependencyManager.Production [upgradePackage] baseOutline
+        safeUpgrade <- DependencyManager.planUpgradeWith (offlineEnv fixture) DependencyManager.Production DependencyManager.Compatible (Just [upgradePackage]) False baseOutline
+        unsafeUpgrade <- DependencyManager.planUpgradeWith (offlineEnv fixture) DependencyManager.Production DependencyManager.AllowMajor (Just [upgradePackage]) False baseOutline
+        pure $
+          appDirectVersion extraPackage installed == Just (ElmVersion.Version 1 0 0)
+            && appDirectVersion upgradePackage uninstalled == Nothing
+            && appDirectVersion upgradePackage safeUpgrade == Just (ElmVersion.Version 1 1 0)
+            && appDirectVersion upgradePackage unsafeUpgrade == Just (ElmVersion.Version 2 0 0)
+
+
+testOfflinePackagePlanMatrix :: IO Bool
+testOfflinePackagePlanMatrix =
+  withOfflineDependencyFixture $ \fixture ->
+    do  let projectRoot = fixtureRoot fixture FilePath.</> "project"
+            package = fixtureUpgradePackage fixture
+        Dir.createDirectoryIfMissing True projectRoot
+        writeFile (projectRoot FilePath.</> "elm.json") basicPackageElmJson
+        eitherOutline <- Outline.read projectRoot
+        case eitherOutline of
+          Left _ -> pure False
+          Right outline ->
+            do  planned <- DependencyManager.planInstallRequirementsWith
+                  (offlineEnv fixture)
+                  DependencyManager.Production
+                  [DependencyManager.PackageRequirement package (DependencyManager.Major 1)]
+                  outline
+                pure $
+                  case planned of
+                    Right plan ->
+                      case DependencyManager.newOutline plan of
+                        Outline.Pkg pkg ->
+                          case Map.lookup package (Outline._pkg_deps pkg) of
+                            Just constraint ->
+                              Constraint.satisfies constraint (ElmVersion.Version 1 1 0)
+                                && not (Constraint.satisfies constraint (ElmVersion.Version 1 0 0))
+                                && not (Constraint.satisfies constraint (ElmVersion.Version 2 0 0))
+                            Nothing -> False
+                        Outline.App _ -> False
+                    Left _ -> False
+
+
+data OfflineDependencyFixture =
+  OfflineDependencyFixture
+    { fixtureRoot :: FilePath
+    , offlineEnv :: Solver.Env
+    , fixtureUpgradePackage :: Package.Name
+    , fixtureExtraPackage :: Package.Name
+    }
+
+
+withOfflineDependencyFixture :: (OfflineDependencyFixture -> IO Bool) -> IO Bool
+withOfflineDependencyFixture run =
+  Temp.withSystemTempDirectory "elm-dev-dependency-cache" $ \root ->
+    withEnvironmentVariable "ELM_DEV_HOME" root $
+      do  cache <- Stuff.getPackageCache
+          manager <- Http.getManager
+          let upgradePackage = testPackage "author/upgrade"
+              extraPackage = testPackage "author/extra"
+              one = ElmVersion.Version 1 0 0
+              oneOne = ElmVersion.Version 1 1 0
+              two = ElmVersion.Version 2 0 0
+              registry = Registry.Registry 7 (Map.fromList
+                [ (Package.core, Registry.KnownVersions (ElmVersion.Version 1 0 5) [])
+                , (Package.json, Registry.KnownVersions (ElmVersion.Version 1 1 3) [])
+                , (upgradePackage, Registry.KnownVersions two [oneOne, one])
+                , (extraPackage, Registry.KnownVersions one [])
+                ])
+              env = Solver.Env cache manager Solver.Offline registry
+          writeCachedPackage cache Package.core (ElmVersion.Version 1 0 5) False
+          writeCachedPackage cache Package.json (ElmVersion.Version 1 1 3) True
+          mapM_ (\version -> writeCachedPackage cache upgradePackage version True) [one, oneOne, two]
+          writeCachedPackage cache extraPackage one True
+          run (OfflineDependencyFixture root env upgradePackage extraPackage)
+
+
+withEnvironmentVariable :: String -> String -> IO a -> IO a
+withEnvironmentVariable name value action =
+  Exception.bracket
+    (do previous <- Environment.lookupEnv name; Environment.setEnv name value; pure previous)
+    (\previous -> case previous of Nothing -> Environment.unsetEnv name; Just old -> Environment.setEnv name old)
+    (\_ -> action)
+
+
+writeCachedPackage :: Stuff.PackageCache -> Package.Name -> ElmVersion.Version -> Bool -> IO ()
+writeCachedPackage cache package version dependsOnCore =
+  do  let root = Stuff.package cache package version
+          dependencies =
+            if dependsOnCore
+            then "{ \"elm/core\": \"1.0.0 <= v < 2.0.0\" }"
+            else "{}"
+          contents = unlines
+            [ "{"
+            , "  \"type\": \"package\","
+            , "  \"name\": \"" ++ Package.toChars package ++ "\","
+            , "  \"summary\": \"Synthetic dependency fixture\","
+            , "  \"license\": \"BSD-3-Clause\","
+            , "  \"version\": \"" ++ ElmVersion.toChars version ++ "\","
+            , "  \"exposed-modules\": [\"Synthetic\"],"
+            , "  \"elm-version\": \"0.19.0 <= v < 0.20.0\","
+            , "  \"dependencies\": " ++ dependencies ++ ","
+            , "  \"test-dependencies\": {}"
+            , "}"
+            ]
+      Dir.createDirectoryIfMissing True (root FilePath.</> "src")
+      writeFile (root FilePath.</> "elm.json") contents
+
+
+appDirectVersion :: Package.Name -> Either DependencyManager.Error DependencyManager.Plan -> Maybe ElmVersion.Version
+appDirectVersion package result =
+  case result of
+    Right plan ->
+      case DependencyManager.newOutline plan of
+        Outline.App app -> Map.lookup package (Outline._app_deps_direct app)
+        Outline.Pkg _ -> Nothing
+    Left _ -> Nothing
+
+
+isSolverOk :: Solver.Result value -> Bool
+isSolverOk result =
+  case result of
+    Solver.Ok _ -> True
+    _ -> False
+
+
+isSolverNoSolution :: Solver.Result value -> Bool
+isSolverNoSolution result =
+  case result of
+    Solver.NoSolution -> True
+    _ -> False
+
+
+isSolverNoOfflineSolution :: Solver.Result value -> Bool
+isSolverNoOfflineSolution result =
+  case result of
+    Solver.NoOfflineSolution -> True
+    _ -> False
+
+
+testLegacyMcpInstallResponse :: IO Bool
+testLegacyMcpInstallResponse =
+  pure $
+    case MCP.legacyInstallResponseForTests "Already installed" Package.http of
+      MCPProtocol.ToolCallResponse [MCPProtocol.ToolResponseText _ "Already installed", MCPProtocol.ToolResponseResourceLink _ link] ->
+        MCPProtocol.resourceLinkUri link == "elm://docs/package/elm/http"
+      _ -> False
+
+testCommandParserJsonMode :: IO Bool
+testCommandParserJsonMode =
+  let
+    beforePackage = CommandParser.parseArgs ["install", "--format", "json", "elm/http"]
+    betweenPackages = CommandParser.parseArgs ["install", "elm/http", "--format", "json", "elm/json"]
+  in pure $
+    CommandParser.jsonRequested (CommandParser.parseArgs ["install", "elm/http", "--format=json"])
+      && CommandParser.jsonRequested beforePackage
+      && not (CommandParser.jsonRequested (CommandParser.parseArgs ["install", "elm/http"]))
+      && CommandParser.parsedCommands beforePackage == ["install", "elm/http"]
+      && CommandParser.parsedCommands betweenPackages == ["install", "elm/http", "elm/json"]
+      && CommandParser.isVersionRequest ["--version"]
+      && CommandParser.isVersionRequest ["--version-full"]
+      && not (CommandParser.isVersionRequest ["--version-full", "extra"])
+
+jsonObject :: [JSONTypes.Pair] -> JSON.Object
+jsonObject pairs =
+  case JSON.object pairs of
+    JSON.Object object -> object
+    _ -> KeyMap.empty
+
+isRightUnit :: Either DependencyManager.Error () -> Bool
+isRightUnit result =
+  case result of
+    Right () -> True
+    Left _ -> False
+
+isNoSolution :: Either DependencyManager.Error () -> Bool
+isNoSolution result =
+  case result of
+    Left DependencyManager.NoSolution -> True
+    _ -> False
+
+isNoOfflineSolution :: Either DependencyManager.Error () -> Bool
+isNoOfflineSolution result =
+  case result of
+    Left DependencyManager.NoOfflineSolution -> True
+    _ -> False
+
+isStalePlan :: Either DependencyManager.Error () -> Bool
+isStalePlan result =
+  case result of
+    Left DependencyManager.StalePlan -> True
+    _ -> False
+
+isUnsavedChanges :: Either DependencyManager.Error () -> Bool
+isUnsavedChanges result =
+  case result of
+    Left DependencyManager.UnsavedChanges -> True
+    _ -> False
+
+isLeftException :: Either Exception.SomeException value -> Bool
+isLeftException result =
+  case result of
+    Left _ -> True
+    Right _ -> False
+
+withDependencyTransactionFixture :: (FilePath -> FilePath -> BS.ByteString -> DependencyManager.Plan -> IO Bool) -> IO Bool
+withDependencyTransactionFixture run =
+  Exception.bracket create cleanup use
+  where
+    create =
+      do  root <- uniqueRoot
+          Dir.createDirectoryIfMissing True root
+          Dir.createDirectoryIfMissing True (root FilePath.</> "src")
+          let path = root FilePath.</> "elm.json"
+              oldApp = emptyDependencyApp
+                { Outline._app_deps_direct = Map.fromList
+                    [ (Package.core, ElmVersion.Version 1 0 5)
+                    , (Package.json, ElmVersion.Version 1 1 3)
+                    ]
+                }
+              oldOutline = Outline.App oldApp
+              original = dependencyOutlineBytes oldOutline
+          BS.writeFile path original
+          FileCache.insert path original
+          pure (root, path, original, oldOutline)
+
+    cleanup (root, _, _, _) =
+      do  FileCache.removeDir root
+          exists <- Dir.doesDirectoryExist root
+          when exists (Dir.removeDirectoryRecursive root)
+
+    use (root, path, original, oldOutline) =
+      let
+        package = testPackage "author/package"
+        version = ElmVersion.Version 1 0 0
+        old = oldOutline
+        new = addTestDependency package old
+        change = DependencyManager.DependencyAdded DependencyManager.Production package (DependencyManager.AppVersion version)
+        plan = DependencyManager.Plan old new [change]
+      in run root path original plan
+
+dependencyOutlineBytes :: Outline.Outline -> BS.ByteString
+dependencyOutlineBytes outline =
+  LazyChar8.toStrict (Builder.toLazyByteString (Encode.encode (Outline.encode outline) <> Builder.char7 '\n'))
+
+addTestDependency :: Package.Name -> Outline.Outline -> Outline.Outline
+addTestDependency package outline =
+  case outline of
+    Outline.App app -> Outline.App (app { Outline._app_deps_direct = Map.insert package (ElmVersion.Version 1 0 0) (Outline._app_deps_direct app) })
+    Outline.Pkg pkg -> Outline.Pkg pkg
+
+emptyDependencyApp :: Outline.AppOutline
+emptyDependencyApp =
+  Outline.AppOutline ElmVersion.compiler (NE.singleton (Outline.RelativeSrcDir "src")) Map.empty Map.empty Map.empty Map.empty
+
+testPackage :: String -> Package.Name
+testPackage raw =
+  case break (== '/') raw of
+    (author, '/' : project) -> Package.toName (Utf8.fromChars author) project
+    _ -> error "invalid dependency test package"
+
 testDaemonStateBackwardCompatibility :: IO Bool
 testDaemonStateBackwardCompatibility = do
   let oldState = "{\"pid\":1,\"domain\":\"127.0.0.1\",\"lspPort\":2,\"mcpPort\":3,\"httpPort\":4,\"startedAt\":\"now\",\"version\":\"1.0.0\"}"
@@ -215,6 +1124,7 @@ testMcpToolSurfaceExact = do
         , "generate_scaffold_app"
         , "generate_scaffold_package"
         , "install"
+        , "dependencies"
         , "test_install"
         ]
   pure (names == expected)
@@ -235,7 +1145,16 @@ testMcpCompositeSchemas = do
         && schemaHasProperty "testJobs" schemas "check"
         && schemaDescriptionMentions ["all", "only"] schemas "check" "targets"
         && schemaDescriptionMentions ["all", "only"] schemas "check" "tests"
-  pure (docsOk && addOk && checkOk)
+      dependenciesOk = schemaHasProperty "dir" schemas "dependencies"
+        && schemaHasProperty "operation" schemas "dependencies"
+        && schemaHasProperty "scope" schemas "dependencies"
+        && schemaHasProperty "packages" schemas "dependencies"
+        && schemaHasProperty "unsafe" schemas "dependencies"
+        && schemaHasProperty "allScopes" schemas "dependencies"
+        && schemaHasProperty "dryRun" schemas "dependencies"
+        && schemaRequires "operation" schemas "dependencies"
+        && schemaDescriptionMentions ["author/project", "MAJOR"] schemas "dependencies" "packages"
+  pure (docsOk && addOk && checkOk && dependenciesOk)
 
 schemaHasProperty :: Text.Text -> [(Text.Text, JSON.Value)] -> Text.Text -> Bool
 schemaHasProperty propertyName schemas toolName =

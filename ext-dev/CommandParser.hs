@@ -20,7 +20,10 @@ module CommandParser
     helpFlag,
     -- Argument constructors
     ArgParser,
-    ParsedArgs,
+    ParsedArgs(..),
+    parseArgs,
+    jsonRequested,
+    isVersionRequest,
     noArg,
     arg,
     argWith,
@@ -66,7 +69,11 @@ import Data.Maybe (catMaybes, fromMaybe, isJust)
 import qualified Data.Name as Name
 import qualified Elm.ModuleName
 import System.Environment (getArgs)
-import System.Exit (exitSuccess)
+import System.Exit (exitFailure, exitSuccess)
+import qualified Data.ByteString.Builder as Builder
+import qualified Data.ByteString.Lazy.Char8 as Lazy
+import qualified Json.Encode as Encode
+import Json.Encode ((==>))
  
 
 -- | Information about a flag
@@ -106,12 +113,14 @@ command commandPieces desc group (ArgParser commandArgs parseCommandArgs) parseC
       let remainingCommands = drop (length commandPieces) (parsedCommands parsedArgs)
           newParsedArgs = parsedArgs {parsedCommands = remainingCommands}
        in case parseCommandArgs newParsedArgs of
-            Left err -> Run (\() -> putStrLn err)
+            Left err -> Run (\() -> printCommandError parsedArgs err >> exitFailure)
             Right (args, remainingArgs) ->
               case parseCommandFlags remainingArgs of
-                Left err -> Run (\() -> putStrLn err)
-                Right (flags, _) ->
-                  Run (\() -> run args flags)
+                Left err -> Run (\() -> printCommandError parsedArgs err >> exitFailure)
+                Right (flags, finalArgs) ->
+                  if null (parsedCommands finalArgs) && null (parsedFlags finalArgs)
+                  then Run (\() -> run args flags)
+                  else Run (\() -> printCommandError parsedArgs ("Unexpected arguments: " ++ intercalate " " (parsedCommands finalArgs ++ map fst (parsedFlags finalArgs))) >> exitFailure)
     else NotMe (CommandMetadata commandPieces commandArgs group desc)
 
 -- | Result of attempting to parse a command
@@ -121,6 +130,22 @@ data CommandResult
 
 -- | A command is a function from parsed args to a command result
 type Command = ParsedArgs -> CommandResult
+
+
+printCommandError :: ParsedArgs -> String -> IO ()
+printCommandError parsed message =
+  if jsonRequested parsed
+  then Lazy.putStrLn (Builder.toLazyByteString (Encode.encodeUgly (Encode.object ["status" ==> Encode.chars "error", "error" ==> Encode.chars "invalid-arguments", "message" ==> Encode.chars message])))
+  else putStrLn message
+
+
+jsonRequested :: ParsedArgs -> Bool
+jsonRequested parsed =
+  any isJsonFormat (parsedFlags parsed)
+  where
+    isJsonFormat (name, value) =
+      name == "--format" && (value == Just "json" || (value == Nothing && "json" `elem` parsedCommands parsed))
+
 
 -- | Structured parsed arguments
 data ParsedArgs = ParsedArgs
@@ -206,12 +231,15 @@ parseArgs args =
            in (flags, arg : positional)
       | otherwise =
           let (flagName, maybeValue) = splitFlag arg
-              -- IMPORTANT: Only consume inline values provided via --flag=value.
-              -- Do NOT greedily consume the next token here; leave it in positional.
-              finalValue = maybeValue
-              remaining = rest
+              (finalValue, remaining) =
+                case (maybeValue, flagTakesSeparatedValue flagName, rest) of
+                  (Nothing, True, value : after) | not (isFlag value) -> (Just value, after)
+                  _ -> (maybeValue, rest)
               (flags, positional) = parseFlags remaining ((flagName, finalValue) : acc)
            in (flags, positional)
+
+    flagTakesSeparatedValue name =
+      name `elem` ["--output", "--entrypoints", "--seed", "--fuzz", "--report", "--format"]
 
 data Arg a = Arg
   { argName :: String,
@@ -289,7 +317,7 @@ parseArg2 arg1 arg2 =
     )
 
 listArgName :: Arg a -> String
-listArgName arg = "[" ++ argName arg ++ "]"
+listArgName arg = "<" ++ argName arg ++ "...>"
 
 -- | Parse one required argument followed by any number of optional arguments
 parseArgList :: Arg arg -> ArgParser (arg, [arg])
@@ -318,7 +346,7 @@ parseArgList arg =
 parseOptionalArgList :: Arg arg -> ArgParser [arg]
 parseOptionalArgList arg =
   ArgParser
-    [listArgName arg]
+    ["[" ++ argName arg ++ "...]"]
     ( \parsed ->
         let (values, remaining) = parseOptionalArgs arg (parsedCommands parsed)
          in Right (values, parsed {parsedCommands = remaining})
@@ -463,12 +491,17 @@ parseFlag7 flag1 flag2 flag3 flag4 flag5 flag6 flag7 parsed =
                                 then Right ((maybeA, maybeB, maybeC, maybeD, maybeE, maybeF, maybeG), parsed7)
                                 else Left $ "Unknown flags: " ++ intercalate ", " (map fst $ parsedFlags parsed7)
 
+isVersionRequest :: [String] -> Bool
+isVersionRequest args =
+  args == ["--version"] || args == ["--version-full"]
+
+
 -- | Run a list of commands with parsed arguments
 run :: String -> ([CommandMetadata] -> [String] -> String) -> [Command] -> IO ()
 run version showHelp commands = do
   args <- getArgs
   -- Special case for version flag
-  if not (null args) && head args == "--version"
+  if isVersionRequest args
     then putStrLn version >> exitSuccess
     else
       -- Special case for help command
@@ -483,8 +516,12 @@ run version showHelp commands = do
 
           case findRun results of
             Just action -> action ()
-            Nothing -> do
-              printHelp commands parsed
+            Nothing ->
+              if null args
+              then printHelp commands parsed
+              else if jsonRequested parsed
+                then printCommandError parsed "Unknown command." >> exitFailure
+                else printHelp commands parsed >> exitFailure
   where
     findRun :: [CommandResult] -> Maybe (() -> IO ())
     findRun [] = Nothing

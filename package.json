@@ -20,6 +20,7 @@
     "build": "bash scripts/build-generator-assets.sh && stack build",
     "test": "npm run test-generation && stack test elm-dev:elm-dev-tests",
     "test-generation": "bash scripts/test-generation.sh",
+    "test-dependencies:network": "ELM_DEV_RUN_NETWORK_TESTS=1 bash scripts/test-dependency-management.sh",
     "stack:run": "stack run --",
     "check:ts-tools": "cd apps/ts-tool && tsc"
   }

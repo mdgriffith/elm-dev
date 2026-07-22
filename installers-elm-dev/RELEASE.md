@@ -60,10 +60,21 @@ This cross‑compiles and copies binaries into `installers-elm-dev/npm/packages/
 ## Release Procedure
 
 1) Verify versions (must match):
+   - `elm-dev.cabal`
+   - `cabal.project.freeze`
    - `installers-elm-dev/npm/package.json` (root and optionalDependencies)
    - `installers-elm-dev/npm/packages/*/package.json`
    - `distribution/common.sh` (`version=`)
    - `installers-elm-dev/npm/scripts/download-binaries.sh` (`VERSION=`)
+   - `ext-generate/generator/app/templates/toRoot/package.json`
+
+   Run the automated metadata check and release tests:
+
+   ```bash
+   ./scripts/check-release-version.sh
+   cabal test elm-dev-tests
+   npm run test-dependencies:network
+   ```
 
 2) Trigger CI for Haskell builds and wait for artifacts:
    - Run the build script, commit to main, rebase `distribute` on main, and push `distribute` (see commands above).
@@ -83,7 +94,8 @@ This cross‑compiles and copies binaries into `installers-elm-dev/npm/packages/
 
 6) Publish VS Code extension:
    - `./installers-elm-dev/publish-vscode.sh`
-   - Notes: requires `vsce` and token; version bump in `apps/vscode/package.json`.
+   - Notes: requires `vsce` and token. The extension is independently versioned;
+     bump `apps/vscode/package.json` only when publishing a new extension version.
 
 ## Building the Rust Proxy Independently
 

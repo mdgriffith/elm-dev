@@ -10,6 +10,11 @@ module Watchtower.Server.MCP
   , availableToolNamesForTests
   , availableToolSchemasForTests
   , xmlBlockForTests
+  , dependencyArgumentsValidForTests
+  , dependencyOperationArgumentsValidForTests
+  , dependencyPlanJsonForTests
+  , dependencyTreeJsonForTests
+  , legacyInstallResponseForTests
   ) where
 
 {-
@@ -102,7 +107,7 @@ import qualified System.Directory as Dir
 import qualified Data.Vector
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString as BS
-import qualified Ext.Install
+import qualified Ext.DependencyManager as DependencyManager
 import qualified Watchtower.Server.LSP.Protocol as LSPProtocol
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
@@ -117,6 +122,7 @@ availableTools =
   , toolCheck
   , toolDocs
   , toolInstall
+  , toolDependencies
   , toolAdd
   , toolTestInstall
   ]
@@ -1201,44 +1207,387 @@ toolInstall = MCP.Tool
   , MCP.toolDescription = "Install an Elm package (author/project)."
   , MCP.toolInputSchema = schemaProjectPlus [("package", "Elm package name, e.g. elm/json")]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit connId -> do
-      case requireStringArg "package" args of
-        Left e -> pure (errTxt (Text.pack e))
-        Right pkg -> do
-          selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
-          case selection of
-            Left msg -> pure (errTxt msg)
-            Right (Client.ProjectCache proj _ _ _ _) -> do
-              let dir = Ext.Dev.Project.getRoot proj
-              withDir dir $ do
-                case parsePkgName (Text.pack pkg) of
-                  Nothing ->
-                    pure (errTxt "Invalid package name. Expected author/project")
-                  Just pkgName -> do
-                    result <- Ext.Install.installDependency pkgName
-                    case result of
-                      Left _ -> pure (errTxt "Failed to install package")
-                      Right Ext.Install.AlreadyInstalled -> do
-                        let docsUriElm = Text.concat ["elm://docs/package/", Text.pack (Pkg.toUrl pkgName)]
-                        let linkInfoElm =
-                              MCP.ResourceLinkInfo
-                                { MCP.resourceLinkUri = docsUriElm
-                                , MCP.resourceLinkName = Text.concat [Text.pack (Pkg.toChars pkgName), " docs"]
-                                , MCP.resourceLinkDescription = Just "Open package docs rendered by server"
-                                , MCP.resourceLinkMimeType = Nothing
-                                }
-                        pure (MCP.ToolCallResponse [MCP.ToolResponseText Nothing "Already installed", MCP.ToolResponseResourceLink Nothing linkInfoElm])
-                      Right Ext.Install.SuccessfullyInstalled -> do
-                        let docsUriElm = Text.concat ["elm://docs/package/", Text.pack (Pkg.toUrl pkgName)]
-                        let linkInfoElm =
-                              MCP.ResourceLinkInfo
-                                { MCP.resourceLinkUri = docsUriElm
-                                , MCP.resourceLinkName = Text.concat [Text.pack (Pkg.toChars pkgName), " docs"]
-                                , MCP.resourceLinkDescription = Just "Open package docs rendered by server"
-                                , MCP.resourceLinkMimeType = Nothing
-                                }
-                        pure (MCP.ToolCallResponse [MCP.ToolResponseText Nothing "Installed successfully", MCP.ToolResponseResourceLink Nothing linkInfoElm])
+  , MCP.call = \args state _emit connId -> runSingleDependencyInstall "Installed successfully" "Already installed" DependencyManager.Production args state connId
   }
+
+
+toolDependencies :: MCP.Tool
+toolDependencies = MCP.Tool
+  { MCP.toolName = "dependencies"
+  , MCP.toolDescription = "Plan or apply Elm dependency operations: install, uninstall, uninstall-unused, tree, or upgrade. Tree results group direct and indirect packages, identify unused dependencies, and explain which packages use each indirect dependency."
+  , MCP.toolInputSchema =
+      JSON.object
+        [ "type" .= ("object" :: Text)
+        , "additionalProperties" .= False
+        , "properties" .= JSON.object
+            [ rootDirSchema
+            , "operation" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "enum" .= (["install", "uninstall", "uninstall-unused", "tree", "upgrade"] :: [Text])
+                ]
+            , "scope" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "enum" .= (["production", "test"] :: [Text])
+                , "default" .= ("production" :: Text)
+                ]
+            , "packages" .= JSON.object
+                [ "type" .= ("array" :: Text)
+                , "description" .= ("Packages. Install accepts author/project, author/project@MAJOR, or author/project@MAJOR.MINOR.PATCH." :: Text)
+                , "items" .= JSON.object ["type" .= ("string" :: Text)]
+                ]
+            , "unsafe" .= JSON.object ["type" .= ("boolean" :: Text), "default" .= False]
+            , "allScopes" .= JSON.object ["type" .= ("boolean" :: Text), "default" .= False]
+            , "dryRun" .= JSON.object ["type" .= ("boolean" :: Text), "default" .= False]
+            ]
+        , "required" .= (["operation"] :: [Text])
+        ]
+  , MCP.toolOutputSchema = Nothing
+  , MCP.call = \args state _emit connId -> runDependencyTool args state connId
+  }
+
+
+runDependencyTool :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO MCP.ToolCallResponse
+runDependencyTool args state connId =
+  case getStringArg args "operation" of
+    Nothing -> pure (errTxt "Missing required string argument: operation")
+    Just operation ->
+      if not (dependencyArgumentsValid args)
+      then pure (errTxt "Invalid dependency arguments. scope must be a string, packages an array of strings, and boolean options must be booleans.")
+      else if not (dependencyOperationArgumentsValid operation args)
+      then pure (errTxt "One or more arguments are not supported for this dependency operation.")
+      else case parseDependencyScope (getStringArg args "scope") of
+        Left message -> pure (errTxt message)
+        Right scope ->
+          do
+            selection <- resolveProjectFromDirArg args state connId
+            case selection of
+                Left message -> pure (errTxt message)
+                Right pc@(Client.ProjectCache project _ _ _ _) ->
+                  let
+                    root = Ext.Dev.Project.getRoot project
+                    packageStrings = dependencyPackageStrings args
+                    dryRun = Maybe.fromMaybe False (getBoolArg args "dryRun")
+                  in
+                  case operation of
+                    "install" ->
+                      case traverse DependencyManager.parsePackageRequirement packageStrings of
+                        Nothing -> pure (errTxt "Invalid package requirement. Expected author/project, author/project@MAJOR, or author/project@MAJOR.MINOR.PATCH.")
+                        Just [] -> pure (errTxt "Install requires at least one package.")
+                        Just requirements -> runDependencyPlan (Text.pack operation) scope state pc root dryRun (DependencyManager.planInstallRequirements root scope requirements)
+
+                    "uninstall" ->
+                      case traverse parseBareDependency packageStrings of
+                        Nothing -> pure (errTxt "Invalid package name. Expected author/project without a version.")
+                        Just [] -> pure (errTxt "Uninstall requires at least one package.")
+                        Just packages -> runDependencyPlan (Text.pack operation) scope state pc root dryRun (DependencyManager.planUninstall root scope packages)
+
+                    "uninstall-unused" ->
+                      do  unused <- DependencyManager.findUnused root scope
+                          case unused of
+                            Left problem -> pure (dependencyErrorResponse problem)
+                            Right [] -> pure (ok (dependencyUnchangedJson "uninstall-unused" scope))
+                            Right packages -> runDependencyPlan (Text.pack operation) scope state pc root dryRun (DependencyManager.planUninstall root scope packages)
+
+                    "upgrade" ->
+                      case traverse parseBareDependency packageStrings of
+                        Nothing -> pure (errTxt "Invalid package name. Expected author/project without a version.")
+                        Just packages ->
+                          let
+                            targets = if null packages then Nothing else Just packages
+                            policy = if Maybe.fromMaybe False (getBoolArg args "unsafe") then DependencyManager.AllowMajor else DependencyManager.Compatible
+                            allScopes = Maybe.fromMaybe False (getBoolArg args "allScopes")
+                          in
+                          runDependencyPlan (Text.pack operation) scope state pc root dryRun (DependencyManager.planUpgrade root scope policy targets allScopes)
+
+                    "tree" ->
+                      do  result <- DependencyManager.dependencyTree root scope
+                          case result of
+                            Left problem -> pure (dependencyErrorResponse problem)
+                            Right tree ->
+                              case packageStrings of
+                                [] -> dependencyTreeResponse root scope tree
+                                [packageString] ->
+                                  case parseBareDependency packageString of
+                                    Nothing -> pure (errTxt "Invalid package tree filter. Expected author/project.")
+                                    Just package -> dependencyTreeResponse root scope (DependencyManager.filterDependencyTree package tree)
+                                _ -> pure (errTxt "Tree accepts at most one package filter.")
+
+                    _ -> pure (errTxt "Unknown dependency operation.")
+
+
+parseDependencyScope :: Maybe String -> Either Text DependencyManager.Scope
+parseDependencyScope maybeScope =
+  case maybeScope of
+    Nothing -> Right DependencyManager.Production
+    Just "production" -> Right DependencyManager.Production
+    Just "test" -> Right DependencyManager.Test
+    Just _ -> Left "Invalid scope. Expected production or test."
+
+
+dependencyPackageStrings :: JSON.Object -> [String]
+dependencyPackageStrings args =
+  case getArrayArg args "packages" of
+    Nothing -> []
+    Just values -> [Text.unpack value | JSON.String value <- values]
+
+
+dependencyArgumentsValid :: JSON.Object -> Bool
+dependencyArgumentsValid args =
+  onlyKnownFields
+    && optionalString "dir"
+    && optionalString "scope"
+    && optionalStringArray "packages"
+    && all optionalBool ["unsafe", "allScopes", "dryRun"]
+  where
+    onlyKnownFields = all (\key -> Key.toText key `elem` ["dir", "operation", "scope", "packages", "unsafe", "allScopes", "dryRun"]) (KeyMap.keys args)
+    optionalString key = fieldMatches key (\value -> case value of JSON.String _ -> True; _ -> False)
+    optionalBool key = fieldMatches key (\value -> case value of JSON.Bool _ -> True; _ -> False)
+    optionalStringArray key = fieldMatches key (\value -> case value of JSON.Array values -> all isString values; _ -> False)
+    isString value = case value of JSON.String _ -> True; _ -> False
+    fieldMatches key matches =
+      case KeyMap.lookup (Key.fromText key) args of
+        Nothing -> True
+        Just value -> matches value
+
+
+dependencyArgumentsValidForTests :: JSON.Object -> Bool
+dependencyArgumentsValidForTests = dependencyArgumentsValid
+
+
+dependencyOperationArgumentsValid :: String -> JSON.Object -> Bool
+dependencyOperationArgumentsValid operation args =
+  case operation of
+    "install" -> absent "unsafe" && absent "allScopes"
+    "uninstall" -> absent "unsafe" && absent "allScopes"
+    "uninstall-unused" -> absent "packages" && absent "unsafe" && absent "allScopes"
+    "upgrade" -> True
+    "tree" -> absent "dryRun" && absent "unsafe" && absent "allScopes"
+    _ -> True
+  where
+    absent key = not (KeyMap.member (Key.fromText key) args)
+
+
+dependencyOperationArgumentsValidForTests :: String -> JSON.Object -> Bool
+dependencyOperationArgumentsValidForTests = dependencyOperationArgumentsValid
+
+
+parseBareDependency :: String -> Maybe Pkg.Name
+parseBareDependency raw =
+  if '@' `elem` raw
+  then Nothing
+  else case DependencyManager.parsePackageRequirement raw of
+    Just (DependencyManager.PackageRequirement package DependencyManager.Latest) -> Just package
+    _ -> Nothing
+
+
+runDependencyPlan :: Text -> DependencyManager.Scope -> Client.State -> Client.ProjectCache -> FilePath -> Bool -> IO (Either DependencyManager.Error DependencyManager.Plan) -> IO MCP.ToolCallResponse
+runDependencyPlan operation scope state pc@(Client.ProjectCache _ _ _ _ testVar) root dryRun planning =
+  do  planned <- planning
+      case planned of
+        Left problem -> pure (dependencyErrorResponse problem)
+        Right plan ->
+          if dryRun || not (DependencyManager.planChanged plan)
+          then pure (ok (dependencyPlanJson operation scope (if not (DependencyManager.planChanged plan) then "unchanged" else "planned") False plan))
+          else do
+            applied <- DependencyManager.applyPlan root plan
+            case applied of
+              Left problem -> pure (dependencyErrorResponse problem)
+              Right () ->
+                do  refreshDependencyProject state pc root testVar
+                    pure (ok (dependencyPlanJson operation scope "applied" True plan))
+
+
+refreshDependencyProject :: Client.State -> Client.ProjectCache -> FilePath -> Control.Concurrent.STM.TVar (Maybe Client.TestInfo) -> IO ()
+refreshDependencyProject state pc root testVar =
+  do  _ <- Versions.bumpFsVersion root
+      Control.Concurrent.STM.atomically (Watchtower.State.Compile.clearTestResults testVar)
+      _ <- Watchtower.State.Compile.ensureProjectFresh state "mcp.dependencies" pc
+      pure ()
+
+
+dependencyPlanJson :: Text -> DependencyManager.Scope -> Text -> Bool -> DependencyManager.Plan -> Text
+dependencyPlanJson operation scope status written plan =
+  jsonText $
+    JSON.object
+      [ "operation" .= operation
+      , "scope" .= dependencyScopeText scope
+      , "status" .= status
+      , "written" .= written
+      , "changes" .= map dependencyChangeValue (DependencyManager.changes plan)
+      ]
+
+
+dependencyPlanJsonForTests :: Text -> DependencyManager.Scope -> Text -> Bool -> DependencyManager.Plan -> Text
+dependencyPlanJsonForTests = dependencyPlanJson
+
+
+dependencyChangeValue :: DependencyManager.DependencyChange -> JSON.Value
+dependencyChangeValue change =
+  case change of
+    DependencyManager.DependencyAdded scope package value -> dependencyChangeObject "added" scope package Nothing (Just value)
+    DependencyManager.DependencyRemoved scope package value -> dependencyChangeObject "removed" scope package (Just value) Nothing
+    DependencyManager.DependencyChanged scope package old new -> dependencyChangeObject "changed" scope package (Just old) (Just new)
+    DependencyManager.DependencyMoved oldScope newScope package old new ->
+      JSON.object
+        [ "kind" .= ("moved" :: Text)
+        , "package" .= Pkg.toChars package
+        , "fromScope" .= dependencyScopeText oldScope
+        , "scope" .= dependencyScopeText newScope
+        , "from" .= dependencyValueText old
+        , "to" .= dependencyValueText new
+        ]
+    DependencyManager.DependencyReclassified scope package oldKind newKind value ->
+      JSON.object
+        [ "kind" .= ("reclassified" :: Text)
+        , "package" .= Pkg.toChars package
+        , "scope" .= dependencyScopeText scope
+        , "from" .= dependencyKindText oldKind
+        , "to" .= dependencyKindText newKind
+        , "version" .= dependencyValueText value
+        ]
+
+
+dependencyChangeObject :: Text -> DependencyManager.Scope -> Pkg.Name -> Maybe DependencyManager.DependencyValue -> Maybe DependencyManager.DependencyValue -> JSON.Value
+dependencyChangeObject kind scope package old new =
+  JSON.object $
+    [ "kind" .= kind
+    , "package" .= Pkg.toChars package
+    , "scope" .= dependencyScopeText scope
+    ]
+    ++ maybe [] (\value -> ["from" .= dependencyValueText value]) old
+    ++ maybe [] (\value -> ["to" .= dependencyValueText value]) new
+
+
+dependencyTreeResponse :: FilePath -> DependencyManager.Scope -> DependencyManager.DependencyTree -> IO MCP.ToolCallResponse
+dependencyTreeResponse root scope tree =
+  do  unusedResult <- DependencyManager.findUnused root scope
+      case unusedResult of
+        Left problem -> pure (dependencyErrorResponse problem)
+        Right unused -> pure (ok (dependencyTreeJson (Set.fromList unused) tree))
+
+
+dependencyTreeJson :: Set.Set Pkg.Name -> DependencyManager.DependencyTree -> Text
+dependencyTreeJson unused tree =
+  let
+    nodes = Map.fromList (map (\node -> (DependencyManager.treePackage node, node)) (DependencyManager.treeNodes tree))
+    direct = filter (dependencyTreeRootNode (DependencyManager.treeScope tree)) (DependencyManager.treeNodes tree)
+    indirect = filter ((== DependencyManager.Indirect) . DependencyManager.treeKind) (DependencyManager.treeNodes tree)
+  in
+  jsonText $
+    JSON.object
+      [ "root" .= DependencyManager.treeRoot tree
+      , "scope" .= dependencyScopeText (DependencyManager.treeScope tree)
+      , "direct" .= map (dependencyTreeNodeValue nodes unused) direct
+      , "indirect" .= map (dependencyTreeNodeValue nodes Set.empty) indirect
+      ]
+
+
+dependencyTreeJsonForTests :: Set.Set Pkg.Name -> DependencyManager.DependencyTree -> Text
+dependencyTreeJsonForTests = dependencyTreeJson
+
+
+dependencyTreeRootNode :: DependencyManager.Scope -> DependencyManager.TreeNode -> Bool
+dependencyTreeRootNode scope node =
+  DependencyManager.treeKind node == DependencyManager.ProductionRoot
+    || (scope == DependencyManager.Test && DependencyManager.treeKind node == DependencyManager.TestRoot)
+
+
+dependencyTreeNodeValue :: Map.Map Pkg.Name DependencyManager.TreeNode -> Set.Set Pkg.Name -> DependencyManager.TreeNode -> JSON.Value
+dependencyTreeNodeValue nodes unused node =
+  JSON.object
+    [ "package" .= Pkg.toChars (DependencyManager.treePackage node)
+    , "version" .= V.toChars (DependencyManager.treeVersion node)
+    , "kind" .= dependencyTreeKindText (DependencyManager.treeKind node)
+    , "unused" .= Set.member (DependencyManager.treePackage node) unused
+    , "usedBy" .= dependencyTreeUsedBy nodes node
+    , "dependencies" .= map (dependencyTreeReferenceValue nodes) (DependencyManager.treeDependencies node)
+    ]
+
+
+dependencyTreeReferenceValue :: Map.Map Pkg.Name DependencyManager.TreeNode -> Pkg.Name -> JSON.Value
+dependencyTreeReferenceValue nodes package =
+  case Map.lookup package nodes of
+    Nothing -> JSON.object ["package" .= Pkg.toChars package]
+    Just node ->
+      JSON.object
+        [ "package" .= Pkg.toChars package
+        , "version" .= V.toChars (DependencyManager.treeVersion node)
+        , "kind" .= dependencyTreeKindText (DependencyManager.treeKind node)
+        ]
+
+
+dependencyTreeUsedBy :: Map.Map Pkg.Name DependencyManager.TreeNode -> DependencyManager.TreeNode -> [String]
+dependencyTreeUsedBy nodes node =
+  if DependencyManager.treeKind node /= DependencyManager.Indirect
+  then []
+  else
+    [ Pkg.toChars (DependencyManager.treePackage parent)
+    | parent <- Map.elems nodes
+    , DependencyManager.treePackage node `elem` DependencyManager.treeDependencies parent
+    ]
+
+
+dependencyUnchangedJson :: Text -> DependencyManager.Scope -> Text
+dependencyUnchangedJson operation scope =
+  jsonText (JSON.object ["operation" .= operation, "scope" .= dependencyScopeText scope, "status" .= ("unchanged" :: Text), "written" .= False, "changes" .= ([] :: [JSON.Value])])
+
+
+dependencyErrorResponse :: DependencyManager.Error -> MCP.ToolCallResponse
+dependencyErrorResponse problem =
+  errTxt (jsonText (JSON.object ["status" .= ("error" :: Text), "error" .= dependencyErrorCode problem]))
+
+
+dependencyErrorCode :: DependencyManager.Error -> Text
+dependencyErrorCode problem =
+  case problem of
+    DependencyManager.NoOutline -> "no-outline"
+    DependencyManager.RegistryProblem _ -> "registry"
+    DependencyManager.OutlineProblem _ -> "elm-json"
+    DependencyManager.NoSolution -> "no-solution"
+    DependencyManager.NoOfflineSolution -> "no-offline-solution"
+    DependencyManager.SolverProblem _ -> "solver"
+    DependencyManager.VerificationProblem _ -> "verification"
+    DependencyManager.TestRefreshProblem _ -> "test-refresh"
+    DependencyManager.AnalysisProblem _ -> "analysis"
+    DependencyManager.RequiredDependency package -> Text.pack ("required-dependency:" ++ Pkg.toChars package)
+    DependencyManager.UnsupportedPackageUpgrade -> "unsupported-package-upgrade"
+    DependencyManager.UnsavedChanges -> "unsaved-changes"
+    DependencyManager.StalePlan -> "stale-plan"
+    DependencyManager.DuplicateRequirement package -> Text.pack ("duplicate-requirement:" ++ Pkg.toChars package)
+    DependencyManager.UnsupportedPackageExactRequirement package -> Text.pack ("unsupported-package-exact-requirement:" ++ Pkg.toChars package)
+
+
+dependencyScopeText :: DependencyManager.Scope -> Text
+dependencyScopeText scope =
+  case scope of
+    DependencyManager.Production -> "production"
+    DependencyManager.Test -> "test"
+
+
+dependencyKindText :: DependencyManager.DependencyKind -> Text
+dependencyKindText kind =
+  case kind of
+    DependencyManager.DirectDependency -> "direct"
+    DependencyManager.IndirectDependency -> "indirect"
+
+
+dependencyTreeKindText :: DependencyManager.TreeKind -> Text
+dependencyTreeKindText kind =
+  case kind of
+    DependencyManager.ProductionRoot -> "production"
+    DependencyManager.TestRoot -> "test"
+    DependencyManager.Indirect -> "indirect"
+
+
+dependencyValueText :: DependencyManager.DependencyValue -> Text
+dependencyValueText value =
+  case value of
+    DependencyManager.AppVersion version -> Text.pack (V.toChars version)
+    DependencyManager.PackageConstraint constraint -> Text.pack (Con.toChars constraint)
+
+
+jsonText :: JSON.Value -> Text
+jsonText = Data.Text.Encoding.decodeUtf8 . LBS.toStrict . JSON.encode
 
 -- add_page
 toolAdd :: MCP.Tool
@@ -1450,49 +1799,55 @@ toolTestInstall = MCP.Tool
   , MCP.toolDescription = "Install an Elm test dependency (author/project) into test-dependencies."
   , MCP.toolInputSchema = schemaProjectPlus [("package", "Elm package name, e.g. elm-explorations/test")]
   , MCP.toolOutputSchema = Nothing
-  , MCP.call = \args state _emit connId -> do
-      case requireStringArg "package" args of
-        Left e -> pure (errTxt (Text.pack e))
-        Right pkgStr -> do
-          selection <- ProjectLookup.resolveProjectFromSession Nothing connId state
-          case selection of
-            Left msg -> pure (errTxt msg)
-            Right (Client.ProjectCache proj _ _ _ _) -> do
-              let dir = Ext.Dev.Project.getRoot proj
-              withDir dir $ do
-                case parsePkgName (Text.pack pkgStr) of
-                  Nothing ->
-                    pure (errTxt "Invalid package name. Expected author/project")
-                  Just pkgName -> do
-                    result <- TestInstall.installTestDependency pkgName
-                    case result of
-                      Left _ ->
-                        pure (errTxt "Failed to install test dependency")
-                      Right TestInstall.AlreadyInstalled -> do
-                        let docsUriElm = Text.concat ["elm://docs/package/", Text.pack (Pkg.toUrl pkgName)]
-                        let linkInfoElm =
-                              MCP.ResourceLinkInfo
-                                { MCP.resourceLinkUri = docsUriElm
-                                , MCP.resourceLinkName = Text.concat [Text.pack (Pkg.toChars pkgName), " docs"]
-                                , MCP.resourceLinkDescription = Just "Open package docs rendered by server"
-                                , MCP.resourceLinkMimeType = Nothing
-                                }
-                        pure (MCP.ToolCallResponse [ MCP.ToolResponseText Nothing "Already installed"
-                                                   , MCP.ToolResponseResourceLink Nothing linkInfoElm
-                                                   ])
-                      Right TestInstall.SuccessfullyInstalled -> do
-                        let docsUriElm = Text.concat ["elm://docs/package/", Text.pack (Pkg.toUrl pkgName)]
-                        let linkInfoElm =
-                              MCP.ResourceLinkInfo
-                                { MCP.resourceLinkUri = docsUriElm
-                                , MCP.resourceLinkName = Text.concat [Text.pack (Pkg.toChars pkgName), " docs"]
-                                , MCP.resourceLinkDescription = Just "Open package docs rendered by server"
-                                , MCP.resourceLinkMimeType = Nothing
-                                }
-                        pure (MCP.ToolCallResponse [ MCP.ToolResponseText Nothing "Installed successfully"
-                                                   , MCP.ToolResponseResourceLink Nothing linkInfoElm
-                                                   ])
+  , MCP.call = \args state _emit connId -> runSingleDependencyInstall "Installed successfully" "Already installed" DependencyManager.Test args state connId
   }
+
+
+runSingleDependencyInstall :: Text -> Text -> DependencyManager.Scope -> JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO MCP.ToolCallResponse
+runSingleDependencyInstall successMessage unchangedMessage scope args state connId =
+  case requireStringArg "package" args of
+    Left message -> pure (errTxt (Text.pack message))
+    Right raw ->
+      case DependencyManager.parsePackageRequirement raw of
+        Nothing -> pure (errTxt "Invalid package requirement. Expected author/project, author/project@MAJOR, or author/project@MAJOR.MINOR.PATCH.")
+        Just requirement@(DependencyManager.PackageRequirement package _) ->
+          do  selection <- resolveProjectFromDirArg args state connId
+              case selection of
+                Left message -> pure (errTxt message)
+                Right pc@(Client.ProjectCache project _ _ _ testVar) ->
+                  let root = Ext.Dev.Project.getRoot project
+                  in do
+                    planned <- DependencyManager.planInstallRequirements root scope [requirement]
+                    case planned of
+                      Left problem -> pure (dependencyErrorResponse problem)
+                      Right plan ->
+                        if not (DependencyManager.planChanged plan)
+                        then pure (legacyInstallResponse unchangedMessage package)
+                        else do
+                          applied <- DependencyManager.applyPlan root plan
+                          case applied of
+                            Left problem -> pure (dependencyErrorResponse problem)
+                            Right () ->
+                              do  refreshDependencyProject state pc root testVar
+                                  pure (legacyInstallResponse successMessage package)
+
+
+legacyInstallResponse :: Text -> Pkg.Name -> MCP.ToolCallResponse
+legacyInstallResponse message package =
+  let
+    linkInfo =
+      MCP.ResourceLinkInfo
+        { MCP.resourceLinkUri = Text.concat ["elm://docs/package/", Text.pack (Pkg.toUrl package)]
+        , MCP.resourceLinkName = Text.concat [Text.pack (Pkg.toChars package), " docs"]
+        , MCP.resourceLinkDescription = Just "Open package docs rendered by server"
+        , MCP.resourceLinkMimeType = Nothing
+        }
+  in
+  MCP.ToolCallResponse [MCP.ToolResponseText Nothing message, MCP.ToolResponseResourceLink Nothing linkInfo]
+
+
+legacyInstallResponseForTests :: Text -> Pkg.Name -> MCP.ToolCallResponse
+legacyInstallResponseForTests = legacyInstallResponse
 
 -- 
 toolTestRun :: MCP.Tool

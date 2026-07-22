@@ -1,4 +1,4 @@
 #!/bin/bash
 
 export project="elm-dev"
-export version="0.3.0"
+export version="0.4.0"
