@@ -495,6 +495,7 @@ Test-Suite elm-dev-tests
         Canonicalize.Module
         Canonicalize.Pattern
         Canonicalize.Type
+        CommandParser
         Compile
         Data.Bag
         Data.Index
@@ -503,9 +504,11 @@ Test-Suite elm-dev-tests
         Data.NonEmptyList
         Data.OneOrMore
         Data.Utf8
+        Deps.Diff
         Deps.Registry
         Deps.Solver
         Deps.Website
+        Develop.StaticFiles.Build
         Elm.Compiler.Imports
         Elm.Compiler.Type
         Elm.Compiler.Type.Extract
@@ -523,6 +526,7 @@ Test-Suite elm-dev-tests
         Elm.String
         Elm.Version
         ElmDevElmVersion
+        ElmDevVersion
         Ext.Common
         Ext.CompileHelpers.Disk
         Ext.CompileHelpers.Generic
@@ -530,13 +534,21 @@ Test-Suite elm-dev-tests
         Ext.CompileProxy
         Ext.CompileMode
         Ext.DependencyManager
+        Ext.DependencyManager.Cli
+        Ext.Dev
         Ext.Dev.Docs
+        Ext.Dev.EntryPoints
         Ext.Dev.Find.Canonical
+        Ext.Dev.Imports
+        Ext.Dev.Package
         Ext.Dev.Project
+        Ext.Dev.Project.Ports
         Ext.Dev.Warnings
         Ext.Debug
         Ext.Debug.Loader
         Ext.Disk.Build
+        Ext.ElmFormat
+        Ext.Encode
         Ext.FileCache
         Ext.FileProxy
         Ext.Filewatch
@@ -544,19 +556,35 @@ Test-Suite elm-dev-tests
         Ext.MemoryCached.Build
         Ext.MemoryCached.Details
         Ext.Project.Find
+        Ext.Render.Type
+        Ext.Reporting.Error
+        Ext.Reporting.Error.Canonicalize
+        Ext.Reporting.Error.Docs
+        Ext.Reporting.Error.Import
+        Ext.Reporting.Error.Main
+        Ext.Reporting.Error.Pattern
+        Ext.Reporting.Error.Syntax
+        Ext.Reporting.Error.Type
+        Ext.Reporting.Render.Code
         Ext.Sanity
         Ext.Sentry
         Ext.Test.Compile
         Ext.Test.Discover
         Ext.Test.Generate
+        Ext.Test.Install
+        Ext.Test.Introspect
+        Ext.Test.Parse
         Ext.Test.Result
         Ext.Test.Result.Report
         Ext.Test.Runner
+        Ext.Test.Templates.Loader
         Ext.Trace
         Ext.Trace.Schema
         Ext.Trace.Types
+        Ext.Type.Error
         Ext.VirtualFile
         Gen.Config
+        Gen.Commands.Init
         Gen.Generate
         Gen.Javascript
         Gen.RunConfig
@@ -636,6 +664,7 @@ Test-Suite elm-dev-tests
         Stuff
         Terminal
         Terminal.Chomp
+        Terminal.Colors
         Terminal.Error
         Terminal.Internal
         Type.Constrain.Expression
@@ -650,8 +679,13 @@ Test-Suite elm-dev-tests
         Type.UnionFind
         File
         Develop.Generate.Help
+        Watchtower.AST.Definition
+        Watchtower.AST.Lookup
+        Watchtower.AST.References
         Watchtower.Editor
+        Watchtower.Live
         Watchtower.Live.Client
+        Watchtower.Live.Compile
         Watchtower.Server.DevWS
         Watchtower.Server.Daemon.State
         Watchtower.Server.JSONRPC
@@ -661,15 +695,19 @@ Test-Suite elm-dev-tests
         Watchtower.Server.MCP.ProjectLookup
         Watchtower.Server.MCP.Protocol
         Watchtower.Server.MCP.Uri
+        Watchtower.Server.LSP
         Watchtower.Server.LSP.EditorsOpen
+        Watchtower.Server.LSP.Helpers
         Watchtower.Server.LSP.Protocol
         Watchtower.Trace
         Watchtower.State.Compile
+        Watchtower.State.Discover
         Watchtower.State.Project
         Watchtower.State.TestJobs
         Watchtower.State.Versions
         Watchtower.Version
         Watchtower.Websocket
+        Watchtower.StaticAssets
 
     ghc-options: -O0 -Wall -dynamic-too
 
