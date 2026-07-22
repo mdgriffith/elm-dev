@@ -72,6 +72,7 @@ This cross‑compiles and copies binaries into `installers-elm-dev/npm/packages/
 
    ```bash
    ./scripts/check-release-version.sh
+   ./scripts/check-linux-docker-sources.sh
    cabal test elm-dev-tests
    npm run test-dependencies:network
    ```

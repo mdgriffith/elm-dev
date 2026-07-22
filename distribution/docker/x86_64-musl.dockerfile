@@ -63,6 +63,7 @@ COPY ext-debug ext-debug
 COPY ext-dev ext-dev
 COPY ext-optimization ext-optimization
 COPY ext-sentry ext-sentry
+COPY ext-trace ext-trace
 COPY ext-generate ext-generate
 COPY ext-watchtower ext-watchtower
 COPY .git .git
