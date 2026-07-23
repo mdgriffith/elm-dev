@@ -77,39 +77,27 @@ build_binary_docker() {
 
     git config --global --add safe.directory /root/compiler
 
-    # GOAL: get the cabal caches into the mounted folder so they persist outside the Docker run lifetime and we don't needlessly rebuild hundreds of super expensive deps repeatedly forever
-    # This is documented but doesn't seem to work https://cabal.readthedocs.io/en/3.6/installing-packages.html#environment-variables
-    export CABAL_DIR=/root/cache/cabal
+    # Keep Stack's package and build caches outside the container.
     export STACK_ROOT=/root/cache/stack
-    export STACK_WORK=/root/cache/stack-work
 
-    mkdir -p /root/cache/cabal || true
-    ln -sf /root/cache/cabal ~/.cabal
-
-    printf '%s\n' \
-        'repository hackage.haskell.org' \
-        '  url: https://hackage.haskell.org/' \
-        '  secure: True' \
-        > "$CABAL_DIR/config"
-    cabal update
-
-    # GOAL: pin our dependencies so we can build them one by one
-    # We do this once outside of the build script, see distribution/sync-cabal-freeze.sh
+    mkdir -p "$STACK_ROOT"
 
     # Our options required for static linking
-    CABALOPTS="--allow-newer -f-export-dynamic -fembed_data_files --enable-executable-static -j4"
-    GHCOPTS="-j4 +RTS -A256m -RTS -split-sections -optc-Os -optl=-pthread"
+    STACKOPTS="--system-ghc --no-install-ghc --allow-different-user"
+    GHCOPTS="-j4 +RTS -A256m -RTS -static -split-sections -optc-Os -optl=-pthread"
 
-    # GOAL: build non-elm/elm-format deps first to save time and cut out baseline issues
-    # cabal build --dry-run | grep ' - ' | grep -v 'elm-' | grep -v 'avh4' | cut -d' ' -f3 | sed 's/-[^-]*$//' | xargs -I{} cabal build {} --only-dependencies $CABALOPTS --ghc-options="$GHCOPTS"
-    cabal build --only-dependencies $CABALOPTS --ghc-options="$GHCOPTS"
+    stack $STACKOPTS build --only-dependencies --ghc-options="$GHCOPTS"
 
     # GOAL: build the binary statically
     # Inexplicably the first build fails, but the second succeeds
-    (cabal build $CABALOPTS --ghc-options="$GHCOPTS" || true) && cabal build $CABALOPTS --ghc-options="$GHCOPTS"
+    local outputDir
+    outputDir="$(dirname "$bin")"
+    (stack $STACKOPTS install --local-bin-path "$outputDir" --ghc-options="$GHCOPTS" || true) && \
+        stack $STACKOPTS install --local-bin-path "$outputDir" --ghc-options="$GHCOPTS"
 
-    cp "$(cabal list-bin exe:elm-dev)" "$bin"
+    mv "$outputDir/elm-dev" "$bin"
     strip "$bin"
+    file "$bin" | grep -q "statically linked"
 
     # Work around ownership issues that prevent GH actions from managing the files later
     [ "$actions" == "true" ] && chown -R "$userId:$groupId" ./* || true

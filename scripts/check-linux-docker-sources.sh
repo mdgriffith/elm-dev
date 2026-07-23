@@ -26,14 +26,36 @@ for source_dir in "${source_dirs[@]}"; do
   fi
 done
 
-if ! grep -Fq 'url: https://hackage.haskell.org/' "$DOCKERFILE"; then
-  echo "Linux x86_64 Docker build does not use the canonical Hackage repository" >&2
+if ! grep -Fq 'COPY stack.yaml.lock ./' "$DOCKERFILE"; then
+  echo "Linux x86_64 Docker build does not copy the Stack lockfile" >&2
   exit 1
 fi
 
-if ! grep -Fq 'url: https://hackage.haskell.org/' "$ROOT_DIR/distribution/build-linux-arm64-musl.sh"; then
-  echo "Linux arm64 Docker build does not use the canonical Hackage repository" >&2
+if grep -Fq 'cabal update' "$DOCKERFILE"; then
+  echo "Linux x86_64 Docker build must not update through Cabal" >&2
   exit 1
 fi
 
-echo "Linux Docker build context includes all Cabal source directories"
+if ! grep -Fq 'stack $STACKOPTS install' "$DOCKERFILE"; then
+  echo "Linux x86_64 Docker build does not build with Stack" >&2
+  exit 1
+fi
+
+ARM64_SCRIPT="$ROOT_DIR/distribution/build-linux-arm64-musl.sh"
+
+if grep -Fq 'cabal update' "$ARM64_SCRIPT"; then
+  echo "Linux arm64 Docker build must not update through Cabal" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'stack $STACKOPTS install' "$ARM64_SCRIPT"; then
+  echo "Linux arm64 Docker build does not build with Stack" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'statically linked' "$DOCKERFILE" || ! grep -Fq 'statically linked' "$ARM64_SCRIPT"; then
+  echo "Linux Docker builds do not verify static linkage" >&2
+  exit 1
+fi
+
+echo "Linux Docker builds use locked Stack dependencies and verify static linkage"

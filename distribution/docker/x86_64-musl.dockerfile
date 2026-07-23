@@ -1,8 +1,9 @@
-FROM alpine:3.15 as build
+FROM alpine:3.15 AS build
 
 RUN apk add --no-cache \
         alpine-sdk \
         autoconf \
+        file \
         gcc \
         gmp \
         gmp-dev \
@@ -23,7 +24,7 @@ RUN curl https://downloads.haskell.org/~ghcup/0.1.19.5/x86_64-linux-ghcup-0.1.19
 
 # Setup GHC
 RUN ghcup install ghc 9.2.8 --set
-RUN ghcup install cabal 3.10.1.0 --set
+RUN ghcup install stack 2.11.1 --set
 
 ENV PATH="${PATH}:/root/.ghcup/bin"
 
@@ -40,21 +41,13 @@ RUN cp crtendS.o crtend.o
 # Install packages
 WORKDIR /elm-dev
 COPY elm-dev.cabal ./
-COPY cabal.project ./
-# COPY cabal.project.freeze ./
+COPY stack.yaml ./
+COPY stack.yaml.lock ./
 COPY vendor/elm-format vendor/elm-format
 
-RUN mkdir -p /root/.config/cabal && \
-    printf '%s\n' \
-      'repository hackage.haskell.org' \
-      '  url: https://hackage.haskell.org/' \
-      '  secure: True' \
-      > /root/.config/cabal/config
-RUN cabal update
-
-ENV CABALOPTS="-f-export-dynamic -fembed_data_files --enable-executable-static -j4"
-ENV GHCOPTS="-j4 +RTS -A256m -RTS -split-sections -optc-Os -optl=-pthread"
-RUN cabal build $CABALOPTS --ghc-options="$GHCOPTS" --only-dependencies
+ENV STACKOPTS="--system-ghc --no-install-ghc --allow-different-user"
+ENV GHCOPTS="-j4 +RTS -A256m -RTS -static -split-sections -optc-Os -optl=-pthread"
+RUN stack $STACKOPTS build --only-dependencies --ghc-options="$GHCOPTS"
 
 # Import source code
 COPY builder builder
@@ -75,9 +68,10 @@ COPY ext-watchtower ext-watchtower
 COPY .git .git
 
 # Inexplicably the first build fails, but the second succeeds
-RUN (cabal build $CABALOPTS --ghc-options="$GHCOPTS" || true) && cabal build $CABALOPTS --ghc-options="$GHCOPTS"
+RUN (stack $STACKOPTS install --local-bin-path /elm-dev/output --ghc-options="$GHCOPTS" || true) && \
+    stack $STACKOPTS install --local-bin-path /elm-dev/output --ghc-options="$GHCOPTS"
 
-RUN cabal list-bin exe:elm-dev
-RUN cp `cabal list-bin exe:elm-dev` ./elm-dev
+RUN cp /elm-dev/output/elm-dev ./elm-dev
 RUN ./elm-dev --version-full
 RUN strip elm-dev
+RUN file elm-dev | grep -q "statically linked"
