@@ -26,4 +26,14 @@ for source_dir in "${source_dirs[@]}"; do
   fi
 done
 
+if ! grep -Fq 'url: https://hackage.haskell.org/' "$DOCKERFILE"; then
+  echo "Linux x86_64 Docker build does not use the canonical Hackage repository" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'url: https://hackage.haskell.org/' "$ROOT_DIR/distribution/build-linux-arm64-musl.sh"; then
+  echo "Linux arm64 Docker build does not use the canonical Hackage repository" >&2
+  exit 1
+fi
+
 echo "Linux Docker build context includes all Cabal source directories"

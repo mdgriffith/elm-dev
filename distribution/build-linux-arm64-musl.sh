@@ -86,6 +86,11 @@ build_binary_docker() {
     mkdir -p /root/cache/cabal || true
     ln -sf /root/cache/cabal ~/.cabal
 
+    printf '%s\n' \
+        'repository hackage.haskell.org' \
+        '  url: https://hackage.haskell.org/' \
+        '  secure: True' \
+        > "$CABAL_DIR/config"
     cabal update
 
     # GOAL: pin our dependencies so we can build them one by one

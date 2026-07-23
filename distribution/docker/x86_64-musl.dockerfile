@@ -44,6 +44,12 @@ COPY cabal.project ./
 # COPY cabal.project.freeze ./
 COPY vendor/elm-format vendor/elm-format
 
+RUN mkdir -p /root/.config/cabal && \
+    printf '%s\n' \
+      'repository hackage.haskell.org' \
+      '  url: https://hackage.haskell.org/' \
+      '  secure: True' \
+      > /root/.config/cabal/config
 RUN cabal update
 
 ENV CABALOPTS="-f-export-dynamic -fembed_data_files --enable-executable-static -j4"
