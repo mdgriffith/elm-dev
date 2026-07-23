@@ -58,4 +58,9 @@ if ! grep -Fq 'statically linked' "$DOCKERFILE" || ! grep -Fq 'statically linked
   exit 1
 fi
 
+if ! grep -Fq -- '-optl=-static' "$DOCKERFILE" || ! grep -Fq -- '-optl=-static' "$ARM64_SCRIPT"; then
+  echo "Linux Docker builds do not force the system linker to link statically" >&2
+  exit 1
+fi
+
 echo "Linux Docker builds use locked Stack dependencies and verify static linkage"

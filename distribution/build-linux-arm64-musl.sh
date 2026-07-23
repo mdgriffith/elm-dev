@@ -84,7 +84,7 @@ build_binary_docker() {
 
     # Our options required for static linking
     STACKOPTS="--system-ghc --no-install-ghc --allow-different-user"
-    GHCOPTS="-j4 +RTS -A256m -RTS -static -split-sections -optc-Os -optl=-pthread"
+    GHCOPTS="-j4 +RTS -A256m -RTS -static -split-sections -optc-Os -optl=-static -optl=-pthread"
 
     stack $STACKOPTS build --only-dependencies --ghc-options="$GHCOPTS"
 
@@ -97,6 +97,7 @@ build_binary_docker() {
 
     mv "$outputDir/elm-dev" "$bin"
     strip "$bin"
+    file "$bin"
     file "$bin" | grep -q "statically linked"
 
     # Work around ownership issues that prevent GH actions from managing the files later

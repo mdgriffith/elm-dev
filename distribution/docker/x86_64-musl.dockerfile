@@ -46,7 +46,7 @@ COPY stack.yaml.lock ./
 COPY vendor/elm-format vendor/elm-format
 
 ENV STACKOPTS="--system-ghc --no-install-ghc --allow-different-user"
-ENV GHCOPTS="-j4 +RTS -A256m -RTS -static -split-sections -optc-Os -optl=-pthread"
+ENV GHCOPTS="-j4 +RTS -A256m -RTS -static -split-sections -optc-Os -optl=-static -optl=-pthread"
 RUN stack $STACKOPTS build --only-dependencies --ghc-options="$GHCOPTS"
 
 # Import source code
@@ -74,4 +74,4 @@ RUN (stack $STACKOPTS install --local-bin-path /elm-dev/output --ghc-options="$G
 RUN cp /elm-dev/output/elm-dev ./elm-dev
 RUN ./elm-dev --version-full
 RUN strip elm-dev
-RUN file elm-dev | grep -q "statically linked"
+RUN file elm-dev && file elm-dev | grep -q "statically linked"
