@@ -190,13 +190,27 @@ runWorker registry targetId action =
         Right (ActionCompleted completion) ->
           finishIfActive registry targetId finishedAt JobCompleted "Tests completed" (Just completion) Nothing
         Right (ActionFailed message) ->
-          finishIfActive registry targetId finishedAt JobFailed "Test execution failed" Nothing (Just message)
+          finishIfActive registry targetId finishedAt JobFailed (failureSummary message) Nothing (Just message)
         Left err ->
           case Exception.fromException err of
             Just Exception.ThreadKilled ->
               finishIfActive registry targetId finishedAt JobCancelled "Cancelled" Nothing Nothing
             _ ->
-              finishIfActive registry targetId finishedAt JobFailed "Test execution failed" Nothing (Just (Text.pack (Exception.displayException (err :: Exception.SomeException))))
+              let message = Text.pack (Exception.displayException (err :: Exception.SomeException))
+              in finishIfActive registry targetId finishedAt JobFailed (failureSummary message) Nothing (Just message)
+
+
+failureSummary :: Text -> Text
+failureSummary failure =
+  let meaningfulLines = filter (not . isXmlTag) (filter (not . Text.null) (map Text.strip (Text.lines failure)))
+      summary = case meaningfulLines of
+        first : _ -> first
+        [] -> Text.strip failure
+  in if Text.null summary
+       then "Test execution failed"
+       else Text.take 240 summary
+  where
+    isXmlTag line = Text.isPrefixOf "<" line && Text.isSuffixOf ">" line
 
 
 setProgress :: Registry -> JobId -> Text -> IO ()

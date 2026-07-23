@@ -17,22 +17,18 @@ import qualified BackgroundWriter
 import qualified Elm.ModuleName as ModuleName
 import qualified Ext.Common
 import qualified Ext.CompileMode
+import qualified Ext.FileCache as FileCache
 import qualified Ext.Test.Discover as Discover
 import qualified Ext.Test.Parse as Parse
 import qualified Ext.Test.Generate as Generate
 import qualified Ext.Test.Compile as TestCompile
-import qualified Reporting
-import qualified Reporting.Exit as Exit
 import qualified System.Directory as Dir
 import qualified System.FilePath as FP
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as BB
-import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Ext.Test.Templates.Loader as Templates
 import qualified Ext.Log
 import qualified Gen.Javascript as Javascript
-import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified System.CPUTime as CPUTime
 import qualified Ext.Test.Result
 import qualified System.Timeout as Timeout
@@ -179,28 +175,18 @@ runNode mGlobs seed runs root = do
                 let genDir = Generate.generatedDir root
                 Dir.createDirectoryIfMissing True genDir
                 let runnerPath = genDir `FP.combine` "Runner.elm"
-                BS.writeFile runnerPath Templates.runnerElm
+                FileCache.writeUtf8AllTheWayToDisk runnerPath Templates.runnerElm
                 compiledR <- TestCompile.compileRunner root (NE.List runnerPath [])
                 case compiledR of
-                  Left err -> pure (Left (Javascript.Other (Exit.toString (Exit.reactorToReport err))))
-                  Right compiled -> do
+                  Left err -> pure (Left (Javascript.Other err))
+                  Right compiledJs -> do
                     -- Build list of test IDs
                     let testIds = fmap toId filteredTests
-                    -- Extract JS bytes from compilation result
-                    compiledJs <- case compiled of
-                      CompileHelpers.CompiledJs builder -> pure (BL.toStrict (BB.toLazyByteString builder))
-                      CompileHelpers.CompiledHtml _ -> pure ""
-                      CompileHelpers.CompiledSkippedOutput -> pure ""
-                    
-                    -- Add symbol declaration and tag Test constructors
                     let compiledStr = UTF8.toString compiledJs
-                    
-                    -- Embed compiled JS into node runner template
-                    let templateStr = UTF8.toString Templates.nodeRunnerJs
-                    let finalJsStr = replaceOnce "/* {{COMPILED_ELM}} */" compiledStr templateStr
-                    let inputJson = makeInputJson seed runs testIds
+                        templateStr = UTF8.toString Templates.nodeRunnerJs
+                        finalJsStr = replaceOnce "/* {{COMPILED_ELM}} */" compiledStr templateStr
+                        inputJson = makeInputJson seed runs testIds
 
-                    
                     Ext.Common.atomicPutStrLn "> Starting tests"
                     execResult <- Javascript.run (UTF8.fromString finalJsStr) (UTF8.fromString inputJson)
                     case execResult of
@@ -286,6 +272,3 @@ makeInputJson seed runs ids =
 
 
  
-
-
-

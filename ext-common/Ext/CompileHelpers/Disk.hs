@@ -63,8 +63,6 @@ compile root paths flags@(CompileHelpers.Flags mode output debuggerMode) = do
           artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.Disk.Build.fromPaths compilationFlags Reporting.silent root details paths
           
           CompileHelpers.generate root details mode debuggerMode artifacts output
-
-
 compileToDocs :: FilePath -> NE.List ModuleName.Raw -> IO (Either Exit.Reactor Elm.Docs.Documentation)
 compileToDocs root allModuleNames = do
   Dir.withCurrentDirectory root $

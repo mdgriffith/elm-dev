@@ -11,6 +11,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.List as List
 import qualified Data.Name as Name
 import qualified Elm.ModuleName as ModuleName
+import qualified Ext.FileCache as FileCache
 import qualified System.Directory as Dir
 import qualified System.FilePath as FP
 
@@ -29,7 +30,7 @@ writeAggregator root testValues = do
   Dir.createDirectoryIfMissing True outDir
   let outPath = outDir `FP.combine` (aggregatorModuleName ++ ".elm")
   let content = renderAggregator testValues
-  BS.writeFile outPath content
+  FileCache.writeUtf8AllTheWayToDisk outPath content
   pure outPath
 
 
@@ -76,5 +77,4 @@ unique = go []
     go seen xs = case xs of
       [] -> reverse seen
       (y:ys) -> if y `elem` seen then go seen ys else go (y:seen) ys
-
 

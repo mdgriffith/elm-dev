@@ -564,7 +564,7 @@ toolCheck = MCP.Tool
                 ]
             , Key.fromText "tests" .= JSON.object
                 [ "type" .= ("object" :: Text)
-                , "description" .= ("Start one background test job: { kind: \"all\", waitSeconds?, executionTimeoutSeconds? } or { kind: \"only\", runs: [{ glob?, fuzz?, seed?, timeoutSeconds? }], waitSeconds?, executionTimeoutSeconds? }. Defaults: wait 5 seconds (maximum 20), execute the job for up to 900 seconds." :: Text)
+                , "description" .= ("Start one background test job: { kind: \"all\", waitSeconds?, executionTimeoutSeconds? } or { kind: \"only\", runs: [{ glob?, fuzz?, seed?, timeoutSeconds? }], waitSeconds?, executionTimeoutSeconds? }. glob matches exposed top-level Test values by qualified Elm name, for example \"AppSpatialInteractionTest.tests\", \"AppSpatialInteractionTest.*\", or \"*.tests\"; it does not match test labels or file paths. Defaults: wait 5 seconds (maximum 20), execute the job for up to 900 seconds." :: Text)
                 ]
             , Key.fromText "testJobs" .= JSON.object
                 [ "type" .= ("array" :: Text)

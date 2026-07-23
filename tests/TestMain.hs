@@ -18,7 +18,12 @@ import qualified Ext.FileCache as FileCache
 import qualified Ext.Filewatch as Filewatch
 import qualified Ext.Test.Result as TestResult
 import qualified Ext.Test.Result.Report as TestReport
+import qualified Ext.Test.Compile as TestCompile
+import qualified Ext.Test.Generate as TestGenerate
+import qualified Ext.Test.Parse as TestParse
+import qualified Ext.Test.Runner as TestRunner
 import qualified Data.Map.Strict as Map
+import qualified Data.Name as Name
 import qualified Data.NonEmptyList as NE
 import qualified Data.Set as Set
 import qualified Ext.CompileHelpers.Disk as DiskCompile
@@ -159,9 +164,13 @@ mcpTests =
   , runTest "MCP XML blocks preserve tag attributes and body" testMcpXmlBlockShape
   , runTest "MCP XML attributes are escaped" testMcpXmlAttributeEscaping
   , runTest "MCP test jobs complete and retain results" testMcpTestJobCompletion
+  , runTest "MCP test jobs summarize retained failure details" testMcpTestJobFailureSummary
   , runTest "MCP test jobs cancel running actions" testMcpTestJobCancellation
   , runTest "MCP test jobs cancel while queued" testMcpQueuedTestJobCancellation
   , runTest "MCP test jobs retain only recent terminal results" testMcpTestJobRetentionBound
+  , runTest "test aggregator rewrites refresh cached source" testAggregatorRewriteRefreshesCache
+  , runTest "package test manifest is persisted as an application" testPackageTestManifestIsPersistedAsApplication
+  , runTest "test discovery preserves exposed declaration casing" testDiscoveryPreservesExposedDeclarationCasing
   , runTest "test reports decode and render exported-value durations" testReportDuration
   ]
 
@@ -1255,6 +1264,20 @@ testMcpTestJobCompletion = do
     _ -> False
 
 
+testMcpTestJobFailureSummary :: IO Bool
+testMcpTestJobFailureSummary = do
+  registry <- TestJobs.newRegistry
+  submitted <- TestJobs.submitWith registry "/tmp/project" $ \_ ->
+    pure (TestJobs.ActionFailed "<tests status=\"error\">\nTests timed out after 60000ms\n</tests>")
+  completed <- TestJobs.waitForWith registry (TestJobs.jobId submitted) 1
+  pure $ case completed of
+    Just job ->
+      TestJobs.jobStatus job == TestJobs.JobFailed
+        && TestJobs.jobMessage job == "Tests timed out after 60000ms"
+        && TestJobs.jobFailure job == Just "<tests status=\"error\">\nTests timed out after 60000ms\n</tests>"
+    Nothing -> False
+
+
 testMcpTestJobCancellation :: IO Bool
 testMcpTestJobCancellation = do
   registry <- TestJobs.newRegistry
@@ -1320,6 +1343,63 @@ testMcpTestJobRetentionBound = do
   retained <- TestJobs.listJobsForRootWith registry "/tmp/project"
   let retainedIds = map TestJobs.jobId retained
   pure (length retained == 20 && "test-1" `notElem` retainedIds && "test-2" `notElem` retainedIds)
+
+
+testAggregatorRewriteRefreshesCache :: IO Bool
+testAggregatorRewriteRefreshesCache =
+  Temp.withSystemTempDirectory "elm-dev-test-aggregator" $ \root -> do
+    let first = [(Name.fromChars "Example.Tests", Name.fromChars "tests")]
+        second = [(Name.fromChars "Example.Tests", Name.fromChars "newTest")]
+        path = TestGenerate.generatedDir root FilePath.</> "Everything.elm"
+    _ <- TestGenerate.writeAggregator root first
+    _ <- FileCache.readUtf8 path
+    _ <- TestGenerate.writeAggregator root second
+    refreshed <- FileCache.readUtf8 path
+    pure
+      ( BS.isInfixOf "Example.Tests.newTest" refreshed
+          && not (BS.isInfixOf "Example.Tests.tests" refreshed)
+      )
+
+
+testPackageTestManifestIsPersistedAsApplication :: IO Bool
+testPackageTestManifestIsPersistedAsApplication =
+  Temp.withSystemTempDirectory "elm-dev-package-test-manifest" $ \root -> do
+    writeElmPackage root
+    Dir.createDirectoryIfMissing True (root FilePath.</> "src")
+    Dir.createDirectoryIfMissing True (root FilePath.</> "tests")
+    result <- TestCompile.regenerateTestElmJsonPersisted root
+    let testRoot = TestGenerate.generatedDir root
+        testElmJsonPath = testRoot FilePath.</> "elm.json"
+    exists <- Dir.doesFileExist testElmJsonPath
+    generated <- Outline.read testRoot
+    pure $ case (result, generated) of
+      (Right (), Right (Outline.App _)) -> exists
+      _ -> False
+
+
+testDiscoveryPreservesExposedDeclarationCasing :: IO Bool
+testDiscoveryPreservesExposedDeclarationCasing = do
+  let source = BS.intercalate "\n"
+        [ "module AppSpatialInteractionTest exposing (tests, generatedSrdFireballNaturalTest, generatedSrdDiscoveryProbe)"
+        , ""
+        , "tests = ()"
+        , "generatedSrdFireballNaturalTest = ()"
+        , "generatedSrdDiscoveryProbe = ()"
+        ]
+      expected =
+        [ "AppSpatialInteractionTest.tests"
+        , "AppSpatialInteractionTest.generatedSrdFireballNaturalTest"
+        , "AppSpatialInteractionTest.generatedSrdDiscoveryProbe"
+        ]
+  pure $ case TestParse.parseModule "AppSpatialInteractionTest.elm" source of
+    Left _ -> False
+    Right parsed ->
+      let discovered =
+            map
+              (\(moduleName, declaration) -> ModuleName.toChars moduleName ++ "." ++ Name.toChars declaration)
+              (TestParse.potentialTestValues parsed)
+      in discovered == expected
+          && all (\name -> TestRunner.matchesAnyGlob [name] name) expected
 
 
 testReportDuration :: IO Bool

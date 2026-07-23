@@ -66,7 +66,7 @@ parseExposing src =
   in case findExposing of
     Nothing -> Right ExposedEverything -- No exposing clause means we'll check all top-level decls
     Just idx ->
-      let afterExposing = drop (idx + 8) lowerSrc  -- "exposing" is 8 chars
+      let afterExposing = drop (idx + 8) src  -- "exposing" is 8 chars
           trimmed = dropWhile Char.isSpace afterExposing
       in case trimmed of
         '(':rest ->
@@ -170,4 +170,3 @@ potentialTestValues pm =
         ExposedEverything -> Set.toList topLevelDecls
         ExposedExact names -> names
   in map (\valName -> (moduleName, valName)) valuesToCheck
-

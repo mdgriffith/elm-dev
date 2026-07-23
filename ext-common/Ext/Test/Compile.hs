@@ -7,6 +7,7 @@ module Ext.Test.Compile
 
 import qualified BackgroundWriter
 import qualified Control.Concurrent.MVar as MVar
+import qualified Data.ByteString as BS
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
@@ -29,6 +30,11 @@ import System.FilePath ((</>))
 import qualified System.FilePath as FP
 import qualified Deps.Solver as Solver
 import qualified Ext.Test.Generate as Generate
+import qualified System.Environment as Env
+import qualified System.Exit as SystemExit
+import qualified System.IO as IO
+import qualified System.IO.Temp as Temp
+import qualified System.Process as Process
 
 
 -- Ensure a test elm.json exists under root/elm-stuff/elm-dev-test based on project's elm.json.
@@ -41,7 +47,7 @@ generateTestJsonIfNone root = do
   exists <- Dir.doesFileExist testElmJsonPath
   if exists
     then pure (Right ())
-    else regenerateTestElmJson root
+    else regenerateTestElmJsonPersisted root
 
 -- Always (re)generate the test elm.json under root/elm-stuff/elm-dev-test from project's elm.json at root.
 regenerateTestElmJson :: FilePath -> IO (Either Exit.Reactor ())
@@ -96,21 +102,26 @@ compile root entrypoints = do
             Right _ -> pure (Right ())
 
 
-compileRunner :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor CompileHelpers.CompilationResult)
+compileRunner :: FilePath -> NE.List FilePath -> IO (Either String BS.ByteString)
 compileRunner root entrypoints = do
-  BackgroundWriter.withScope $ \scope -> do
-    let testRoot = Generate.generatedDir root
-    genR <- generateTestJsonIfNone root
-    case genR of
-      Left err -> pure (Left err)
-      Right () -> do
-        Dir.withCurrentDirectory testRoot $ do
-          let flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.OutputTo CompileHelpers.Js) CompileHelpers.DebuggerNone
-          let rewrittenEntrypoints = fmap (rewriteEntrypoint root) entrypoints
-          (eitherCompiled, _info) <- CompileProxy.compile testRoot rewrittenEntrypoints flags Nothing
-          case eitherCompiled of
-            Left err -> pure (Left err)
-            Right result -> pure (Right result)
+  let testRoot = Generate.generatedDir root
+  genR <- generateTestJsonIfNone root
+  case genR of
+    Left err -> pure (Left (Exit.toString (Exit.reactorToReport err)))
+    Right () ->
+      Temp.withSystemTempFile "elm-dev-test-runner.js" $ \outputPath outputHandle -> do
+        IO.hClose outputHandle
+        executable <- Env.getExecutablePath
+        let relativeEntrypoints = map (FP.makeRelative testRoot) (NE.toList entrypoints)
+            process =
+              (Process.proc executable ("make" : relativeEntrypoints ++ ["--output=" ++ outputPath]))
+                { Process.cwd = Just testRoot }
+        (exitCode, stdout, stderr) <- Process.readCreateProcessWithExitCode process ""
+        case exitCode of
+          SystemExit.ExitSuccess -> Right <$> BS.readFile outputPath
+          SystemExit.ExitFailure code ->
+            let details = if null stderr then stdout else stderr
+            in pure (Left ("Test runner compilation exited with code " ++ show code ++ if null details then "" else ":\n" ++ details))
 
 
 
@@ -267,4 +278,3 @@ rewriteEntrypoint :: FilePath -> FilePath -> FilePath
 rewriteEntrypoint root path =
   let rel = FP.makeRelative root path
   in ("../../" </> rel)
-

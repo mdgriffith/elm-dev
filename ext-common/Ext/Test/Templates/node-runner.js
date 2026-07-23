@@ -101,14 +101,17 @@ if (isMainThread) {
             await Promise.all(
                 workers.map(
                     (w) =>
-                        new Promise((resolve) => {
+                        new Promise((resolve, reject) => {
                             let startedAt = 0;
+                            let activeId = null;
                             const tryAssign = () => {
                                 if (nextIndex < tests.length) {
                                     const id = tests[nextIndex++];
+                                    activeId = id;
                                     startedAt = performance.now();
                                     w.postMessage({ type: 'run', id });
                                 } else {
+                                    activeId = null;
                                     w.postMessage({ type: 'shutdown' });
                                 }
                             };
@@ -128,20 +131,25 @@ if (isMainThread) {
                                         tryAssign();
                                         break;
                                     case 'error':
-                                        // Errors are not summarized; print to stderr for visibility
-                                        console.error('[worker error]', msg && msg.id, msg && msg.error);
-                                        tryAssign();
+                                        reject(new Error('Test worker failed for ' + activeId + ': ' + String(msg && msg.error)));
                                         break;
                                 }
                             });
-                            w.on('exit', () => resolve());
-                            w.on('error', () => resolve());
+                            w.on('exit', (code) => {
+                                if (code === 0) {
+                                    resolve();
+                                } else {
+                                    reject(new Error('Test worker exited with code ' + code + (activeId ? ' while running ' + activeId : '')));
+                                }
+                            });
+                            w.on('error', (error) => reject(error));
                         })
                 )
             );
 
-            process.stdout.write(JSON.stringify(reports));
-            process.exit(0);
+            process.stdout.write(JSON.stringify(reports), () => {
+                process.exitCode = 0;
+            });
         } catch (e) {
             console.error(e && e.stack ? e.stack : String(e));
             process.exit(1);
@@ -150,11 +158,11 @@ if (isMainThread) {
 } else {
     try {
         const flags = (workerData && workerData.flags) || { seed: 0, runs: 100 };
-        const Elm = global.Elm || (module && module.exports && module.exports.Elm);
-        if (!Elm || !Elm.Runner) {
+        const elmNamespace = global.Elm || (module && module.exports && module.exports.Elm);
+        if (!elmNamespace || !elmNamespace.Runner) {
             throw new Error('Runner module not found in compiled code');
         }
-        const app = Elm.Runner.init({ flags });
+        const app = elmNamespace.Runner.init({ flags });
         parentPort.postMessage({ type: 'ready' });
         app.ports.reportSent.subscribe((payload) => {
             parentPort.postMessage({ type: 'result', report: payload });
