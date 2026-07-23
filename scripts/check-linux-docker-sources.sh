@@ -58,8 +58,15 @@ if ! grep -Fq 'statically linked' "$DOCKERFILE" || ! grep -Fq 'statically linked
   exit 1
 fi
 
-if ! grep -Fq -- '-optl=-static' "$DOCKERFILE" || ! grep -Fq -- '-optl=-static' "$ARM64_SCRIPT"; then
-  echo "Linux Docker builds do not force the system linker to link statically" >&2
+STACK_LINUX_CONFIG="$ROOT_DIR/distribution/stack-linux-config.yaml"
+
+if ! grep -Fq -- '--enable-executable-static' "$STACK_LINUX_CONFIG"; then
+  echo "Linux Stack configuration does not enable fully static executables" >&2
+  exit 1
+fi
+
+if ! grep -Fq 'stack-linux-config.yaml' "$DOCKERFILE" || ! grep -Fq 'stack-linux-config.yaml' "$ARM64_SCRIPT"; then
+  echo "Linux Docker builds do not load the static Stack configuration" >&2
   exit 1
 fi
 

@@ -43,10 +43,12 @@ WORKDIR /elm-dev
 COPY elm-dev.cabal ./
 COPY stack.yaml ./
 COPY stack.yaml.lock ./
+COPY distribution/stack-linux-config.yaml /root/.stack/config.yaml
 COPY vendor/elm-format vendor/elm-format
 
 ENV STACKOPTS="--system-ghc --no-install-ghc --allow-different-user"
-ENV GHCOPTS="-j4 +RTS -A256m -RTS -static -split-sections -optc-Os -optl=-static -optl=-pthread"
+ENV STACK_CONFIG="/root/.stack/config.yaml"
+ENV GHCOPTS="-j4 +RTS -A256m -RTS -split-sections -optc-Os -optl=-pthread"
 RUN stack $STACKOPTS build --only-dependencies --ghc-options="$GHCOPTS"
 
 # Import source code
