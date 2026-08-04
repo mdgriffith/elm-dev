@@ -39,6 +39,7 @@ import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Server.JSONRPC as JSONRPC
 import qualified Watchtower.State.Project
 import qualified Watchtower.State.Compile
+import qualified Watchtower.State.StartupMetrics as StartupMetrics
 import qualified Modify.Inject.Loader
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Ext.Optimization.Level as Optimization
@@ -512,6 +513,7 @@ memoryHandler state = do
   let doGc = parseBoolParamWithDefault False mGc
   when doGc (liftIO Mem.performMajorGC)
   vfs <- liftIO Ext.FileCache.fileCacheStats
+  startupMetrics <- liftIO StartupMetrics.snapshot
   let (vfsCount, vfsBytes, vfsOverhead) = vfs
   -- Server state sizes (counts only; not bytes):
   (projCount, fileInfoCount, packageCount) <- liftIO $ do
@@ -612,6 +614,7 @@ memoryHandler state = do
         , "packages" JSON..= packageCount
         ]
     , "rts" JSON..= rtsJson
+    , "startup" JSON..= startupMetrics
     ]))
 
 -- Notify server that an absolute file path changed

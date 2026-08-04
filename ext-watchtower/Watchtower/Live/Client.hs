@@ -119,7 +119,7 @@ import Watchtower.Server.LSP.Protocol (Uri)
 data LspSession = LspSession
   { workspaceDiagnosticsSnapshotFiles :: [Uri]
   , workspaceDiagnosticsSnapshotOutOfDate :: Bool
-  , publishedDiagnosticFiles :: [Uri]
+  , publishedDiagnosticFiles :: Map.Map FilePath String
   , lspRoot :: [FilePath]
   }
 

@@ -36,6 +36,7 @@ import qualified Watchtower.AST.Definition
 import qualified Watchtower.AST.References
 import qualified Elm.ModuleName
 import qualified Ext.Dev.Project
+import qualified Watchtower.State.Versions as Versions
 import qualified Ext.FileCache
 import qualified Data.ByteString as BS
 import Data.Text (Text)
@@ -242,7 +243,8 @@ warningToUnusedDiagnostic warn =
 
 unusedModuleDiagnosticForFile :: Ext.Dev.Project.Project -> FilePath -> IO [Diagnostic]
 unusedModuleDiagnosticForFile project filePath = do
-  maybeUnused <- Ext.Dev.Project.unusedModuleForFile filePath project
+  versions <- Versions.readVersions (Ext.Dev.Project.getRoot project)
+  maybeUnused <- Ext.Dev.Project.unusedModuleForFileAtVersion (Versions.fsVersion versions) filePath project
   case maybeUnused of
     Nothing -> pure []
     Just unusedModule -> do

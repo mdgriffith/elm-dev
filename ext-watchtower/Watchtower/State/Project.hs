@@ -1,6 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Watchtower.State.Project
   ( upsert
+  , upsertWithWatchRoot
   , upsertVirtual
   , UpsertError(..)
   , isRelevantWatchedPath
@@ -40,25 +41,23 @@ import qualified Ext.Trace as PerfTrace
 import qualified System.IO.Error as IOError
 
 
-entrypointsIncluded :: NE.List FilePath -> NE.List FilePath -> Bool
-entrypointsIncluded provided existing =
-  let providedList = NE.toList provided
-      existingList = NE.toList existing
-  in List.all (\p -> List.elem p existingList) providedList
-
-updateProjectIfNecessary :: Client.ProjectCache -> CompileHelpers.Flags -> NE.List FilePath -> Maybe Client.ProjectCache
-updateProjectIfNecessary existingProjectCache newFlags providedEntrypoints =
+updateProjectIfNecessary :: Bool -> Client.ProjectCache -> CompileHelpers.Flags -> Ext.Dev.Project.Project -> Maybe Client.ProjectCache
+updateProjectIfNecessary replaceEntrypoints existingProjectCache newFlags providedProject =
   case existingProjectCache of
     Client.ProjectCache proj docsInfo0 oldFlags mCompileResult mTest ->
-      let Ext.Dev.Project.Project root0 projectRoot0 existingEntrypoints srcDirs0 shortId0 = proj
-      in if oldFlags == newFlags && entrypointsIncluded providedEntrypoints existingEntrypoints
+      let Ext.Dev.Project.Project root0 projectRoot0 existingEntrypoints existingSrcDirs shortId0 = proj
+          Ext.Dev.Project.Project _ _ providedEntrypoints providedSrcDirs _ = providedProject
+          mergedEntrypoints =
+            if replaceEntrypoints
+              then providedEntrypoints
+              else
+                let existingList = NE.toList existingEntrypoints
+                    extras = List.filter (\p -> not (List.elem p existingList)) (NE.toList providedEntrypoints)
+                in NE.append extras existingEntrypoints
+      in if oldFlags == newFlags && NE.toList mergedEntrypoints == NE.toList existingEntrypoints && providedSrcDirs == existingSrcDirs
            then Nothing
            else
-             let existingList = NE.toList existingEntrypoints
-                 providedList = NE.toList providedEntrypoints
-                 extras = List.filter (\p -> not (List.elem p existingList)) providedList
-                 combinedEntrypoints = NE.append extras existingEntrypoints
-                 updatedProj = Ext.Dev.Project.Project root0 projectRoot0 combinedEntrypoints srcDirs0 shortId0
+             let updatedProj = Ext.Dev.Project.Project root0 projectRoot0 mergedEntrypoints providedSrcDirs shortId0
              in Just (Client.ProjectCache updatedProj docsInfo0 newFlags mCompileResult mTest)
 
 {-
@@ -157,8 +156,16 @@ data UpsertError
   deriving (Show)
  
 upsert :: Client.State -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO (Either UpsertError Client.ProjectCache)
-upsert state@(Client.State mClients mProjects _ _ _ _ _ _ _) flags root entrypoints = do
+upsert state flags root entrypoints =
+  upsertWithWatchRootHelp False state root (\_ -> pure ()) flags root entrypoints
+
+upsertWithWatchRoot :: Client.State -> FilePath -> (FilePath -> IO ()) -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO (Either UpsertError Client.ProjectCache)
+upsertWithWatchRoot = upsertWithWatchRootHelp True
+
+upsertWithWatchRootHelp :: Bool -> Client.State -> FilePath -> (FilePath -> IO ()) -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO (Either UpsertError Client.ProjectCache)
+upsertWithWatchRootHelp replaceEntrypoints state@(Client.State mClients mProjects _ _ _ _ _ _ _) watchRoot invalidateDiscovery flags root entrypoints = do
   canonicalRoot <- Dir.canonicalizePath root
+  canonicalWatchRoot <- Dir.canonicalizePath watchRoot
   normalizedEntrypoints <- normalizeEntrypoints canonicalRoot entrypoints
 
   eOutline <- Exception.try (Elm.Outline.read canonicalRoot)
@@ -216,11 +223,11 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _ _) flags root entrypoi
               mTest <- STM.newTVarIO Nothing
               let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTest
 
-              (isNew, project) <- STM.atomically $ do
+              (_isNew, project) <- STM.atomically $ do
                 existingProjects' <- STM.readTVar mProjects
                 case List.find (Client.matchingProject newProjectCache) existingProjects' of
                   Just existingProject -> do
-                    case updateProjectIfNecessary existingProject flags normalizedEntrypoints of
+                    case updateProjectIfNecessary replaceEntrypoints existingProject flags newProject of
                       Nothing -> do
                         pure (False, existingProject)
                       Just updatedProjectCache -> do
@@ -234,10 +241,8 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _ _) flags root entrypoi
 
               registerTraceProject state project
 
-              if isNew
-                then do
-                  Ext.Filewatch.watch
-                    canonicalRoot
+              Ext.Filewatch.watch
+                    canonicalWatchRoot
                     (\filesChanged -> do
                         traceId <- Trace.newTraceId "watch.fs"
                         let normalized = map FilePath.normalise filesChanged
@@ -248,7 +253,7 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _ _) flags root entrypoi
                             Ext.Log.log Ext.Log.Live
                               ( concat
                                   [ "[trace " ++ traceId ++ "] watcher.changed"
-                                  , " root=" ++ canonicalRoot
+                                  , " root=" ++ canonicalWatchRoot
                                   , " relevant=" ++ Trace.formatPaths relevant
                                   ]
                               )
@@ -273,6 +278,8 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _ _) flags root entrypoi
                                         )
                                     )
                             Monad.mapM_ TestCompile.regenerateTestElmJson elmJsonRoots
+                            Monad.mapM_ invalidateDiscovery
+                              (filter (\path -> let name = FilePath.takeFileName path in name == "elm.json" || name == "elm.dev.json") relevant)
 
                             Ext.Log.log Ext.Log.Live
                               ( concat
@@ -286,8 +293,7 @@ upsert state@(Client.State mClients mProjects _ _ _ _ _ _ _) flags root entrypoi
                             _ <- Watchtower.State.Compile.compileRelevantProjects state traceId changed
                             pure ()
                     )
-                  pure ()
-                else pure ()
+              pure ()
 
               pure (Right project)
 

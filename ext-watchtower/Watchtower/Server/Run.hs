@@ -2,7 +2,7 @@
 
 module Watchtower.Server.Run where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, killThread)
 import qualified Control.Concurrent.STM as STM
 import Control.Exception (IOException, try, finally)
 import Control.Monad (forever, void)
@@ -48,26 +48,26 @@ type EventEmitter = JSONRPC.EventEmitter
 
 -- Global emitters list for ad-hoc signals (multiple listeners: LSP, MCP, SSE)
 {-# NOINLINE globalEmittersVar #-}
-globalEmittersVar :: MVar [EventEmitter]
+globalEmittersVar :: MVar [(Unique.Unique, EventEmitter)]
 globalEmittersVar = unsafePerformIO (newMVar [])
 
 -- | Specialize try to IOException to avoid ambiguous types without ScopedTypeVariables
 tryIO :: IO a -> IO (Either IOException a)
 tryIO = try
 
--- Register an emitter; returns an unregister action (currently no-op)
+-- Register an emitter and return the action that removes it.
 registerEmitter :: EventEmitter -> IO (IO ())
 registerEmitter f = do
-  modifyMVar_ globalEmittersVar (\fs -> pure (f : fs))
-  -- TODO: implement proper unregister by identity; for now it's a no-op
-  pure (pure ())
+  emitterId <- Unique.newUnique
+  modifyMVar_ globalEmittersVar (\fs -> pure ((emitterId, f) : fs))
+  pure $ modifyMVar_ globalEmittersVar (pure . filter ((/= emitterId) . fst))
 
 -- | Emit a server-initiated notification from anywhere
 emit :: JSONRPC.Outbound -> IO ()
 emit notif = do
   Ext.Log.log Ext.Log.LSP $ "Emitting notification: " ++ outboudnName notif
   emitters <- readMVar globalEmittersVar
-  mapM_ (\f -> f notif) emitters
+  mapM_ (\(_, f) -> f notif) emitters
 
 outboudnName :: JSONRPC.Outbound -> String
 outboudnName (JSONRPC.OutboundNotification (JSONRPC.Notification _ method _)) = "notification: " ++ T.unpack method
@@ -172,15 +172,16 @@ runTcp state handler notificationHandler host port = do
         eventsChan <- STM.newTChanIO :: IO (STM.TChan JSONRPC.Outbound)
         let emitEvent :: EventEmitter
             emitEvent notif = STM.atomically (STM.writeTChan eventsChan notif)
-        _ <- registerEmitter emitEvent
+        unregisterEmitter <- registerEmitter emitEvent
         -- Forward events to this TCP connection
-        _ <- forkIO $ forever $ do
-          outbound <- STM.atomically (STM.readTChan eventsChan)
-          msg <- encodeOutbound outbound
-          ok <- tryIO (sendWithContentLengthHandleLocked writeLock h msg)
-          case ok of
-            Left _ -> IO.hClose h
-            Right _ -> pure ()
+        let forwardEvents = do
+              outbound <- STM.atomically (STM.readTChan eventsChan)
+              msg <- encodeOutbound outbound
+              ok <- tryIO (sendWithContentLengthHandleLocked writeLock h msg)
+              case ok of
+                Left _ -> IO.hClose h
+                Right _ -> forwardEvents
+        eventThread <- forkIO forwardEvents
         -- Main read loop per connection
         let loop = do
               maybeMessage <- readHandleMessage h
@@ -205,6 +206,8 @@ runTcp state handler notificationHandler host port = do
                         JSONRPC.ResponseMessage _ -> loop
                         JSONRPC.ErrorMessage _ -> loop
         loop `finally` (do
+          killThread eventThread
+          unregisterEmitter
           IO.hClose h
           -- Cleanup per-connection session
           Client.unregisterSession state connId

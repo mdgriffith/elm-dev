@@ -12,8 +12,11 @@ module Ext.Dev.Project
     sourceContains,
     affectsCompilation,
     entrypointGroupsForChangedFiles,
+    entrypointGroupsForChangedFilesAtVersion,
     unusedModuleForFile,
+    unusedModuleForFileAtVersion,
     discover,
+    isExcludedDirectoryName,
     decodeProject,
     UnusedModule (..),
     Project (..),
@@ -52,6 +55,9 @@ import System.FilePath ((</>))
 import qualified System.FilePath as FP
 import Prelude hiding (lookup)
 import qualified StandaloneInstances
+import qualified Control.Concurrent.MVar as MVar
+import qualified System.IO.Unsafe as Unsafe
+import qualified Watchtower.State.StartupMetrics as Metrics
 
 defaultImports :: Set.Set ModuleName.Raw
 defaultImports =
@@ -143,6 +149,10 @@ data SourceGraph = SourceGraph
   , graphImports :: Map.Map ModuleName.Raw [ModuleName.Raw]
   }
 
+{-# NOINLINE sourceGraphCache #-}
+sourceGraphCache :: MVar.MVar (Map.Map FilePath (Int, Maybe SourceGraph))
+sourceGraphCache = Unsafe.unsafePerformIO (MVar.newMVar Map.empty)
+
 data UnusedModule = UnusedModule
   { unusedModulePath :: FilePath
   , unusedModuleName :: ModuleName.Raw
@@ -189,19 +199,31 @@ affectsCompilation path project =
             )
 
 entrypointGroupsForChangedFiles :: [FilePath] -> Project -> IO [NE.List FilePath]
-entrypointGroupsForChangedFiles changedFiles project@(Project root _ entrypoints _ _) = do
+entrypointGroupsForChangedFiles = entrypointGroupsForChangedFilesHelp Nothing
+
+entrypointGroupsForChangedFilesAtVersion :: Int -> [FilePath] -> Project -> IO [NE.List FilePath]
+entrypointGroupsForChangedFilesAtVersion version = entrypointGroupsForChangedFilesHelp (Just version)
+
+entrypointGroupsForChangedFilesHelp :: Maybe Int -> [FilePath] -> Project -> IO [NE.List FilePath]
+entrypointGroupsForChangedFilesHelp maybeVersion changedFiles project@(Project root _ entrypoints _ _) = do
   outlineResult <- Elm.Outline.read root
   case outlineResult of
-    Right (Elm.Outline.App _) -> applicationEntrypointGroups changedFiles project
+    Right (Elm.Outline.App _) -> applicationEntrypointGroups maybeVersion changedFiles project
     Right (Elm.Outline.Pkg _) -> packageEntrypointGroups changedFiles project
     Left _ -> pure [entrypoints]
 
 unusedModuleForFile :: FilePath -> Project -> IO (Maybe UnusedModule)
-unusedModuleForFile filePath project@(Project _ _ entrypoints srcDirs _) = do
+unusedModuleForFile = unusedModuleForFileHelp Nothing
+
+unusedModuleForFileAtVersion :: Int -> FilePath -> Project -> IO (Maybe UnusedModule)
+unusedModuleForFileAtVersion version = unusedModuleForFileHelp (Just version)
+
+unusedModuleForFileHelp :: Maybe Int -> FilePath -> Project -> IO (Maybe UnusedModule)
+unusedModuleForFileHelp maybeVersion filePath project@(Project root _ entrypoints srcDirs _) = do
   if not (isElmFile filePath) || not (sourceContains filePath project)
     then pure Nothing
     else do
-      maybeGraph <- parseSourceGraph srcDirs
+      maybeGraph <- parseSourceGraphForVersion root maybeVersion srcDirs
       case maybeGraph of
         Nothing -> pure Nothing
         Just graph -> do
@@ -224,12 +246,12 @@ packageEntrypointGroups changedFiles project@(Project _ _ entrypoints _ _) =
         [] -> pure [entrypoints]
         path : others -> pure (singletonGroups (NE.List path others))
 
-applicationEntrypointGroups :: [FilePath] -> Project -> IO [NE.List FilePath]
-applicationEntrypointGroups changedFiles (Project _ _ entrypoints srcDirs _) = do
+applicationEntrypointGroups :: Maybe Int -> [FilePath] -> Project -> IO [NE.List FilePath]
+applicationEntrypointGroups maybeVersion changedFiles (Project root _ entrypoints srcDirs _) = do
   if null changedFiles || any isProjectConfig changedFiles
     then pure (singletonGroups entrypoints)
     else do
-      maybeGraph <- parseSourceGraph srcDirs
+      maybeGraph <- parseSourceGraphForVersion root maybeVersion srcDirs
       case maybeGraph of
         Nothing -> pure (singletonGroups entrypoints)
         Just graph -> do
@@ -305,6 +327,19 @@ parseSourceGraph srcDirs = do
         then pure Nothing
         else pure (Just (SourceGraph moduleToPath pathToModule importsByModule))
 
+parseSourceGraphForVersion :: FilePath -> Maybe Int -> [FilePath] -> IO (Maybe SourceGraph)
+parseSourceGraphForVersion _ Nothing srcDirs = parseSourceGraph srcDirs
+parseSourceGraphForVersion root (Just version) srcDirs =
+  MVar.modifyMVar sourceGraphCache $ \cached ->
+    case Map.lookup root cached of
+      Just (cachedVersion, graph) | cachedVersion == version -> do
+        Metrics.increment "source_graph.cache_hits"
+        pure (cached, graph)
+      _ -> do
+        Metrics.increment "source_graph.rebuilds"
+        graph <- parseSourceGraph srcDirs
+        pure (Map.insert root (version, graph) cached, graph)
+
 parseGraphModule :: FilePath -> IO (Maybe (FilePath, ModuleName.Raw, [ModuleName.Raw]))
 parseGraphModule path = do
   cached <- Ext.FileCache.lookup path
@@ -342,15 +377,15 @@ discover projectBase = do
   canonicalBase <- Dir.canonicalizePath projectBase
   searchProjectHelp canonicalBase [] canonicalBase
 
-shouldSkip :: FilePath -> Bool
-shouldSkip path =
-  List.isInfixOf "node_modules" path
-    || ( case path of
-           '.' : _ ->
-             True
-           _ ->
-             False
-       )
+isExcludedDirectoryName :: FilePath -> Bool
+isExcludedDirectoryName name =
+  name == ".git"
+    || name == "node_modules"
+    || name == "elm-stuff"
+    || name == "dist"
+    || case name of
+         '.' : _ -> True
+         _ -> False
 
 listDirectoriesSafe :: FilePath -> IO (Either Exception.SomeException [FilePath])
 listDirectoriesSafe path = Exception.try $ do
@@ -361,7 +396,7 @@ listDirectoriesSafe path = Exception.try $ do
 
 searchProjectHelp :: FilePath -> [Project] -> FilePath -> IO [Project]
 searchProjectHelp projectRoot projs root = do
-  if shouldSkip root
+  if root /= projectRoot && isExcludedDirectoryName (FP.takeFileName root)
     then pure projs
     else do
       elmJsonExists <- Dir.doesFileExist (root </> "elm.json")
@@ -447,28 +482,29 @@ rawModuleNameToPackagePath root modul =
   root </> "src" </> (ModuleName.toFilePath modul <> ".elm")
 
 findFirstFileNamed :: String -> FilePath -> IO (Maybe FilePath)
-findFirstFileNamed named dir =
-  if shouldSkip dir
-    then pure Nothing
-    else do
-      fileExists <- Dir.doesFileExist (dir </> named)
-
-      if fileExists
-        then pure (Just (dir </> named))
+findFirstFileNamed named dir = findFirstFileNamedHelp dir
+  where
+    findFirstFileNamedHelp current = do
+      let shouldSkipCurrent = current /= dir && isExcludedDirectoryName (FP.takeFileName current)
+      if shouldSkipCurrent
+        then pure Nothing
         else do
-          subdirs <- Dir.listDirectory dir
-          let paths = map (dir </>) subdirs
-          dirs <- Monad.filterM Dir.doesDirectoryExist paths
-          Monad.foldM
-            ( \found subdir ->
-                case found of
-                  Nothing ->
-                    findFirstFileNamed named subdir
-                  Just _ ->
-                    pure found
-            )
-            Nothing
-            dirs
+          fileExists <- Dir.doesFileExist (current </> named)
+
+          if fileExists
+            then pure (Just (current </> named))
+            else do
+              subdirs <- Dir.listDirectory current
+              let paths = map (current </>) subdirs
+              dirs <- Monad.filterM Dir.doesDirectoryExist paths
+              Monad.foldM
+                ( \found subdir ->
+                    case found of
+                      Nothing -> findFirstFileNamedHelp subdir
+                      Just _ -> pure found
+                )
+                Nothing
+                dirs
 
 {-
   Find all Elm files in the given source directories that expose `main`.
@@ -488,26 +524,29 @@ findElmEntrypointsInDirs srcDirs = do
   Monad.filterM fileExposesMain elmFiles
 
 listElmFilesRecursive :: FilePath -> IO [FilePath]
-listElmFilesRecursive dir = do
-  isDir <- Dir.doesDirectoryExist dir
-  if not isDir || shouldSkip dir
-    then pure []
-    else do
-      names <- Dir.listDirectory dir
-      let paths = map (dir </>) names
-      (subdirs, files) <-
-        Monad.foldM
-          (\(ds, fs) p -> do
-              isSubDir <- Dir.doesDirectoryExist p
-              if isSubDir
-                then pure (p : ds, fs)
-                else pure (ds, p : fs)
-          )
-          ([], [])
-          paths
-      let elmFiles = filter (List.isSuffixOf ".elm") files
-      nested <- Monad.foldM (\acc d -> do xs <- listElmFilesRecursive d; pure (acc <> xs)) [] subdirs
-      pure (elmFiles <> nested)
+listElmFilesRecursive dir = listElmFilesRecursiveHelp dir
+  where
+    listElmFilesRecursiveHelp current = do
+      isDir <- Dir.doesDirectoryExist current
+      let shouldSkipCurrent = current /= dir && isExcludedDirectoryName (FP.takeFileName current)
+      if not isDir || shouldSkipCurrent
+        then pure []
+        else do
+          names <- Dir.listDirectory current
+          let paths = map (current </>) names
+          (subdirs, files) <-
+            Monad.foldM
+              (\(ds, fs) p -> do
+                  isSubDir <- Dir.doesDirectoryExist p
+                  if isSubDir
+                    then pure (p : ds, fs)
+                    else pure (ds, p : fs)
+              )
+              ([], [])
+              paths
+          let elmFiles = filter (List.isSuffixOf ".elm") files
+          nested <- Monad.foldM (\acc d -> do xs <- listElmFilesRecursiveHelp d; pure (acc <> xs)) [] subdirs
+          pure (elmFiles <> nested)
 
 fileExposesMain :: FilePath -> IO Bool
 fileExposesMain path = do

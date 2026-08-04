@@ -50,6 +50,7 @@ import qualified Watchtower.State.Discover as Discover
 import qualified Watchtower.Live.Client
 import qualified Watchtower.Live.Compile
 import qualified Watchtower.State.Compile
+import qualified Watchtower.State.StartupMetrics as Metrics
 import qualified Reporting.Error
 import qualified Reporting.Exit
 import qualified Reporting.Annotation
@@ -61,6 +62,7 @@ import qualified Data.List
 import qualified Data.Map as Map
 import qualified Ext.CompileHelpers.Generic
 import qualified Control.Concurrent.STM
+import qualified Control.Concurrent.MVar as MVar
 import qualified Ext.Log
 import qualified Ext.Reporting.Error
 import System.FilePath ((</>))
@@ -93,6 +95,20 @@ type SuppressedCodeLens = (Text, Int, Text)
 {-# NOINLINE suppressedCodeLenses #-}
 suppressedCodeLenses :: Control.Concurrent.STM.TVar (Set.Set SuppressedCodeLens)
 suppressedCodeLenses = System.IO.Unsafe.unsafePerformIO (Control.Concurrent.STM.newTVarIO Set.empty)
+
+{-# NOINLINE diagnosticPublicationLocks #-}
+diagnosticPublicationLocks :: MVar.MVar (Map.Map JSONRPC.ConnectionId (MVar.MVar ()))
+diagnosticPublicationLocks = System.IO.Unsafe.unsafePerformIO (MVar.newMVar Map.empty)
+
+withDiagnosticPublicationLock :: JSONRPC.ConnectionId -> IO a -> IO a
+withDiagnosticPublicationLock connId action = do
+  lock <- MVar.modifyMVar diagnosticPublicationLocks $ \locks ->
+    case Map.lookup connId locks of
+      Just existing -> pure (locks, existing)
+      Nothing -> do
+        created <- MVar.newMVar ()
+        pure (Map.insert connId created locks, created)
+  MVar.withMVar lock (\_ -> action)
 
 suppressCodeLens :: Text -> Int -> Text -> IO ()
 suppressCodeLens uri line signature =
@@ -241,12 +257,13 @@ handleInitialize state connId initParams = do
           , Just root <- [uriToFilePath uri]
           ]
         Nothing -> []
-      folderRoots = map fst folderRootsWithOrigin
 
-  case folderRootsWithOrigin of
+  canonicalFolderRootsWithOrigin <- canonicalizeRootsWithOrigin folderRootsWithOrigin
+  let canonicalFolderRoots = map fst canonicalFolderRootsWithOrigin
+  case canonicalFolderRootsWithOrigin of
     r:rs -> do
       mapM_ (\(root, origin) -> PerfTrace.workspaceRoot (Client.trace state) origin root []) (r:rs)
-      mapM_ (Discover.discover state) folderRoots
+      mapM_ (Discover.discover state) canonicalFolderRoots
       let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested _) = state
       Control.Concurrent.STM.atomically $ do
         cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
@@ -256,8 +273,8 @@ handleInitialize state connId initParams = do
                 (Client.LspSession
                   { Client.workspaceDiagnosticsSnapshotFiles = []
                   , Client.workspaceDiagnosticsSnapshotOutOfDate = True
-                  , Client.publishedDiagnosticFiles = []
-                  , Client.lspRoot = folderRoots
+                  , Client.publishedDiagnosticFiles = Map.empty
+                  , Client.lspRoot = canonicalFolderRoots
                   }
                 )
                 cur
@@ -265,7 +282,7 @@ handleInitialize state connId initParams = do
     [] -> do
       case initializeParamsRootPath initParams of
         Just pathTxt -> do
-          let root = Text.unpack pathTxt
+          root <- Dir.canonicalizePath (Text.unpack pathTxt)
           PerfTrace.workspaceRoot (Client.trace state) PerfTrace.LspInitializeRootPath root []
           Discover.discover state root
           let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested _) = state
@@ -277,7 +294,7 @@ handleInitialize state connId initParams = do
                     (Client.LspSession
                       { Client.workspaceDiagnosticsSnapshotFiles = []
                       , Client.workspaceDiagnosticsSnapshotOutOfDate = True
-                      , Client.publishedDiagnosticFiles = []
+                      , Client.publishedDiagnosticFiles = Map.empty
                       , Client.lspRoot = [root]
                       }
                     )
@@ -286,8 +303,9 @@ handleInitialize state connId initParams = do
         Nothing ->
           case initializeParamsRootUri initParams >>= uriToFilePath of
             Just root -> do
-              PerfTrace.workspaceRoot (Client.trace state) PerfTrace.LspInitializeRootUri root []
-              Discover.discover state root
+              canonicalRoot <- Dir.canonicalizePath root
+              PerfTrace.workspaceRoot (Client.trace state) PerfTrace.LspInitializeRootUri canonicalRoot []
+              Discover.discover state canonicalRoot
               let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested _) = state
               Control.Concurrent.STM.atomically $ do
                 cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
@@ -297,8 +315,8 @@ handleInitialize state connId initParams = do
                         (Client.LspSession
                           { Client.workspaceDiagnosticsSnapshotFiles = []
                           , Client.workspaceDiagnosticsSnapshotOutOfDate = True
-                          , Client.publishedDiagnosticFiles = []
-                          , Client.lspRoot = [root]
+                          , Client.publishedDiagnosticFiles = Map.empty
+                          , Client.lspRoot = [canonicalRoot]
                           }
                         )
                         cur
@@ -311,7 +329,7 @@ handleInitialize state connId initParams = do
   -- If no root was provided and there are no projects registered, fail initialization
   let hadRootPath = Maybe.isJust (initializeParamsRootPath initParams)
   let hadRootUri = Maybe.isJust (initializeParamsRootUri initParams)
-  let noRootProvided = null folderRoots && not hadRootPath && not hadRootUri
+  let noRootProvided = null canonicalFolderRoots && not hadRootPath && not hadRootUri
   let (Client.State _ mProjects _ _ _ _ _ _ _) = state
   projects <- Control.Concurrent.STM.readTVarIO mProjects
 
@@ -325,6 +343,11 @@ handleInitialize state connId initParams = do
   if noRootProvided && null projects
     then return $ Left "No workspace root provided and no projects are registered"
     else return $ Right initResult
+
+canonicalizeRootsWithOrigin :: [(FilePath, a)] -> IO [(FilePath, a)]
+canonicalizeRootsWithOrigin roots = do
+  canonical <- mapM (\(root, origin) -> do canonicalRoot <- Dir.canonicalizePath root; pure (canonicalRoot, origin)) roots
+  pure (Data.List.nubBy (\(one, _) (two, _) -> one == two) canonical)
 
 handleDidOpen :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> DidOpenTextDocumentParams -> IO (Either String JSON.Value)
 handleDidOpen state send connId openParams = do
@@ -364,9 +387,10 @@ handleDidOpen state send connId openParams = do
         Watchtower.State.Compile.scheduleDebouncedCompileRelevantProjectsWithCallbacks
           state
           traceId
+          (Text.unpack connId)
           didOpenCompileDebounceMicros
           [filePath]
-          (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "owner" [filePath]))
+          (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId "owner" [filePath]))
           (\didCompile -> when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "final" [filePath]))
       return $ Right JSON.Null
 
@@ -409,9 +433,10 @@ handleDidChange state send connId changeParams = do
               Watchtower.State.Compile.scheduleDebouncedCompileRelevantProjectsWithCallbacks
                 state
                 traceId
+                (Text.unpack connId)
                 didChangeCompileDebounceMicros
                 [filePath]
-                (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "owner" [filePath]))
+                (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId "owner" [filePath]))
                 (\didCompile -> when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "final" [filePath]))
             return $ Right JSON.Null
 
@@ -504,7 +529,7 @@ handleDidSave state send connId saveParams = do
             state
             traceId
             [filePath]
-            (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "owner" [filePath]))
+            (\primaryDidCompile -> when primaryDidCompile (publishDiagnosticsForWorkspaceSnapshot state send connId traceId "owner" [filePath]))
         when didCompile (publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId "final" [filePath])
         pure ()
       return $ Right JSON.Null
@@ -572,7 +597,7 @@ publishDiagnosticsForWorkspaceSnapshot state send connId traceId phase changedPa
     , PerfTrace.int "changed_file_count" (length changedPaths)
     , PerfTrace.text "changed_paths" (Data.List.intercalate "," changedPaths)
     ]
-    (publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId phase changedPaths)
+    (withDiagnosticPublicationLock connId (publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId phase changedPaths))
 
 publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> String -> [FilePath] -> IO ()
 publishDiagnosticsForWorkspaceSnapshotAndRefreshCodeLens state send connId traceId phase changedPaths = do
@@ -586,38 +611,46 @@ refreshCodeLens send =
 publishDiagnosticsForWorkspaceSnapshotUntraced :: Live.State -> JSONRPC.EventEmitter -> JSONRPC.ConnectionId -> String -> String -> [FilePath] -> IO ()
 publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId phase changedPaths = do
   let (Client.State _ mProjects _ _ _ _ mEditorsOpen mWorkspaceDiagsRequested _) = state
-  projects <- Control.Concurrent.STM.readTVarIO mProjects
-  projectMaps <- mapM (projectPublishDiagnosticsByFile state projects) projects
-  let currentMap = Map.filter (not . null) (Map.unionsWith (++) projectMaps)
-      currentPaths = Map.keys currentMap
-      currentUris = map fromFilePath currentPaths
-      diagnosticCount = sum (map length (Map.elems currentMap))
-  editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
-  let openPaths = Map.keys (EditorsOpen.toCounts editorsOpen)
-      changedFirst = filter (`elem` currentPaths) (Data.List.nub changedPaths)
-      openNext = filter (`elem` currentPaths) (Data.List.nub openPaths)
-      orderedPaths = Data.List.nub (changedFirst ++ openNext ++ currentPaths)
   sessions <- Control.Concurrent.STM.readTVarIO mWorkspaceDiagsRequested
   let maybeSession = Map.lookup connId sessions
-      previousUris = maybe [] Client.publishedDiagnosticFiles maybeSession
-      staleUris = filter (`notElem` currentUris) previousUris
+      roots = maybe [] Client.lspRoot maybeSession
+  allProjects <- Control.Concurrent.STM.readTVarIO mProjects
+  let projects = filter (projectBelongsToRoots roots) allProjects
+  editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
+  let openPaths = maybe [] Map.keys (Map.lookup connId (EditorsOpen.openByConnection editorsOpen))
+  projectMaps <- mapM (projectPublishDiagnosticsByFile state projects openPaths) projects
+  let currentMap = Map.filter (not . null) (Map.unionsWith (++) projectMaps)
+      currentPaths = Map.keys currentMap
+      currentFingerprints = Map.map show currentMap
+      diagnosticCount = sum (map length (Map.elems currentMap))
+      previousFingerprints = maybe Map.empty Client.publishedDiagnosticFiles maybeSession
+      changedDiagnosticPaths = Map.keys (Map.filterWithKey (\path fingerprint -> Map.lookup path previousFingerprints /= Just fingerprint) currentFingerprints)
+      stalePaths = Map.keys (Map.difference previousFingerprints currentFingerprints)
+      changedFirst = filter (`elem` changedDiagnosticPaths) (Data.List.nub changedPaths)
+      openNext = filter (`elem` currentPaths) (Data.List.nub openPaths)
+      orderedPaths = Data.List.nub (changedFirst ++ filter (`elem` changedDiagnosticPaths) openNext ++ changedDiagnosticPaths)
+
+  Metrics.add "diagnostics.projects_considered" (length projects)
+  Metrics.add "diagnostics.files_considered" (Map.size currentFingerprints)
+  Metrics.add "diagnostics.files_changed" (length changedDiagnosticPaths)
+  Metrics.add "diagnostics.files_published" (length orderedPaths)
+  Metrics.add "diagnostics.files_cleared" (length stalePaths)
 
   mapM_
     (\filePath -> publishDiagnosticsParams send filePath (Map.findWithDefault [] filePath currentMap))
     orderedPaths
-  mapM_ (\uri -> publishDiagnosticsUri send uri []) staleUris
+  mapM_ (\path -> publishDiagnosticsParams send path []) stalePaths
 
   Control.Concurrent.STM.atomically $ do
     cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
-    let currentSession = Map.lookup connId cur
-        updatedSession =
-          Client.LspSession
-            { Client.workspaceDiagnosticsSnapshotFiles = maybe [] Client.workspaceDiagnosticsSnapshotFiles currentSession
-            , Client.workspaceDiagnosticsSnapshotOutOfDate = maybe True Client.workspaceDiagnosticsSnapshotOutOfDate currentSession
-            , Client.publishedDiagnosticFiles = currentUris
-            , Client.lspRoot = maybe [] Client.lspRoot currentSession
-            }
-    Control.Concurrent.STM.writeTVar mWorkspaceDiagsRequested (Map.insert connId updatedSession cur)
+    case Map.lookup connId cur of
+      Nothing -> pure ()
+      Just currentSession ->
+        Control.Concurrent.STM.writeTVar mWorkspaceDiagsRequested
+          (Map.insert connId
+            (currentSession { Client.publishedDiagnosticFiles = currentFingerprints })
+            cur
+          )
 
   PerfTrace.event
     (Client.trace state)
@@ -628,26 +661,27 @@ publishDiagnosticsForWorkspaceSnapshotUntraced state send connId traceId phase c
     , PerfTrace.int "project_count" (length projects)
     , PerfTrace.int "diagnostic_file_count" (Map.size currentMap)
     , PerfTrace.int "diagnostic_count" diagnosticCount
-    , PerfTrace.int "current_uri_count" (length currentUris)
-    , PerfTrace.int "previous_uri_count" (length previousUris)
+    , PerfTrace.int "current_uri_count" (Map.size currentFingerprints)
+    , PerfTrace.int "previous_uri_count" (Map.size previousFingerprints)
     , PerfTrace.int "open_file_count" (length openPaths)
     , PerfTrace.int "changed_file_count" (length changedPaths)
     , PerfTrace.int "changed_published_file_count" (length changedFirst)
     , PerfTrace.int "published_file_count" (length orderedPaths)
-    , PerfTrace.int "cleared_file_count" (length staleUris)
+    , PerfTrace.int "unchanged_file_count" (Map.size currentFingerprints - length changedDiagnosticPaths)
+    , PerfTrace.int "cleared_file_count" (length stalePaths)
     ]
   Ext.Log.log Ext.Log.LSP
     ( concat
         [ "[trace " ++ traceId ++ "] publishDiagnostics.workspaceSnapshot"
         , " phase=" ++ phase
         , " published=" ++ show (length orderedPaths)
-        , " cleared=" ++ show (length staleUris)
+        , " cleared=" ++ show (length stalePaths)
         , " diagnostics=" ++ show diagnosticCount
         ]
     )
 
-projectPublishDiagnosticsByFile :: Live.State -> [Client.ProjectCache] -> Client.ProjectCache -> IO (Map.Map FilePath [Diagnostic])
-projectPublishDiagnosticsByFile state allProjects projectCache@(Client.ProjectCache _ _ _ _ mTest) = do
+projectPublishDiagnosticsByFile :: Live.State -> [Client.ProjectCache] -> [FilePath] -> Client.ProjectCache -> IO (Map.Map FilePath [Diagnostic])
+projectPublishDiagnosticsByFile state allProjects connectionOpenPaths projectCache@(Client.ProjectCache _ _ _ _ mTest) = do
   projectDiagsMap <- Helpers.getProjectDiagnosticsByFile state projectCache
   testDiagsMap <- do
     mTi <- Control.Concurrent.STM.readTVarIO mTest
@@ -670,12 +704,8 @@ projectPublishDiagnosticsByFile state allProjects projectCache@(Client.ProjectCa
                 else Nothing
           )
           fileInfoByPath
-  let (Client.State _ _ _ _ _ _ mEditorsOpen _ _) = state
-  editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
   let openFilesInProject =
-        case editorsOpen of
-          EditorsOpen.EditorsOpen m _ ->
-            filter (\p -> Ext.Dev.Project.affectsCompilation p proj && isOwnedByProject p allProjects projectCache) (Map.keys m)
+        filter (\p -> Ext.Dev.Project.affectsCompilation p proj && isOwnedByProject p allProjects projectCache) connectionOpenPaths
   openUnusedModulePairs <-
     mapM
       ( \path -> do
@@ -729,6 +759,17 @@ isOwnedByProject filePath allProjects projectCache =
   case nearestOwnerProjectForPush filePath allProjects of
     Just owner -> sameProjectCacheForPush owner projectCache
     Nothing -> True
+
+projectBelongsToRoots :: [FilePath] -> Client.ProjectCache -> Bool
+projectBelongsToRoots roots (Client.ProjectCache proj _ _ _ _) =
+  any (pathContains (Ext.Dev.Project.getRoot proj)) roots
+
+pathContains :: FilePath -> FilePath -> Bool
+pathContains path root =
+  let normalizedPath = FP.normalise path
+      normalizedRoot = FP.normalise root
+      rootWithSeparator = FP.addTrailingPathSeparator normalizedRoot
+  in normalizedPath == normalizedRoot || rootWithSeparator `Data.List.isPrefixOf` normalizedPath
 
 publishTestDiagnosticsForFile :: Live.State -> JSONRPC.EventEmitter -> String -> FilePath -> IO ()
 publishTestDiagnosticsForFile state send traceId filePath = do
@@ -1315,31 +1356,35 @@ handleDidCreateFiles state connId (DidCreateFilesParams files) = do
        case uriToFilePath uri of
          Nothing -> pure ()
          Just path ->
-           when (isWatchedFile path) $ do
-             projectResult <- Watchtower.Live.Client.getExistingProject path state
-             case projectResult of
-               Right _ -> pure ()
-               Left _ -> do
-                 let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested _) = state
-                 sessions <- Control.Concurrent.STM.readTVarIO mWorkspaceDiagsRequested
-                 let roots =
-                       case Map.lookup connId sessions of
-                         Just snap -> Client.lspRoot snap
-                         Nothing -> []
-                 mapM_ (Discover.discover state) roots
+            when (isWatchedFile path) $ do
+              if FP.takeFileName path == "elm.json" || FP.takeFileName path == "elm.dev.json"
+                then Discover.invalidate state path
+                else do
+                  projectResult <- Watchtower.Live.Client.getExistingProject path state
+                  case projectResult of
+                    Right _ -> pure ()
+                    Left _ -> do
+                      let (Client.State _ _ _ _ _ _ _ mWorkspaceDiagsRequested _) = state
+                      sessions <- Control.Concurrent.STM.readTVarIO mWorkspaceDiagsRequested
+                      let roots =
+                            case Map.lookup connId sessions of
+                              Just snap -> Client.lspRoot snap
+                              Nothing -> []
+                      mapM_ (Discover.discover state) roots
     )
     files
 
-handleDidDeleteFiles :: DidDeleteFilesParams -> IO ()
-handleDidDeleteFiles (DidDeleteFilesParams files) = do
+handleDidDeleteFiles :: Live.State -> DidDeleteFilesParams -> IO ()
+handleDidDeleteFiles state (DidDeleteFilesParams files) = do
   mapM_
     (\(FileOpItem uri) ->
        case uriToFilePath uri of
          Nothing -> pure ()
          Just path -> do
-           Ext.FileCache.remove path
-           isDir <- Dir.doesDirectoryExist path
-           when isDir (Ext.FileCache.removeDir path)
+            Ext.FileCache.remove path
+            isDir <- Dir.doesDirectoryExist path
+            when isDir (Ext.FileCache.removeDir path)
+            when (FP.takeFileName path == "elm.json" || FP.takeFileName path == "elm.dev.json") (Discover.invalidate state path)
     )
     files
 
@@ -1639,7 +1684,7 @@ handleNotificationUntraced state send connId (JSONRPC.Notification _ method para
       case params of
         Just p ->
           case JSON.fromJSON p of
-            JSON.Success deleteParams -> handleDidDeleteFiles deleteParams
+            JSON.Success deleteParams -> handleDidDeleteFiles state deleteParams
             JSON.Error err -> Ext.Log.log Ext.Log.LSP $ "Failed to parse didDeleteFiles params: " ++ err
         Nothing ->
           Ext.Log.log Ext.Log.LSP "didDeleteFiles notification missing parameters"
@@ -1680,10 +1725,11 @@ buildWorkspaceDiagnosticReport state connId workspaceParams =
 
 buildWorkspaceDiagnosticReportUntraced :: Live.State -> JSONRPC.ConnectionId -> WorkspaceDiagnosticParams -> IO JSON.Value
 buildWorkspaceDiagnosticReportUntraced state connId workspaceParams = do
-  let (Client.State _ mProjects _ _ _ _ _ mWorkspaceDiagsRequested _) = state
-  projects <- Control.Concurrent.STM.readTVarIO mProjects
+  let (Client.State _ mProjects _ _ _ _ mEditorsOpen mWorkspaceDiagsRequested _) = state
+  allProjects <- Control.Concurrent.STM.readTVarIO mProjects
   requestedMap <- Control.Concurrent.STM.readTVarIO mWorkspaceDiagsRequested
   let maybeSnap = Map.lookup connId requestedMap
+  let projects = filter (projectBelongsToRoots (maybe [] Client.lspRoot maybeSnap)) allProjects
   let prevUris =
         case maybeSnap of
           Just snap -> Client.workspaceDiagnosticsSnapshotFiles snap
@@ -1697,7 +1743,9 @@ buildWorkspaceDiagnosticReportUntraced state connId workspaceParams = do
                   previousIds
               )
           Nothing -> Map.empty
-  itemsAndUrisPerProject <- mapM (workspaceItemsForProject previousResultIds state projects) projects
+  editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
+  let connectionOpenPaths = maybe [] Map.keys (Map.lookup connId (EditorsOpen.openByConnection editorsOpen))
+  itemsAndUrisPerProject <- mapM (workspaceItemsForProject previousResultIds state projects connectionOpenPaths) projects
   let (itemsLists, uriLists) = unzip itemsAndUrisPerProject
   let currentUris = Data.List.nub (concat uriLists)
   -- Build clearing entries for URIs that previously had diagnostics but no longer do
@@ -1719,39 +1767,30 @@ buildWorkspaceDiagnosticReportUntraced state connId workspaceParams = do
   -- Update or insert the current URI snapshot for this connection
   Control.Concurrent.STM.atomically $ do
     cur <- Control.Concurrent.STM.readTVar mWorkspaceDiagsRequested
-    let updated =
-          Map.insert
-            connId
-            (Client.LspSession
-              { Client.workspaceDiagnosticsSnapshotFiles = currentUris
-              , Client.workspaceDiagnosticsSnapshotOutOfDate = False
-              , Client.publishedDiagnosticFiles =
-                  case maybeSnap of
-                    Just snap -> Client.publishedDiagnosticFiles snap
-                    Nothing -> []
-              , Client.lspRoot =
-                  case maybeSnap of
-                    Just snap -> Client.lspRoot snap
-                    Nothing -> []
-              }
-            )
-            cur
+    let updated = Map.adjust
+          (\session -> session
+            { Client.workspaceDiagnosticsSnapshotFiles = currentUris
+            , Client.workspaceDiagnosticsSnapshotOutOfDate = False
+            }
+          )
+          connId
+          cur
     Control.Concurrent.STM.writeTVar mWorkspaceDiagsRequested updated
   pure (JSON.object [ "items" .= JSON.toJSON allItems ])
 
 -- Build workspace diagnostic entries for a single project; also return URIs included
-workspaceItemsForProject :: Map.Map Text Text -> Live.State -> [Client.ProjectCache] -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
-workspaceItemsForProject previousResultIds state allProjects projectCache@(Client.ProjectCache proj _ _ _ _mTest) =
+workspaceItemsForProject :: Map.Map Text Text -> Live.State -> [Client.ProjectCache] -> [FilePath] -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
+workspaceItemsForProject previousResultIds state allProjects connectionOpenPaths projectCache@(Client.ProjectCache proj _ _ _ _mTest) =
   PerfTrace.span
     (Client.trace state)
     "lsp.workspace_diagnostic.project"
     [ PerfTrace.text "project_root" (Ext.Dev.Project.getRoot proj)
     , PerfTrace.int "project_short_id" (Ext.Dev.Project._shortId proj)
     ]
-    (workspaceItemsForProjectUntraced previousResultIds state allProjects projectCache)
+    (workspaceItemsForProjectUntraced previousResultIds state allProjects connectionOpenPaths projectCache)
 
-workspaceItemsForProjectUntraced :: Map.Map Text Text -> Live.State -> [Client.ProjectCache] -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
-workspaceItemsForProjectUntraced previousResultIds state allProjects projectCache@(Client.ProjectCache proj _ _ _ mTest) = do
+workspaceItemsForProjectUntraced :: Map.Map Text Text -> Live.State -> [Client.ProjectCache] -> [FilePath] -> Client.ProjectCache -> IO ([JSON.Value], [Uri])
+workspaceItemsForProjectUntraced previousResultIds state allProjects connectionOpenPaths projectCache@(Client.ProjectCache proj _ _ _ mTest) = do
   -- Compiler diagnostics grouped by file (project)
   projectDiagsMap <- Helpers.getProjectDiagnosticsByFile state projectCache
   -- Test diagnostics grouped by file (if a test reactor error exists)
@@ -1774,12 +1813,7 @@ workspaceItemsForProjectUntraced previousResultIds state allProjects projectCach
       , PerfTrace.text "suppressed_files" (Trace.formatPaths suppressedProjectFiles)
       ]
   -- Determine which files in this project are currently open
-  let (Client.State _ _ _ _ _ _ mEditorsOpen _ _) = state
-  editorsOpen <- Control.Concurrent.STM.readTVarIO mEditorsOpen
-  let openFilesInProject =
-        case editorsOpen of
-          EditorsOpen.EditorsOpen m _ ->
-            filter (\p -> Ext.Dev.Project.affectsCompilation p proj) (Map.keys m)
+  let openFilesInProject = filter (\p -> Ext.Dev.Project.affectsCompilation p proj) connectionOpenPaths
   -- For open files, compute unused-value diagnostics (imports/variables) only
   openUnusedPairs <-
     mapM

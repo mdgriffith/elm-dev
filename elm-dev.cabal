@@ -310,6 +310,7 @@ Executable elm-dev
         Watchtower.State.Project
         Watchtower.State.TestJobs
         Watchtower.State.Versions
+        Watchtower.State.StartupMetrics
         
 
         -- elm-dev
@@ -705,6 +706,7 @@ Test-Suite elm-dev-tests
         Watchtower.State.Project
         Watchtower.State.TestJobs
         Watchtower.State.Versions
+        Watchtower.State.StartupMetrics
         Watchtower.Version
         Watchtower.Websocket
         Watchtower.StaticAssets

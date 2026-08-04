@@ -15,6 +15,7 @@ data Versions =
   Versions
     { fsVersion :: !Int
     , compileVersion :: !Int
+    , testCompileVersion :: !(Maybe Int)
     }
   deriving (Show, Eq)
 
@@ -28,7 +29,7 @@ getOrInit projectRoot = do
   case Map.lookup projectRoot table of
     Just tv -> pure tv
     Nothing -> do
-      tv <- STM.newTVarIO (Versions 0 0)
+      tv <- STM.newTVarIO (Versions 0 0 Nothing)
       STM.atomically $ do
         cur <- STM.readTVar versionsTable
         case Map.lookup projectRoot cur of
@@ -56,5 +57,4 @@ setCompileVersionTo projectRoot n = do
   STM.atomically $ do
     v <- STM.readTVar tv
     STM.writeTVar tv (v { compileVersion = n })
-
 

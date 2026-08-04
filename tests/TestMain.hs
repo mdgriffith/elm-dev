@@ -120,6 +120,9 @@ versionTests =
   , runTest "versions bump and set compile" testVersionsBumpAndSet
   , runTest "watch path filter keeps elm sources/config" testWatchPathFilterRelevant
   , runTest "watch path filter excludes elm-stuff artifacts" testWatchPathFilterElmStuff
+  , runTest "watch path filter excludes non-Elm build outputs" testWatchPathFilterBuildOutput
+  , runTest "watch path filter treats explicit artifact roots as roots" testWatchPathFilterExplicitArtifactRoot
+  , runTest "project discovery excludes artifacts and hidden directories" testProjectDiscoveryExclusions
   , runTest "project contains is segment-aware" testProjectContainsSegmentAware
   , runTest "project affectsCompilation is source-aware" testProjectAffectsCompilation
   , runTest "application entrypoints compile as singleton groups" testApplicationEntrypointGroupsSplit
@@ -2103,7 +2106,7 @@ testVersionsInit :: IO Bool
 testVersionsInit = do
   root <- uniqueRoot
   versions <- Versions.readVersions root
-  pure (Versions.fsVersion versions == 0 && Versions.compileVersion versions == 0)
+  pure (Versions.fsVersion versions == 0 && Versions.compileVersion versions == 0 && Versions.testCompileVersion versions == Nothing)
 
 testVersionsBumpAndSet :: IO Bool
 testVersionsBumpAndSet = do
@@ -2125,6 +2128,55 @@ testWatchPathFilterElmStuff :: IO Bool
 testWatchPathFilterElmStuff = do
   let path = "/tmp/app/elm-stuff/generated/Main.elm"
   pure (not (Filewatch.shouldTriggerPath path))
+
+testWatchPathFilterBuildOutput :: IO Bool
+testWatchPathFilterBuildOutput = do
+  let outputs =
+        [ "/tmp/app/dist/build-version.js"
+        , "/tmp/app/dist/types.d.ts"
+        , "/tmp/app/dist/types.js.map"
+        ]
+  pure (all (not . Filewatch.shouldTriggerPath) outputs)
+
+testWatchPathFilterExplicitArtifactRoot :: IO Bool
+testWatchPathFilterExplicitArtifactRoot = do
+  let root = "/tmp/app/dist/generated-project"
+  pure
+    ( Filewatch.shouldTriggerPathRelativeTo root (root FilePath.</> "src" FilePath.</> "Main.elm")
+        && not (Filewatch.shouldTriggerPathRelativeTo root (root FilePath.</> "elm-stuff" FilePath.</> "Main.elm"))
+    )
+
+testProjectDiscoveryExclusions :: IO Bool
+testProjectDiscoveryExclusions = do
+  root <- uniqueRoot
+  let normal = root FilePath.</> "example"
+      nested = normal FilePath.</> "benchmark"
+      artifactRoots =
+        [ root FilePath.</> ".hidden"
+        , root FilePath.</> ".git" FilePath.</> "fixture"
+        , root FilePath.</> "node_modules" FilePath.</> "fixture"
+        , root FilePath.</> "elm-stuff" FilePath.</> "fixture"
+        , root FilePath.</> "dist" FilePath.</> "fixture"
+        ]
+      makeProject projectRoot = do
+        writeElmApp projectRoot
+        let srcDir = projectRoot FilePath.</> "src"
+        Dir.createDirectoryIfMissing True srcDir
+        writeFile (srcDir FilePath.</> "Main.elm") "module Main exposing (main)\n\nmain = 1\n"
+  Dir.createDirectoryIfMissing True root
+  mapM_ makeProject (normal : nested : artifactRoots)
+  discovered <- Project.discover root
+  directArtifact <- Project.discover (last artifactRoots)
+  let roots = map Project.getRoot discovered
+  canonicalNormal <- Dir.canonicalizePath normal
+  canonicalNested <- Dir.canonicalizePath nested
+  canonicalArtifact <- Dir.canonicalizePath (last artifactRoots)
+  pure
+    ( canonicalNormal `elem` roots
+        && canonicalNested `elem` roots
+        && all (`notElem` roots) artifactRoots
+        && map Project.getRoot directArtifact == [canonicalArtifact]
+    )
 
 testProjectContainsSegmentAware :: IO Bool
 testProjectContainsSegmentAware = do
@@ -2286,6 +2338,7 @@ testCleanupConnectionState = do
         Client.LspSession
           { Client.workspaceDiagnosticsSnapshotFiles = [Protocol.Uri (Text.pack root)]
           , Client.workspaceDiagnosticsSnapshotOutOfDate = False
+          , Client.publishedDiagnosticFiles = Map.empty
           , Client.lspRoot = [root]
           }
   STM.atomically $ do
