@@ -1,5 +1,6 @@
 module Ext.CompileHelpers.Disk
   ( compile
+  , compileDevelopmentSizes
   , compileToDocs
   , compileToDocsCached
   , allPackageArtifacts
@@ -63,6 +64,15 @@ compile root paths flags@(CompileHelpers.Flags mode output debuggerMode) = do
           artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.Disk.Build.fromPaths compilationFlags Reporting.silent root details paths
           
           CompileHelpers.generate root details mode debuggerMode artifacts output
+
+compileDevelopmentSizes :: FilePath -> NE.List FilePath -> IO (Either Exit.Reactor CompileHelpers.DevelopmentSizes)
+compileDevelopmentSizes root paths =
+  Dir.withCurrentDirectory root $
+    BW.withScope $ \scope -> Stuff.withRootLock root $
+      Task.run $ do
+        details <- Task.eio Exit.ReactorBadDetails $ Details.load Reporting.silent scope root
+        artifacts <- Task.eio Exit.ReactorBadBuild $ Ext.Disk.Build.fromPaths (CompileHelpers.compilationModsFromFlags CompileHelpers.Dev) Reporting.silent root details paths
+        CompileHelpers.generateDevelopmentSizes root details artifacts
 compileToDocs :: FilePath -> NE.List ModuleName.Raw -> IO (Either Exit.Reactor Elm.Docs.Documentation)
 compileToDocs root allModuleNames = do
   Dir.withCurrentDirectory root $

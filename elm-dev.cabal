@@ -214,6 +214,7 @@ Executable elm-dev
         -- ext-common
         Ext.Common
         Ext.DependencyManager
+        Ext.DependencySize
         Ext.DependencyManager.Cli
         Ext.ElmFormat
         Ext.CompileHelpers.Generic
@@ -428,6 +429,7 @@ Executable elm-dev
         utf8-string,
         vector,
         zip-archive,
+        zlib,
 
         -- ext-common
         text,
@@ -535,6 +537,7 @@ Test-Suite elm-dev-tests
         Ext.CompileProxy
         Ext.CompileMode
         Ext.DependencyManager
+        Ext.DependencySize
         Ext.DependencyManager.Cli
         Ext.Dev
         Ext.Dev.Docs
@@ -749,6 +752,7 @@ Test-Suite elm-dev-tests
         utf8-string,
         vector,
         zip-archive,
+        zlib,
         text,
         hashtables,
         githash,

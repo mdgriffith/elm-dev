@@ -979,6 +979,7 @@ main = do
                 ["uninstall", "unused"] -> 2
                 ["upgrade"] -> 3
                 ["dep", "tree"] -> 4
+                ["dep", "size"] -> 5
                 _ -> 10
             displayGroupName group =
               case group of

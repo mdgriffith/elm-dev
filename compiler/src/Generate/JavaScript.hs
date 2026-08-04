@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Generate.JavaScript
   ( generate
+  , generateWithSizes
   , generateForRepl
   , generateForReplEndpoint
   )
@@ -10,6 +11,7 @@ module Generate.JavaScript
 import Prelude hiding (cycle, print)
 import Control.Applicative ((<|>))
 import qualified Data.ByteString.Builder as B
+import qualified Data.ByteString.Lazy as Lazy
 import Data.Monoid ((<>))
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
@@ -63,6 +65,24 @@ generate mode (Opt.GlobalGraph graph _) mains maybeInjectJs =
   <> stateToBuilder state
   <> toMainExports mode mains
   <> "}(this));"
+
+
+generateWithSizes :: Mode.Mode -> Opt.GlobalGraph -> Mains -> (B.Builder, Map.Map ModuleName.Canonical Int, Int)
+generateWithSizes mode (Opt.GlobalGraph graph _) mains =
+  let
+    state = Map.foldrWithKey (addMain mode graph) (emptyState False) mains
+    builder =
+      "(function(scope){\n'use strict';"
+      <> Functions.functions mode
+      <> recordConstructors mode
+      <> perfNote mode
+      <> stateToBuilder state
+      <> toMainExports mode mains
+      <> "}(this));"
+    moduleSizes = stateToModuleSizes state
+    totalSize = builderSize builder
+  in
+  (builder, moduleSizes, totalSize - sum (Map.elems moduleSizes))
 
 
 addMain :: Mode.Mode -> Graph -> ModuleName.Canonical -> Opt.Main -> State -> State
@@ -163,8 +183,8 @@ postMessage localizer home maybeName tipe =
 
 data State =
   State
-    { _revKernels :: [B.Builder]
-    , _revBuilders :: [B.Builder]
+    { _revKernels :: [(ModuleName.Canonical, B.Builder)]
+    , _revBuilders :: [(ModuleName.Canonical, B.Builder)]
     , _seenGlobals :: Set.Set Opt.Global
     , _skipDebuggerGlobals :: Bool
     }
@@ -180,9 +200,21 @@ stateToBuilder (State revKernels revBuilders _ _) =
   prependBuilders revKernels (prependBuilders revBuilders mempty)
 
 
-prependBuilders :: [B.Builder] -> B.Builder -> B.Builder
+prependBuilders :: [(ModuleName.Canonical, B.Builder)] -> B.Builder -> B.Builder
 prependBuilders revBuilders monolith =
-  List.foldl' (\m b -> b <> m) monolith revBuilders
+  List.foldl' (\m (_, b) -> b <> m) monolith revBuilders
+
+
+stateToModuleSizes :: State -> Map.Map ModuleName.Canonical Int
+stateToModuleSizes (State revKernels revBuilders _ _) =
+  Map.fromListWith (+)
+    [ (home, builderSize builder)
+    | (home, builder) <- revKernels ++ revBuilders
+    ]
+
+
+builderSize :: B.Builder -> Int
+builderSize = fromIntegral . Lazy.length . B.toLazyByteString
 
 
 
@@ -250,13 +282,13 @@ addGlobalHelp mode graph global@(Opt.Global home name) state =
       -- Check if this function needs special JavaScript generation
       case ListReplacements.replacement mode home name global <|> StringReplacements.replacement mode home name global of
         Just stmt ->
-          addStmt (addDeps deps state) stmt
+          addStmt home (addDeps deps state) stmt
         Nothing ->
           case Modify.Javascript.modify home name global of
             Just stmt ->
-              addStmt (addDeps deps state) stmt
+              addStmt home (addDeps deps state) stmt
             Nothing ->
-              addStmt (addDeps deps state) $
+              addStmt home (addDeps deps state) $
                 case expr of
                   Opt.Function args body ->
                     generateOptimizedFunction mode global args body expr
@@ -265,7 +297,7 @@ addGlobalHelp mode graph global@(Opt.Global home name) state =
                     var global (Expr.generate mode expr)
 
     Opt.DefineTailFunc argNames body deps ->
-      addStmt (addDeps deps state) (
+      addStmt home (addDeps deps state) (
         let (Opt.Global _ name) = global in
         case DirectCalls.splitGlobalFunction mode global argNames
           [ JS.Labelled (JsName.fromLocal name) $
@@ -277,7 +309,7 @@ addGlobalHelp mode graph global@(Opt.Global home name) state =
       )
 
     Opt.Ctor index arity ->
-      addStmt state (
+      addStmt home state (
         var global (Expr.generateCtor mode global index arity)
       )
 
@@ -285,7 +317,7 @@ addGlobalHelp mode graph global@(Opt.Global home name) state =
       addGlobal mode graph state linkedGlobal
 
     Opt.Cycle names values functions deps ->
-      addStmt (addDeps deps state) (
+      addStmt home (addDeps deps state) (
         generateCycle mode global names values functions
       )
 
@@ -296,42 +328,42 @@ addGlobalHelp mode graph global@(Opt.Global home name) state =
       if isDebugger global && (not (Mode.isDebug mode) || _skipDebuggerGlobals state) then
         state
       else
-        addKernel (addDeps deps state) (generateKernel mode chunks)
+        addKernel home (addDeps deps state) (generateKernel mode chunks)
 
     Opt.Enum index ->
-      addStmt state (
+      addStmt home state (
         generateEnum mode global index
       )
 
     Opt.Box ->
-      addStmt (addGlobal mode graph state identity) (
+      addStmt home (addGlobal mode graph state identity) (
         generateBox mode global
       )
 
     Opt.PortIncoming decoder deps ->
-      addStmt (addDeps deps state) (
+      addStmt home (addDeps deps state) (
         generatePort mode global "incomingPort" decoder
       )
 
     Opt.PortOutgoing encoder deps ->
-      addStmt (addDeps deps state) (
+      addStmt home (addDeps deps state) (
         generatePort mode global "outgoingPort" encoder
       )
 
 
-addStmt :: State -> JS.Stmt -> State
-addStmt state stmt =
-  addBuilder state (JS.stmtToBuilder stmt)
+addStmt :: ModuleName.Canonical -> State -> JS.Stmt -> State
+addStmt home state stmt =
+  addBuilder home state (JS.stmtToBuilder stmt)
 
 
-addBuilder :: State -> B.Builder -> State
-addBuilder (State revKernels revBuilders seen skipDebuggerGlobals) builder =
-  State revKernels (builder:revBuilders) seen skipDebuggerGlobals
+addBuilder :: ModuleName.Canonical -> State -> B.Builder -> State
+addBuilder home (State revKernels revBuilders seen skipDebuggerGlobals) builder =
+  State revKernels ((home, builder):revBuilders) seen skipDebuggerGlobals
 
 
-addKernel :: State -> B.Builder -> State
-addKernel (State revKernels revBuilders seen skipDebuggerGlobals) kernel =
-  State (kernel:revKernels) revBuilders seen skipDebuggerGlobals
+addKernel :: ModuleName.Canonical -> State -> B.Builder -> State
+addKernel home (State revKernels revBuilders seen skipDebuggerGlobals) kernel =
+  State ((home, kernel):revKernels) revBuilders seen skipDebuggerGlobals
 
 
 var :: Opt.Global -> Expr.Code -> JS.Stmt
@@ -550,7 +582,7 @@ generateManager mode graph (Opt.Global home@(ModuleName.Canonical _ moduleName) 
       JS.ExprStmt $ JS.Assign managerLVar $
         JS.Call (JS.Ref (JsName.fromKernel Name.platform "createManager")) args
   in
-  addStmt (List.foldl' (addGlobal mode graph) state deps) $
+  addStmt home (List.foldl' (addGlobal mode graph) state deps) $
     JS.Block (createManager : stmts)
 
 

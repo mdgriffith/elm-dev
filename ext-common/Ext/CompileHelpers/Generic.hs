@@ -204,6 +204,18 @@ data CompilationResult
     | CompiledSkippedOutput
     deriving (Show)
 
+data DevelopmentSizes =
+    DevelopmentSizes
+      { developmentBuilder :: B.Builder
+      , developmentModuleBytes :: Map.Map ModuleName.Canonical Int
+      , developmentElmLanguageBytes :: Int
+      }
+
+instance Show DevelopmentSizes where
+  show sizes =
+    "DevelopmentSizes { developmentModuleBytes = " ++ show (developmentModuleBytes sizes)
+      ++ ", developmentElmLanguageBytes = " ++ show (developmentElmLanguageBytes sizes) ++ " }"
+
 getMode :: Bool -> Bool -> DesiredMode
 getMode debug optimize =
   case (debug, optimize) of
@@ -227,6 +239,13 @@ generate root details desiredMode debuggerMode artifacts output =
           Html -> 
               pure (CompiledHtml (Generate.Html.sandwich (Name.fromChars "Main") js))
           Js   -> pure (CompiledJs js)
+
+
+generateDevelopmentSizes :: FilePath -> Details.Details -> Build.Artifacts -> Task.Task Exit.Reactor DevelopmentSizes
+generateDevelopmentSizes root details artifacts =
+  Task.mapError Exit.ReactorBadGenerate $ do
+    (builder, moduleBytes, elmLanguageBytes) <- Generate.devWithSizes root details artifacts
+    pure (DevelopmentSizes builder moduleBytes elmLanguageBytes)
 
 
 debuggerInjection :: DebuggerMode -> Maybe Data.ByteString.Builder.Builder

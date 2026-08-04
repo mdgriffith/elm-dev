@@ -20,10 +20,12 @@ import qualified Elm.Outline as Outline
 import qualified Elm.Package as Pkg
 import qualified Elm.Version as V
 import qualified Ext.DependencyManager as Manager
+import qualified Ext.DependencySize as DependencySize
 import Json.Encode ((==>))
 import qualified Json.Encode as Encode
 import qualified Json.String as Json
 import qualified Stuff
+import qualified Reporting.Exit as Exit
 import qualified Terminal.Colors as Colors
 
 
@@ -31,6 +33,7 @@ commands :: [CommandParser.Command]
 commands =
   [ installCommand Manager.Production ["install"] "Install dependencies"
   , treeCommand Manager.Production ["dep", "tree"] "Show the dependency tree"
+  , sizeCommand
   , unusedCommand Manager.Production ["uninstall", "unused"] "Remove unused dependencies"
   , uninstallCommand Manager.Production ["uninstall"] "Remove dependencies"
   , upgradeCommand Manager.Production ["upgrade"] "Upgrade dependencies"
@@ -112,6 +115,18 @@ treeCommand scope name description =
                      Right unused -> mapM_ putStrLn (renderTree (Set.fromList unused) filtered)
 
 
+sizeCommand :: CommandParser.Command
+sizeCommand =
+  CommandParser.command ["dep", "size"] "Show generated JavaScript size by package and module" dependenciesGroup (CommandParser.parseArg (CommandParser.arg "entrypoint")) sizeFlags $ \entrypoint filterValue ->
+    withRoot False $ \root -> do
+      result <- DependencySize.analyze root entrypoint (maybe [] splitFilters filterValue) Nothing
+      case result of
+        Left (DependencySize.DevelopmentCompileFailed problem) -> do
+          IO.hPutStrLn IO.stderr (Exit.toString (Exit.reactorToReport problem))
+          SystemExit.exitFailure
+        Right report -> mapM_ putStrLn (DependencySize.render report)
+
+
 packageArg :: CommandParser.Arg Pkg.Name
 packageArg =
   CommandParser.argWith "package" parsePackage
@@ -154,6 +169,10 @@ formatFlag = CommandParser.flagWithArg "format" "Output format: json" parseForma
     parseFormat _ = Nothing
 
 
+filterFlag :: CommandParser.Flag String
+filterFlag = CommandParser.flagWithArg "filter" "Only show module namespaces, separated by commas" Just
+
+
 unsafeFlag :: CommandParser.Flag Bool
 unsafeFlag = CommandParser.flag "unsafe" "Allow major-version upgrades"
 
@@ -174,6 +193,18 @@ upgradeFlags =
 formatFlags args =
   do  (format, remaining) <- CommandParser.parseFlag formatFlag args
       return (format, remaining)
+
+
+sizeFlags :: CommandParser.ParsedArgs -> Either String (Maybe String, CommandParser.ParsedArgs)
+sizeFlags args =
+  CommandParser.parseFlag filterFlag args
+
+
+splitFilters :: String -> [String]
+splitFilters raw =
+  case break (== ',') raw of
+    (one, []) -> [one]
+    (one, _ : rest) -> one : splitFilters rest
 
 
 present :: Maybe Bool -> Bool

@@ -11,6 +11,7 @@ module Ext.CompileProxy
     allPackageArtifacts,
     parse,
     compile,
+    compileDevelopmentSizes,
     compileToDocs,
     loadAndEnsureCompiled,
     ensureModulesAreCompiled,
@@ -198,6 +199,17 @@ compile root paths flags packagesVar =
           Right result -> pure (Right result, Map.empty)
     )
     (Ext.CompileHelpers.Memory.compile root paths flags packagesVar)
+
+compileDevelopmentSizes ::
+  FilePath ->
+  NE.List FilePath ->
+  Maybe (STM.TVar (Map.Map Pkg.Name Watchtower.Live.Client.PackageInfo)) ->
+  IO (Either Exit.Reactor CompileHelpers.DevelopmentSizes)
+compileDevelopmentSizes root paths packagesVar =
+  modeRunner
+    "compileDevelopmentSizes"
+    (Ext.CompileHelpers.Disk.compileDevelopmentSizes root paths)
+    (Ext.CompileHelpers.Memory.compileDevelopmentSizes root paths packagesVar)
 
 allPackageArtifacts :: FilePath -> IO CompileHelpers.Artifacts
 allPackageArtifacts root =

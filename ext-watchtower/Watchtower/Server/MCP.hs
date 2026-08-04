@@ -108,6 +108,7 @@ import qualified Data.Vector
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString as BS
 import qualified Ext.DependencyManager as DependencyManager
+import qualified Ext.DependencySize as DependencySize
 import qualified Watchtower.Server.LSP.Protocol as LSPProtocol
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
@@ -1214,7 +1215,7 @@ toolInstall = MCP.Tool
 toolDependencies :: MCP.Tool
 toolDependencies = MCP.Tool
   { MCP.toolName = "dependencies"
-  , MCP.toolDescription = "Plan or apply Elm dependency operations: install, uninstall, uninstall-unused, tree, or upgrade. Tree results group direct and indirect packages, identify unused dependencies, and explain which packages use each indirect dependency."
+  , MCP.toolDescription = "Plan or apply Elm dependency operations: install, uninstall, uninstall-unused, tree, size, or upgrade. Size reports generated JavaScript bytes by package and reachable module for an entrypoint."
   , MCP.toolInputSchema =
       JSON.object
         [ "type" .= ("object" :: Text)
@@ -1223,7 +1224,7 @@ toolDependencies = MCP.Tool
             [ rootDirSchema
             , "operation" .= JSON.object
                 [ "type" .= ("string" :: Text)
-                , "enum" .= (["install", "uninstall", "uninstall-unused", "tree", "upgrade"] :: [Text])
+                , "enum" .= (["install", "uninstall", "uninstall-unused", "tree", "size", "upgrade"] :: [Text])
                 ]
             , "scope" .= JSON.object
                 [ "type" .= ("string" :: Text)
@@ -1233,6 +1234,15 @@ toolDependencies = MCP.Tool
             , "packages" .= JSON.object
                 [ "type" .= ("array" :: Text)
                 , "description" .= ("Packages. Install accepts author/project, author/project@MAJOR, or author/project@MAJOR.MINOR.PATCH." :: Text)
+                , "items" .= JSON.object ["type" .= ("string" :: Text)]
+                ]
+            , "entrypoint" .= JSON.object
+                [ "type" .= ("string" :: Text)
+                , "description" .= ("Elm entrypoint path for the size operation" :: Text)
+                ]
+            , "filter" .= JSON.object
+                [ "type" .= ("array" :: Text)
+                , "description" .= ("Optional module namespace filters for the size operation" :: Text)
                 , "items" .= JSON.object ["type" .= ("string" :: Text)]
                 ]
             , "unsafe" .= JSON.object ["type" .= ("boolean" :: Text), "default" .= False]
@@ -1252,7 +1262,7 @@ runDependencyTool args state connId =
     Nothing -> pure (errTxt "Missing required string argument: operation")
     Just operation ->
       if not (dependencyArgumentsValid args)
-      then pure (errTxt "Invalid dependency arguments. scope must be a string, packages an array of strings, and boolean options must be booleans.")
+      then pure (errTxt "Invalid dependency arguments. String, array, or boolean fields have the wrong type, or an unknown field was provided.")
       else if not (dependencyOperationArgumentsValid operation args)
       then pure (errTxt "One or more arguments are not supported for this dependency operation.")
       else case parseDependencyScope (getStringArg args "scope") of
@@ -1312,6 +1322,16 @@ runDependencyTool args state connId =
                                     Just package -> dependencyTreeResponse root scope (DependencyManager.filterDependencyTree package tree)
                                 _ -> pure (errTxt "Tree accepts at most one package filter.")
 
+                    "size" ->
+                      case getStringArg args "entrypoint" of
+                        Nothing -> pure (errTxt "Size requires an entrypoint.")
+                        Just entrypoint -> do
+                          result <- DependencySize.analyze root entrypoint (dependencyFilterStrings args) (Just (Client.packages state))
+                          case result of
+                            Left (DependencySize.DevelopmentCompileFailed problem) ->
+                              pure (errTxt (Text.pack (Exit.toString (Exit.reactorToReport problem))))
+                            Right report -> pure (ok (dependencySizeJson report))
+
                     _ -> pure (errTxt "Unknown dependency operation.")
 
 
@@ -1331,15 +1351,24 @@ dependencyPackageStrings args =
     Just values -> [Text.unpack value | JSON.String value <- values]
 
 
+dependencyFilterStrings :: JSON.Object -> [String]
+dependencyFilterStrings args =
+  case getArrayArg args "filter" of
+    Nothing -> []
+    Just values -> [Text.unpack value | JSON.String value <- values]
+
+
 dependencyArgumentsValid :: JSON.Object -> Bool
 dependencyArgumentsValid args =
   onlyKnownFields
     && optionalString "dir"
     && optionalString "scope"
+    && optionalString "entrypoint"
     && optionalStringArray "packages"
+    && optionalStringArray "filter"
     && all optionalBool ["unsafe", "allScopes", "dryRun"]
   where
-    onlyKnownFields = all (\key -> Key.toText key `elem` ["dir", "operation", "scope", "packages", "unsafe", "allScopes", "dryRun"]) (KeyMap.keys args)
+    onlyKnownFields = all (\key -> Key.toText key `elem` ["dir", "operation", "scope", "packages", "entrypoint", "filter", "unsafe", "allScopes", "dryRun"]) (KeyMap.keys args)
     optionalString key = fieldMatches key (\value -> case value of JSON.String _ -> True; _ -> False)
     optionalBool key = fieldMatches key (\value -> case value of JSON.Bool _ -> True; _ -> False)
     optionalStringArray key = fieldMatches key (\value -> case value of JSON.Array values -> all isString values; _ -> False)
@@ -1362,9 +1391,56 @@ dependencyOperationArgumentsValid operation args =
     "uninstall-unused" -> absent "packages" && absent "unsafe" && absent "allScopes"
     "upgrade" -> True
     "tree" -> absent "dryRun" && absent "unsafe" && absent "allScopes"
+    "size" -> presentString "entrypoint" && all absent ["scope", "packages", "dryRun", "unsafe", "allScopes"]
     _ -> True
   where
     absent key = not (KeyMap.member (Key.fromText key) args)
+    presentString key = case KeyMap.lookup (Key.fromText key) args of Just (JSON.String _) -> True; _ -> False
+
+
+dependencySizeJson :: DependencySize.Report -> Text
+dependencySizeJson report =
+  Data.Text.Encoding.decodeUtf8 (LBS.toStrict (Aeson.encodePretty value))
+  where
+    metrics = DependencySize.bundle report
+    value = JSON.object
+      [ "entrypoint" .= DependencySize.entrypoint report
+      , "measurement" .= ("generated development JavaScript bytes" :: Text)
+      , "bundle" .= JSON.object
+          [ "developmentBytes" .= DependencySize.developmentBytes metrics
+          , "productionOptimizedBytes" .= DependencySize.productionOptimizedBytes metrics
+          , "productionMinifiedBytes" .= DependencySize.productionMinifiedBytes metrics
+          , "productionMinifiedGzipBytes" .= DependencySize.productionGzipBytes metrics
+          , "productionUnavailable" .= DependencySize.productionUnavailable metrics
+          , "minificationUnavailable" .= DependencySize.minificationUnavailable metrics
+          ]
+      , "filters" .= DependencySize.filters report
+      , "filterTotals" .= JSON.object
+          [ Key.fromString namespace .= sum
+              [ DependencySize.moduleBytes item
+              | item <- DependencySize.modules report
+              , DependencySize.matchesFilter namespace (DependencySize.moduleName item)
+              ]
+          | namespace <- DependencySize.filters report
+          ]
+      , "packages" .= JSON.object
+          [ Key.fromString package .= bytes
+          | (package, bytes) <- Map.toList (Map.fromListWith (+)
+              [ (DependencySize.packageName item, DependencySize.moduleBytes item)
+              | item <- DependencySize.modules report
+              ])
+          , null (DependencySize.filters report)
+          ]
+      , "modules" .=
+          [ JSON.object
+              [ "name" .= DependencySize.moduleName item
+              , "package" .= DependencySize.packageName item
+              , "developmentBytes" .= DependencySize.moduleBytes item
+              ]
+          | item <- DependencySize.modules report
+          ]
+      , "elmLanguageDevelopmentBytes" .= DependencySize.elmLanguageBytes report
+      ]
 
 
 dependencyOperationArgumentsValidForTests :: String -> JSON.Object -> Bool

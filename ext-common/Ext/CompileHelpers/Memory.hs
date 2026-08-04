@@ -1,5 +1,6 @@
 module Ext.CompileHelpers.Memory
   ( compile
+  , compileDevelopmentSizes
   , allPackageArtifacts
   )
 where
@@ -78,6 +79,22 @@ compile root paths flags@(CompileHelpers.Flags mode output debuggerMode) package
                 case compiledEither of
                   Left reactorErr -> pure (Left reactorErr, fileInfoByPath)
                   Right compiled -> pure (Right compiled, fileInfoByPath)
+
+
+compileDevelopmentSizes :: FilePath -> NE.List FilePath -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor CompileHelpers.DevelopmentSizes)
+compileDevelopmentSizes root paths packagesVar =
+  Dir.withCurrentDirectory root $
+    BW.withScope $ \scope -> do
+      Ext.MemoryCached.Details.bustDetailsCache
+      Ext.MemoryCached.Build.bustArtifactsCache
+      detailsEither <- Ext.MemoryCached.Details.load Reporting.silent scope root packagesVar
+      case detailsEither of
+        Left detailsErr -> pure (Left (Exit.ReactorBadDetails detailsErr))
+        Right details -> do
+          (eitherArtifacts, _) <- Ext.MemoryCached.Build.fromPathsMemoryCached packagesVar (CompileHelpers.compilationModsFromFlags CompileHelpers.Dev) Reporting.silent root details paths
+          case eitherArtifacts of
+            Left buildProblem -> pure (Left (Exit.ReactorBadBuild buildProblem))
+            Right artifacts -> Task.run (CompileHelpers.generateDevelopmentSizes root details artifacts)
 
 
 {-# NOINLINE artifactsCache #-}

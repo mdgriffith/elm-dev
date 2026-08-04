@@ -239,7 +239,7 @@ parseArgs args =
            in (flags, positional)
 
     flagTakesSeparatedValue name =
-      name `elem` ["--output", "--entrypoints", "--seed", "--fuzz", "--report", "--format"]
+      name `elem` ["--output", "--entrypoints", "--seed", "--fuzz", "--report", "--format", "--filter"]
 
 data Arg a = Arg
   { argName :: String,

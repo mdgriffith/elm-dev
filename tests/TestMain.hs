@@ -66,6 +66,7 @@ import qualified Elm.Outline as Outline
 import qualified Elm.Package as Package
 import qualified Elm.Version as ElmVersion
 import qualified Ext.DependencyManager as DependencyManager
+import qualified Ext.DependencySize as DependencySize
 import qualified Ext.DependencyManager.Cli as DependencyCli
 import qualified CommandParser
 import qualified Json.Encode as Encode
@@ -217,6 +218,8 @@ dependencyTests =
   , runTest "dependency transaction rolls back thrown exceptions" testDependencyTransactionExceptionRollback
   , runTest "outline-only normalization is treated as a changed plan" testDependencyPlanDetectsOutlineChange
   , runTest "MCP dependency arguments reject malformed optional fields" testMcpDependencyArgumentValidation
+  , runTest "dependency size filters match module namespace segments" testDependencySizeNamespaceFilters
+  , runTest "dependency size attribution reconciles with development bundle" testDependencySizeAttribution
   , runTest "MCP dependency JSON includes operation and scope" testMcpDependencyPlanJson
   , runTest "MCP dependency tree mirrors CLI dependency context" testMcpDependencyTreeJson
   , runTest "legacy MCP install responses retain docs links" testLegacyMcpInstallResponse
@@ -687,11 +690,52 @@ testMcpDependencyArgumentValidation =
     unknownField = jsonObject ["operation" JSON..= ("upgrade" :: Text.Text), "dryrun" JSON..= True]
     installWithUnsafe = jsonObject ["unsafe" JSON..= True]
     unusedWithPackages = jsonObject ["packages" JSON..= (["elm/http"] :: [Text.Text])]
+    validSize = jsonObject ["entrypoint" JSON..= ("src/Main.elm" :: Text.Text), "filter" JSON..= (["App", "Ui.Button"] :: [Text.Text])]
+    sizeWithoutEntrypoint = jsonObject ["filter" JSON..= (["App"] :: [Text.Text])]
+    sizeWithScope = jsonObject ["entrypoint" JSON..= ("src/Main.elm" :: Text.Text), "scope" JSON..= ("production" :: Text.Text)]
   in pure $
     MCP.dependencyArgumentsValidForTests valid
       && all (not . MCP.dependencyArgumentsValidForTests) [badPackages, badScope, badDryRun, badDir, unknownField]
       && not (MCP.dependencyOperationArgumentsValidForTests "install" installWithUnsafe)
       && not (MCP.dependencyOperationArgumentsValidForTests "uninstall-unused" unusedWithPackages)
+      && MCP.dependencyArgumentsValidForTests validSize
+      && MCP.dependencyOperationArgumentsValidForTests "size" validSize
+      && not (MCP.dependencyOperationArgumentsValidForTests "size" sizeWithoutEntrypoint)
+      && not (MCP.dependencyOperationArgumentsValidForTests "size" sizeWithScope)
+
+testDependencySizeNamespaceFilters :: IO Bool
+testDependencySizeNamespaceFilters =
+  pure $
+    DependencySize.matchesFilter "Glyph" "Glyph"
+      && DependencySize.matchesFilter "Glyph" "Glyph.Editor.View"
+      && DependencySize.matchesFilter "Ui.Button" "Ui.Button"
+      && DependencySize.matchesFilter "Ui.Button" "Ui.Button.Icon"
+      && not (DependencySize.matchesFilter "Glyph" "Glyphs")
+      && not (DependencySize.matchesFilter "Ui.Button" "Ui.Buttons")
+
+testDependencySizeAttribution :: IO Bool
+testDependencySizeAttribution =
+  Temp.withSystemTempDirectory "elm-dev-dependency-size" $ \root -> do
+    let src = root FilePath.</> "src"
+        mainPath = src FilePath.</> "Main.elm"
+    Dir.createDirectoryIfMissing True src
+    writeFile (root FilePath.</> "elm.json") basicElmJson
+    writeFile mainPath $ unlines
+      [ "module Main exposing (main)"
+      , "import Debug"
+      , "import Platform"
+      , "main = Platform.worker { init = \\() -> (Debug.log \"init\" (), Cmd.none), update = \\_ model -> (model, Cmd.none), subscriptions = \\_ -> Sub.none }"
+      ]
+    result <- DependencySize.analyze root "src/Main.elm" [] Nothing
+    pure $ case result of
+      Left _ -> False
+      Right report ->
+        let attributed = sum (map DependencySize.moduleBytes (DependencySize.modules report)) + DependencySize.elmLanguageBytes report
+            development = DependencySize.developmentBytes (DependencySize.bundle report)
+        in attributed == development
+          && any ((== "Main") . DependencySize.moduleName) (DependencySize.modules report)
+          && DependencySize.productionOptimizedBytes (DependencySize.bundle report) == Nothing
+          && maybe False (List.isInfixOf "Debug") (DependencySize.productionUnavailable (DependencySize.bundle report))
 
 testMcpDependencyPlanJson :: IO Bool
 testMcpDependencyPlanJson =

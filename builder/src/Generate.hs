@@ -2,6 +2,7 @@
 module Generate
   ( debug
   , dev
+  , devWithSizes
   , prod
   , prodWithOptimization
   , repl
@@ -69,6 +70,15 @@ dev root details (Build.Artifacts pkg _ roots modules) maybeInjectJs =
       let mains = gatherMains pkg objects roots
       -- elm-dev: overrides
       return (JS.generate mode graph mains maybeInjectJs)
+
+
+devWithSizes :: FilePath -> Details.Details -> Build.Artifacts -> Task (B.Builder, Map.Map ModuleName.Canonical Int, Int)
+devWithSizes root details (Build.Artifacts pkg _ roots modules) =
+  do  objects <- finalizeObjects =<< loadObjects root details modules
+      let mode = Mode.Dev Nothing
+      let graph = objectsToGlobalGraph objects
+      let mains = gatherMains pkg objects roots
+      return (JS.generateWithSizes mode graph mains)
 
 
 prod :: FilePath -> Details.Details -> Build.Artifacts -> Maybe B.Builder -> Task B.Builder
