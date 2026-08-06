@@ -465,10 +465,6 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
 
       let combinedWarnings = enrichedWarnings <> unusedWarnings
       
-      let typeAtMap = case CompileHelpers.typeAtOf modul canonical of
-                        Right t -> Just t
-                        Left _ -> Nothing
-
       let docsMaybe =
             if Build.needsDocs docsNeed
               then case Ext.Dev.Docs.fromArtifacts (Compile.Artifacts canonical annotations objects) of
@@ -476,7 +472,10 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
                      Left _ -> Nothing
               else Nothing
 
-      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = docsMaybe, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Just canonical, Client.typeAt = typeAtMap }))
+      let localizer = Reporting.Render.Type.Localizer.fromModule modul
+      let hoverIndex =
+            Client.makeHoverIndex <$> CompileHelpers.typeAtOf canonical
+      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = docsMaybe, Client.localizer = Just localizer, Client.canonicalAst = Just canonical, Client.hoverIndex = hoverIndex }))
       let name = Src.getName modul
       let iface = I.fromModule pkg canonical annotations
       let elmi = Stuff.elmi root name
@@ -497,7 +496,7 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
               return (Build.RNew local iface objects docsMaybe)
 
     Left err -> do
-      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.sourceAst = Just modul, Client.canonicalAst = Nothing, Client.typeAt = Nothing }))
+      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.canonicalAst = Nothing, Client.hoverIndex = Nothing }))
       return $ Build.RProblem $
         Error.Module (Src.getName modul) path time source err
 
@@ -701,5 +700,3 @@ compileOutside flags (Build.Env key _ projectType _ _ _ _) (Details.Local path t
 
     (_warnings, Left errors) ->
       return $ Build.ROutsideErr $ Error.Module name path time source errors
-
-

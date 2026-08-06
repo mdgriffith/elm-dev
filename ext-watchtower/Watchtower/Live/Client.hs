@@ -13,6 +13,9 @@ module Watchtower.Live.Client
     TestCompilationResult (..),
     Urls (..),
     FileInfo (..),
+    HoverIndex,
+    makeHoverIndex,
+    lookupHoverType,
     ProjectCache (..),
     ProjectStatus (..),
     FileWatchType,
@@ -76,6 +79,8 @@ import qualified Data.Aeson.Key as AesonKey
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Either as Either
 import qualified Data.List as List
+import Data.Bits ((.|.), shiftL)
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map as Map
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
@@ -86,7 +91,6 @@ import qualified Data.Text.Encoding as T
 import qualified Elm.Docs as Docs
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
-import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Ext.Common
 import qualified Ext.Dev.Project
@@ -266,10 +270,27 @@ data FileInfo = FileInfo
   { warnings :: [Warning.Warning]
   , docs :: Maybe Docs.Module
   , localizer :: Maybe Reporting.Render.Type.Localizer.Localizer
-  , sourceAst :: Maybe Src.Module
   , canonicalAst :: Maybe Can.Module
-  , typeAt :: Maybe (Map.Map Ann.Region Can.Annotation) -- ELM DEV: types at regions
+  , hoverIndex :: Maybe HoverIndex
   }
+
+data HoverIndex =
+  HoverIndex !(IntMap.IntMap Can.Annotation)
+
+makeHoverIndex :: Map.Map Ann.Region Can.Annotation -> HoverIndex
+makeHoverIndex annotations =
+  HoverIndex (Map.foldlWithKey' (\index region annotation -> IntMap.insert (regionKey region) annotation index) IntMap.empty annotations)
+
+lookupHoverType :: Ann.Region -> HoverIndex -> Maybe Can.Annotation
+lookupHoverType region (HoverIndex byRegion) =
+  IntMap.lookup (regionKey region) byRegion
+
+regionKey :: Ann.Region -> Int
+regionKey (Ann.Region (Ann.Position startLine startColumn) (Ann.Position endLine endColumn)) =
+  fromIntegral startLine `shiftL` 48
+    .|. fromIntegral startColumn `shiftL` 32
+    .|. fromIntegral endLine `shiftL` 16
+    .|. fromIntegral endColumn
 
 -- Packages tracked in memory for docs and metadata
 data PackageInfo = PackageInfo
@@ -283,16 +304,15 @@ data PackageModule = PackageModule
   }
 
 -- Render a compact availability summary for a given FileInfo
--- Example output: "[wdlsct]" where each letter is present or replaced by a space
+-- Example output: "[wdlct]" where each letter is present or replaced by a space
 formatFileInfoSummary :: FileInfo -> String
 formatFileInfoSummary fi =
   let w = if List.null (warnings fi) then ' ' else 'w'
       d = if Maybe.isJust (docs fi) then 'd' else ' '
       l = if Maybe.isJust (localizer fi) then 'l' else ' '
-      s = if Maybe.isJust (sourceAst fi) then 's' else ' '
       c = if Maybe.isJust (canonicalAst fi) then 'c' else ' '
-      t = if Maybe.isJust (typeAt fi) then 't' else ' '
-   in "[" ++ [w, d, l, s, c, t] ++ "]"
+      t = if Maybe.isJust (hoverIndex fi) then 't' else ' '
+   in "[" ++ [w, d, l, c, t] ++ "]"
 
 getFileInfo :: FilePath -> State -> IO (Maybe FileInfo)
 getFileInfo path (State _ _ mFileInfo _ _ _ _ _ _) = do

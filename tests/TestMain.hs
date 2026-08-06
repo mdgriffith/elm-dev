@@ -48,6 +48,8 @@ import qualified Watchtower.State.TestJobs as TestJobs
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Server.MCP as MCP
 import qualified Watchtower.Server.Daemon.State as DaemonState
+import qualified AST.Canonical as Canonical
+import qualified Reporting.Annotation as Annotation
 import qualified System.Exit as Exit
 import qualified System.Directory as Dir
 import qualified System.FilePath as FilePath
@@ -172,6 +174,7 @@ mcpTests =
   , runTest "MCP test jobs cancel running actions" testMcpTestJobCancellation
   , runTest "MCP test jobs cancel while queued" testMcpQueuedTestJobCancellation
   , runTest "MCP test jobs retain only recent terminal results" testMcpTestJobRetentionBound
+  , runTest "hover type index preserves region annotations" testHoverIndexPreservesAnnotations
   , runTest "test aggregator rewrites refresh cached source" testAggregatorRewriteRefreshesCache
   , runTest "package test manifest is persisted as an application" testPackageTestManifestIsPersistedAsApplication
   , runTest "test discovery preserves exposed declaration casing" testDiscoveryPreservesExposedDeclarationCasing
@@ -1392,6 +1395,28 @@ testMcpTestJobRetentionBound = do
   pure (length retained == 20 && "test-1" `notElem` retainedIds && "test-2" `notElem` retainedIds)
 
 
+testHoverIndexPreservesAnnotations :: IO Bool
+testHoverIndexPreservesAnnotations = do
+  let region1 = Annotation.Region (Annotation.Position 1 2) (Annotation.Position 3 4)
+      region2 = Annotation.Region (Annotation.Position 5 6) (Annotation.Position 7 8)
+      region3 = Annotation.Region (Annotation.Position 9 10) (Annotation.Position 11 12)
+      unitAnnotation = Canonical.Forall Map.empty Canonical.TUnit
+      functionAnnotation = Canonical.Forall Map.empty (Canonical.TLambda Canonical.TUnit Canonical.TUnit)
+      index = Client.makeHoverIndex (Map.fromList
+        [ (region1, unitAnnotation)
+        , (region2, unitAnnotation)
+        , (region3, functionAnnotation)
+        ])
+      first = Client.lookupHoverType region1 index
+      second = Client.lookupHoverType region2 index
+      third = Client.lookupHoverType region3 index
+  pure
+    ( first == Just unitAnnotation
+        && second == Just unitAnnotation
+        && third == Just functionAnnotation
+    )
+
+
 testAggregatorRewriteRefreshesCache :: IO Bool
 testAggregatorRewriteRefreshesCache =
   Temp.withSystemTempDirectory "elm-dev-test-aggregator" $ \root -> do
@@ -2408,7 +2433,7 @@ testUpdateProjectFileInfo = do
       stalePath = root FilePath.</> "src" FilePath.</> "Old.elm"
       keptPath = root FilePath.</> "src" FilePath.</> "Main.elm"
       otherPath = "/tmp/project-b/src/Other.elm"
-      mkFileInfo = Client.FileInfo [] Nothing Nothing Nothing Nothing Nothing
+      mkFileInfo = Client.FileInfo [] Nothing Nothing Nothing Nothing
       current = Map.fromList [(stalePath, mkFileInfo), (keptPath, mkFileInfo), (otherPath, mkFileInfo)]
       latest = Map.fromList [(keptPath, mkFileInfo)]
       updated = CompileState.updateProjectFileInfo proj True (Right ()) current latest

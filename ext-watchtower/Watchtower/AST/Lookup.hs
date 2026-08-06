@@ -6,7 +6,6 @@ module Watchtower.AST.Lookup
   ) where
 
 import qualified Data.List as List
-import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
 import qualified Reporting.Annotation as Ann
 import qualified AST.Canonical as Can
@@ -67,7 +66,8 @@ findInDef pos def =
                 case def of
     Can.Def locatedName patterns expr ->
       let nameRegion = Ann.toRegion locatedName
-          nameHits = if regionContains nameRegion pos then findInExpr pos expr else []
+          nameVal = Ann.toValue locatedName
+          nameHits = if regionContains nameRegion pos then [(FoundVarTopLevel nameVal, nameRegion)] else []
           patternHits = concatMap (findInPattern pos) patterns
       in nameHits ++ patternHits ++ findInExpr pos expr
     Can.TypedDef locatedName _ annotatedParams expr tipe ->

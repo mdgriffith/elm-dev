@@ -89,7 +89,11 @@ compilationModsFromFlags mode =
 -- This is weirdly named becase it mirrors Compile.compile
 -- but does our Canonical updates
 compile :: CompilationFlags -> Pkg.Name -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> ([Reporting.Warning.Warning], Either Reporting.Error.Error Compile.Artifacts)
-compile (CompilationFlags modifications) pkg ifaces modul =
+compile flags pkg ifaces modul =
+  compileWith typeCheck (\artifacts () -> artifacts) flags pkg ifaces modul
+
+compileWith :: (Src.Module -> Can.Module -> Either Reporting.Error.Error (Map.Map Name.Name Can.Annotation, a)) -> (Compile.Artifacts -> a -> b) -> CompilationFlags -> Pkg.Name -> Map.Map ModuleName.Raw I.Interface -> Src.Module -> ([Reporting.Warning.Warning], Either Reporting.Error.Error b)
+compileWith checkTypes finish (CompilationFlags modifications) pkg ifaces modul =
   let
     (canonWarnings, canonResult) = canonicalize pkg ifaces modul
   in
@@ -99,9 +103,9 @@ compile (CompilationFlags modifications) pkg ifaces modul =
       let
         canonical = Modify.update modifications dirtyCanonical
       in
-      case typeCheck modul canonical of
+      case checkTypes modul canonical of
         Left err -> (canonWarnings, Left err)
-        Right annotations ->
+        Right (annotations, extra) ->
           case nitpick canonical of
             Left err -> (canonWarnings, Left err)
             Right () ->
@@ -110,7 +114,9 @@ compile (CompilationFlags modifications) pkg ifaces modul =
               in
               case optResult of
                 Left err -> (canonWarnings ++ optWarnings, Left err)
-                Right objects -> (canonWarnings ++ optWarnings, Right (Compile.Artifacts canonical annotations objects))
+                Right objects ->
+                  let artifacts = Compile.Artifacts canonical annotations objects
+                  in (canonWarnings ++ optWarnings, Right (finish artifacts extra))
 
 
 -- PHASES.  These mirror what is in Compile.hs
@@ -126,21 +132,20 @@ canonicalize pkg ifaces modul =
       (warnings, Left $ Reporting.Error.BadNames errors)
 
 
-typeCheck :: Src.Module -> Can.Module -> Either Reporting.Error.Error (Map.Map Name.Name Can.Annotation)
+typeCheck :: Src.Module -> Can.Module -> Either Reporting.Error.Error (Map.Map Name.Name Can.Annotation, ())
 typeCheck modul canonical =
   case System.IO.Unsafe.unsafePerformIO (Type.Solve.run =<< Type.Constrain.Module.constrain canonical) of
     Right annotations ->
-      Right annotations
+      Right (annotations, ())
 
     Left errors ->
       Left (Reporting.Error.BadTypes (Reporting.Render.Type.Localizer.fromModule modul) errors)
 
--- ELM DEV: compute region->type map for a canonical module
-typeAtOf :: Src.Module -> Can.Module -> Either Reporting.Error.Error (Map.Map Reporting.Annotation.Region Can.Annotation)
-typeAtOf modul canonical =
+typeAtOf :: Can.Module -> Maybe (Map.Map Reporting.Annotation.Region Can.Annotation)
+typeAtOf canonical =
   case System.IO.Unsafe.unsafePerformIO (Type.Solve.runTypeAt =<< Type.Constrain.Module.constrain canonical) of
-    Right typeAt -> Right typeAt
-    Left errors -> Left (Reporting.Error.BadTypes (Reporting.Render.Type.Localizer.fromModule modul) errors)
+    Right typeAt -> Just typeAt
+    Left _ -> Nothing
 
 
 nitpick :: Can.Module -> Either Reporting.Error.Error ()

@@ -86,12 +86,12 @@ collectAliases root =
                  Can.Filled inner -> step seen acc inner
              else
                let seen' = Set.insert key seen
-                   acc' = acc ++ [AliasInfo home name args aliasType]
+                   acc' = AliasInfo home name args aliasType : acc
                in case aliasType of
                     Can.Holey inner -> step seen' acc' inner
                     Can.Filled inner -> step seen' acc' inner
   in
-  snd (step Set.empty [] root)
+  reverse (snd (step Set.empty [] root))
 
 
 aliasToDoc :: L.Localizer -> AliasInfo -> D.Doc
@@ -108,5 +108,3 @@ aliasToDoc localizer (AliasInfo home name args aliasType) =
     bodyDoc = RT.canToDoc localizer RT.None bodyType
   in
   D.hang 4 (D.sep [ header, bodyDoc ])
-
-

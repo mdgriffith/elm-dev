@@ -50,7 +50,13 @@ run constraint =
 {-# NOINLINE emptyState #-}
 emptyState :: State
 emptyState =
-  State Map.empty (nextMark noMark) [] Map.empty
+  State Map.empty (nextMark noMark) [] IgnoreTypeAt
+
+
+{-# NOINLINE typeAtState #-}
+typeAtState :: State
+typeAtState =
+  State Map.empty (nextMark noMark) [] (CollectTypeAt Map.empty)
 
 
 
@@ -70,8 +76,13 @@ data State =
     { _env :: Env
     , _mark :: Mark
     , _errors :: [Error.Error]
-    , _typeAt :: Map.Map A.Region Variable -- ELM DEV: collect types at regions
+    , _typeAt :: TypeAt
     }
+
+
+data TypeAt
+  = IgnoreTypeAt
+  | CollectTypeAt (Map.Map A.Region Variable)
 
 
 solve :: Env -> Int -> Pools -> State -> Constraint -> IO State
@@ -86,13 +97,11 @@ solve env rank pools state constraint =
     CEqual region category tipe expectation ->
       do  actual <- typeToVariable rank pools tipe
           expected <- expectedToVariable rank pools expectation
-          -- ELM DEV: record the expected type at this region
-          let state' = state { _typeAt = Map.insert region expected (_typeAt state) }
           answer <- Unify.unify actual expected
           case answer of
             Unify.Ok vars ->
               do  introduce rank pools vars
-                  return state'
+                  return state
 
             Unify.Err vars actualType expectedType ->
               do  introduce rank pools vars
@@ -103,8 +112,7 @@ solve env rank pools state constraint =
     CLocal region name expectation ->
       do  actual <- makeCopy rank pools (env ! name)
           expected <- expectedToVariable rank pools expectation
-          -- ELM DEV: record the expected type at this region
-          let state' = state { _typeAt = Map.insert region expected (_typeAt state) }
+          let state' = insertTypeAt region expected state
           answer <- Unify.unify actual expected
           case answer of
             Unify.Ok vars ->
@@ -158,10 +166,8 @@ solve env rank pools state constraint =
       do  state1 <- solve env rank pools state headerCon
           locals <- traverse (A.traverse (typeToVariable rank pools)) header
           let newEnv = Map.union env (Map.map A.toValue locals)
-          -- ELM DEV: record header binder types at their regions
           let headerTypeAt = Map.fromList [ (region, var) | A.At region var <- Map.elems locals ]
-          let state1' = state1 { _typeAt = Map.union (_typeAt state1) headerTypeAt }
-          -- End ELM DEV
+          let state1' = unionTypeAt headerTypeAt state1
           state2 <- solve newEnv rank pools state1' subCon
           foldM occurs state2 $ Map.toList locals
 
@@ -199,9 +205,8 @@ solve env rank pools state constraint =
           mapM_ isGeneric rigids
 
           let newEnv = Map.union env (Map.map A.toValue locals)
-          -- ELM DEV: record header binder types at their regions
           let headerTypeAt = Map.fromList [ (region, var) | A.At region var <- Map.elems locals ]
-          let tempState = State savedEnv finalMark errors (Map.union typeAt headerTypeAt)
+          let tempState = unionTypeAt headerTypeAt (State savedEnv finalMark errors typeAt)
           newState <- solve newEnv rank nextPools tempState subCon
 
           foldM occurs newState (Map.toList locals)
@@ -260,16 +265,36 @@ addError :: State -> Error.Error -> State
 addError (State savedEnv rank errors typeAt) err =
   State savedEnv rank (err:errors) typeAt
 
--- ELM DEV: Run solver and collect a mapping of regions to principal types
+
+insertTypeAt :: A.Region -> Variable -> State -> State
+insertTypeAt region variable state =
+  case _typeAt state of
+    IgnoreTypeAt -> state
+    CollectTypeAt typeAt -> state { _typeAt = CollectTypeAt (Map.insert region variable typeAt) }
+
+
+unionTypeAt :: Map.Map A.Region Variable -> State -> State
+unionTypeAt additions state =
+  case _typeAt state of
+    IgnoreTypeAt -> state
+    CollectTypeAt typeAt -> state { _typeAt = CollectTypeAt (Map.union typeAt additions) }
+
+-- ELM DEV: Compute declaration-region annotations on demand for hover.
 runTypeAt :: Constraint -> IO (Either (NE.List Error.Error) (Map.Map A.Region Can.Annotation))
 runTypeAt constraint =
   do  pools <- MVector.replicate 8 []
 
-      (State _ _ errors typeAtVars) <-
-        solve Map.empty outermostRank pools emptyState constraint
+      (State _ _ errors collectedTypeAt) <-
+        solve Map.empty outermostRank pools typeAtState constraint
 
       case errors of
-        [] -> Right <$> traverse Type.toAnnotation typeAtVars
+        [] -> do
+          let typeAtVars =
+                case collectedTypeAt of
+                  CollectTypeAt collected -> collected
+                  IgnoreTypeAt -> error "Type.Solve.runTypeAt: collection was disabled"
+          typeAt <- traverse Type.toAnnotation typeAtVars
+          pure (Right typeAt)
         e:es -> return $ Left (NE.List e es)
 
 

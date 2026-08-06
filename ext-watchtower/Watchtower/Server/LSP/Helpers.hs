@@ -29,7 +29,6 @@ import qualified Data.Aeson as JSON
 import qualified Data.Map as Map
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Json.String
-import qualified AST.Source as Src
 import qualified AST.Canonical as Can
 import qualified Watchtower.AST.Lookup
 import qualified Watchtower.AST.Definition
@@ -499,8 +498,7 @@ showHover state filePath lspPos = do
     case mInfo of
         Nothing -> pure (Right Nothing)
         Just (Watchtower.Live.Client.FileInfo
-              { Watchtower.Live.Client.sourceAst = _maybeSrc
-              , Watchtower.Live.Client.canonicalAst = maybeCan
+              { Watchtower.Live.Client.canonicalAst = maybeCan
               , Watchtower.Live.Client.localizer = maybeLoc
               }) ->
           case maybeCan of
@@ -519,15 +517,15 @@ showHover state filePath lspPos = do
                           content = renderHoverSignature maybeLoc (fmap (Text.pack . Name.toChars) maybeNm) tipe
                       pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
                     Watchtower.AST.Lookup.FoundVarLocal name -> do
-                      case getTypeForFoundVar mInfo region of
+                      case getHoverTypeForFoundVar mInfo region of
                         Nothing -> pure (Right Nothing)
-                        Just tipe -> do
+                        Just (Can.Forall _ tipe) -> do
                           let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars name))) tipe
                           pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
                     Watchtower.AST.Lookup.FoundVarTopLevel name -> do
-                      case getTypeForFoundVar mInfo region of
+                      case getHoverTypeForFoundVar mInfo region of
                         Nothing -> pure (Right Nothing)
-                        Just tipe -> do
+                        Just (Can.Forall _ tipe) -> do
                           let content = renderHoverSignature maybeLoc (Just (Text.pack (Name.toChars name))) tipe
                           pure (Right (Just Hover { hoverContents = content, hoverRange = Just (regionToRange region) }))
                     Watchtower.AST.Lookup.FoundVarForeign home name (Can.Forall _ tipe) -> do
@@ -556,14 +554,12 @@ showHover state filePath lspPos = do
 
 
 
--- Look up the inferred type for a FoundVar (local or top-level) by its region
-getTypeForFoundVar :: Maybe Watchtower.Live.Client.FileInfo -> Ann.Region -> Maybe Can.Type
-getTypeForFoundVar mInfo region =
+-- Look up the inferred hover type for a local or top-level variable by region.
+getHoverTypeForFoundVar :: Maybe Watchtower.Live.Client.FileInfo -> Ann.Region -> Maybe Can.Annotation
+getHoverTypeForFoundVar mInfo region =
   case mInfo of
-    Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.typeAt = Just typeAtMap }) ->
-      case Map.lookup region typeAtMap of
-        Just (Can.Forall _ tipe) -> Just tipe
-        _ -> Nothing
+    Just (Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.hoverIndex = Just index }) ->
+      Watchtower.Live.Client.lookupHoverType region index
     _ -> Nothing
 
 -- Render a markdown hover with Elm syntax highlighting. Include name when provided.
