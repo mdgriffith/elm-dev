@@ -5,14 +5,15 @@
 module Gen.Javascript where
 
 import Control.Exception (IOException, try)
+import Control.Concurrent (threadDelay)
 import qualified Data.Char as Char
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Data.FileEmbed
 import qualified Language.Haskell.TH
 import System.FilePath ((</>))
-import System.IO (hClose)
-import System.IO.Temp (withSystemTempFile)
+import System.IO (IOMode(ReadMode, WriteMode), hClose, withBinaryFile)
+import System.IO.Temp (withSystemTempDirectory, withSystemTempFile)
 import qualified System.Exit as Exit
 import qualified System.Process
 
@@ -43,9 +44,25 @@ run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
   -- Write the embedded code to a temporary file
   BS.hPut handle jsCode
   hClose handle -- Close the handle after writing
-  -- Launch Node directly so cancellation targets the runtime rather than a shell.
-  let process = System.Process.proc "node" [tempPath]
-  result <- try $ System.Process.readCreateProcessWithExitCode process (UTF8.toString input)
+  result <- try $ withSystemTempDirectory "embedded-stdio" $ \stdioDir -> do
+    let inputPath = stdioDir </> "stdin"
+        outputPath = stdioDir </> "stdout"
+        errorPath = stdioDir </> "stderr"
+    BS.writeFile inputPath input
+    exitCode <-
+      withBinaryFile inputPath ReadMode $ \inputHandle ->
+        withBinaryFile outputPath WriteMode $ \outputHandle ->
+          withBinaryFile errorPath WriteMode $ \errorHandle -> do
+            let process = (System.Process.proc "node" [tempPath])
+                  { System.Process.std_in = System.Process.UseHandle inputHandle
+                  , System.Process.std_out = System.Process.UseHandle outputHandle
+                  , System.Process.std_err = System.Process.UseHandle errorHandle
+                  }
+            System.Process.withCreateProcess process $ \_ _ _ processHandle ->
+              waitForProcessInterruptibly processHandle
+    output <- UTF8.toString <$> BS.readFile outputPath
+    stderr <- UTF8.toString <$> BS.readFile errorPath
+    pure (exitCode, output, stderr)
   case result of
     Left err -> return $ Left $ Other $ "Error executing script: " ++ show (err :: IOException)
     Right (Exit.ExitSuccess, output, stderr)
@@ -58,6 +75,14 @@ run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
       return $ Left $ Other $
         "JavaScript process exited with code " ++ show code
           ++ if null stderr then "" else ":\n" ++ stderr
+
+
+waitForProcessInterruptibly :: System.Process.ProcessHandle -> IO Exit.ExitCode
+waitForProcessInterruptibly processHandle = do
+  maybeExit <- System.Process.getProcessExitCode processHandle
+  case maybeExit of
+    Just exitCode -> pure exitCode
+    Nothing -> threadDelay 10000 >> waitForProcessInterruptibly processHandle
 
 -- Dynamically adjusted by build.sh to make sure haskell doesn't bamboozle us.
 version :: String

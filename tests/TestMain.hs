@@ -29,6 +29,7 @@ import qualified Data.Set as Set
 import qualified Ext.CompileHelpers.Disk as DiskCompile
 import qualified Ext.Optimization.Level as Optimization
 import qualified Gen.Generate as Generate
+import qualified Gen.Javascript as Javascript
 import qualified Gen.Config as GenConfig
 import qualified Ext.Dev.Project as Project
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
@@ -134,6 +135,7 @@ versionTests =
   , runTest "package changed source is targeted directly" testPackageChangedSourceIsTargeted
   , runTest "package unused modules are detected from exposed roots" testPackageUnusedModuleDetection
   , runTest "target results preserve per-entrypoint success" testTargetResultsSuccess
+  , runTest "skipped compile replaces stale project result" testSkippedCompileReplacesStaleResult
   , runTest "open file keeps in-memory precedence over fs watcher" testOpenFileSkipsFilesystemSync
   , runTest "disconnect cleanup removes editor and diagnostics state" testCleanupConnectionState
   , runTest "successful project fileInfo update replaces stale entries" testUpdateProjectFileInfo
@@ -179,6 +181,7 @@ mcpTests =
   , runTest "package test manifest is persisted as an application" testPackageTestManifestIsPersistedAsApplication
   , runTest "test discovery preserves exposed declaration casing" testDiscoveryPreservesExposedDeclarationCasing
   , runTest "test reports decode and render exported-value durations" testReportDuration
+  , runTest "JavaScript cancellation does not fail during stdin cleanup" testJavascriptCancellation
   ]
 
 daemonTests :: [NamedTest]
@@ -2387,6 +2390,42 @@ testTargetResultsSuccess = do
       grouped = Client.TargetResults [("/tmp/app/src/Main.elm", success), ("/tmp/app/src/Other.elm", success)]
   pure (Client.compilationResultSucceeded grouped)
 
+testSkippedCompileReplacesStaleResult :: IO Bool
+testSkippedCompileReplacesStaleResult = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+      unusedPath = srcDir FilePath.</> "Unused.elm"
+      proj = Project.Project root root (NE.List mainPath []) [srcDir] 1
+      flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+      session = Client.LspSession
+        { Client.workspaceDiagnosticsSnapshotFiles = []
+        , Client.workspaceDiagnosticsSnapshotOutOfDate = False
+        , Client.publishedDiagnosticFiles = Map.empty
+        , Client.lspRoot = [root]
+        }
+  writeElmApp root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainPath "module Main exposing (main)\n\nmain = 1\n"
+  writeFile unusedPath "module Unused exposing (value)\n\nvalue = 1\n"
+  state <- Client.initState testUrls
+  compileResult <- STM.newTVarIO Client.NotCompiled
+  testInfo <- STM.newTVarIO Nothing
+  let projectCache = Client.ProjectCache proj GenConfig.defaultDocs flags compileResult testInfo
+  STM.atomically $ do
+    STM.writeTVar (Client.projects state) [projectCache]
+    STM.writeTVar (Client.workspaceDiagnosticsRequested state) (Map.singleton "test-conn" session)
+  CompileState.markFilesystemChanged state [unusedPath]
+  result <- CompileState.compile state "test.skipped" projectCache [unusedPath]
+  stored <- STM.readTVarIO compileResult
+  sessions <- STM.readTVarIO (Client.workspaceDiagnosticsRequested state)
+  pure
+    ( case (result, stored, Map.lookup "test-conn" sessions) of
+        (Right CompileHelpers.CompiledSkippedOutput, Client.Success CompileHelpers.CompiledSkippedOutput, Just updatedSession) ->
+          Client.workspaceDiagnosticsSnapshotOutOfDate updatedSession
+        _ -> False
+    )
+
 testOpenFileSkipsFilesystemSync :: IO Bool
 testOpenFileSkipsFilesystemSync = do
   let path = "/tmp/app/src/Main.elm"
@@ -2472,6 +2511,18 @@ testDuplicateChangeEventsMarkDirtyOnce = do
         && Versions.fsVersion versions == 1
         && Versions.compileVersion versions == 0
     )
+
+testJavascriptCancellation :: IO Bool
+testJavascriptCancellation = do
+  results <- sequence
+    [ (Exception.try (Timeout.timeout 20000 (Javascript.run "setInterval(() => {}, 1000);" "{}"))
+        :: IO (Either Exception.SomeException (Maybe (Either Javascript.RunError String))))
+    | _ <- [1..5 :: Int]
+    ]
+  pure (all wasCancelled results)
+  where
+    wasCancelled (Right Nothing) = True
+    wasCancelled _ = False
 
 testGenerateBasicConfig :: IO Bool
 testGenerateBasicConfig = do

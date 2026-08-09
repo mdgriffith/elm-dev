@@ -78,6 +78,10 @@ compileUntraced state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiag
         entrypointGroups <- Ext.Dev.Project.entrypointGroupsForChangedFilesAtVersion fsSnapshot files proj
         if null entrypointGroups
           then do
+            STM.atomically $ do
+              STM.writeTVar mCompileResult (Client.Success CompileHelpers.CompiledSkippedOutput)
+              cur <- STM.readTVar mWorkspaceDiagsRequested
+              STM.writeTVar mWorkspaceDiagsRequested (Map.map markDiagnosticsOutOfDate cur)
             markCompileSnapshot
             versionsAtEnd <- Versions.readVersions projectRoot
             Ext.Log.log Ext.Log.Live
@@ -761,3 +765,8 @@ shouldReplaceProjectFileInfo files =
     isProjectConfig path =
       let fileName = FP.takeFileName (FP.normalise path)
        in fileName == "elm.json" || fileName == "elm.dev.json"
+
+
+markDiagnosticsOutOfDate :: Client.LspSession -> Client.LspSession
+markDiagnosticsOutOfDate session =
+  session { Client.workspaceDiagnosticsSnapshotOutOfDate = True }

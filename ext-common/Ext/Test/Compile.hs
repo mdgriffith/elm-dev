@@ -115,7 +115,9 @@ compileRunner root entrypoints = do
         let relativeEntrypoints = map (FP.makeRelative testRoot) (NE.toList entrypoints)
             process =
               (Process.proc executable ("make" : relativeEntrypoints ++ ["--output=" ++ outputPath]))
-                { Process.cwd = Just testRoot }
+                { Process.cwd = Just testRoot
+                , Process.std_in = Process.NoStream
+                }
         (exitCode, stdout, stderr) <- Process.readCreateProcessWithExitCode process ""
         case exitCode of
           SystemExit.ExitSuccess -> Right <$> BS.readFile outputPath
