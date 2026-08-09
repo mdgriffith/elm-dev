@@ -4,23 +4,15 @@ module Ext.Test.Result.Report
   ( renderReports
   , renderReport
   , renderReportsWithDuration
-  , printReports
   ) where
 
 import qualified Data.List
 import Data.Ord (Down(..))
 import qualified ElmDevVersion
-import qualified Ext.Common
 import qualified Ext.Test.Result as R
 
 
 -- Public rendering API
-
-printReports :: [R.Report] -> IO ()
-printReports reports =
-  Ext.Common.atomicPutStrLn (renderReports reports)
-
-
 renderReports :: [R.Report] -> String
 renderReports reports =
   renderReportsWithDuration True Nothing Nothing Nothing reports

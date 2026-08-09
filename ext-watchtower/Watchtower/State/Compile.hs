@@ -38,6 +38,7 @@ import qualified Data.Set as Set
 import qualified Control.Concurrent.MVar as MVar
 import qualified System.IO.Unsafe as Unsafe
 import qualified Control.Concurrent as Concurrent
+import qualified Control.Exception as Exception
 import qualified Ext.Trace as PerfTrace
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
@@ -428,10 +429,9 @@ compileRelevantProjectsUntraced state@(Client.State _ mProjects _ _ _ _ _ _ _) t
 
             counter <- STM.newTVarIO (List.length downstreamProjects)
             let runDownstream projCache = do
-                  runOne projCache
-                  STM.atomically $ do
-                    n <- STM.readTVar counter
-                    STM.writeTVar counter (n - 1)
+                  Exception.finally
+                    (runOne projCache)
+                    (STM.atomically $ STM.modifyTVar' counter (subtract 1))
             mapM_ (\proj -> Ext.Common.trackedForkIO (runDownstream proj)) downstreamProjects
             STM.atomically $ do
               n <- STM.readTVar counter
@@ -551,18 +551,18 @@ compileRelevantProjectsUntraced state@(Client.State _ mProjects _ _ _ _ _ _ _) t
     runTestsForCompileResults results = do
       counter <- STM.newTVarIO (List.length results)
       let runOne (didCompile, lastPrimarySucceeded, projCache@(Client.ProjectCache proj _ _ _ _)) = do
-            case (didCompile, lastPrimarySucceeded) of
-              (True, Just True) ->
-                compileTestsWithTrace state traceId projCache
+            Exception.finally
+              (case (didCompile, lastPrimarySucceeded) of
+                (True, Just True) ->
+                  compileTestsWithTrace state traceId projCache
 
-              (True, Just False) ->
-                traceSkippedTests state traceId proj "primary_compile_failed"
+                (True, Just False) ->
+                  traceSkippedTests state traceId proj "primary_compile_failed"
 
-              _ ->
-                pure ()
-            STM.atomically $ do
-              n <- STM.readTVar counter
-              STM.writeTVar counter (n - 1)
+                _ ->
+                  pure ()
+              )
+              (STM.atomically $ STM.modifyTVar' counter (subtract 1))
       mapM_ (\result -> Ext.Common.trackedForkIO (runOne result)) results
       STM.atomically $ do
         n <- STM.readTVar counter

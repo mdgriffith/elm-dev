@@ -367,13 +367,13 @@ ask state question =
         Left (Watchtower.Live.Client.GenerationError err) ->
           pure (Json.Encode.encodeUgly (Json.Encode.chars err))
         Right (CompileHelpers.CompiledJs js) -> do
-          putStrLn "Success, returning JS"
+          Ext.Log.log Ext.Log.Questions "Success, returning JS"
           pure (Data.ByteString.Builder.byteString "// success\n" <> js)
         Right (CompileHelpers.CompiledHtml html) -> do
-          putStrLn "Success, returning HTML"
+          Ext.Log.log Ext.Log.Questions "Success, returning HTML"
           pure html
         Right CompileHelpers.CompiledSkippedOutput -> do
-          putStrLn "Success, returning skipped output"
+          Ext.Log.log Ext.Log.Questions "Success, returning skipped output"
           pure (Json.Encode.encodeUgly (Json.Encode.chars "// success"))
     Interactive (InteractiveDetails cwd filepath) -> do
       maybeDocs <- Ext.Dev.docs cwd filepath
@@ -383,15 +383,15 @@ ask state question =
         Just docs -> do
           -- pure (Json.Encode.encodeUgly (Docs.encode (Docs.toDict [docs])))
           let docsJson = Docs.encode (Docs.toDict [docs])
-          putStrLn "-- DOCS GENERATED"
+          Ext.Log.log Ext.Log.Questions "Docs generated"
           let docsProject =
                 Json.Encode.object
                   [ ("project", docsJson),
                     ("viewers", Json.Encode.array [])
                   ]
           let flags = Json.Encode.object [("flags", docsProject)]
-          putStrLn $ "Flags: " ++ show flags
-          putStrLn "Running Interactive "
+          Ext.Log.log Ext.Log.Questions ("Flags: " ++ show flags)
+          Ext.Log.log Ext.Log.Questions "Running interactive"
           result <- Gen.Javascript.run Gen.Javascript.interactiveJs (BS.toStrict (Data.ByteString.Builder.toLazyByteString (Json.Encode.encodeUgly flags)))
           case result of
             Left Gen.Javascript.ThreadKilled ->
@@ -402,10 +402,9 @@ ask state question =
               case Data.Aeson.eitherDecodeStrict (Data.Text.Encoding.encodeUtf8 (Data.Text.pack output)) of
                 Left err -> pure (Json.Encode.encodeUgly (Json.Encode.chars err))
                 Right (Gen.Generate.GeneratedFiles generatedFiles) -> do
-                  putStrLn $ "Generated files: " ++ show (length generatedFiles)
-                  Monad.forM_ generatedFiles $ \file -> do
-                    -- putStrLn $ "Generated file: " ++ Gen.Generate.outputDir file ++ " & " ++ Gen.Generate.path file
-                    putStrLn $ "Generated file: " ++ show file
+                  Ext.Log.log Ext.Log.Questions ("Generated files: " ++ show (length generatedFiles))
+                  Monad.forM_ generatedFiles $ \file ->
+                    Ext.Log.log Ext.Log.Questions ("Generated file: " ++ show file)
                   pure (Json.Encode.encodeUgly docsJson)
     {-let entry = "src" </> "Interactive.elm"
     let elmContent = "module Interactive exposing (main)\n\nimport Html exposing (Html, text)\n\nmain : Html msg\nmain = text \"Hello, from dynamically compiled Elm!!\"\n"

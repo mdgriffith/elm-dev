@@ -77,7 +77,7 @@ upsertVirtual state@(Client.State mClients mProjects _ _ _ _ _ _ _) flags root e
   elmJsonResult <- insertVirtualElmJson root
   case elmJsonResult of
     Left err -> do
-      putStrLn (show err)
+      Ext.Log.log Ext.Log.Misc (show err)
       pure Nothing
     Right virtualRoot -> do
       let docsInfo = Gen.Config.defaultDocs
@@ -100,7 +100,7 @@ insertVirtualElmJson root = do
   realProjectElmJson <- Elm.Outline.read root
   case realProjectElmJson of
     Left err -> do
-      putStrLn $ "Error reading elm.json: " <> show err
+      Ext.Log.log Ext.Log.Misc ("Error reading elm.json: " <> show err)
       pure (Left (show err))
     Right (Elm.Outline.App appOutline) -> do
       let virtualRoot = Ext.VirtualFile.dir root
@@ -110,8 +110,8 @@ insertVirtualElmJson root = do
       Dir.createDirectoryIfMissing True virtualRoot
       Dir.createDirectoryIfMissing True virtualSrcDir
 
-      putStrLn $ "Creating virtual root if necessary " <> show virtualRoot
-      putStrLn $ "VIRTUAL SRC DIR " <> show virtualSrcDir
+      Ext.Log.log Ext.Log.Misc ("Creating virtual root if necessary " <> show virtualRoot)
+      Ext.Log.log Ext.Log.Misc ("Virtual source directory " <> show virtualSrcDir)
 
       -- Convert existing source directories to absolute paths
       let srcDirsList = NE.toList (Elm.Outline._app_source_dirs appOutline)
@@ -127,7 +127,7 @@ insertVirtualElmJson root = do
                 { Elm.Outline._app_source_dirs = newSrcDirs
                 }
 
-      putStrLn $ "WRITING VIRTUAL ELM.JSON " <> show virtualRoot
+      Ext.Log.log Ext.Log.Misc ("Writing virtual elm.json " <> show virtualRoot)
 
       -- Encode and write the virtual elm.json
       Elm.Outline.write virtualRoot virtualOutline
