@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NPM_DIR="$SCRIPT_DIR/.."
 cd "$NPM_DIR"
 
-VERSION="0.4.0"
+VERSION="0.4.1"
 RELEASE_DIR="releases/$VERSION"
 
 # Define URLs for download
