@@ -52,8 +52,6 @@ import qualified Ext.CompileProxy
 import qualified Ext.FileProxy
 import qualified Ext.Dev.Project
 import qualified Ext.Test.Install as TestInstall
-import qualified Ext.Test.Result.Report as TestReport
-import qualified System.CPUTime as CPUTime
 import qualified Ext.Test.Runner as TestRunner
 import qualified Gen.Javascript
 import qualified Ext.Reporting.Error
@@ -112,7 +110,6 @@ import qualified Ext.DependencySize as DependencySize
 import qualified Watchtower.Server.LSP.Protocol as LSPProtocol
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
-import qualified Data.Time.Clock as Time
 import qualified System.Timeout as Timeout
 
 
@@ -727,8 +724,7 @@ runOneCheckTest (Client.ProjectCache proj _ _ _ mTestVar) index value = do
   Control.Concurrent.STM.atomically $ Watchtower.State.Compile.clearTestResults mTestVar
   versionsVar <- Versions.getOrInit dir
   versionsAtStart <- Control.Concurrent.STM.readTVarIO versionsVar
-  startedAt <- Time.getCurrentTime
-  result <- TestRunner.run mTimeoutSeconds mGlobs mSeed mFuzz dir
+  result <- TestRunner.runIsolated mTimeoutSeconds mGlobs mSeed mFuzz dir
   case result of
     Left e ->
       let msg = case e of
@@ -736,18 +732,16 @@ runOneCheckTest (Client.ProjectCache proj _ _ _ mTestVar) index value = do
             TestRunner.RunFailed runMsg -> Text.pack runMsg
           block = xmlBlock "tests" ([("index", Text.pack (show index)), ("status", "error"), ("root", Text.pack dir)] ++ maybe [] (\g -> [("glob", g)]) mGlobText) msg
       in pure (CheckTestRun block 0 0 0 True)
-    Right (TestRunner.RunSuccess info reports seed fuzz) -> do
-      finishedAt <- Time.getCurrentTime
-      let durationMs = round (realToFrac (Time.diffUTCTime finishedAt startedAt) * 1000 :: Double)
-          rendered = TestReport.renderReportsWithDuration False (Just durationMs) (Just seed) (Just fuzz) reports
-          summary = TestRunner.tiSummary info
+    Right success -> do
+      let rendered = TestRunner.isolatedRendered success
+          summary = TestRunner.isolatedSummary success
           total = TestRunner.summaryTotal summary
           passed = TestRunner.summaryPassed summary
           failed = TestRunner.summaryFailed summary
           failures = TestRunner.summaryFailures summary
           tr = Client.TestResults total passed failed failures
           clientInfo = Client.TestInfo
-                         { Client.testFiles = TestRunner.tiFiles info
+                         { Client.testFiles = TestRunner.isolatedTestFiles success
                          , Client.testResults = Just tr
                          , Client.testCompilation = Just Client.TestSuccess
                          }
@@ -801,7 +795,9 @@ renderTestJobsSummary root =
 
 renderTestJobsCollection :: Maybe FilePath -> [TestJobs.JobView] -> Text
 renderTestJobsCollection maybeRoot jobs =
-  let running = length (filter (\job -> TestJobs.jobStatus job == TestJobs.JobRunning || TestJobs.jobStatus job == TestJobs.JobQueued) jobs)
+  let queued = length (filter ((== TestJobs.JobQueued) . TestJobs.jobStatus) jobs)
+      running = length (filter ((== TestJobs.JobRunning) . TestJobs.jobStatus) jobs)
+      active = queued + running
       completed = length (filter ((== TestJobs.JobCompleted) . TestJobs.jobStatus) jobs)
       failed = length (filter ((== TestJobs.JobFailed) . TestJobs.jobStatus) jobs)
       testsFailed = length
@@ -813,7 +809,7 @@ renderTestJobsCollection maybeRoot jobs =
       cancelled = length (filter ((== TestJobs.JobCancelled) . TestJobs.jobStatus) jobs)
       attrs =
         maybe [] (\root -> [("root", Text.pack root)]) maybeRoot
-          ++ [("running", Text.pack (show running)), ("completed", Text.pack (show completed)), ("testsFailed", Text.pack (show testsFailed)), ("failed", Text.pack (show failed)), ("cancelled", Text.pack (show cancelled))]
+          ++ [("active", Text.pack (show active)), ("running", Text.pack (show running)), ("queued", Text.pack (show queued)), ("completed", Text.pack (show completed)), ("testsFailed", Text.pack (show testsFailed)), ("failed", Text.pack (show failed)), ("cancelled", Text.pack (show cancelled))]
       body = if null jobs then "No test jobs." else Text.intercalate "\n" (map renderTestJobSummaryLine (take 20 jobs))
   in xmlBlock "test-jobs" attrs body
 
@@ -1985,8 +1981,7 @@ toolTestRun = MCP.Tool
                   Just (JSON.Number n) -> (Scientific.toBoundedInteger n :: Maybe Int)
                   _ -> Nothing
           let timeoutSeconds = maybe 10 id mTimeoutSeconds
-          startPs <- CPUTime.getCPUTime
-          result <- TestRunner.run (Just timeoutSeconds) mGlobs mSeed mFuzz dir
+          result <- TestRunner.runIsolated (Just timeoutSeconds) mGlobs mSeed mFuzz dir
           case result of
             Left e -> case e of
               TestRunner.TimedOut _ -> do
@@ -1994,20 +1989,17 @@ toolTestRun = MCP.Tool
                 pure (errTxt (Text.pack ("Tests timed out after " ++ show timeoutMs ++ "ms")))
               TestRunner.RunFailed msg ->
                 pure (errTxt (Text.pack msg))
-            Right (TestRunner.RunSuccess info reports seed fuzz) -> do
-              endPs <- CPUTime.getCPUTime
-              let durationMs :: Int
-                  durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
-              let rendered = TestReport.renderReportsWithDuration False (Just durationMs) (Just seed) (Just fuzz) reports
+            Right success -> do
+              let rendered = TestRunner.isolatedRendered success
               -- Update test var with info from the test run
-              let summary = TestRunner.tiSummary info
+              let summary = TestRunner.isolatedSummary success
                   total = TestRunner.summaryTotal summary
                   passed = TestRunner.summaryPassed summary
                   failed = TestRunner.summaryFailed summary
                   failures = TestRunner.summaryFailures summary
                   tr = Client.TestResults total passed failed failures
                   clientInfo = Client.TestInfo
-                                 { Client.testFiles = TestRunner.tiFiles info
+                                  { Client.testFiles = TestRunner.isolatedTestFiles success
                                  , Client.testResults = Just tr
                                  , Client.testCompilation = Just Client.TestSuccess
                                  }

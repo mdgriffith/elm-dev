@@ -927,6 +927,15 @@ version = ElmDevVersion.version
 -- Main function
 main :: IO ()
 main = do
+  args <- System.Environment.getArgs
+  case args of
+    ["__elm-dev-test-worker", requestPath, responsePath] ->
+      Ext.Test.Runner.workerMain requestPath responsePath
+    _ -> commandMain
+
+
+commandMain :: IO ()
+commandMain =
   CommandParser.run
     version
     ( \commands givenCommand ->

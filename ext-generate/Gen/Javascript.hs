@@ -8,6 +8,7 @@ import Control.Exception (IOException, try)
 import Control.Concurrent (threadDelay)
 import qualified Data.Char as Char
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS.Char8
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Data.FileEmbed
 import qualified Language.Haskell.TH
@@ -40,7 +41,11 @@ interactiveJs =
 
 -- | Execute embedded JavaScript using Node
 run :: BS.ByteString -> BS.ByteString -> IO (Either RunError String)
-run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
+run jsCode input = fmap (fmap UTF8.toString) (runBytes jsCode input)
+
+
+runBytes :: BS.ByteString -> BS.ByteString -> IO (Either RunError BS.ByteString)
+runBytes jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
   -- Write the embedded code to a temporary file
   BS.hPut handle jsCode
   hClose handle -- Close the handle after writing
@@ -60,21 +65,21 @@ run jsCode input = withSystemTempFile "embedded.js" $ \tempPath handle -> do
                   }
             System.Process.withCreateProcess process $ \_ _ _ processHandle ->
               waitForProcessInterruptibly processHandle
-    output <- UTF8.toString <$> BS.readFile outputPath
-    stderr <- UTF8.toString <$> BS.readFile errorPath
+    output <- BS.readFile outputPath
+    stderr <- BS.readFile errorPath
     pure (exitCode, output, stderr)
   case result of
     Left err -> return $ Left $ Other $ "Error executing script: " ++ show (err :: IOException)
     Right (Exit.ExitSuccess, output, stderr)
-      | all Char.isSpace output ->
+      | BS.Char8.all Char.isSpace output ->
           return $ Left $ Other $
             "JavaScript process exited successfully but produced no output"
-              ++ if null stderr then "" else ":\n" ++ stderr
+              ++ if BS.null stderr then "" else ":\n" ++ UTF8.toString stderr
       | otherwise -> return $ Right output
     Right (Exit.ExitFailure code, _, stderr) ->
       return $ Left $ Other $
         "JavaScript process exited with code " ++ show code
-          ++ if null stderr then "" else ":\n" ++ stderr
+          ++ if BS.null stderr then "" else ":\n" ++ UTF8.toString stderr
 
 
 waitForProcessInterruptibly :: System.Process.ProcessHandle -> IO Exit.ExitCode
@@ -86,4 +91,4 @@ waitForProcessInterruptibly processHandle = do
 
 -- Dynamically adjusted by build.sh to make sure haskell doesn't bamboozle us.
 version :: String
-version = "aee791e077ac8d63"
+version = "584f44b6f751625d"

@@ -115,6 +115,18 @@ maxTerminalJobsPerRoot :: Int
 maxTerminalJobsPerRoot = 20
 
 
+maxTerminalJobsTotal :: Int
+maxTerminalJobsTotal = 100
+
+
+maxActiveJobsPerRoot :: Int
+maxActiveJobsPerRoot = 2
+
+
+maxRetainedBodyChars :: Int
+maxRetainedBodyChars = 256 * 1024
+
+
 newRegistry :: IO Registry
 newRegistry = do
   state <- STM.newTVarIO (RegistryState 1 Map.empty)
@@ -135,34 +147,57 @@ submitWith :: Registry -> FilePath -> ((Text -> IO ()) -> IO ActionResult) -> IO
 submitWith registry root action = Exception.mask $ \restore -> do
   now <- getCurrentTime
   pruneAt registry now
-  (newJobId, initialView) <- STM.atomically $ do
+  (newJobId, initialView, shouldStart) <- STM.atomically $ do
     current <- STM.readTVar (registryState registry)
     let newJobId = "test-" <> Text.pack (show (nextId current))
-        view = JobView
-          { jobId = newJobId
-          , jobRoot = root
-          , jobStatus = JobQueued
-          , jobMessage = "Waiting to start"
-          , jobCreatedAt = now
-          , jobStartedAt = Nothing
-          , jobCompletedAt = Nothing
-          , jobCompletion = Nothing
-          , jobFailure = Nothing
-          }
+        activeCount = length
+          [ ()
+          | entry <- Map.elems (entries current)
+          , jobRoot (entryView entry) == root
+          , isActive (jobStatus (entryView entry))
+          ]
+        rejected = activeCount >= maxActiveJobsPerRoot
+        rejectionMessage = "Test job rejected: this project already has one running and one queued test job. Poll or cancel an existing job before submitting another."
+        view =
+          if rejected
+            then JobView
+              { jobId = newJobId
+              , jobRoot = root
+              , jobStatus = JobFailed
+              , jobMessage = rejectionMessage
+              , jobCreatedAt = now
+              , jobStartedAt = Nothing
+              , jobCompletedAt = Just now
+              , jobCompletion = Nothing
+              , jobFailure = Just rejectionMessage
+              }
+            else JobView
+              { jobId = newJobId
+              , jobRoot = root
+              , jobStatus = JobQueued
+              , jobMessage = "Waiting to start"
+              , jobCreatedAt = now
+              , jobStartedAt = Nothing
+              , jobCompletedAt = Nothing
+              , jobCompletion = Nothing
+              , jobFailure = Nothing
+              }
         updated = current
           { nextId = nextId current + 1
           , entries = Map.insert newJobId (Entry view Nothing) (entries current)
           }
     STM.writeTVar (registryState registry) updated
-    pure (newJobId, view)
+    pure (newJobId, view, not rejected)
 
-  startGate <- MVar.newEmptyMVar
-  threadId <- Concurrent.forkIO $ do
-    MVar.takeMVar startGate
-    runWorker registry newJobId (restore . action)
-  STM.atomically $ modifyEntry registry newJobId $ \entry ->
-    entry { entryThread = Just threadId }
-  MVar.putMVar startGate ()
+  Monad.when shouldStart $ do
+    startGate <- MVar.newEmptyMVar
+    threadId <- Concurrent.forkIO $ do
+      MVar.takeMVar startGate
+      runWorker registry newJobId (restore . action)
+    STM.atomically $ modifyEntry registry newJobId $ \entry ->
+      entry { entryThread = Just threadId }
+    MVar.putMVar startGate ()
+  Monad.unless shouldStart (pruneAt registry now)
   pure initialView
 
 
@@ -223,6 +258,8 @@ setProgress registry targetId message =
 
 finishIfActive :: Registry -> JobId -> UTCTime -> JobStatus -> Text -> Maybe Completion -> Maybe Text -> IO ()
 finishIfActive registry targetId finishedAt status message completion failure = do
+  let boundedCompletion = fmap (\value -> value { completionBody = boundRetainedText (completionBody value) }) completion
+      boundedFailure = fmap boundRetainedText failure
   STM.atomically $ modifyEntry registry targetId $ \entry ->
     if isActive (jobStatus (entryView entry))
       then entry
@@ -230,13 +267,21 @@ finishIfActive registry targetId finishedAt status message completion failure = 
             { jobStatus = status
             , jobMessage = message
             , jobCompletedAt = Just finishedAt
-            , jobCompletion = completion
-            , jobFailure = failure
+            , jobCompletion = boundedCompletion
+            , jobFailure = boundedFailure
             }
         , entryThread = Nothing
         }
       else entry
   pruneAt registry finishedAt
+
+
+boundRetainedText :: Text -> Text
+boundRetainedText value
+  | Text.length value <= maxRetainedBodyChars = value
+  | otherwise =
+      Text.take maxRetainedBodyChars value
+        <> "\n\n[Output truncated by elm-dev to limit retained test-job memory.]"
 
 
 modifyEntry :: Registry -> JobId -> (Entry -> Entry) -> STM.STM ()
@@ -352,10 +397,10 @@ pruneAt registry now = STM.atomically $ do
         take maxTerminalJobsPerRoot
           (List.sortOn (Down . terminalSortTime . entryView)
             (filter ((== root) . jobRoot . entryView) (Map.elems terminalEntries)))
+      retainedPerRoot = concatMap retainedForRoot roots
       retainedTerminal = Map.fromList
         [ (jobId (entryView entry), entry)
-        | root <- roots
-        , entry <- retainedForRoot root
+        | entry <- take maxTerminalJobsTotal (List.sortOn (Down . terminalSortTime . entryView) retainedPerRoot)
         ]
   STM.writeTVar (registryState registry) current
     { entries = Map.union activeEntries retainedTerminal }

@@ -4,7 +4,7 @@ module Watchtower.Server.Run where
 
 import Control.Concurrent (forkIO, killThread)
 import qualified Control.Concurrent.STM as STM
-import Control.Exception (IOException, try, finally)
+import Control.Exception (IOException, bracket, try, finally)
 import Control.Monad (forever, void)
 import Control.Monad.Trans (MonadIO (liftIO))
 import qualified Data.Aeson as JSON
@@ -103,9 +103,12 @@ run state mode handler notificationHandler =
       HTTP maybePort -> do
         let port = Ext.Common.withDefault 51213 maybePort
         debug <- Ext.Log.isActive Ext.Log.VerboseServer
+        eventsChan <- STM.newBroadcastTChanIO :: IO (STM.TChan JSONRPC.Outbound)
+        let emitEvent notif = STM.atomically (STM.writeTChan eventsChan notif)
         Ext.Common.atomicPutStrLn $ "elm-dev is now running at http://localhost:" ++ show port
-        Server.httpServe (config port debug) $
-          runHttp state handler notificationHandler
+        bracket (registerEmitter emitEvent) id $ \_ ->
+          Server.httpServe (config port debug) $
+            runHttp state handler notificationHandler eventsChan emitEvent
   )
     `finally` Ext.Trace.shutdown (Client.trace state)
 
@@ -357,16 +360,8 @@ runStdIO state handler notificationHandler = do
                 return ()
 
 -- | Run JSON-RPC server over HTTP using Snap
-runHttp :: Live.State -> Handler -> NotificationHandler -> Snap ()
-runHttp state handler notificationHandler = do
-  -- Create an event channel per server instance
-  eventsChan <- liftIO (STM.newTChanIO :: IO (STM.TChan JSONRPC.Outbound))
-  let emitEvent :: EventEmitter
-      emitEvent notif = STM.atomically (STM.writeTChan eventsChan notif)
-
-  -- Register emitter for ad-hoc signals
-  _ <- liftIO $ registerEmitter emitEvent
-
+runHttp :: Live.State -> Handler -> NotificationHandler -> STM.TChan JSONRPC.Outbound -> EventEmitter -> Snap ()
+runHttp state handler notificationHandler eventsChan emitEvent =
   route [("", jsonRPCHandler emitEvent), ("/events", sseHandler eventsChan)]
   where
     jsonRPCHandler :: EventEmitter -> Snap ()

@@ -91,12 +91,20 @@ if (isMainThread) {
             const tests = input.tests;
             const cpuCount = (os.cpus() && os.cpus().length) || 1;
             const desiredByTests = Math.floor(tests.length / 4);
-            const concurrency = Math.max(1, Math.min(4, cpuCount, desiredByTests));
+            // Each worker loads the complete compiled Elm test bundle.
+            const concurrency = Math.max(1, Math.min(2, cpuCount, desiredByTests));
 
             let nextIndex = 0;
-            const reports = [];
+            let hasWrittenReport = false;
+            process.stdout.write('[');
 
-            const workers = Array.from({ length: concurrency }, () => new Worker(__filename, { workerData: { flags } }));
+            const workers = Array.from(
+                { length: concurrency },
+                () => new Worker(__filename, {
+                    workerData: { flags },
+                    resourceLimits: { maxOldGenerationSizeMb: 384 }
+                })
+            );
 
             await Promise.all(
                 workers.map(
@@ -125,7 +133,8 @@ if (isMainThread) {
                                         // Check if this report indicates the test was skipped because it's not a test
                                         const report = { ...msg.report, durationMs: Math.max(0, Math.round(performance.now() - startedAt)) };
                                         if (!report.skippedBecauseNotATest) {
-                                            reports.push(report);
+                                            process.stdout.write((hasWrittenReport ? ',' : '') + JSON.stringify(report));
+                                            hasWrittenReport = true;
                                         }
                                         // Always continue to next test, whether we added the report or not
                                         tryAssign();
@@ -147,7 +156,7 @@ if (isMainThread) {
                 )
             );
 
-            process.stdout.write(JSON.stringify(reports), () => {
+            process.stdout.write(']', () => {
                 process.exitCode = 0;
             });
         } catch (e) {

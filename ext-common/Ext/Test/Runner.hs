@@ -1,16 +1,24 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Ext.Test.Runner
   ( RunError(..)
   , TestSummary(..)
   , TestInfo(..)
   , RunSuccess(..)
+  , IsolatedSuccess(..)
   , matchesAnyGlob
   , run
+  , runIsolated
+  , runIsolatedWith
+  , workerMain
   ) where
 
-import qualified Control.Concurrent.MVar as MVar
+import qualified Control.Concurrent as Concurrent
+import qualified Control.Exception as Exception
+import qualified Data.Aeson as JSON
+import Data.Aeson ((.:), (.:?), (.=))
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.List as List
-import qualified Data.Map.Strict as Map
 import qualified Data.NonEmptyList as NE
 import qualified Data.Name as Name
 import qualified BackgroundWriter
@@ -21,18 +29,27 @@ import qualified Ext.Test.Discover as Discover
 import qualified Ext.Test.Parse as Parse
 import qualified Ext.Test.Generate as Generate
 import qualified Ext.Test.Compile as TestCompile
+import qualified Ext.Test.Result.Report as TestReport
 import qualified System.Directory as Dir
+import qualified System.Environment as Env
+import qualified System.Exit as Exit
 import qualified System.FilePath as FP
+import qualified System.IO as IO
+import qualified System.IO.Temp as Temp
+import qualified System.Process as Process
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS.Char8
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Ext.Test.Templates.Loader as Templates
 import qualified Ext.Log
 import qualified Gen.Javascript as Javascript
-import qualified System.CPUTime as CPUTime
 import qualified Ext.Test.Result
 import qualified System.Timeout as Timeout
-import qualified System.Random as Random
+import qualified Data.Time.Clock as Time
 import System.Random (getStdRandom, random)
+#ifndef mingw32_HOST_OS
+import qualified System.Posix.Signals as Signals
+#endif
 -- NOTE: Keep this module independent of Watchtower to avoid cycles.
 
 
@@ -60,6 +77,93 @@ data RunSuccess = RunSuccess
   , seed :: Int
   , fuzz :: Int
   }
+
+
+data IsolatedSuccess = IsolatedSuccess
+  { isolatedRendered :: String
+  , isolatedTestFiles :: [FilePath]
+  , isolatedSummary :: TestSummary
+  , isolatedSeed :: Int
+  , isolatedFuzz :: Int
+  , isolatedDurationMs :: Int
+  }
+
+
+data WorkerRequest = WorkerRequest
+  { requestTimeoutSeconds :: Maybe Int
+  , requestGlobs :: Maybe [String]
+  , requestSeed :: Maybe Int
+  , requestFuzz :: Maybe Int
+  , requestRoot :: FilePath
+  }
+
+
+data WorkerResponse
+  = WorkerSucceeded IsolatedSuccess
+  | WorkerFailed String (Maybe Int)
+
+
+instance JSON.ToJSON WorkerRequest where
+  toJSON request = JSON.object
+    [ "timeoutSeconds" .= requestTimeoutSeconds request
+    , "globs" .= requestGlobs request
+    , "seed" .= requestSeed request
+    , "fuzz" .= requestFuzz request
+    , "root" .= requestRoot request
+    ]
+
+
+instance JSON.FromJSON WorkerRequest where
+  parseJSON = JSON.withObject "WorkerRequest" $ \obj ->
+    WorkerRequest
+      <$> obj .:? "timeoutSeconds"
+      <*> obj .:? "globs"
+      <*> obj .:? "seed"
+      <*> obj .:? "fuzz"
+      <*> obj .: "root"
+
+
+instance JSON.ToJSON WorkerResponse where
+  toJSON response =
+    case response of
+      WorkerSucceeded success -> JSON.object
+        [ "status" .= ("ok" :: String)
+        , "rendered" .= isolatedRendered success
+        , "testFiles" .= isolatedTestFiles success
+        , "total" .= summaryTotal (isolatedSummary success)
+        , "passed" .= summaryPassed (isolatedSummary success)
+        , "failed" .= summaryFailed (isolatedSummary success)
+        , "failures" .= summaryFailures (isolatedSummary success)
+        , "seed" .= isolatedSeed success
+        , "fuzz" .= isolatedFuzz success
+        , "durationMs" .= isolatedDurationMs success
+        ]
+      WorkerFailed message timeoutSeconds -> JSON.object
+        [ "status" .= ("error" :: String)
+        , "message" .= message
+        , "timeoutSeconds" .= timeoutSeconds
+        ]
+
+
+instance JSON.FromJSON WorkerResponse where
+  parseJSON = JSON.withObject "WorkerResponse" $ \obj -> do
+    status <- obj .: "status"
+    case (status :: String) of
+      "ok" -> do
+        summary <- TestSummary
+          <$> obj .: "total"
+          <*> obj .: "passed"
+          <*> obj .: "failed"
+          <*> obj .: "failures"
+        WorkerSucceeded <$> (IsolatedSuccess
+          <$> obj .: "rendered"
+          <*> obj .: "testFiles"
+          <*> pure summary
+          <*> obj .: "seed"
+          <*> obj .: "fuzz"
+          <*> obj .: "durationMs")
+      "error" -> WorkerFailed <$> obj .: "message" <*> obj .:? "timeoutSeconds"
+      _ -> fail ("Unknown worker response status: " ++ status)
 
 -- | Run tests. If a timeout (in seconds) is provided, enforce it; otherwise run without a timeout.
 -- Optionally filter which tests run using glob patterns matched against
@@ -90,7 +194,7 @@ run mSeconds mGlobs mSeed mFuzz root = do
       Javascript.Other msg ->
         pure (Left (RunFailed msg))
     Just (Right (out, tests, testFiles)) ->
-      case Ext.Test.Result.decodeReportsString out of
+      case Ext.Test.Result.decodeReportsStrict out of
         Left e -> pure (Left (RunFailed e))
         Right reports -> do
           let allResults = concatMap (concatMap Ext.Test.Result.testRunResult . Ext.Test.Result.reportRuns) reports
@@ -102,6 +206,7 @@ run mSeconds mGlobs mSeed mFuzz root = do
             then pure (Left (RunFailed "No test results returned (tests may have timed out or failed to execute)"))
             else do
               let failures =
+                    take 100 $ map (take 4096) $
                     concatMap
                       (\rep ->
                          concatMap
@@ -125,8 +230,168 @@ run mSeconds mGlobs mSeed mFuzz root = do
               pure (Right (RunSuccess info reports actualSeed actualFuzz))
 
 
--- Returns (JSON test result string, discovered tests, discovered test files).
-runNode :: Maybe [String] -> Int -> Int -> FilePath -> IO (Either Javascript.RunError (String, [(ModuleName.Raw, Name.Name)], [FilePath]))
+runIsolated :: Maybe Int -> Maybe [String] -> Maybe Int -> Maybe Int -> FilePath -> IO (Either RunError IsolatedSuccess)
+runIsolated mSeconds mGlobs mSeed mFuzz root = do
+  executable <- Env.getExecutablePath
+  runIsolatedWith executable mSeconds mGlobs mSeed mFuzz root
+
+
+runIsolatedWith :: FilePath -> Maybe Int -> Maybe [String] -> Maybe Int -> Maybe Int -> FilePath -> IO (Either RunError IsolatedSuccess)
+runIsolatedWith executable mSeconds mGlobs mSeed mFuzz root =
+  Temp.withSystemTempDirectory "elm-dev-test-worker" $ \tempDir -> do
+    environment <- Env.getEnvironment
+    let requestPath = tempDir FP.</> "request.json"
+        responsePath = tempDir FP.</> "response.json"
+        stdoutPath = tempDir FP.</> "stdout"
+        stderrPath = tempDir FP.</> "stderr"
+        request = WorkerRequest mSeconds mGlobs mSeed mFuzz root
+        workerEnvironment =
+          setEnvironmentVariable "GHCRTS" "-M1024m -N2" $
+            setEnvironmentVariable "NODE_OPTIONS" "--max-old-space-size=768" environment
+    LBS.writeFile requestPath (JSON.encode request)
+    exitCode <-
+      IO.withBinaryFile stdoutPath IO.WriteMode $ \stdoutHandle ->
+        IO.withBinaryFile stderrPath IO.WriteMode $ \stderrHandle ->
+          Process.withCreateProcess
+            ((Process.proc executable ["__elm-dev-test-worker", requestPath, responsePath])
+              { Process.std_in = Process.NoStream
+              , Process.std_out = Process.UseHandle stdoutHandle
+              , Process.std_err = Process.UseHandle stderrHandle
+              , Process.create_group = True
+              , Process.env = Just workerEnvironment
+              })
+            (\_ _ _ processHandle -> waitForProcessGroup processHandle)
+    case exitCode of
+      Exit.ExitSuccess -> decodeWorkerResponse responsePath
+      Exit.ExitFailure code -> do
+        stdout <- readIfPresent stdoutPath
+        stderr <- readIfPresent stderrPath
+        pure (Left (RunFailed ("Test worker exited with code " ++ show code ++ processDetails stdout stderr)))
+
+
+workerMain :: FilePath -> FilePath -> IO ()
+workerMain requestPath responsePath = do
+  requestBytes <- LBS.readFile requestPath
+  response <-
+    case JSON.eitherDecode requestBytes of
+      Left message -> pure (WorkerFailed ("Invalid test worker request: " ++ message) Nothing)
+      Right request -> runWorkerRequest request
+  LBS.writeFile responsePath (JSON.encode response)
+
+
+runWorkerRequest :: WorkerRequest -> IO WorkerResponse
+runWorkerRequest request = do
+  startedAt <- Time.getCurrentTime
+  result <- run
+    (requestTimeoutSeconds request)
+    (requestGlobs request)
+    (requestSeed request)
+    (requestFuzz request)
+    (requestRoot request)
+  finishedAt <- Time.getCurrentTime
+  let durationMs = round (realToFrac (Time.diffUTCTime finishedAt startedAt) * 1000 :: Double)
+  pure $ case result of
+    Left (TimedOut seconds) -> WorkerFailed ("Tests timed out after " ++ show (seconds * 1000) ++ "ms") (Just seconds)
+    Left (RunFailed message) -> WorkerFailed (boundWorkerText message) Nothing
+    Right success ->
+      let rendered = TestReport.renderReportsWithDuration False (Just durationMs) (Just (seed success)) (Just (fuzz success)) (reports success)
+      in WorkerSucceeded IsolatedSuccess
+        { isolatedRendered = boundWorkerText rendered
+        , isolatedTestFiles = tiFiles (info success)
+        , isolatedSummary = tiSummary (info success)
+        , isolatedSeed = seed success
+        , isolatedFuzz = fuzz success
+        , isolatedDurationMs = durationMs
+        }
+
+
+boundWorkerText :: String -> String
+boundWorkerText value
+  | length value <= maxWorkerOutputChars = value
+  | otherwise = take maxWorkerOutputChars value ++ "\n\n[Output truncated by elm-dev test worker.]"
+
+
+maxWorkerOutputChars :: Int
+maxWorkerOutputChars = 256 * 1024
+
+
+decodeWorkerResponse :: FilePath -> IO (Either RunError IsolatedSuccess)
+decodeWorkerResponse responsePath = do
+  exists <- Dir.doesFileExist responsePath
+  if not exists
+    then pure (Left (RunFailed "Test worker exited without producing a result."))
+    else do
+      bytes <- LBS.readFile responsePath
+      pure $ case JSON.eitherDecode bytes of
+        Left message -> Left (RunFailed ("Invalid test worker response: " ++ message))
+        Right (WorkerSucceeded success) -> Right success
+        Right (WorkerFailed message maybeTimeout) ->
+          case maybeTimeout of
+            Just seconds -> Left (TimedOut seconds)
+            Nothing -> Left (RunFailed message)
+
+
+waitForProcessGroup :: Process.ProcessHandle -> IO Exit.ExitCode
+waitForProcessGroup processHandle =
+  wait `Exception.onException` stopProcessGroup processHandle
+  where
+    wait = do
+      maybeExit <- Process.getProcessExitCode processHandle
+      case maybeExit of
+        Just exitCode -> pure exitCode
+        Nothing -> Concurrent.threadDelay 10000 >> wait
+
+
+stopProcessGroup :: Process.ProcessHandle -> IO ()
+stopProcessGroup processHandle = do
+#ifndef mingw32_HOST_OS
+  maybePid <- Process.getPid processHandle
+#endif
+  _ <- Exception.try (Process.interruptProcessGroupOf processHandle) :: IO (Either Exception.SomeException ())
+  Concurrent.threadDelay 100000
+#ifdef mingw32_HOST_OS
+  maybeExit <- Process.getProcessExitCode processHandle
+  case maybeExit of
+    Just _ -> pure ()
+    Nothing -> Process.terminateProcess processHandle
+#else
+  case maybePid of
+    Nothing -> do
+      maybeExit <- Process.getProcessExitCode processHandle
+      case maybeExit of
+        Just _ -> pure ()
+        Nothing -> Process.terminateProcess processHandle
+    Just pid -> do
+      _ <- Exception.try (Signals.signalProcessGroup Signals.sigKILL (fromIntegral pid)) :: IO (Either Exception.SomeException ())
+      pure ()
+#endif
+  _ <- Exception.try (Process.waitForProcess processHandle) :: IO (Either Exception.SomeException Exit.ExitCode)
+  pure ()
+
+
+setEnvironmentVariable :: String -> String -> [(String, String)] -> [(String, String)]
+setEnvironmentVariable name value environment =
+  (name, value) : filter ((/= name) . fst) environment
+
+
+readIfPresent :: FilePath -> IO String
+readIfPresent path = do
+  exists <- Dir.doesFileExist path
+  if exists
+    then IO.withBinaryFile path IO.ReadMode $ \handle ->
+      BS.Char8.unpack <$> BS.hGet handle maxWorkerOutputChars
+    else pure ""
+
+
+processDetails :: String -> String -> String
+processDetails stdout stderr
+  | not (null stderr) = ":\n" ++ stderr
+  | not (null stdout) = ":\n" ++ stdout
+  | otherwise = ""
+
+
+-- Returns (JSON test result bytes, discovered tests, discovered test files).
+runNode :: Maybe [String] -> Int -> Int -> FilePath -> IO (Either Javascript.RunError (BS.ByteString, [(ModuleName.Raw, Name.Name)], [FilePath]))
 runNode mGlobs seed runs root = do
   BackgroundWriter.withScope $ \scope -> do
     Ext.CompileMode.setModeMemory
@@ -180,12 +445,10 @@ runNode mGlobs seed runs root = do
                   Right compiledJs -> do
                     -- Build list of test IDs
                     let testIds = fmap toId filteredTests
-                    let compiledStr = UTF8.toString compiledJs
-                        templateStr = UTF8.toString Templates.nodeRunnerJs
-                        finalJsStr = replaceOnce "/* {{COMPILED_ELM}} */" compiledStr templateStr
+                    let finalJs = replaceOnceBytes "/* {{COMPILED_ELM}} */" compiledJs Templates.nodeRunnerJs
                         inputJson = makeInputJson seed runs testIds
 
-                    execResult <- Javascript.run (UTF8.fromString finalJsStr) (UTF8.fromString inputJson)
+                    execResult <- Javascript.runBytes finalJs (UTF8.fromString inputJson)
                     case execResult of
                       Left e -> pure (Left e)
                       Right out -> pure (Right (out, filteredTests, testFiles))
@@ -225,26 +488,12 @@ globMatch (p:ps) (c:cs) = p == c && globMatch ps cs
 globMatch _ _ = False
 
 
--- | Replace first occurrence of a substring with a replacement
-replaceOnce :: String -> String -> String -> String
-replaceOnce needle replacement haystack =
-  case breakOn needle haystack of
-    Nothing -> haystack
-    Just (before, after) -> before ++ replacement ++ drop (length needle) after
-
-breakOn :: String -> String -> Maybe (String, String)
-breakOn needle haystack = go "" haystack
-  where
-    go _acc [] = Nothing
-    go acc rest =
-      if needle `isPrefixOf` rest
-        then Just (reverse acc, rest)
-        else go (head rest : acc) (tail rest)
-
-isPrefixOf :: String -> String -> Bool
-isPrefixOf [] _ = True
-isPrefixOf _ [] = False
-isPrefixOf (x:xs) (y:ys) = x == y && isPrefixOf xs ys
+replaceOnceBytes :: BS.ByteString -> BS.ByteString -> BS.ByteString -> BS.ByteString
+replaceOnceBytes needle replacement haystack =
+  let (before, rest) = BS.breakSubstring needle haystack
+  in if BS.null rest
+       then haystack
+       else before <> replacement <> BS.drop (BS.length needle) rest
 
 -- | Build minimal JSON for the node runner
 makeInputJson :: Int -> Int -> [String] -> String

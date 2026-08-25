@@ -1,8 +1,10 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
 import Control.Monad (when)
+import qualified Control.Concurrent as Concurrent
 import qualified Control.Concurrent.MVar as MVar
 import qualified Control.Concurrent.STM as STM
 import qualified Control.Exception as Exception
@@ -11,6 +13,7 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Aeson.Types as JSONTypes
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSChar8
 import qualified Data.ByteString.Builder as Builder
 import qualified Data.ByteString.Lazy.Char8 as LazyChar8
 import qualified Data.Foldable as Foldable
@@ -80,6 +83,7 @@ import qualified System.Environment as Environment
 import qualified System.IO.Temp as Temp
 import qualified Http
 import qualified Stuff
+import qualified Text.Read as Read
 
 main :: IO ()
 main = do
@@ -175,13 +179,19 @@ mcpTests =
   , runTest "MCP test jobs summarize retained failure details" testMcpTestJobFailureSummary
   , runTest "MCP test jobs cancel running actions" testMcpTestJobCancellation
   , runTest "MCP test jobs cancel while queued" testMcpQueuedTestJobCancellation
+  , runTest "MCP test jobs limit active work per project" testMcpTestJobActiveLimit
   , runTest "MCP test jobs retain only recent terminal results" testMcpTestJobRetentionBound
+  , runTest "MCP test jobs bound retained output" testMcpTestJobOutputBound
   , runTest "hover type index preserves region annotations" testHoverIndexPreservesAnnotations
   , runTest "test aggregator rewrites refresh cached source" testAggregatorRewriteRefreshesCache
   , runTest "package test manifest is persisted as an application" testPackageTestManifestIsPersistedAsApplication
   , runTest "test discovery preserves exposed declaration casing" testDiscoveryPreservesExposedDeclarationCasing
   , runTest "test reports decode and render exported-value durations" testReportDuration
   , runTest "JavaScript cancellation does not fail during stdin cleanup" testJavascriptCancellation
+  , runTest "isolated test launcher exchanges bounded worker results" testIsolatedTestLauncherSuccess
+  , runTest "isolated test launcher decodes worker timeouts" testIsolatedTestLauncherTimeout
+  , runTest "isolated test launcher kills worker descendants" testIsolatedTestLauncherCancellation
+  , runTest "isolated test launcher supports repeated runs" testIsolatedTestLauncherRepeatedRuns
   ]
 
 daemonTests :: [NamedTest]
@@ -1379,23 +1389,79 @@ testMcpQueuedTestJobCancellation = do
     _ -> False
 
 
+testMcpTestJobActiveLimit :: IO Bool
+testMcpTestJobActiveLimit = do
+  registry <- TestJobs.newRegistry
+  firstStarted <- MVar.newEmptyMVar
+  releaseFirst <- MVar.newEmptyMVar
+  secondStarted <- MVar.newEmptyMVar
+  rejectedStarted <- MVar.newEmptyMVar
+  first <- TestJobs.submitWith registry "/tmp/project" $ \_ -> do
+    MVar.putMVar firstStarted ()
+    MVar.takeMVar releaseFirst
+    pure (TestJobs.ActionFailed "first finished")
+  didStart <- Timeout.timeout 1000000 (MVar.takeMVar firstStarted)
+  second <- TestJobs.submitWith registry "/tmp/project" $ \_ -> do
+    MVar.putMVar secondStarted ()
+    pure (TestJobs.ActionFailed "second finished")
+  rejected <- TestJobs.submitWith registry "/tmp/project" $ \_ -> do
+    MVar.putMVar rejectedStarted ()
+    pure (TestJobs.ActionFailed "unexpected start")
+  secondBeforeRelease <- TestJobs.lookupJobWith registry (TestJobs.jobId second)
+  rejectedAfterSubmit <- TestJobs.lookupJobWith registry (TestJobs.jobId rejected)
+  unexpectedlyStarted <- MVar.tryTakeMVar rejectedStarted
+  _ <- TestJobs.cancelWith registry (TestJobs.jobId second)
+  MVar.putMVar releaseFirst ()
+  _ <- TestJobs.waitForWith registry (TestJobs.jobId first) 1
+  pure $ case (didStart, secondBeforeRelease, rejectedAfterSubmit) of
+    (Just (), Just queuedJob, Just rejectedJob) ->
+      TestJobs.jobStatus queuedJob == TestJobs.JobQueued
+        && TestJobs.jobStatus rejectedJob == TestJobs.JobFailed
+        && TestJobs.jobFailure rejectedJob == Just (TestJobs.jobMessage rejectedJob)
+        && unexpectedlyStarted == Nothing
+    _ -> False
+
+
 testMcpTestJobRetentionBound :: IO Bool
 testMcpTestJobRetentionBound = do
   registry <- TestJobs.newRegistry
-  submitted <- mapM
-    (\_ -> TestJobs.submitWith registry "/tmp/project" $ \_ ->
-      pure (TestJobs.ActionCompleted TestJobs.Completion
-        { TestJobs.completionOutcome = TestJobs.TestsPassed
-        , TestJobs.completionBody = "report"
-        , TestJobs.completionPassed = 1
-        , TestJobs.completionFailed = 0
-        , TestJobs.completionTotal = 1
-        }))
+  mapM_
+    (\_ -> do
+      submitted <- TestJobs.submitWith registry "/tmp/project" $ \_ ->
+        pure (TestJobs.ActionCompleted TestJobs.Completion
+          { TestJobs.completionOutcome = TestJobs.TestsPassed
+          , TestJobs.completionBody = "report"
+          , TestJobs.completionPassed = 1
+          , TestJobs.completionFailed = 0
+          , TestJobs.completionTotal = 1
+          })
+      _ <- TestJobs.waitForWith registry (TestJobs.jobId submitted) 1
+      pure ()
+    )
     [(1 :: Int)..22]
-  mapM_ (\job -> TestJobs.waitForWith registry (TestJobs.jobId job) 1) submitted
   retained <- TestJobs.listJobsForRootWith registry "/tmp/project"
   let retainedIds = map TestJobs.jobId retained
   pure (length retained == 20 && "test-1" `notElem` retainedIds && "test-2" `notElem` retainedIds)
+
+
+testMcpTestJobOutputBound :: IO Bool
+testMcpTestJobOutputBound = do
+  registry <- TestJobs.newRegistry
+  let oversized = Text.replicate (300 * 1024) "x"
+  submitted <- TestJobs.submitWith registry "/tmp/project" $ \_ ->
+    pure (TestJobs.ActionCompleted TestJobs.Completion
+      { TestJobs.completionOutcome = TestJobs.TestsFailed
+      , TestJobs.completionBody = oversized
+      , TestJobs.completionPassed = 0
+      , TestJobs.completionFailed = 1
+      , TestJobs.completionTotal = 1
+      })
+  completed <- TestJobs.waitForWith registry (TestJobs.jobId submitted) 1
+  pure $ case completed >>= TestJobs.jobCompletion of
+    Just completion ->
+      Text.length (TestJobs.completionBody completion) < Text.length oversized
+        && "[Output truncated by elm-dev" `Text.isInfixOf` TestJobs.completionBody completion
+    Nothing -> False
 
 
 testHoverIndexPreservesAnnotations :: IO Bool
@@ -2523,6 +2589,137 @@ testJavascriptCancellation = do
   where
     wasCancelled (Right Nothing) = True
     wasCancelled _ = False
+
+
+testIsolatedTestLauncherSuccess :: IO Bool
+#ifdef mingw32_HOST_OS
+testIsolatedTestLauncherSuccess = pure True
+#else
+testIsolatedTestLauncherSuccess =
+  withWorkerScript successWorkerScript $ \worker -> do
+    result <- TestRunner.runIsolatedWith worker (Just 5) (Just ["Suite.tests"]) (Just 1) (Just 2) "/tmp/project"
+    pure $ case result of
+      Right success ->
+        TestRunner.isolatedRendered success == "worker result"
+          && TestRunner.isolatedTestFiles success == ["tests/Suite.elm"]
+          && TestRunner.summaryTotal (TestRunner.isolatedSummary success) == 1
+          && TestRunner.summaryPassed (TestRunner.isolatedSummary success) == 1
+          && TestRunner.isolatedSeed success == 1
+          && TestRunner.isolatedFuzz success == 2
+      Left _ -> False
+#endif
+
+
+testIsolatedTestLauncherTimeout :: IO Bool
+#ifdef mingw32_HOST_OS
+testIsolatedTestLauncherTimeout = pure True
+#else
+testIsolatedTestLauncherTimeout =
+  withWorkerScript timeoutWorkerScript $ \worker -> do
+    result <- TestRunner.runIsolatedWith worker (Just 5) Nothing Nothing Nothing "/tmp/project"
+    pure $ case result of
+      Left (TestRunner.TimedOut 5) -> True
+      _ -> False
+#endif
+
+
+testIsolatedTestLauncherCancellation :: IO Bool
+#ifdef mingw32_HOST_OS
+testIsolatedTestLauncherCancellation = pure True
+#else
+testIsolatedTestLauncherCancellation =
+  Temp.withSystemTempDirectory "elm-dev-worker-cancellation" $ \root -> do
+    let worker = root FilePath.</> "worker.sh"
+        childPidPath = root FilePath.</> "child.pid"
+        script = unlines
+          [ "#!/bin/sh"
+          , "sleep 30 &"
+          , "child=$!"
+          , "printf '%s' \"$child\" > \"" ++ childPidPath ++ "\""
+          , "wait"
+          ]
+    writeExecutable worker script
+    result <- Timeout.timeout 500000 (TestRunner.runIsolatedWith worker Nothing Nothing Nothing Nothing "/tmp/project")
+    pidExists <- Dir.doesFileExist childPidPath
+    if not pidExists
+      then pure False
+      else do
+        pidText <- readFile childPidPath
+        case Read.readMaybe pidText of
+          Nothing -> pure False
+          Just pid -> do
+            stopped <- waitForProcessToStop 40 pid
+            pure (case result of { Nothing -> stopped; Just _ -> False })
+#endif
+
+
+testIsolatedTestLauncherRepeatedRuns :: IO Bool
+#ifdef mingw32_HOST_OS
+testIsolatedTestLauncherRepeatedRuns = pure True
+#else
+testIsolatedTestLauncherRepeatedRuns =
+  withWorkerScript successWorkerScript $ \worker -> do
+    results <- sequence
+      [ TestRunner.runIsolatedWith worker Nothing Nothing (Just runNumber) (Just 1) "/tmp/project"
+      | runNumber <- [1..10]
+      ]
+    pure (all isSuccess results)
+  where
+    isSuccess (Right success) = TestRunner.isolatedRendered success == "worker result"
+    isSuccess (Left _) = False
+#endif
+
+
+#ifndef mingw32_HOST_OS
+withWorkerScript :: String -> (FilePath -> IO a) -> IO a
+withWorkerScript script action =
+  Temp.withSystemTempDirectory "elm-dev-worker-script" $ \root -> do
+    let worker = root FilePath.</> "worker.sh"
+    writeExecutable worker script
+    action worker
+
+
+writeExecutable :: FilePath -> String -> IO ()
+writeExecutable path contents = do
+  BS.writeFile path (BSChar8.pack contents)
+  permissions <- Dir.getPermissions path
+  Dir.setPermissions path permissions { Dir.executable = True }
+
+
+successWorkerScript :: String
+successWorkerScript = unlines
+  [ "#!/bin/sh"
+  , "[ \"$1\" = \"__elm-dev-test-worker\" ] || exit 40"
+  , "case \"$GHCRTS\" in *-M1024m*) ;; *) exit 41 ;; esac"
+  , "case \"$NODE_OPTIONS\" in *--max-old-space-size=768*) ;; *) exit 42 ;; esac"
+  , "printf '%s' '{\"status\":\"ok\",\"rendered\":\"worker result\",\"testFiles\":[\"tests/Suite.elm\"],\"total\":1,\"passed\":1,\"failed\":0,\"failures\":[],\"seed\":1,\"fuzz\":2,\"durationMs\":3}' > \"$3\""
+  ]
+
+
+timeoutWorkerScript :: String
+timeoutWorkerScript = unlines
+  [ "#!/bin/sh"
+  , "printf '%s' '{\"status\":\"error\",\"message\":\"Tests timed out after 5000ms\",\"timeoutSeconds\":5}' > \"$3\""
+  ]
+
+
+processExists :: Int -> IO Bool
+processExists pid = do
+  (exitCode, processState, _) <- Process.readProcessWithExitCode "ps" ["-o", "stat=", "-p", show pid] ""
+  pure $ case (exitCode, dropWhile (== ' ') processState) of
+    (Exit.ExitSuccess, state : _) -> state /= 'Z'
+    _ -> False
+
+
+waitForProcessToStop :: Int -> Int -> IO Bool
+waitForProcessToStop attempts pid = do
+  exists <- processExists pid
+  if not exists
+    then pure True
+    else if attempts <= 0
+      then pure False
+      else Concurrent.threadDelay 50000 >> waitForProcessToStop (attempts - 1) pid
+#endif
 
 testGenerateBasicConfig :: IO Bool
 testGenerateBasicConfig = do
