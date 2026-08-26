@@ -13,7 +13,6 @@ module Ext.MemoryCached.Details
   , loadInterfaces
   , verifyInstall
   -- extended
-  , bustDetailsCache
   )
   where
 
@@ -61,10 +60,8 @@ import qualified Reporting.Annotation as A
 import qualified Reporting.Exit as Exit
 import qualified Reporting.Task as Task
 import qualified Stuff
-import qualified Ext.Log
 import Elm.Details (Details(..), Extras(..), ValidOutline(..), Foreign(..), Local(..))
 import qualified Modify.PackageOverride
-import System.IO.Unsafe (unsafePerformIO)
 import qualified Control.Concurrent.STM as STM
 import qualified Watchtower.Live.Client as Client
 import qualified System.FilePath as Path
@@ -189,31 +186,8 @@ verifyInstall scope root (Solver.Env cache manager connection registry) outline 
 -- LOAD -- used by Make, Repl, Reactor
 
 
-{-# NOINLINE detailsCache #-}
-detailsCache :: MVar (Maybe Details)
-detailsCache = unsafePerformIO $ newMVar Nothing
-
-bustDetailsCache :: IO ()
-bustDetailsCache = modifyMVar_ detailsCache (\_ -> pure Nothing)
-
-
 load :: Reporting.Style -> BW.Scope -> FilePath -> Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> IO (Either Exit.Details Details)
-load style scope root packagesVar = do
-  detailsCacheM <- readMVar detailsCache
-  case detailsCacheM of
-    Just details -> do
-      Ext.Log.log Ext.Log.MemoryCache "🎯 details cache hit"
-      pure $ Right details
-    Nothing -> do
-      Ext.Log.log Ext.Log.MemoryCache "❌ details cache miss"
-      modifyMVar detailsCache (\_ -> do
-          detailsR <- load_ style scope root packagesVar
-          case detailsR of
-            Right details -> do
-              pure (Just details, detailsR)
-            _ ->
-              pure (Nothing, detailsR)
-        )
+load = load_
 
 
 load_ :: Reporting.Style -> BW.Scope -> FilePath -> Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> IO (Either Exit.Details Details)

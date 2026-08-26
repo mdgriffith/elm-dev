@@ -2598,7 +2598,7 @@ resourceModuleDocs =
                           ])                  
                 Just moduleTxt -> do
                   let wantName = Name.fromChars (Text.unpack moduleTxt)
-                  r <- resolveModuleSpec state (ModuleByName wantName)
+                  r <- resolveModuleSpecForConnection state connId (ModuleByName wantName)
                   case r of
                     Right (ModuleResolved _ maybePath maybePkg docsMod) -> do
                       let meta = DocsRender.ModuleMeta moduleTxt Nothing maybePath (fmap (Text.pack . Pkg.toChars) maybePkg)
@@ -2671,7 +2671,7 @@ resourceValueDocs =
                           [ MCP.markdown req ("No module name provided.  Call this resource like elm://docs/value/{Module.name}, e.g. elm://docs/value/List.map" )
                           ])
                 Just (modName, valName) -> do
-                  r <- resolveModuleSpec state (ModuleByName modName)
+                  r <- resolveModuleSpecForConnection state connId (ModuleByName modName)
                   case r of
                     Right (ModuleResolved _ maybePath maybePkg docsMod) -> do
                       let meta = DocsRender.ValueMeta 
@@ -2958,7 +2958,7 @@ projectFromCache (Client.ProjectCache proj _ _ _ _) = proj
 
 compileDocsProject :: Client.State -> Client.ProjectCache -> IO ()
 compileDocsProject state pc = do
-  _ <- Watchtower.State.Compile.ensureProjectFresh state "mcp.docs" pc
+  _ <- Watchtower.State.Compile.ensureProjectDocs state "mcp.docs" pc
   pure ()
 
 resolveDocsProjectFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Either Text (Maybe Client.ProjectCache))
@@ -3108,6 +3108,15 @@ resolveModuleSpec :: Client.State -> ModuleSpec -> IO (Either Text ModuleResolve
 resolveModuleSpec state spec =
   resolveModuleSpecScoped state Nothing spec
 
+resolveModuleSpecForConnection :: Client.State -> JSONRPC.ConnectionId -> ModuleSpec -> IO (Either Text ModuleResolved)
+resolveModuleSpecForConnection state connId spec = do
+  projectResult <- ProjectLookup.resolveProjectFromSession Nothing connId state
+  case projectResult of
+    Right pc -> do
+      compileDocsProject state pc
+      resolveModuleSpecScoped state (Just pc) spec
+    Left _ -> resolveModuleSpec state spec
+
 resolveModuleSpecScoped :: Client.State -> Maybe Client.ProjectCache -> ModuleSpec -> IO (Either Text ModuleResolved)
 resolveModuleSpecScoped state maybeProject spec =
   case spec of
@@ -3124,22 +3133,16 @@ resolveModuleSpecScoped state maybeProject spec =
             Nothing -> pure (Left "module not found")
 
     ModuleByFilePath fp -> do
-      mInfo <- Client.getFileInfo fp state
-      case mInfo of
-        Just (Client.FileInfo { Client.docs = Just m@(Docs.Module name _ _ _ _ _) }) ->
-          pure (Right (ModuleResolved name (Just fp) Nothing m))
-        _ -> do
-          -- Try compiling the containing project, then retry
-          projectResult <- Client.getExistingProject fp state
-          case projectResult of
-            Left _ -> pure (Left "file not associated with a known project")
-            Right (pc, _) -> do
-              _ <- Watchtower.State.Compile.ensureProjectFresh state "mcp.module_by_filepath" pc
-              mInfo2 <- Client.getFileInfo fp state
-              case mInfo2 of
-                Just (Client.FileInfo { Client.docs = Just m@(Docs.Module name _ _ _ _ _) }) ->
-                  pure (Right (ModuleResolved name (Just fp) Nothing m))
-                _ -> pure (Left "no docs for file")
+      projectResult <- Client.getExistingProject fp state
+      case projectResult of
+        Left _ -> pure (Left "file not associated with a known project")
+        Right (pc, _) -> do
+          _ <- Watchtower.State.Compile.ensureProjectDocs state "mcp.module_by_filepath" pc
+          mInfo <- Client.getFileInfo fp state
+          case mInfo of
+            Just (Client.FileInfo { Client.docs = Just m@(Docs.Module name _ _ _ _ _) }) ->
+              pure (Right (ModuleResolved name (Just fp) Nothing m))
+            _ -> pure (Left "no docs for file")
 
 renderDocsModules :: Maybe Client.ProjectCache -> Maybe (Either a Elm.Outline.Outline) -> [(FilePath, Docs.Module)] -> Map.Map Pkg.Name Client.PackageInfo -> Text
 renderDocsModules maybeProject maybeOutline localDocs pkgs =

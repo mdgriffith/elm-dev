@@ -4,16 +4,17 @@
 {-# LANGUAGE GADTs, OverloadedStrings #-}
 module Ext.MemoryCached.Build
   ( fromPathsMemoryCached
-  , bustArtifactsCache
+  , DocsMode(..)
   )
   where
 
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
-import System.IO.Unsafe (unsafePerformIO)
 import Control.Monad (filterM, mapM_, sequence_)
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Binary as Binary
 import qualified Data.Char as Char
 import qualified Data.Graph as Graph
 import qualified Data.List as List
@@ -53,7 +54,6 @@ import qualified Reporting.Exit as Exit
 import qualified Reporting.Render.Type.Localizer
 import qualified Reporting.Warning as Warning
 import qualified Stuff
-import qualified Ext.Log
 import qualified Watchtower.Live.Client as Client
 import qualified Control.Concurrent.STM as STM
 import qualified Ext.Dev.Docs
@@ -71,40 +71,25 @@ import Build (Module(..), Artifacts(..), CachedInterface(..), Root(..))
 
 import StandaloneInstances
 
-debug =
-  Ext.Log.log Ext.Log.MemoryCache
+data DocsMode
+  = SkipDocs
+  | LoadDocs
+  deriving (Eq)
+
+toDocsNeed :: DocsMode -> Build.DocsNeed
+toDocsNeed docsMode =
+  Build.DocsNeed (docsMode == LoadDocs)
+
+fromPathsMemoryCached :: DocsMode -> Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts, Map.Map FilePath Client.FileInfo)
+fromPathsMemoryCached docsMode _packages flags style root details paths = do
+  result <- fromPathsMemoryCached_ docsMode flags style root details paths
+  case result of
+    Right (artifacts, fileInfoByPath) -> pure (Right artifacts, fileInfoByPath)
+    Left err -> pure (Left err, Map.empty)
 
 
-
-
-{-# NOINLINE artifactCache #-}
-artifactCache :: MVar (Maybe Artifacts)
-artifactCache = unsafePerformIO $ newMVar Nothing
-
-bustArtifactsCache = modifyMVar_ artifactCache (\_ -> pure Nothing)
-
-
-fromPathsMemoryCached :: Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts, Map.Map FilePath Client.FileInfo)
-fromPathsMemoryCached _packages flags style root details paths = do
-  artifaceCacheM <- readMVar artifactCache
-  case artifaceCacheM of
-    Just artifacts -> do
-      debug "🎯 artifacts cache hit"
-      pure (Right artifacts, Map.empty)
-    Nothing -> do
-      debug "❌ artifacts cache miss"
-      modifyMVar artifactCache (\_ -> do
-          artifactsR <- fromPathsMemoryCached_ flags style root details paths
-          case artifactsR of
-            (Right (artifacts, fileInfoByPath)) -> do
-              pure (Just artifacts, (Right artifacts, fileInfoByPath))
-            (Left err) ->
-              pure (Nothing, (Left err, Map.empty))
-        )
-
-
-fromPathsMemoryCached_ :: CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem (Artifacts, Map.Map FilePath Client.FileInfo))
-fromPathsMemoryCached_ flags style root details paths =
+fromPathsMemoryCached_ :: DocsMode -> CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem (Artifacts, Map.Map FilePath Client.FileInfo))
+fromPathsMemoryCached_ docsMode flags style root details paths =
   Reporting.trackBuild style $ \key ->
   do  env <- Build.makeEnv key root details
       elroots <- findRoots env paths
@@ -117,7 +102,8 @@ fromPathsMemoryCached_ flags style root details paths =
               -- log "lroots" (show lroots)
               dmvar <- Details.loadInterfaces root details
               smvar <- newMVar Map.empty
-              srootMVars <- traverse (Build.fork . crawlRoot env smvar) lroots
+              let docsNeed = toDocsNeed docsMode
+              srootMVars <- traverse (Build.fork . crawlRoot docsNeed env smvar) lroots
               sroots <- traverse readMVar srootMVars
               -- log "sroots" (show sroots)
               statuses <- traverse readMVar =<< readMVar smvar
@@ -132,7 +118,7 @@ fromPathsMemoryCached_ flags style root details paths =
                       rmvar <- newEmptyMVar
                       fileInfoVar <- newMVar Map.empty
                       -- debug $ "statuses: " <> show statuses
-                      resultsMVars <- Build.forkWithKey (\name status -> checkModule flags env foreigns rmvar fileInfoVar name status) statuses
+                      resultsMVars <- Build.forkWithKey (\name status -> checkModule flags docsNeed env foreigns rmvar fileInfoVar name status) statuses
 
                       putMVar rmvar resultsMVars
                       rrootMVars <- traverse (Build.fork . checkRoot flags env resultsMVars) sroots
@@ -173,8 +159,8 @@ getRootName root =
 -- CRAWL
 
 
-crawlDeps :: Build.Env -> MVar Build.StatusDict -> [ModuleName.Raw] -> a -> IO a
-crawlDeps env mvar deps blockedValue =
+crawlDeps :: Build.DocsNeed -> Build.Env -> MVar Build.StatusDict -> [ModuleName.Raw] -> a -> IO a
+crawlDeps docsNeed env mvar deps blockedValue =
   do  statusDict <- takeMVar mvar
       let depsDict = Map.fromKeys (\_ -> ()) deps
       let newsDict = Map.difference depsDict statusDict
@@ -183,7 +169,7 @@ crawlDeps env mvar deps blockedValue =
       mapM_ readMVar statuses
       return blockedValue
   where
-    crawlNew name () = Build.fork (crawlModule env mvar (Build.DocsNeed True) name)
+    crawlNew name () = Build.fork (crawlModule env mvar docsNeed name)
 
 
 crawlModule :: Build.Env -> MVar Build.StatusDict -> Build.DocsNeed -> ModuleName.Raw -> IO Build.Status
@@ -206,9 +192,9 @@ crawlModule env@(Build.Env _ root projectType srcDirs buildID locals foreigns) m
 
                     Just local@(Details.Local oldPath oldTime deps _ lastChange _) -> do
                       -- debug $ "old vs new times on " <> path <> " : " <> show (oldTime, newTime)
-                      if path /= oldPath || oldTime /= newTime || Build.needsDocs docsNeed
+                      if path /= oldPath || oldTime /= newTime
                         then crawlFile env mvar docsNeed name path newTime lastChange
-                        else crawlDeps env mvar deps (Build.SCached local)
+                        else crawlDeps docsNeed env mvar deps (Build.SCached local)
 
         p1:p2:ps ->
           return $ Build.SBadImport $ Import.AmbiguousLocal (FP.makeRelative root p1) (FP.makeRelative root p2) (map (FP.makeRelative root) ps)
@@ -250,7 +236,7 @@ crawlFile env@(Build.Env _ root projectType _ buildID _ _) mvar docsNeed expecte
                   deps = map Src.getImportName imports
                   local = Details.Local path time deps (any Build.isMain values) lastChange buildID
                 in
-                crawlDeps env mvar deps (Build.SChanged local source modul docsNeed)
+                crawlDeps docsNeed env mvar deps (Build.SChanged local source modul docsNeed)
               else
                 return $ Build.SBadSyntax path time source (Syntax.ModuleNameMismatch expectedName name)
 
@@ -261,26 +247,46 @@ crawlFile env@(Build.Env _ root projectType _ buildID _ _) mvar docsNeed expecte
 -- CHECK MODULE
 
 
-checkModule :: CompileHelpers.CompilationFlags -> Build.Env -> Build.Dependencies -> MVar Build.ResultDict -> MVar (Map.Map FilePath Client.FileInfo) -> ModuleName.Raw -> Build.Status -> IO Build.Result
-checkModule flags env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar fileInfoVar name status =
+checkModule :: CompileHelpers.CompilationFlags -> Build.DocsNeed -> Build.Env -> Build.Dependencies -> MVar Build.ResultDict -> MVar (Map.Map FilePath Client.FileInfo) -> ModuleName.Raw -> Build.Status -> IO Build.Result
+checkModule flags requestedDocs env@(Build.Env _ root projectType _ _ _ _) foreigns resultsMVar fileInfoVar name status =
  do
   case status of
-    Build.SCached local@(Details.Local path time deps hasMain lastChange _) ->
+    Build.SCached local@(Details.Local path time deps hasMain lastChange lastCompile) ->
       do  results <- readMVar resultsMVar
-          depsStatus <- checkDeps root results deps lastChange
+          depsStatus <- checkDeps root results deps lastCompile
           case depsStatus of
             Build.DepsChange ifaces ->
               do  source <- File.readUtf8 path
                   -- debug $ "checkModule:SCached:DepsChange " ++ show name
                   case Parse.fromByteString projectType source of
-                    Right modul -> compile flags env (Build.DocsNeed True) local source ifaces modul fileInfoVar
+                    Right modul -> compile flags env requestedDocs local source ifaces modul fileInfoVar
                     Left err ->
                       return $ Build.RProblem $
                         Error.Module name path time source (Error.BadSyntax err)
 
-            Build.DepsSame _ _ ->
-              do  mvar <- newMVar Build.Unneeded
-                  -- debug $ "checkModule:SCached:DepsSame " ++ show name
+            Build.DepsSame same cachedDeps ->
+              if Build.needsDocs requestedDocs
+                then do
+                  source <- File.readUtf8 path
+                  maybeCached <- DocsCache.readModule root name
+                  maybeInterface <- File.readBinary (Stuff.elmi root name)
+                  let uiSourceMap = Modify.uiSourceMap (CompileHelpers.modifications flags)
+                  case (maybeCached, maybeInterface) of
+                    (Just cached, Just iface) | DocsCache.matchesBuild root cached path source deps uiSourceMap lastCompile (interfaceFingerprint iface) -> do
+                      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo [] (Just (DocsCache.cachedDocs cached)) Nothing Nothing Nothing))
+                      mvar <- newMVar Build.Unneeded
+                      return (Build.RCached hasMain lastChange mvar)
+                    _ -> do
+                      case Parse.fromByteString projectType source of
+                        Left err ->
+                          return $ Build.RProblem $ Error.Module name path time source (Error.BadSyntax err)
+                        Right modul -> do
+                          maybeLoaded <- loadInterfaces root same cachedDeps
+                          case maybeLoaded of
+                            Nothing -> return Build.RBlocked
+                            Just ifaces -> compile flags env requestedDocs local source ifaces modul fileInfoVar
+                else do
+                  mvar <- newMVar Build.Unneeded
                   return (Build.RCached hasMain lastChange mvar)
 
             Build.DepsBlock ->
@@ -474,13 +480,6 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
                      Left _ -> Nothing
                else Nothing
 
-      mapM_
-        (\docsModule -> do
-          _ <- DocsCache.writeModule root path source deps (Modify.uiSourceMap (CompileHelpers.modifications flags)) docsModule
-          pure ()
-        )
-        docsMaybe
-
       let localizer = Reporting.Render.Type.Localizer.fromModule modul
       let hoverIndex =
             Client.makeHoverIndex <$> CompileHelpers.typeAtOf canonical
@@ -488,26 +487,38 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
       let name = Src.getName modul
       let iface = I.fromModule pkg canonical annotations
       let elmi = Stuff.elmi root name
+      let writeDocsCache =
+            case docsMaybe of
+              Just docsModule -> do
+                _ <- DocsCache.writeModule root path source deps (Modify.uiSourceMap (CompileHelpers.modifications flags)) buildID (interfaceFingerprint iface) docsModule
+                pure ()
+              Nothing -> pure ()
       File.writeBinary (Stuff.elmo root name) objects
       maybeOldi <- File.readBinary elmi
       case maybeOldi of
         Just oldi | oldi == iface ->
           do  -- iface should be fully forced by equality check
-              Reporting.report key Reporting.BDone
-              let local = Details.Local path time deps main lastChange buildID
-              return (Build.RSame local iface objects docsMaybe)
+               Reporting.report key Reporting.BDone
+               writeDocsCache
+               let local = Details.Local path time deps main lastChange buildID
+               return (Build.RSame local iface objects docsMaybe)
 
         _ ->
           do  -- iface may be lazy still
-              File.writeBinary elmi iface
-              Reporting.report key Reporting.BDone
-              let local = Details.Local path time deps main buildID buildID
-              return (Build.RNew local iface objects docsMaybe)
+               File.writeBinary elmi iface
+               Reporting.report key Reporting.BDone
+               writeDocsCache
+               let local = Details.Local path time deps main buildID buildID
+               return (Build.RNew local iface objects docsMaybe)
 
     Left err -> do
       modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.canonicalAst = Nothing, Client.hoverIndex = Nothing }))
       return $ Build.RProblem $
         Error.Module (Src.getName modul) path time source err
+
+interfaceFingerprint :: I.Interface -> String
+interfaceFingerprint =
+  DocsCache.fingerprintBytes . BSL.toStrict . Binary.encode
 
 -- WRITE DETAILS
 
@@ -639,14 +650,14 @@ dropPrefix roots paths =
 -- -- CRAWL ROOTS
 
 
-crawlRoot :: Build.Env -> MVar Build.StatusDict -> Build.RootLocation -> IO Build.RootStatus
-crawlRoot env@(Build.Env _ _ projectType _ buildID _ _) mvar root =
+crawlRoot :: Build.DocsNeed -> Build.Env -> MVar Build.StatusDict -> Build.RootLocation -> IO Build.RootStatus
+crawlRoot docsNeed env@(Build.Env _ _ projectType _ buildID _ _) mvar root =
   case root of
     Build.LInside name ->
       do  statusMVar <- newEmptyMVar
           statusDict <- takeMVar mvar
           putMVar mvar (Map.insert name statusMVar statusDict)
-          putMVar statusMVar =<< crawlModule env mvar (Build.DocsNeed True) name
+          putMVar statusMVar =<< crawlModule env mvar docsNeed name
           return (Build.SInside name)
 
     Build.LOutside path ->
@@ -656,7 +667,7 @@ crawlRoot env@(Build.Env _ _ projectType _ buildID _ _) mvar root =
             Right modul@(Src.Module _ _ _ imports values _ _ _ _) ->
               do  let deps = map Src.getImportName imports
                   let local = Details.Local path time deps (any Build.isMain values) buildID buildID
-                  crawlDeps env mvar deps (Build.SOutsideOk local source modul)
+                  crawlDeps docsNeed env mvar deps (Build.SOutsideOk local source modul)
 
             Left syntaxError ->
               return $ Build.SOutsideErr $

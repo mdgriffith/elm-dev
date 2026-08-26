@@ -143,10 +143,12 @@ testDocsCacheRoundTrip = do
       source = BSChar8.pack "module Ui.Input exposing (value)\n\nvalue = 1\n"
       docsModule = emptyDocsModule moduleName "Input documentation"
       dependencies = []
+      buildId = 7
+      interfaceHash = "interface-7"
   writeElmApp root
   Dir.createDirectoryIfMissing True (FilePath.takeDirectory sourcePath)
   BS.writeFile sourcePath source
-  wroteModule <- DocsCache.writeModule root sourcePath source dependencies False docsModule
+  wroteModule <- DocsCache.writeModule root sourcePath source dependencies False buildId interfaceHash docsModule
   configHash <- docsConfigHash root
   wroteManifest <- DocsCache.updateManifest root configHash [] [(sourcePath, docsModule)]
   cached <- DocsCache.readModule root moduleName
@@ -160,7 +162,7 @@ testDocsCacheRoundTrip = do
              DocsCache.cachedModuleName entry == "Ui.Input"
                && DocsCache.cachedSourcePath entry == "src" FilePath.</> "Ui" FilePath.</> "Input.elm"
                && cachedDocsModuleName entry == moduleName
-               && DocsCache.matchesInputs entry source dependencies False
+               && DocsCache.matchesInputs entry source dependencies False buildId interfaceHash
            Nothing -> False
        && case maybe [] DocsCache.manifestEntries manifest of
             [entry] ->
@@ -179,16 +181,20 @@ testDocsCacheInvalidation = do
       source = BSChar8.pack "module Ui.Events exposing (onClick)\n\nonClick = 1\n"
       dependencies = []
       changedDependencies = [Name.fromChars "Dependency"]
-  wrote <- DocsCache.writeModule root sourcePath source dependencies False (emptyDocsModule moduleName "Events")
+      buildId = 11
+      interfaceHash = "interface-11"
+  wrote <- DocsCache.writeModule root sourcePath source dependencies False buildId interfaceHash (emptyDocsModule moduleName "Events")
   cached <- DocsCache.readModule root moduleName
   pure $
     wrote
       && case cached of
            Just entry ->
-             DocsCache.matchesInputs entry source dependencies False
-               && not (DocsCache.matchesInputs entry (source <> BSChar8.pack "-- changed\n") dependencies False)
-               && not (DocsCache.matchesInputs entry source changedDependencies False)
-               && not (DocsCache.matchesInputs entry source dependencies True)
+             DocsCache.matchesInputs entry source dependencies False buildId interfaceHash
+               && not (DocsCache.matchesInputs entry (source <> BSChar8.pack "-- changed\n") dependencies False buildId interfaceHash)
+               && not (DocsCache.matchesInputs entry source changedDependencies False buildId interfaceHash)
+               && not (DocsCache.matchesInputs entry source dependencies True buildId interfaceHash)
+               && not (DocsCache.matchesInputs entry source dependencies False (buildId + 1) interfaceHash)
+               && not (DocsCache.matchesInputs entry source dependencies False buildId "changed-interface")
            Nothing -> False
 
 testDocsCacheManifestAndCorruption :: IO Bool
@@ -206,8 +212,8 @@ testDocsCacheManifestAndCorruption = do
   Dir.createDirectoryIfMissing True (FilePath.takeDirectory pathA)
   BS.writeFile pathA sourceA
   BS.writeFile pathB sourceB
-  _ <- DocsCache.writeModule root pathA sourceA [] False docsA
-  _ <- DocsCache.writeModule root pathB sourceB [] False docsB
+  _ <- DocsCache.writeModule root pathA sourceA [] False 1 "interface-a" docsA
+  _ <- DocsCache.writeModule root pathB sourceB [] False 1 "interface-b" docsB
   configHash <- docsConfigHash root
   first <- DocsCache.updateManifest root configHash [] [(pathA, docsA)]
   second <- DocsCache.updateManifest root configHash [] [(pathB, docsB)]
@@ -250,13 +256,28 @@ testCompilationPersistsDocsCache = do
   writeElmApp root
   Dir.createDirectoryIfMissing True srcDir
   writeFile mainPath optimizationRuntimeElm
-  (result, _) <- MemoryCompile.compile root (NE.List ("src" FilePath.</> "Main.elm") []) flags Nothing
-  cached <- DocsCache.readModule root moduleName
+  (normalResult, _) <- MemoryCompile.compile root (NE.List ("src" FilePath.</> "Main.elm") []) flags Nothing
+  cacheAfterNormalCompile <- Dir.doesFileExist (DocsCache.modulePath root moduleName)
+  (docsResult, _) <- MemoryCompile.compileWithDocs root (NE.List ("src" FilePath.</> "Main.elm") []) flags Nothing
+  firstCached <- DocsCache.readModule root moduleName
+  (cachedResult, cachedFileInfo) <- MemoryCompile.compileWithDocs root (NE.List ("src" FilePath.</> "Main.elm") []) flags Nothing
+  secondCached <- DocsCache.readModule root moduleName
   manifest <- DocsCache.readManifest root
   pure $
-    either (const False) (const True) result
-      && maybe False ((== moduleName) . cachedDocsModuleName) cached
+    either (const False) (const True) normalResult
+      && not cacheAfterNormalCompile
+      && either (const False) (const True) docsResult
+      && either (const False) (const True) cachedResult
+      && maybe False ((== moduleName) . cachedDocsModuleName) firstCached
+      && maybe False ((== moduleName) . cachedDocsModuleName) secondCached
+      && fmap DocsCache.cachedBuildId firstCached == fmap DocsCache.cachedBuildId secondCached
+      && any hasModuleDocs (Map.elems cachedFileInfo)
       && maybe [] (map DocsCache.manifestModuleName . DocsCache.manifestEntries) manifest == ["Main"]
+  where
+    hasModuleDocs info =
+      case Client.docs info of
+        Just (Docs.Module name _ _ _ _ _) -> name == Name.fromChars "Main"
+        Nothing -> False
 
 versionTests :: [NamedTest]
 versionTests =
