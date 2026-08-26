@@ -19,7 +19,6 @@ import qualified Control.Monad as Monad
 import qualified Control.Exception as Exception
 import qualified Data.Aeson as JSON
 import qualified Data.ByteString.Lazy as LBS
-import qualified Data.Digest.Pure.SHA as SHA
 import qualified Ext.CompileMode
 import qualified Ext.Log
 import Data.Time.Clock (getCurrentTime)
@@ -30,7 +29,7 @@ import qualified System.IO as IO
 import qualified System.FileLock as FileLock
 import qualified Network.Socket as Net
 import qualified Watchtower.Server.DevWS as DevWS
-import Watchtower.Server.Daemon.State (StateInfo(..), fingerprintMatches)
+import Watchtower.Server.Daemon.State (StateInfo(..))
 import qualified Watchtower.Live.Client
 import qualified Stuff
 import qualified Watchtower.Server.Run
@@ -115,11 +114,6 @@ getPid = do
 versionString :: String
 versionString = "1.0.0"
 
-currentExecutableFingerprint :: IO String
-currentExecutableFingerprint = do
-  exe <- Env.getExecutablePath
-  SHA.showDigest . SHA.sha256 <$> LBS.readFile exe
-
 -- Parameters for starting the daemon services
 data ServeParams = ServeParams
   { spDomain :: !String
@@ -148,25 +142,22 @@ ensureRunning = do
       case m2 of
         Just s2 -> pure s2
         _ -> do
-          currentFingerprint <- currentExecutableFingerprint
-          replaceDaemon currentFingerprint
+          replaceDaemon
 
-replaceDaemon :: String -> IO StateInfo
-replaceDaemon currentFingerprint = do
+replaceDaemon :: IO StateInfo
+replaceDaemon = do
   existing <- readState
   case existing of
     Just _ -> stop
     Nothing -> pure ()
-  startForFingerprint currentFingerprint
+  startProcess
 
 -- | Launch the daemon in the background if not running, wait until state is ready, and return it
 start :: IO StateInfo
-start = do
-  currentFingerprint <- currentExecutableFingerprint
-  startForFingerprint currentFingerprint
+start = startProcess
 
-startForFingerprint :: String -> IO StateInfo
-startForFingerprint currentFingerprint = do
+startProcess :: IO StateInfo
+startProcess = do
   exe <- Env.getExecutablePath
   let cp = (Process.proc exe ["dev","serve","--silent"])
               { Process.std_in = Process.NoStream
@@ -179,7 +170,7 @@ startForFingerprint currentFingerprint = do
   _ <- Process.createProcess cp
   -- Wait for state.json to appear and for services to become healthy
   let waitLoop n = do
-        ms <- statusForFingerprint currentFingerprint
+        ms <- status
         case ms of
           Just s -> pure s
           Nothing -> if n <= 0 then ioError (userError "dev did not become healthy") else do
@@ -224,8 +215,7 @@ serve params = do
       waitReady (100 :: Int)
       now <- fmap show getCurrentTime
       p <- getPid
-      fingerprint <- currentExecutableFingerprint
-      let st = StateInfo { pid = p, domain = spDomain params, lspPort = spLspPort params, mcpPort = spMcpPort params, httpPort = spHttpPort params, startedAt = now, version = versionString, executableFingerprint = Just fingerprint }
+      let st = StateInfo { pid = p, domain = spDomain params, lspPort = spLspPort params, mcpPort = spMcpPort params, httpPort = spHttpPort params, startedAt = now, version = versionString }
       writeState st
       -- Block forever
       let loop = do Concurrent.threadDelay 10000000 >> loop
@@ -265,15 +255,6 @@ status = do
     Just s -> do
       ok <- isHealthy s
       if ok then pure (Just s) else pure Nothing
-    Nothing -> pure Nothing
-
-statusForFingerprint :: String -> IO (Maybe StateInfo)
-statusForFingerprint currentFingerprint = do
-  ms <- readState
-  case ms of
-    Just s -> do
-      ok <- isHealthy s
-      if ok && fingerprintMatches currentFingerprint s then pure (Just s) else pure Nothing
     Nothing -> pure Nothing
 
 -- | Try to connect to host:port, return True if successful

@@ -17,7 +17,6 @@ import qualified Data.ByteString.Lazy as BSL
 import qualified Data.NonEmptyList as NE
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Ext.MemoryCached.Build
-import qualified Ext.Docs.Cache as DocsCache
 import qualified Ext.MemoryCached.Details
 import qualified Json.Encode as Encode
 import qualified Reporting
@@ -33,8 +32,6 @@ import qualified Reporting.Render.Type.Localizer
 import qualified Watchtower.Live.Client
 import qualified Control.Concurrent.STM as STM
 import qualified Elm.Package
-import qualified Elm.Version
-import qualified Ext.FileCache as File
 
 
 debug :: String -> IO ()
@@ -66,13 +63,9 @@ compileWithDocs :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe
 compileWithDocs = compileWithDocsMode Ext.MemoryCached.Build.LoadDocs
 
 compileWithDocsMode :: Ext.MemoryCached.Build.DocsMode -> FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo)
-compileWithDocsMode docsMode root paths flags@(CompileHelpers.Flags mode output debuggerMode) packagesVar = do
+compileWithDocsMode docsMode root paths (CompileHelpers.Flags mode output debuggerMode) packagesVar = do
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope -> do
-        maybeProjectConfigHash <-
-          case docsMode of
-            Ext.MemoryCached.Build.SkipDocs -> pure Nothing
-            Ext.MemoryCached.Build.LoadDocs -> Just . DocsCache.fingerprintBytes <$> File.readUtf8 (root </> "elm.json")
         let compilationFlags = CompileHelpers.compilationModsFromFlags mode
         -- Load details (IO Either)
         detailsEither <- Ext.MemoryCached.Details.load Reporting.silent scope root packagesVar
@@ -82,17 +75,6 @@ compileWithDocsMode docsMode root paths flags@(CompileHelpers.Flags mode output 
           Right details -> do
             -- Build artifacts while collecting per-file info, even on failure
             (eitherArtifacts, fileInfoByPath) <- Ext.MemoryCached.Build.fromPathsMemoryCached docsMode packagesVar compilationFlags Reporting.silent root details paths
-            case docsMode of
-              Ext.MemoryCached.Build.SkipDocs -> pure ()
-              Ext.MemoryCached.Build.LoadDocs -> do
-                case maybeProjectConfigHash of
-                  Nothing -> pure ()
-                  Just projectConfigHash -> do
-                    _ <- DocsCache.updateManifest root projectConfigHash (resolvedPackages details)
-                      [ (path, docsModule)
-                      | (path, Watchtower.Live.Client.FileInfo { Watchtower.Live.Client.docs = Just docsModule }) <- Map.toList fileInfoByPath
-                      ]
-                    pure ()
             case eitherArtifacts of
               Left buildProblem ->
                 pure (Left (Exit.ReactorBadBuild buildProblem), fileInfoByPath)
@@ -101,14 +83,6 @@ compileWithDocsMode docsMode root paths flags@(CompileHelpers.Flags mode output 
                 case compiledEither of
                   Left reactorErr -> pure (Left reactorErr, fileInfoByPath)
                   Right compiled -> pure (Right compiled, fileInfoByPath)
-
-resolvedPackages :: Ext.MemoryCached.Details.Details -> [(String, String)]
-resolvedPackages (Ext.MemoryCached.Details.Details _ outline _ _ _ _) =
-  case outline of
-    Ext.MemoryCached.Details.ValidApp _ -> []
-    Ext.MemoryCached.Details.ValidPkg _ _ packages ->
-      map (\(name, version) -> (Elm.Package.toChars name, Elm.Version.toChars version)) (Map.toList packages)
-
 
 compileDevelopmentSizes :: FilePath -> NE.List FilePath -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor CompileHelpers.DevelopmentSizes)
 compileDevelopmentSizes root paths packagesVar =

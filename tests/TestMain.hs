@@ -133,7 +133,6 @@ docsCacheTests :: [NamedTest]
 docsCacheTests =
   [ runTest "module docs cache round-trips under modules" testDocsCacheRoundTrip
   , runTest "module docs cache invalidates changed inputs" testDocsCacheInvalidation
-  , runTest "module docs manifest merges entries and ignores corruption" testDocsCacheManifestAndCorruption
   , runTest "memory compilation persists module docs" testCompilationPersistsDocsCache
   , runTest "project docs snapshot respects version and flags" testDocsSnapshotFreshness
   , runTest "project docs snapshots remain isolated" testDocsSnapshotProjectIsolation
@@ -181,14 +180,10 @@ testDocsCacheRoundTrip = do
   Dir.createDirectoryIfMissing True (FilePath.takeDirectory sourcePath)
   BS.writeFile sourcePath source
   wroteModule <- DocsCache.writeModule root sourcePath source dependencies False buildId interfaceHash docsModule
-  configHash <- docsConfigHash root
-  wroteManifest <- DocsCache.updateManifest root configHash [] [(sourcePath, docsModule)]
   cached <- DocsCache.readModule root moduleName
-  manifest <- DocsCache.readManifest root
   moduleFiles <- Dir.listDirectory (DocsCache.modulesDirectory root)
   pure $
     wroteModule
-      && wroteManifest
       && case cached of
            Just entry ->
              DocsCache.cachedModuleName entry == "Ui.Input"
@@ -196,13 +191,6 @@ testDocsCacheRoundTrip = do
                && cachedDocsModuleName entry == moduleName
                && DocsCache.matchesInputs entry source dependencies False buildId interfaceHash
            Nothing -> False
-       && case maybe [] DocsCache.manifestEntries manifest of
-            [entry] ->
-              DocsCache.manifestModuleName entry == "Ui.Input"
-                && DocsCache.manifestSourcePath entry == "src" FilePath.</> "Ui" FilePath.</> "Input.elm"
-                && DocsCache.manifestModuleFile entry == "modules" FilePath.</> "Ui-Input.json"
-                && not (null (DocsCache.manifestModuleHash entry))
-            _ -> False
       && moduleFiles == ["Ui-Input.json"]
 
 testDocsCacheInvalidation :: IO Bool
@@ -229,46 +217,6 @@ testDocsCacheInvalidation = do
                && not (DocsCache.matchesInputs entry source dependencies False buildId "changed-interface")
            Nothing -> False
 
-testDocsCacheManifestAndCorruption :: IO Bool
-testDocsCacheManifestAndCorruption = do
-  root <- uniqueRoot
-  let moduleA = Name.fromChars "A"
-      moduleB = Name.fromChars "B"
-      pathA = root FilePath.</> "src" FilePath.</> "A.elm"
-      pathB = root FilePath.</> "src" FilePath.</> "B.elm"
-      docsA = emptyDocsModule moduleA "A"
-      docsB = emptyDocsModule moduleB "B"
-  writeElmApp root
-  let sourceA = BSChar8.pack "module A exposing (..)\n"
-      sourceB = BSChar8.pack "module B exposing (..)\n"
-  Dir.createDirectoryIfMissing True (FilePath.takeDirectory pathA)
-  BS.writeFile pathA sourceA
-  BS.writeFile pathB sourceB
-  _ <- DocsCache.writeModule root pathA sourceA [] False 1 "interface-a" docsA
-  _ <- DocsCache.writeModule root pathB sourceB [] False 1 "interface-b" docsB
-  configHash <- docsConfigHash root
-  first <- DocsCache.updateManifest root configHash [] [(pathA, docsA)]
-  second <- DocsCache.updateManifest root configHash [] [(pathB, docsB)]
-  manifest <- DocsCache.readManifest root
-  Dir.removeFile pathA
-  pruned <- DocsCache.updateManifest root configHash [] []
-  prunedManifest <- DocsCache.readManifest root
-  removedModuleFile <- fmap not (Dir.doesFileExist (DocsCache.modulePath root moduleA))
-  BS.writeFile (DocsCache.modulePath root moduleB) (BSChar8.pack "not json")
-  corrupted <- DocsCache.readModule root moduleB
-  pure $
-    first
-      && second
-      && maybe [] (map DocsCache.manifestModuleName . DocsCache.manifestEntries) manifest == ["A", "B"]
-      && pruned
-      && maybe [] (map DocsCache.manifestModuleName . DocsCache.manifestEntries) prunedManifest == ["B"]
-      && removedModuleFile
-      && maybe True (const False) corrupted
-
-docsConfigHash :: FilePath -> IO String
-docsConfigHash root =
-  DocsCache.fingerprintBytes <$> BS.readFile (root FilePath.</> "elm.json")
-
 emptyDocsModule :: Name.Name -> String -> Docs.Module
 emptyDocsModule moduleName comment =
   Docs.Module moduleName (JsonString.fromChars comment) Map.empty Map.empty Map.empty Map.empty
@@ -294,7 +242,6 @@ testCompilationPersistsDocsCache = do
   firstCached <- DocsCache.readModule root moduleName
   (cachedResult, cachedFileInfo) <- MemoryCompile.compileWithDocs root (NE.List ("src" FilePath.</> "Main.elm") []) flags Nothing
   secondCached <- DocsCache.readModule root moduleName
-  manifest <- DocsCache.readManifest root
   pure $
     either (const False) (const True) normalResult
       && not cacheAfterNormalCompile
@@ -304,7 +251,6 @@ testCompilationPersistsDocsCache = do
       && maybe False ((== moduleName) . cachedDocsModuleName) secondCached
       && fmap DocsCache.cachedBuildId firstCached == fmap DocsCache.cachedBuildId secondCached
       && any hasModuleDocs (Map.elems cachedFileInfo)
-      && maybe [] (map DocsCache.manifestModuleName . DocsCache.manifestEntries) manifest == ["Main"]
   where
     hasModuleDocs info =
       case Client.docs info of
@@ -386,8 +332,7 @@ mcpTests =
 
 daemonTests :: [NamedTest]
 daemonTests =
-  [ runTest "daemon state decodes a missing executable fingerprint as unknown" testDaemonStateBackwardCompatibility
-  , runTest "daemon state fingerprint round-trips and controls freshness" testDaemonFingerprintRoundTrip
+  [ runTest "daemon state round-trips and ignores legacy fields" testDaemonStateRoundTrip
   ]
 
 dependencyTests :: [NamedTest]
@@ -1322,16 +1267,8 @@ testPackage raw =
     (author, '/' : project) -> Package.toName (Utf8.fromChars author) project
     _ -> error "invalid dependency test package"
 
-testDaemonStateBackwardCompatibility :: IO Bool
-testDaemonStateBackwardCompatibility = do
-  let oldState = "{\"pid\":1,\"domain\":\"127.0.0.1\",\"lspPort\":2,\"mcpPort\":3,\"httpPort\":4,\"startedAt\":\"now\",\"version\":\"1.0.0\"}"
-  pure $ case JSON.eitherDecode oldState of
-    Right state -> DaemonState.executableFingerprint state == Nothing
-      && not (DaemonState.fingerprintMatches "current" state)
-    Left _ -> False
-
-testDaemonFingerprintRoundTrip :: IO Bool
-testDaemonFingerprintRoundTrip = do
+testDaemonStateRoundTrip :: IO Bool
+testDaemonStateRoundTrip = do
   let state = DaemonState.StateInfo
         { DaemonState.pid = 1
         , DaemonState.domain = "127.0.0.1"
@@ -1340,13 +1277,11 @@ testDaemonFingerprintRoundTrip = do
         , DaemonState.httpPort = 4
         , DaemonState.startedAt = "now"
         , DaemonState.version = "1.0.0"
-        , DaemonState.executableFingerprint = Just "abc123"
         }
-  pure $ case JSON.eitherDecode (JSON.encode state) of
-    Right decoded -> decoded == state
-      && DaemonState.fingerprintMatches "abc123" decoded
-      && not (DaemonState.fingerprintMatches "different" decoded)
-    Left _ -> False
+      legacy = "{\"pid\":1,\"domain\":\"127.0.0.1\",\"lspPort\":2,\"mcpPort\":3,\"httpPort\":4,\"startedAt\":\"now\",\"version\":\"1.0.0\",\"executableFingerprint\":\"old\"}"
+  pure $ case (JSON.eitherDecode (JSON.encode state), JSON.eitherDecode legacy) of
+    (Right decoded, Right legacyDecoded) -> decoded == state && legacyDecoded == state
+    _ -> False
 
 testMcpCompositeToolsExposed :: IO Bool
 testMcpCompositeToolsExposed = do

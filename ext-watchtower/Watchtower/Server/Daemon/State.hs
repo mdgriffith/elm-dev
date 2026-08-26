@@ -2,7 +2,6 @@
 
 module Watchtower.Server.Daemon.State
   ( StateInfo(..)
-  , fingerprintMatches
   ) where
 
 import qualified Data.Aeson as JSON
@@ -16,7 +15,6 @@ data StateInfo = StateInfo
   , httpPort :: !Int
   , startedAt :: !String
   , version :: !String
-  , executableFingerprint :: !(Maybe String)
   } deriving (Show, Eq)
 
 
@@ -29,7 +27,6 @@ instance JSON.ToJSON StateInfo where
     , ("httpPort", JSON.toJSON (httpPort state))
     , ("startedAt", JSON.toJSON (startedAt state))
     , ("version", JSON.toJSON (version state))
-    , ("executableFingerprint", JSON.toJSON (executableFingerprint state))
     ]
 
 
@@ -44,8 +41,3 @@ instance JSON.FromJSON StateInfo where
               <*> object JSON..: "httpPort"
               <*> object JSON..: "startedAt"
               <*> object JSON..: "version"
-              <*> object JSON..:? "executableFingerprint" JSON..!= Nothing
-
-
-fingerprintMatches :: String -> StateInfo -> Bool
-fingerprintMatches current state = executableFingerprint state == Just current
