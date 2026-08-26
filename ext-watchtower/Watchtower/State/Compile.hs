@@ -94,6 +94,7 @@ compileUntraced loadDocs state@(Client.State _ _ mFileInfo mPackages _ _ _ mWork
             markCompileSnapshot = Versions.setCompileVersionTo projectRoot fsSnapshot
             changedFiles = if codegenChangedFiles then [] else files
         entrypointGroups <- Ext.Dev.Project.entrypointGroupsForChangedFilesAtVersion fsSnapshot changedFiles proj
+        let compileGroups = entrypointGroupsForFlags flags entrypointGroups
         PerfTrace.event
           (Client.trace state)
           "compile.entrypoint_groups"
@@ -101,6 +102,7 @@ compileUntraced loadDocs state@(Client.State _ _ mFileInfo mPackages _ _ _ mWork
           , PerfTrace.text "project_root" projectRoot
           , PerfTrace.int "project_short_id" shortId
           , PerfTrace.int "entrypoint_group_count" (length entrypointGroups)
+          , PerfTrace.int "compile_group_count" (length compileGroups)
           , PerfTrace.bool "vfs_changed_before_codegen" vfsChangedBeforeCodegen
           , PerfTrace.bool "codegen_changed_files" codegenChangedFiles
           ]
@@ -126,7 +128,7 @@ compileUntraced loadDocs state@(Client.State _ _ mFileInfo mPackages _ _ _ mWork
               )
             pure (Right CompileHelpers.CompiledSkippedOutput)
           else do
-            compileResults <- Monad.forM entrypointGroups $ \entrypointGroup -> do
+            compileResults <- Monad.forM compileGroups $ \entrypointGroup -> do
               compiled <-
                 if loadDocs
                   then CompileProxy.compileWithDocs elmJsonRoot entrypointGroup flags (Just mPackages)
@@ -217,6 +219,15 @@ compileUntraced loadDocs state@(Client.State _ _ mFileInfo mPackages _ _ _ mWork
 entrypointGroupPath :: NE.List FilePath -> FilePath
 entrypointGroupPath (NE.List entrypoint _) =
   entrypoint
+
+entrypointGroupsForFlags :: CompileHelpers.Flags -> [NE.List FilePath] -> [NE.List FilePath]
+entrypointGroupsForFlags (CompileHelpers.Flags _ output _) groups =
+  case output of
+    CompileHelpers.NoOutput ->
+      case concatMap NE.toList groups of
+        [] -> []
+        entrypoint : entrypoints -> [NE.List entrypoint entrypoints]
+    CompileHelpers.OutputTo _ -> groups
 
 targetCompilationResult :: (FilePath, (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Client.FileInfo)) -> (FilePath, Client.CompilationResult)
 targetCompilationResult (entrypoint, (eitherCompiled, _)) =

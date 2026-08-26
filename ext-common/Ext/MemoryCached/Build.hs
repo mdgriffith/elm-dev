@@ -80,14 +80,14 @@ toDocsNeed docsMode =
 
 fromPathsMemoryCached :: DocsMode -> Maybe (STM.TVar (Map.Map Pkg.Name Client.PackageInfo)) -> CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem Artifacts, Map.Map FilePath Client.FileInfo)
 fromPathsMemoryCached docsMode _packages flags style root details paths = do
-  result <- fromPathsMemoryCached_ docsMode flags style root details paths
-  case result of
-    Right (artifacts, fileInfoByPath) -> pure (Right artifacts, fileInfoByPath)
-    Left err -> pure (Left err, Map.empty)
+  fileInfoVar <- newMVar Map.empty
+  result <- fromPathsMemoryCached_ docsMode flags style root details paths fileInfoVar
+  fileInfoByPath <- readMVar fileInfoVar
+  pure (result, fileInfoByPath)
 
 
-fromPathsMemoryCached_ :: DocsMode -> CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> IO (Either Exit.BuildProblem (Artifacts, Map.Map FilePath Client.FileInfo))
-fromPathsMemoryCached_ docsMode flags style root details paths =
+fromPathsMemoryCached_ :: DocsMode -> CompileHelpers.CompilationFlags -> Reporting.Style -> FilePath -> Details.Details -> NE.List FilePath -> MVar (Map.Map FilePath Client.FileInfo) -> IO (Either Exit.BuildProblem Artifacts)
+fromPathsMemoryCached_ docsMode flags style root details paths fileInfoVar =
   Reporting.trackBuild style $ \key ->
   do  env <- Build.makeEnv key root details
       elroots <- findRoots env paths
@@ -114,7 +114,6 @@ fromPathsMemoryCached_ docsMode flags style root details paths =
                 Right foreigns ->
                   do  -- compile
                       rmvar <- newEmptyMVar
-                      fileInfoVar <- newMVar Map.empty
                       -- debug $ "statuses: " <> show statuses
                       resultsMVars <- Build.forkWithKey (\name status -> checkModule flags docsNeed env foreigns rmvar fileInfoVar name status) statuses
 
@@ -126,14 +125,11 @@ fromPathsMemoryCached_ docsMode flags style root details paths =
                       -- Needs to NOT be Build.writeDetails, because it's writing the cached version
                       writeDetails root details results
                       x <- Build.toArtifacts env foreigns results <$> traverse readMVar rrootMVars
-                      fileInfoByPath <- readMVar fileInfoVar
                       -- case x of
                       --   Right v ->
                       --     debug $ show v
                       --   _ -> pure ()
-                      case x of
-                        Left err -> pure (Left err)
-                        Right arts -> pure (Right (arts, fileInfoByPath))
+                      pure x
 
 
 

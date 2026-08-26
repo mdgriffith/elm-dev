@@ -272,6 +272,9 @@ versionTests =
   , runTest "package changed source is targeted directly" testPackageChangedSourceIsTargeted
   , runTest "package unused modules are detected from exposed roots" testPackageUnusedModuleDetection
   , runTest "target results preserve per-entrypoint success" testTargetResultsSuccess
+  , runTest "no-output entrypoints share one analysis build" testNoOutputEntrypointsBatch
+  , runTest "no-output analysis retains errors from every entrypoint" testNoOutputEntrypointErrors
+  , runTest "javascript entrypoints remain independent targets" testOutputEntrypointsRemainIndependent
   , runTest "skipped compile replaces stale project result" testSkippedCompileReplacesStaleResult
   , runTest "open file keeps in-memory precedence over fs watcher" testOpenFileSkipsFilesystemSync
   , runTest "disconnect cleanup removes editor and diagnostics state" testCleanupConnectionState
@@ -2593,6 +2596,139 @@ testTargetResultsSuccess = do
   let success = Client.Success CompileHelpers.CompiledSkippedOutput
       grouped = Client.TargetResults [("/tmp/app/src/Main.elm", success), ("/tmp/app/src/Other.elm", success)]
   pure (Client.compilationResultSucceeded grouped)
+
+testNoOutputEntrypointsBatch :: IO Bool
+testNoOutputEntrypointsBatch = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+      otherPath = srcDir FilePath.</> "Other.elm"
+      sharedPath = srcDir FilePath.</> "Shared.elm"
+      flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+  writeElmApp root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainPath (workerElm "Main" True)
+  writeFile otherPath (workerElm "Other" True)
+  writeFile sharedPath "module Shared exposing (value)\n\nvalue : Int\nvalue = 1\n"
+  (analysisResult, analysisFileInfo) <- MemoryCompile.compile root (NE.List mainPath [otherPath]) flags Nothing
+  (state, projectCache, compileResult) <- twoEntrypointProject root flags
+  result <- CompileState.compile state "test.no-output-batch" projectCache []
+  stored <- STM.readTVarIO compileResult
+  docsCacheExists <- or <$> mapM (Dir.doesFileExist . DocsCache.modulePath root . Name.fromChars) ["Main", "Other", "Shared"]
+  let hasAnalysisInfo info = Maybe.isJust (Client.docs info) && Maybe.isJust (Client.canonicalAst info)
+  pure
+    ( case (analysisResult, result, stored) of
+        ( Right CompileHelpers.CompiledSkippedOutput
+          , Right CompileHelpers.CompiledSkippedOutput
+          , Client.TargetResults [(entrypoint, Client.Success CompileHelpers.CompiledSkippedOutput)]
+          ) ->
+              entrypoint == mainPath
+                && Map.size analysisFileInfo == 3
+                && all hasAnalysisInfo (Map.elems analysisFileInfo)
+                && not docsCacheExists
+        _ -> False
+    )
+
+testNoOutputEntrypointErrors :: IO Bool
+testNoOutputEntrypointErrors = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+      otherPath = srcDir FilePath.</> "Other.elm"
+      sharedPath = srcDir FilePath.</> "Shared.elm"
+      flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+  writeElmApp root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainPath (brokenWorkerElm "Main" "main is broken")
+  writeFile otherPath (brokenWorkerElm "Other" "other is broken")
+  writeFile sharedPath "module Shared exposing (value)\n\nvalue : Int\nvalue = 1\n"
+  (analysisResult, analysisFileInfo) <- MemoryCompile.compile root (NE.List mainPath [otherPath]) flags Nothing
+  (state, projectCache, compileResult) <- twoEntrypointProject root flags
+  result <- CompileState.compile state "test.no-output-errors" projectCache []
+  stored <- STM.readTVarIO compileResult
+  pure $
+    case (analysisResult, result, stored) of
+      ( Left (ReportingExit.ReactorBadBuild (ReportingExit.BuildBadModules _ _ analysisOtherErrors))
+        , Left (Client.ReactorError (ReportingExit.ReactorBadBuild (ReportingExit.BuildBadModules _ _ otherErrors)))
+        , Client.TargetResults [(entrypoint, Client.Error (Client.ReactorError (ReportingExit.ReactorBadBuild (ReportingExit.BuildBadModules _ _ storedOtherErrors))))]
+        ) ->
+          entrypoint == mainPath
+            && length analysisOtherErrors == 1
+            && length otherErrors == 1
+            && length storedOtherErrors == 1
+            && Map.size analysisFileInfo == 3
+            && all (Maybe.isJust . Client.localizer) (Map.elems analysisFileInfo)
+            && any (Maybe.isJust . Client.canonicalAst) (Map.elems analysisFileInfo)
+      _ -> False
+
+testOutputEntrypointsRemainIndependent :: IO Bool
+testOutputEntrypointsRemainIndependent = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+      otherPath = srcDir FilePath.</> "Other.elm"
+      flags = CompileHelpers.Flags CompileHelpers.Dev (CompileHelpers.OutputTo CompileHelpers.Js) CompileHelpers.DebuggerNone
+  writeElmApp root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainPath (workerElm "Main" False)
+  writeFile otherPath (workerElm "Other" False)
+  (state, projectCache, compileResult) <- twoEntrypointProject root flags
+  result <- CompileState.compile state "test.output-targets" projectCache []
+  stored <- STM.readTVarIO compileResult
+  case (result, stored) of
+      ( Right (CompileHelpers.CompiledJs aggregateBuilder)
+        , Client.TargetResults
+            [ (mainEntrypoint, Client.Success (CompileHelpers.CompiledJs mainBuilder))
+            , (otherEntrypoint, Client.Success (CompileHelpers.CompiledJs otherBuilder))
+            ]
+        ) -> do
+          let mainJs = renderBuilder mainBuilder
+              otherJs = renderBuilder otherBuilder
+              aggregateJs = renderBuilder aggregateBuilder
+          pure (mainEntrypoint == mainPath
+               && otherEntrypoint == otherPath
+               && List.isInfixOf "$author$project$Main$main" mainJs
+               && not (List.isInfixOf "$author$project$Other$main" mainJs)
+               && List.isInfixOf "$author$project$Other$main" otherJs
+               && not (List.isInfixOf "$author$project$Main$main" otherJs)
+               && aggregateJs == otherJs)
+      _ -> pure False
+
+twoEntrypointProject :: FilePath -> CompileHelpers.Flags -> IO (Client.State, Client.ProjectCache, STM.TVar Client.CompilationResult)
+twoEntrypointProject root flags = do
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+      otherPath = srcDir FilePath.</> "Other.elm"
+      proj = Project.Project root root (NE.List mainPath [otherPath]) [srcDir] 1
+  state <- Client.initState testUrls
+  compileResult <- STM.newTVarIO Client.NotCompiled
+  testInfo <- STM.newTVarIO Nothing
+  let projectCache = Client.ProjectCache proj GenConfig.defaultDocs flags compileResult testInfo
+  STM.atomically $ STM.writeTVar (Client.projects state) [projectCache]
+  pure (state, projectCache, compileResult)
+
+workerElm :: String -> Bool -> String
+workerElm moduleName importsShared =
+  unlines
+    [ "module " ++ moduleName ++ " exposing (main)"
+    , ""
+    , "import Platform"
+    , "import Platform.Cmd as Cmd"
+    , "import Platform.Sub as Sub"
+    , if importsShared then "import Shared" else ""
+    , ""
+    , "main ="
+    , "    Platform.worker"
+    , "        { init = \\() -> ( " ++ (if importsShared then "Shared.value" else "0") ++ ", Cmd.none )"
+    , "        , update = \\_ model -> ( model, Cmd.none )"
+    , "        , subscriptions = \\_ -> Sub.none"
+    , "        }"
+    ]
+
+brokenWorkerElm :: String -> String -> String
+brokenWorkerElm moduleName brokenValue =
+  workerElm moduleName True
+    ++ "\nbroken : Int\nbroken = \"" ++ brokenValue ++ "\"\n"
 
 testSkippedCompileReplacesStaleResult :: IO Bool
 testSkippedCompileReplacesStaleResult = do
