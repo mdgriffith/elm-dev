@@ -57,9 +57,8 @@ compile state traceId projCache@(Client.ProjectCache (Ext.Dev.Project.Project pr
     (compileUntraced state traceId projCache files)
 
 compileUntraced :: Client.State -> String -> Client.ProjectCache -> [FilePath] -> IO (Either Client.Error CompileHelpers.CompilationResult)
-compileUntraced state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequested _) traceId projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot _entrypoints _srcDirs _shortId) docsInfo flags mCompileResult _) files = do
+compileUntraced state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiagsRequested _) traceId projCache@(Client.ProjectCache proj@(Ext.Dev.Project.Project projectRoot elmJsonRoot _entrypoints _srcDirs shortId) docsInfo flags mCompileResult mTestVar) files = do
   versionsAtStart <- Versions.readVersions projectRoot
-  let fsSnapshot = Versions.fsVersion versionsAtStart
   Ext.Log.log Ext.Log.Live
     ( concat
         [ "[trace " ++ traceId ++ "] compile.start"
@@ -69,14 +68,35 @@ compileUntraced state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiag
         , " compileVersion=" ++ show (Versions.compileVersion versionsAtStart)
         ]
     )
-  let markCompileSnapshot = do
-        Versions.setCompileVersionTo projectRoot fsSnapshot
   Dir.withCurrentDirectory projectRoot $ do
+    vfsChangedBeforeCodegen <- updateVfsFromFs proj
+    Monad.when vfsChangedBeforeCodegen $
+      STM.atomically $ clearTestResults mTestVar
+    versionsBeforeCodegen <- Versions.readVersions projectRoot
+    let markCodegenFailureSnapshot =
+          Versions.setCompileVersionTo projectRoot (Versions.fsVersion versionsBeforeCodegen)
     -- First run code generation
     codegenResult <- Gen.Generate.run projectRoot
     case codegenResult of
       Right () -> do
-        entrypointGroups <- Ext.Dev.Project.entrypointGroupsForChangedFilesAtVersion fsSnapshot files proj
+        codegenChangedFiles <- updateVfsFromFs proj
+        Monad.when codegenChangedFiles $
+          STM.atomically $ clearTestResults mTestVar
+        versionsAfterCodegen <- Versions.readVersions projectRoot
+        let fsSnapshot = Versions.fsVersion versionsAfterCodegen
+            markCompileSnapshot = Versions.setCompileVersionTo projectRoot fsSnapshot
+            changedFiles = if codegenChangedFiles then [] else files
+        entrypointGroups <- Ext.Dev.Project.entrypointGroupsForChangedFilesAtVersion fsSnapshot changedFiles proj
+        PerfTrace.event
+          (Client.trace state)
+          "compile.entrypoint_groups"
+          [ PerfTrace.text "trace_id" traceId
+          , PerfTrace.text "project_root" projectRoot
+          , PerfTrace.int "project_short_id" shortId
+          , PerfTrace.int "entrypoint_group_count" (length entrypointGroups)
+          , PerfTrace.bool "vfs_changed_before_codegen" vfsChangedBeforeCodegen
+          , PerfTrace.bool "codegen_changed_files" codegenChangedFiles
+          ]
         if null entrypointGroups
           then do
             STM.atomically $ do
@@ -184,7 +204,7 @@ compileUntraced state@(Client.State _ _ mFileInfo mPackages _ _ _ mWorkspaceDiag
                   )
                   cur
           STM.writeTVar mWorkspaceDiagsRequested updated
-        markCompileSnapshot
+        markCodegenFailureSnapshot
         versionsAtEnd <- Versions.readVersions projectRoot
         Ext.Log.log Ext.Log.Live
           ( concat
@@ -346,21 +366,42 @@ updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
 
 ensureProjectFresh :: Client.State -> String -> Client.ProjectCache -> IO Bool
 ensureProjectFresh state traceId pc@(Client.ProjectCache proj _ _ mCompileResult mTestVar) = do
-  vfsChanged <- updateVfsFromFs proj
-  Monad.when vfsChanged $
-    STM.atomically $ clearTestResults mTestVar
   let projectRoot = Ext.Dev.Project.getRoot proj
-  versions <- Versions.readVersions projectRoot
-  currentResult <- STM.readTVarIO mCompileResult
-  let needsCompile =
-        Versions.compileVersion versions < Versions.fsVersion versions
-          || case currentResult of
-               Client.NotCompiled -> True
-               _ -> False
-  Monad.when needsCompile $ do
-    _ <- compile state traceId pc []
-    pure ()
-  pure vfsChanged
+  lockResult <- withProjectCompileLockIfAvailable projectRoot $ do
+    vfsChanged <- updateVfsFromFs proj
+    Monad.when vfsChanged $
+      STM.atomically $ clearTestResults mTestVar
+    versions <- Versions.readVersions projectRoot
+    currentResult <- STM.readTVarIO mCompileResult
+    let needsCompile =
+          Versions.compileVersion versions < Versions.fsVersion versions
+            || case currentResult of
+                 Client.NotCompiled -> True
+                 _ -> False
+    PerfTrace.event
+      (Client.trace state)
+      "compile.freshness"
+      [ PerfTrace.text "trace_id" traceId
+      , PerfTrace.text "project_root" projectRoot
+      , PerfTrace.int "fs_version" (Versions.fsVersion versions)
+      , PerfTrace.int "compile_version" (Versions.compileVersion versions)
+      , PerfTrace.bool "vfs_changed" vfsChanged
+      , PerfTrace.bool "needs_compile" needsCompile
+      , PerfTrace.text "compile_result" (compilationResultStatus currentResult)
+      ]
+    Monad.when needsCompile $ do
+      _ <- compile state traceId pc []
+      pure ()
+    pure vfsChanged
+  pure (Maybe.fromMaybe False lockResult)
+
+compilationResultStatus :: Client.CompilationResult -> String
+compilationResultStatus result =
+  case result of
+    Client.NotCompiled -> "not_compiled"
+    Client.Success _ -> "success"
+    Client.Error _ -> "error"
+    Client.TargetResults _ -> "target_results"
 
 
 -- | Compile any projects that are relevant to the given file paths.

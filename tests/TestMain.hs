@@ -172,6 +172,7 @@ mcpTests =
   , runTest "MCP hides retired single-purpose tools" testMcpRetiredToolsHidden
   , runTest "MCP tool surface is exact" testMcpToolSurfaceExact
   , runTest "MCP composite schemas advertise tagged unions" testMcpCompositeSchemas
+  , runTest "MCP docs resolves local projects only when needed" testMcpDocsProjectResolution
   , runTest "MCP stale test summaries can be cleared" testMcpClearTestResults
   , runTest "MCP XML blocks preserve tag attributes and body" testMcpXmlBlockShape
   , runTest "MCP XML attributes are escaped" testMcpXmlAttributeEscaping
@@ -1227,6 +1228,21 @@ testMcpCompositeSchemas = do
         && schemaRequires "operation" schemas "dependencies"
         && schemaDescriptionMentions ["author/project", "MAJOR"] schemas "dependencies" "packages"
   pure (docsOk && addOk && checkOk && dependenciesOk)
+
+testMcpDocsProjectResolution :: IO Bool
+testMcpDocsProjectResolution = do
+  let localModule = JSON.object ["kind" JSON..= ("module" :: Text.Text), "module" JSON..= ("Ui.Input" :: Text.Text)]
+      package = JSON.object ["kind" JSON..= ("package" :: Text.Text), "package" JSON..= ("elm/json" :: Text.Text)]
+      packageSearch = JSON.object ["kind" JSON..= ("search" :: Text.Text), "query" JSON..= ("decoder" :: Text.Text), "package" JSON..= ("elm/json" :: Text.Text)]
+      projectSearch = JSON.object ["kind" JSON..= ("search" :: Text.Text), "query" JSON..= ("decoder" :: Text.Text)]
+  pure $
+    MCP.docsQueriesNeedProjectForTests Nothing [localModule]
+      && MCP.docsQueriesNeedProjectForTests Nothing [projectSearch]
+      && MCP.docsQueriesNeedProjectForTests Nothing [package, localModule]
+      && MCP.docsQueriesNeedProjectForTests (Just "/tmp/project") [packageSearch]
+      && not (MCP.docsQueriesNeedProjectForTests Nothing [package])
+      && not (MCP.docsQueriesNeedProjectForTests (Just "/tmp/project") [package])
+      && not (MCP.docsQueriesNeedProjectForTests Nothing [packageSearch])
 
 schemaHasProperty :: Text.Text -> [(Text.Text, JSON.Value)] -> Text.Text -> Bool
 schemaHasProperty propertyName schemas toolName =

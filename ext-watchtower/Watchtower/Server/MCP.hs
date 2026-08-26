@@ -15,6 +15,7 @@ module Watchtower.Server.MCP
   , dependencyPlanJsonForTests
   , dependencyTreeJsonForTests
   , legacyInstallResponseForTests
+  , docsQueriesNeedProjectForTests
   ) where
 
 {-
@@ -84,6 +85,7 @@ import qualified Watchtower.Server.LSP.Helpers as Helpers
 import qualified Watchtower.Server.DevWS
 import qualified Ext.Encode
 import qualified Ext.Log
+import qualified Ext.Trace as PerfTrace
 import qualified Elm.Details
 import qualified Elm.ModuleName as ModuleName
 import qualified Reporting.Exit as Exit
@@ -111,6 +113,7 @@ import qualified Watchtower.Server.LSP.Protocol as LSPProtocol
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import qualified System.Timeout as Timeout
+import qualified GHC.Stats as RTS
 
 
 availableTools :: [MCP.Tool]
@@ -889,18 +892,40 @@ toolDocs = MCP.Tool
       case getArrayArg args "queries" of
         Nothing -> pure (errTxt "Missing queries array.")
         Just queries -> do
-          blocks <- mapM (runDocsQuery args state connId) (zip [(0 :: Int)..] queries)
-          pure (ok (Text.intercalate "\n\n" blocks))
+          let needsProject = docsQueriesNeedProject args queries
+          PerfTrace.span
+            (Client.trace state)
+            "mcp.docs.request"
+            [ PerfTrace.int "query_count" (length queries)
+            , PerfTrace.bool "needs_local_project" needsProject
+            ] $ do
+              traceDocsSnapshot state "start"
+              resolvedProject <-
+                if needsProject
+                  then resolveDocsProjectFromArgs args state connId
+                  else pure (Right Nothing)
+              blocks <- mapM (runDocsQuery args state connId resolvedProject) (zip [(0 :: Int)..] queries)
+              traceDocsSnapshot state "end"
+              pure (ok (Text.intercalate "\n\n" blocks))
   }
 
-runDocsQuery :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> (Int, JSON.Value) -> IO Text
-runDocsQuery args state connId (index, value) =
+runDocsQuery :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> Either Text (Maybe Client.ProjectCache) -> (Int, JSON.Value) -> IO Text
+runDocsQuery args state connId resolvedProject indexed@(_index, value) =
+  PerfTrace.span
+    (Client.trace state)
+    "mcp.docs.query"
+    [ PerfTrace.int "query_index" (fst indexed)
+    , PerfTrace.text "query_kind" (Text.unpack (docsQueryKind value))
+    ]
+    (runDocsQueryUntraced args state connId resolvedProject indexed)
+
+runDocsQueryUntraced :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> Either Text (Maybe Client.ProjectCache) -> (Int, JSON.Value) -> IO Text
+runDocsQueryUntraced args state connId resolvedProject (index, value) =
   case value of
     JSON.Object query ->
       case stringField query "kind" of
         Just "project" -> do
-          mProject <- resolveDocsProjectFromArgs args state connId
-          case mProject of
+          case resolvedProject of
             Left msg -> pure (docsError index "project" [] msg)
             Right Nothing -> pure (docsError index "project" [] "No project selected")
             Right (Just pc) -> do
@@ -909,8 +934,7 @@ runDocsQuery args state connId (index, value) =
               outline <- Elm.Outline.read (Ext.Dev.Project.getRoot (projectFromCache pc))
               pure (xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", "project"), ("status", "ok")] ++ rootAttrs pc) (renderDocsProject pc outline localDocs pkgs))
         Just "modules" -> do
-          mProject <- resolveDocsProjectFromArgs args state connId
-          case mProject of
+          case resolvedProject of
             Left msg -> pure (docsError index "modules" [] msg)
             Right maybeProject -> do
               localDocs <- maybe (pure []) (localModulesForProject state) maybeProject
@@ -921,8 +945,7 @@ runDocsQuery args state connId (index, value) =
           case stringField query "module" of
             Nothing -> pure (docsError index "module" [] "Missing module.")
             Just moduleName -> do
-              mProject <- resolveDocsProjectFromArgs args state connId
-              case mProject of
+              case resolvedProject of
                 Left msg -> pure (docsError index "module" [("module", moduleName)] msg)
                 Right maybeProject -> do
                   let wantName = Name.fromChars (Text.unpack moduleName)
@@ -936,8 +959,7 @@ runDocsQuery args state connId (index, value) =
           case stringField query "file" of
             Nothing -> pure (docsError index "file" [] "Missing file.")
             Just filePath -> do
-              mProject <- resolveDocsProjectFromArgs args state connId
-              case mProject of
+              case resolvedProject of
                 Left msg -> pure (docsError index "file" [("file", filePath)] msg)
                 Right maybeProject -> do
                   r <- resolveModuleSpecScoped state maybeProject (ModuleByFilePath (Text.unpack filePath))
@@ -951,8 +973,7 @@ runDocsQuery args state connId (index, value) =
           case stringField query "value" of
             Nothing -> pure (docsError index "value" [] "Missing value.")
             Just valueName -> do
-              mProject <- resolveDocsProjectFromArgs args state connId
-              case mProject of
+              case resolvedProject of
                 Left msg -> pure (docsError index "value" [("value", valueName)] msg)
                 Right maybeProject ->
                   case splitModuleAndValue valueName of
@@ -989,7 +1010,7 @@ runDocsQuery args state connId (index, value) =
                 Right scopedPackage -> do
                   mProject <- case (scopedPackage, getStringArg args "dir") of
                     (Just _, Nothing) -> pure (Right Nothing)
-                    _ -> resolveDocsProjectFromArgs args state connId
+                    _ -> pure resolvedProject
                   case mProject of
                     Left msg -> pure (docsError index "search" [("query", searchQuery)] msg)
                     Right maybeProject -> do
@@ -1018,6 +1039,63 @@ runDocsQuery args state connId (index, value) =
         Just other -> pure (docsError index other [] "Unknown docs query kind.")
         Nothing -> pure (docsError index "unknown" [] "Missing query.kind.")
     _ -> pure (docsError index "unknown" [] "Expected query object.")
+
+docsQueriesNeedProjectForTests :: Maybe FilePath -> [JSON.Value] -> Bool
+docsQueriesNeedProjectForTests maybeDir =
+  docsQueriesNeedProject (maybe KeyMap.empty (\dir -> KeyMap.singleton "dir" (JSON.String (Text.pack dir))) maybeDir)
+
+docsQueriesNeedProject :: JSON.Object -> [JSON.Value] -> Bool
+docsQueriesNeedProject args =
+  any (docsQueryNeedsProject args)
+
+docsQueryNeedsProject :: JSON.Object -> JSON.Value -> Bool
+docsQueryNeedsProject args value =
+  case value of
+    JSON.Object query ->
+      case stringField query "kind" of
+        Just "project" -> True
+        Just "modules" -> True
+        Just "module" -> True
+        Just "file" -> True
+        Just "value" -> True
+        Just "search" ->
+          Maybe.isNothing (stringField query "package") || Maybe.isJust (getStringArg args "dir")
+        _ -> False
+    _ -> False
+
+docsQueryKind :: JSON.Value -> Text
+docsQueryKind value =
+  case value of
+    JSON.Object query -> Maybe.fromMaybe "unknown" (stringField query "kind")
+    _ -> "unknown"
+
+traceDocsSnapshot :: Client.State -> String -> IO ()
+traceDocsSnapshot state phase = do
+  infos <- Client.getAllFileInfos state
+  pkgs <- Control.Concurrent.STM.readTVarIO (Client.packages state)
+  enabled <- RTS.getRTSStatsEnabled
+  if enabled
+    then do
+      stats <- RTS.getRTSStats
+      let gc = RTS.gc stats
+      PerfTrace.event
+        (Client.trace state)
+        "mcp.docs.snapshot"
+        [ PerfTrace.text "phase" phase
+        , PerfTrace.int "file_info_count" (Map.size infos)
+        , PerfTrace.int "package_count" (Map.size pkgs)
+        , PerfTrace.int "last_gc_live_bytes" (fromIntegral (RTS.gcdetails_live_bytes gc))
+        , PerfTrace.int "last_gc_memory_in_use_bytes" (fromIntegral (RTS.gcdetails_mem_in_use_bytes gc))
+        ]
+    else
+      PerfTrace.event
+        (Client.trace state)
+        "mcp.docs.snapshot"
+        [ PerfTrace.text "phase" phase
+        , PerfTrace.int "file_info_count" (Map.size infos)
+        , PerfTrace.int "package_count" (Map.size pkgs)
+        , PerfTrace.bool "rts_stats_enabled" False
+        ]
 
 docsError :: Int -> Text -> [(Text, Text)] -> Text -> Text
 docsError index kind extraAttrs msg =
@@ -2884,30 +2962,35 @@ compileDocsProject state pc = do
   pure ()
 
 resolveDocsProjectFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Either Text (Maybe Client.ProjectCache))
-resolveDocsProjectFromArgs args state connId =
+resolveDocsProjectFromArgs args state connId = do
+  resolved <- resolveDocsProjectCacheFromArgs args state connId
+  case resolved of
+    Left msg -> pure (Left msg)
+    Right maybeProject -> do
+      maybe (pure ()) (compileDocsProject state) maybeProject
+      pure (Right maybeProject)
+
+resolveDocsProjectCacheFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Either Text (Maybe Client.ProjectCache))
+resolveDocsProjectCacheFromArgs args state connId =
   case getStringArg args "dir" of
     Just dir -> do
       canonical <- Dir.canonicalizePath dir
       Watchtower.State.Discover.discover state canonical
       existing <- Client.getExistingProject canonical state
       case existing of
-        Right (pc, _) -> do
-          compileDocsProject state pc
-          pure (Right (Just pc))
+        Right (pc, _) -> pure (Right (Just pc))
         Left _ -> pure (Left ("No Elm project found for dir: " <> Text.pack canonical))
     Nothing -> do
       resolved <- ProjectLookup.resolveProjectFromSession Nothing connId state
       case resolved of
         Left msg -> pure (Left msg)
-        Right pc -> do
-          compileDocsProject state pc
-          pure (Right (Just pc))
+        Right pc -> pure (Right (Just pc))
 
 docsRootFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Maybe FilePath)
 docsRootFromArgs args state connId =
   case getStringArg args "dir" of
     Just dir -> do
-      resolved <- resolveDocsProjectFromArgs args state connId
+      resolved <- resolveDocsProjectCacheFromArgs args state connId
       case resolved of
         Right (Just pc) -> pure (Just (Ext.Dev.Project.getRoot (projectFromCache pc)))
         _ -> Dir.canonicalizePath dir >>= pure . Just
