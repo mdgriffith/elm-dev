@@ -80,6 +80,7 @@ import qualified Watchtower.State.Compile
 import qualified Watchtower.State.Discover
 import qualified Watchtower.State.TestJobs as TestJobs
 import qualified Watchtower.State.Versions as Versions
+import qualified Watchtower.State.DocsSnapshot as DocsSnapshot
 import qualified Watchtower.Server.LSP as LSP
 import qualified Watchtower.Server.LSP.Helpers as Helpers
 import qualified Watchtower.Server.DevWS
@@ -3049,13 +3050,9 @@ renderPackageDocsText state pkgName mExplicitVersion mRoot = do
           pure (Right body)
 
 localModulesForProject :: Client.State -> Client.ProjectCache -> IO [(FilePath, Docs.Module)]
-localModulesForProject state pc = do
-  infos <- Client.getAllFileInfos state
-  let proj = projectFromCache pc
-      isInProject fp = Ext.Dev.Project.contains fp proj
-      pick (fp, Client.FileInfo { Client.docs = Just m }) | isInProject fp = Just (fp, m)
-      pick _ = Nothing
-  pure (List.sortOn (moduleSortName . snd) (Maybe.mapMaybe pick (Map.toList infos)))
+localModulesForProject _state pc = do
+  modules <- DocsSnapshot.modulesForProject (Ext.Dev.Project.getRoot (projectFromCache pc))
+  pure (List.sortOn (moduleSortName . snd) (Map.toList modules))
 
 moduleSortName :: Docs.Module -> String
 moduleSortName (Docs.Module name _ _ _ _ _) = Name.toChars name
@@ -3066,15 +3063,9 @@ findLocalModuleDocsInProject state pc wantName = do
   pure (List.find (\(_, Docs.Module name _ _ _ _ _) -> name == wantName) modules)
 
 findLocalModuleDocs :: Client.State -> Name.Name -> IO (Maybe (FilePath, Docs.Module))
-findLocalModuleDocs state wantName = do
-  infos <- Client.getAllFileInfos state
-  pure $
-    let matches (_, Client.FileInfo { Client.docs = Just m@(Docs.Module name _ _ _ _ _) }) =
-          name == wantName
-        matches _ = False
-    in case filter matches (Map.toList infos) of
-         ((fp, Client.FileInfo { Client.docs = Just m }):_) -> Just (fp, m)
-         _ -> Nothing
+findLocalModuleDocs _state wantName = do
+  modules <- DocsSnapshot.allModules
+  pure (List.find (\(_, Docs.Module name _ _ _ _ _) -> name == wantName) modules)
 
 findPackageModuleDocs :: Client.State -> Name.Name -> IO (Maybe (Pkg.Name, Docs.Module))
 findPackageModuleDocs state wantName = do
@@ -3138,9 +3129,9 @@ resolveModuleSpecScoped state maybeProject spec =
         Left _ -> pure (Left "file not associated with a known project")
         Right (pc, _) -> do
           _ <- Watchtower.State.Compile.ensureProjectDocs state "mcp.module_by_filepath" pc
-          mInfo <- Client.getFileInfo fp state
-          case mInfo of
-            Just (Client.FileInfo { Client.docs = Just m@(Docs.Module name _ _ _ _ _) }) ->
+          modules <- DocsSnapshot.modulesForProject (Ext.Dev.Project.getRoot (projectFromCache pc))
+          case Map.lookup fp modules of
+            Just m@(Docs.Module name _ _ _ _ _) ->
               pure (Right (ModuleResolved name (Just fp) Nothing m))
             _ -> pure (Left "no docs for file")
 

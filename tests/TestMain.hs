@@ -26,6 +26,7 @@ import qualified Ext.Test.Generate as TestGenerate
 import qualified Ext.Test.Parse as TestParse
 import qualified Ext.Test.Runner as TestRunner
 import qualified Data.Map.Strict as Map
+import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
 import qualified Data.NonEmptyList as NE
 import qualified Data.Set as Set
@@ -48,6 +49,7 @@ import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.LSP.Protocol as Protocol
 import qualified Watchtower.State.Compile as CompileState
 import qualified Watchtower.State.Versions as Versions
+import qualified Watchtower.State.DocsSnapshot as DocsSnapshot
 import qualified Watchtower.State.Project as ProjectState
 import qualified Watchtower.State.TestJobs as TestJobs
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
@@ -133,7 +135,37 @@ docsCacheTests =
   , runTest "module docs cache invalidates changed inputs" testDocsCacheInvalidation
   , runTest "module docs manifest merges entries and ignores corruption" testDocsCacheManifestAndCorruption
   , runTest "memory compilation persists module docs" testCompilationPersistsDocsCache
+  , runTest "project docs snapshot respects version and flags" testDocsSnapshotFreshness
+  , runTest "project docs snapshots remain isolated" testDocsSnapshotProjectIsolation
   ]
+
+testDocsSnapshotFreshness :: IO Bool
+testDocsSnapshotFreshness = do
+  root <- uniqueRoot
+  let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+      changedFlags = CompileHelpers.Flags CompileHelpers.Debug CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+      path = root FilePath.</> "src" FilePath.</> "Main.elm"
+      docsModule = emptyDocsModule (Name.fromChars "Main") "Main docs"
+  DocsSnapshot.publish root 3 flags (Map.singleton path docsModule)
+  current <- DocsSnapshot.lookupFresh root 3 flags
+  staleVersion <- DocsSnapshot.lookupFresh root 4 flags
+  staleFlags <- DocsSnapshot.lookupFresh root 3 changedFlags
+  pure (fmap Map.keys current == Just [path] && Maybe.isNothing staleVersion && Maybe.isNothing staleFlags)
+
+testDocsSnapshotProjectIsolation :: IO Bool
+testDocsSnapshotProjectIsolation = do
+  rootA <- uniqueRoot
+  rootB <- uniqueRoot
+  let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+      pathA = rootA FilePath.</> "src" FilePath.</> "Shared.elm"
+      pathB = rootB FilePath.</> "src" FilePath.</> "Shared.elm"
+      docsA = emptyDocsModule (Name.fromChars "Shared") "Project A"
+      docsB = emptyDocsModule (Name.fromChars "Shared") "Project B"
+  DocsSnapshot.publish rootA 1 flags (Map.singleton pathA docsA)
+  DocsSnapshot.publish rootB 1 flags (Map.singleton pathB docsB)
+  modulesA <- DocsSnapshot.modulesForProject rootA
+  modulesB <- DocsSnapshot.modulesForProject rootB
+  pure (Map.keys modulesA == [pathA] && Map.keys modulesB == [pathB])
 
 testDocsCacheRoundTrip :: IO Bool
 testDocsCacheRoundTrip = do

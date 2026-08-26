@@ -308,6 +308,7 @@ Executable elm-dev
         Watchtower.AST.References
         
         Watchtower.State.Compile
+        Watchtower.State.DocsSnapshot
         Watchtower.State.Discover
         Watchtower.State.Project
         Watchtower.State.TestJobs
@@ -707,6 +708,7 @@ Test-Suite elm-dev-tests
         Watchtower.Server.LSP.Protocol
         Watchtower.Trace
         Watchtower.State.Compile
+        Watchtower.State.DocsSnapshot
         Watchtower.State.Discover
         Watchtower.State.Project
         Watchtower.State.TestJobs

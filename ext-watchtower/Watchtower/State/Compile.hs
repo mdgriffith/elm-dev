@@ -30,6 +30,7 @@ import qualified Ext.Log
 import qualified System.FilePath as FP
 import qualified Ext.FileCache
 import qualified Watchtower.State.Versions as Versions
+import qualified Watchtower.State.DocsSnapshot as DocsSnapshot
 import qualified Watchtower.State.StartupMetrics as Metrics
 import qualified Watchtower.Trace as Trace
 import qualified Control.Monad as Monad
@@ -105,6 +106,8 @@ compileUntraced loadDocs state@(Client.State _ _ mFileInfo mPackages _ _ _ mWork
           ]
         if null entrypointGroups
           then do
+            Monad.when loadDocs $
+              publishDocsSnapshotIfCurrent projectRoot fsSnapshot flags Map.empty
             Monad.unless loadDocs $ do
               STM.atomically $ do
                 STM.writeTVar mCompileResult (Client.Success CompileHelpers.CompiledSkippedOutput)
@@ -156,6 +159,8 @@ compileUntraced loadDocs state@(Client.State _ _ mFileInfo mPackages _ _ _ mWork
 
             case eitherCompiled of
               Right result -> do
+                Monad.when loadDocs $
+                  publishDocsSnapshotIfCurrent projectRoot fsSnapshot flags fileInfoByPath
                 Monad.unless loadDocs markCompileSnapshot
                 versionsAtEnd <- Versions.readVersions projectRoot
                 Ext.Log.log Ext.Log.Live
@@ -242,6 +247,12 @@ combineCompileResults results =
 combineFileInfo :: [(FilePath, (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Client.FileInfo))] -> Map.Map FilePath Client.FileInfo
 combineFileInfo results =
   Map.unions [fileInfoByPath | (_, (_, fileInfoByPath)) <- results]
+
+publishDocsSnapshotIfCurrent :: FilePath -> Int -> CompileHelpers.Flags -> Map.Map FilePath Client.FileInfo -> IO ()
+publishDocsSnapshotIfCurrent projectRoot fsSnapshot flags fileInfoByPath = do
+  current <- Versions.readVersions projectRoot
+  Monad.when (Versions.fsVersion current == fsSnapshot) $
+    DocsSnapshot.publish projectRoot fsSnapshot flags (Map.mapMaybe Client.docs fileInfoByPath)
 
 {-# NOINLINE projectCompileLocks #-}
 projectCompileLocks :: MVar.MVar (Map.Map FilePath (MVar.MVar ()))
@@ -363,7 +374,7 @@ ensureProjectDocs :: Client.State -> String -> Client.ProjectCache -> IO Bool
 ensureProjectDocs = ensureProjectFreshWithDocs True
 
 ensureProjectFreshWithDocs :: Bool -> Client.State -> String -> Client.ProjectCache -> IO Bool
-ensureProjectFreshWithDocs loadDocs state traceId pc@(Client.ProjectCache proj _ _ mCompileResult mTestVar) = do
+ensureProjectFreshWithDocs loadDocs state traceId pc@(Client.ProjectCache proj _ flags mCompileResult mTestVar) = do
   let projectRoot = Ext.Dev.Project.getRoot proj
   lockResult <- withProjectCompileLockIfAvailable projectRoot $ do
     vfsChanged <- updateVfsFromFs proj
@@ -371,12 +382,14 @@ ensureProjectFreshWithDocs loadDocs state traceId pc@(Client.ProjectCache proj _
       STM.atomically $ clearTestResults mTestVar
     versions <- Versions.readVersions projectRoot
     currentResult <- STM.readTVarIO mCompileResult
+    currentDocs <- DocsSnapshot.lookupFresh projectRoot (Versions.fsVersion versions) flags
     let needsNormalCompile =
           Versions.compileVersion versions < Versions.fsVersion versions
             || case currentResult of
                  Client.NotCompiled -> True
                  _ -> False
-        needsCompile = loadDocs || needsNormalCompile
+        needsDocsCompile = loadDocs && Maybe.isNothing currentDocs
+        needsCompile = needsNormalCompile || needsDocsCompile
     PerfTrace.event
       (Client.trace state)
       "compile.freshness"
@@ -386,14 +399,23 @@ ensureProjectFreshWithDocs loadDocs state traceId pc@(Client.ProjectCache proj _
       , PerfTrace.int "compile_version" (Versions.compileVersion versions)
       , PerfTrace.bool "vfs_changed" vfsChanged
       , PerfTrace.bool "needs_compile" needsCompile
+      , PerfTrace.bool "needs_docs_compile" needsDocsCompile
       , PerfTrace.text "compile_result" (compilationResultStatus currentResult)
       ]
     Monad.when needsCompile $ do
       Monad.when (loadDocs && needsNormalCompile) $ do
         _ <- compile state traceId pc []
         pure ()
-      _ <- if loadDocs then compileWithDocs state traceId pc [] else compile state traceId pc []
-      pure ()
+      if loadDocs
+        then do
+          versionsAfterNormalCompile <- Versions.readVersions projectRoot
+          freshDocs <- DocsSnapshot.lookupFresh projectRoot (Versions.fsVersion versionsAfterNormalCompile) flags
+          Monad.when (Maybe.isNothing freshDocs) $ do
+            _ <- compileWithDocs state traceId pc []
+            pure ()
+        else do
+          _ <- compile state traceId pc []
+          pure ()
     pure vfsChanged
   pure (Maybe.fromMaybe False lockResult)
 
