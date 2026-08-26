@@ -6,7 +6,6 @@ module Ext.Docs.Cache
   , cacheDirectory
   , modulesDirectory
   , modulePath
-  , fingerprintBytes
   , writeModule
   , readModule
   , matchesInputs
@@ -34,7 +33,7 @@ import qualified System.FilePath as FilePath
 import qualified System.IO as IO
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 2
+cacheSchemaVersion = 3
 
 extractorVersion :: Int
 extractorVersion = 1
@@ -46,7 +45,6 @@ data CachedModule = CachedModule
   , cachedDependencies :: [String]
   , cachedUiSourceMap :: Bool
   , cachedBuildId :: Word64
-  , cachedInterfaceHash :: String
   , cachedDocs :: Docs.Module
   }
 
@@ -62,8 +60,8 @@ modulePath :: FilePath -> ModuleName.Raw -> FilePath
 modulePath root moduleName =
   modulesDirectory root FilePath.</> ModuleName.toHyphenPath moduleName FilePath.<.> "json"
 
-writeModule :: FilePath -> FilePath -> BS.ByteString -> [ModuleName.Raw] -> Bool -> Word64 -> String -> Docs.Module -> IO Bool
-writeModule root sourcePath source dependencies uiSourceMap buildId interfaceHash docsModule@(Docs.Module moduleName _ _ _ _ _) =
+writeModule :: FilePath -> FilePath -> BS.ByteString -> [ModuleName.Raw] -> Bool -> Word64 -> Docs.Module -> IO Bool
+writeModule root sourcePath source dependencies uiSourceMap buildId docsModule@(Docs.Module moduleName _ _ _ _ _) =
   case docsJsonValue docsModule of
     Nothing -> pure False
     Just docsValue ->
@@ -80,7 +78,6 @@ writeModule root sourcePath source dependencies uiSourceMap buildId interfaceHas
                  , "dependencies" .= map ModuleName.toChars dependencies
                  , "uiSourceMap" .= uiSourceMap
                  , "buildId" .= buildId
-                 , "interfaceHash" .= interfaceHash
                  , "docs" .= docsValue
                 ]
         writeAtomically (modulePath root moduleName) (LBS.toStrict (Aeson.encode value))
@@ -93,18 +90,17 @@ readModule root expectedName = do
     value <- either (const Nothing) Just (Aeson.eitherDecodeStrict' bytes)
     either (const Nothing) Just (Aeson.parseEither (parseCachedModule expectedName) value)
 
-matchesInputs :: CachedModule -> BS.ByteString -> [ModuleName.Raw] -> Bool -> Word64 -> String -> Bool
-matchesInputs cached source dependencies uiSourceMap buildId interfaceHash =
+matchesInputs :: CachedModule -> BS.ByteString -> [ModuleName.Raw] -> Bool -> Word64 -> Bool
+matchesInputs cached source dependencies uiSourceMap buildId =
   cachedSourceHash cached == hashStrict source
     && cachedDependencies cached == map ModuleName.toChars dependencies
     && cachedUiSourceMap cached == uiSourceMap
     && cachedBuildId cached == buildId
-    && cachedInterfaceHash cached == interfaceHash
 
-matchesBuild :: FilePath -> CachedModule -> FilePath -> BS.ByteString -> [ModuleName.Raw] -> Bool -> Word64 -> String -> Bool
-matchesBuild root cached sourcePath source dependencies uiSourceMap buildId interfaceHash =
+matchesBuild :: FilePath -> CachedModule -> FilePath -> BS.ByteString -> [ModuleName.Raw] -> Bool -> Word64 -> Bool
+matchesBuild root cached sourcePath source dependencies uiSourceMap buildId =
   cachedSourcePath cached == relativeSourcePath root sourcePath
-    && matchesInputs cached source dependencies uiSourceMap buildId interfaceHash
+    && matchesInputs cached source dependencies uiSourceMap buildId
 
 parseCachedModule :: ModuleName.Raw -> Aeson.Value -> Aeson.Parser CachedModule
 parseCachedModule expectedName =
@@ -119,7 +115,6 @@ parseCachedModule expectedName =
     dependencies <- object .: "dependencies"
     uiSourceMap <- object .: "uiSourceMap"
     buildId <- object .: "buildId"
-    interfaceHash <- object .: "interfaceHash"
     docsValue <- object .: "docs"
     if schema /= cacheSchemaVersion
         || extractor /= extractorVersion
@@ -131,7 +126,7 @@ parseCachedModule expectedName =
         case decodeDocsModule expectedName docsValue of
           Nothing -> fail "invalid cached Elm docs"
           Just docsModule ->
-            pure (CachedModule moduleName sourcePath sourceHash dependencies uiSourceMap buildId interfaceHash docsModule)
+            pure (CachedModule moduleName sourcePath sourceHash dependencies uiSourceMap buildId docsModule)
 
 docsJsonValue :: Docs.Module -> Maybe Aeson.Value
 docsJsonValue docsModule@(Docs.Module moduleName _ _ _ _ _) =
@@ -153,9 +148,6 @@ relativeSourcePath root sourcePath =
 
 hashStrict :: BS.ByteString -> String
 hashStrict = hashLazy . LBS.fromStrict
-
-fingerprintBytes :: BS.ByteString -> String
-fingerprintBytes = hashStrict
 
 hashLazy :: LBS.ByteString -> String
 hashLazy = SHA.showDigest . SHA.sha256

@@ -13,8 +13,6 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import Control.Monad (filterM, mapM_, sequence_)
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Lazy as BSL
-import qualified Data.Binary as Binary
 import qualified Data.Char as Char
 import qualified Data.Graph as Graph
 import qualified Data.List as List
@@ -269,10 +267,9 @@ checkModule flags requestedDocs env@(Build.Env _ root projectType _ _ _ _) forei
                 then do
                   source <- File.readUtf8 path
                   maybeCached <- DocsCache.readModule root name
-                  maybeInterface <- File.readBinary (Stuff.elmi root name)
                   let uiSourceMap = Modify.uiSourceMap (CompileHelpers.modifications flags)
-                  case (maybeCached, maybeInterface) of
-                    (Just cached, Just iface) | DocsCache.matchesBuild root cached path source deps uiSourceMap lastCompile (interfaceFingerprint iface) -> do
+                  case maybeCached of
+                    Just cached | DocsCache.matchesBuild root cached path source deps uiSourceMap lastCompile -> do
                       modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo [] (Just (DocsCache.cachedDocs cached)) Nothing Nothing Nothing))
                       mvar <- newMVar Build.Unneeded
                       return (Build.RCached hasMain lastChange mvar)
@@ -474,11 +471,9 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
       let combinedWarnings = enrichedWarnings <> unusedWarnings
       
       let docsMaybe =
-            if Build.needsDocs docsNeed
-              then case Ext.Dev.Docs.fromArtifacts (Compile.Artifacts canonical annotations objects) of
-                     Right d -> Just d
-                     Left _ -> Nothing
-               else Nothing
+            case Ext.Dev.Docs.fromArtifacts (Compile.Artifacts canonical annotations objects) of
+              Right d -> Just d
+              Left _ -> Nothing
 
       let localizer = Reporting.Render.Type.Localizer.fromModule modul
       let hoverIndex =
@@ -488,11 +483,13 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
       let iface = I.fromModule pkg canonical annotations
       let elmi = Stuff.elmi root name
       let writeDocsCache =
-            case docsMaybe of
-              Just docsModule -> do
-                _ <- DocsCache.writeModule root path source deps (Modify.uiSourceMap (CompileHelpers.modifications flags)) buildID (interfaceFingerprint iface) docsModule
-                pure ()
-              Nothing -> pure ()
+            if Build.needsDocs docsNeed
+              then case docsMaybe of
+                     Just docsModule -> do
+                       _ <- DocsCache.writeModule root path source deps (Modify.uiSourceMap (CompileHelpers.modifications flags)) buildID docsModule
+                       pure ()
+                     Nothing -> pure ()
+              else pure ()
       File.writeBinary (Stuff.elmo root name) objects
       maybeOldi <- File.readBinary elmi
       case maybeOldi of
@@ -515,10 +512,6 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
       modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.canonicalAst = Nothing, Client.hoverIndex = Nothing }))
       return $ Build.RProblem $
         Error.Module (Src.getName modul) path time source err
-
-interfaceFingerprint :: I.Interface -> String
-interfaceFingerprint =
-  DocsCache.fingerprintBytes . BSL.toStrict . Binary.encode
 
 -- WRITE DETAILS
 

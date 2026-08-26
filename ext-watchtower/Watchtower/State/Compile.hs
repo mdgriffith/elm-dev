@@ -106,8 +106,8 @@ compileUntraced loadDocs state@(Client.State _ _ mFileInfo mPackages _ _ _ mWork
           ]
         if null entrypointGroups
           then do
-            Monad.when loadDocs $
-              publishDocsSnapshotIfCurrent projectRoot fsSnapshot flags Map.empty
+            fileInfo <- STM.readTVarIO mFileInfo
+            publishDocsSnapshotIfCurrent True projectRoot fsSnapshot flags (projectFileInfo proj fileInfo)
             Monad.unless loadDocs $ do
               STM.atomically $ do
                 STM.writeTVar mCompileResult (Client.Success CompileHelpers.CompiledSkippedOutput)
@@ -142,12 +142,14 @@ compileUntraced loadDocs state@(Client.State _ _ mFileInfo mPackages _ _ _ mWork
 
             -- Replace this project's file info on successful compile so stale ASTs
             -- from renamed or deleted files do not accumulate indefinitely.
-            STM.atomically $ do
+            projectInfo <- STM.atomically $ do
               current <- STM.readTVar mFileInfo
-              STM.writeTVar mFileInfo $
-                if loadDocs
-                  then mergeProjectDocs proj current fileInfoByPath
-                  else updateProjectFileInfo proj (shouldReplaceProjectFileInfo files) eitherCompiled current fileInfoByPath
+              let updated =
+                    if loadDocs
+                      then mergeProjectDocs proj current fileInfoByPath
+                      else updateProjectFileInfo proj (shouldReplaceProjectFileInfo files) eitherCompiled current fileInfoByPath
+              STM.writeTVar mFileInfo updated
+              pure (projectFileInfo proj updated)
 
             -- Mark workspace diagnostics snapshots as out-of-date after compile result and file info updates
             Monad.unless loadDocs $ do
@@ -159,8 +161,7 @@ compileUntraced loadDocs state@(Client.State _ _ mFileInfo mPackages _ _ _ mWork
 
             case eitherCompiled of
               Right result -> do
-                Monad.when loadDocs $
-                  publishDocsSnapshotIfCurrent projectRoot fsSnapshot flags fileInfoByPath
+                publishDocsSnapshotIfCurrent (not loadDocs) projectRoot fsSnapshot flags projectInfo
                 Monad.unless loadDocs markCompileSnapshot
                 versionsAtEnd <- Versions.readVersions projectRoot
                 Ext.Log.log Ext.Log.Live
@@ -248,11 +249,22 @@ combineFileInfo :: [(FilePath, (Either Exit.Reactor CompileHelpers.CompilationRe
 combineFileInfo results =
   Map.unions [fileInfoByPath | (_, (_, fileInfoByPath)) <- results]
 
-publishDocsSnapshotIfCurrent :: FilePath -> Int -> CompileHelpers.Flags -> Map.Map FilePath Client.FileInfo -> IO ()
-publishDocsSnapshotIfCurrent projectRoot fsSnapshot flags fileInfoByPath = do
+publishDocsSnapshotIfCurrent :: Bool -> FilePath -> Int -> CompileHelpers.Flags -> Map.Map FilePath Client.FileInfo -> IO ()
+publishDocsSnapshotIfCurrent mergeExisting projectRoot fsSnapshot flags fileInfoByPath = do
   current <- Versions.readVersions projectRoot
-  Monad.when (Versions.fsVersion current == fsSnapshot) $
-    DocsSnapshot.publish projectRoot fsSnapshot flags (Map.mapMaybe Client.docs fileInfoByPath)
+  Monad.when (Versions.fsVersion current == fsSnapshot) $ do
+    existing <-
+      if mergeExisting
+        then DocsSnapshot.modulesForProject projectRoot
+        else pure Map.empty
+    let combined = Map.union (Map.mapMaybe Client.docs fileInfoByPath) existing
+    existingPaths <- Monad.filterM Ext.FileCache.exists (Map.keys combined)
+    let retained = Set.fromList existingPaths
+    DocsSnapshot.publish projectRoot fsSnapshot flags (Map.filterWithKey (\path _ -> Set.member path retained) combined)
+
+projectFileInfo :: Project.Project -> Map.Map FilePath Client.FileInfo -> Map.Map FilePath Client.FileInfo
+projectFileInfo proj =
+  Map.filterWithKey (\path _ -> Ext.Dev.Project.contains path proj)
 
 {-# NOINLINE projectCompileLocks #-}
 projectCompileLocks :: MVar.MVar (Map.Map FilePath (MVar.MVar ()))
