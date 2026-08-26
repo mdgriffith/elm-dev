@@ -1,4 +1,6 @@
-**NOTE** This process was borrowed from the main elm compiler repo.
+**WARNING:** This document was borrowed from the main Elm compiler repository
+and does not describe the current elm-dev release process. Use
+[`RELEASING.md`](../../../RELEASING.md) instead.
 
 # Publishing
 

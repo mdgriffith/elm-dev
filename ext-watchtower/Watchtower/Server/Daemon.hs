@@ -139,16 +139,17 @@ allocateServeParams = do
 -- | Start the daemon servers for a workspace root; if already running and healthy, return its state
 ensureRunning :: IO StateInfo
 ensureRunning = do
-  currentFingerprint <- currentExecutableFingerprint
-  mState <- statusForFingerprint currentFingerprint
+  mState <- status
   case mState of
     Just s -> pure s
     Nothing -> withDaemonLock $ do
-      -- Another launcher may have replaced the stale daemon while we waited.
-      m2 <- statusForFingerprint currentFingerprint
+      -- Another launcher may have started a healthy daemon while we waited.
+      m2 <- status
       case m2 of
         Just s2 -> pure s2
-        _ -> replaceDaemon currentFingerprint
+        _ -> do
+          currentFingerprint <- currentExecutableFingerprint
+          replaceDaemon currentFingerprint
 
 replaceDaemon :: String -> IO StateInfo
 replaceDaemon currentFingerprint = do
@@ -259,8 +260,12 @@ stop = do
 
 status :: IO (Maybe StateInfo)
 status = do
-  currentFingerprint <- currentExecutableFingerprint
-  statusForFingerprint currentFingerprint
+  ms <- readState
+  case ms of
+    Just s -> do
+      ok <- isHealthy s
+      if ok then pure (Just s) else pure Nothing
+    Nothing -> pure Nothing
 
 statusForFingerprint :: String -> IO (Maybe StateInfo)
 statusForFingerprint currentFingerprint = do
