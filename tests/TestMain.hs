@@ -30,6 +30,7 @@ import qualified Data.Name as Name
 import qualified Data.NonEmptyList as NE
 import qualified Data.Set as Set
 import qualified Ext.CompileHelpers.Disk as DiskCompile
+import qualified Ext.CompileHelpers.Memory as MemoryCompile
 import qualified Ext.Optimization.Level as Optimization
 import qualified Gen.Generate as Generate
 import qualified Gen.Javascript as Javascript
@@ -67,15 +68,18 @@ import qualified Data.Utf8 as Utf8
 import qualified Deps.Solver as Solver
 import qualified Deps.Registry as Registry
 import qualified Elm.Constraint as Constraint
+import qualified Elm.Docs as Docs
 import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline as Outline
 import qualified Elm.Package as Package
 import qualified Elm.Version as ElmVersion
+import qualified Ext.Docs.Cache as DocsCache
 import qualified Ext.DependencyManager as DependencyManager
 import qualified Ext.DependencySize as DependencySize
 import qualified Ext.DependencyManager.Cli as DependencyCli
 import qualified CommandParser
 import qualified Json.Encode as Encode
+import qualified Json.String as JsonString
 import qualified Watchtower.Server.MCP.Protocol as MCPProtocol
 import qualified Gen.Commands.Init as InitCommand
 import qualified System.Timeout as Timeout
@@ -88,13 +92,14 @@ import qualified Text.Read as Read
 main :: IO ()
 main = do
   fileCacheResults <- sequence fileCacheTests
+  docsCacheResults <- sequence docsCacheTests
   versionResults <- sequence versionTests
   generationResults <- sequence generationTests
   optimizationResults <- sequence optimizationTests
   mcpResults <- sequence mcpTests
   daemonResults <- sequence daemonTests
   dependencyResults <- sequence dependencyTests
-  let results = fileCacheResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults ++ daemonResults ++ dependencyResults
+  let results = fileCacheResults ++ docsCacheResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults ++ daemonResults ++ dependencyResults
       failures = [name | (name, False) <- results]
   if null failures
     then do
@@ -121,6 +126,137 @@ fileCacheTests =
   , runTest "CRLF-like content edit remains stable" testCrLfStability
   , runTest "removeDir clears cached descendants recursively" testRemoveDirClearsDescendants
   ]
+
+docsCacheTests :: [NamedTest]
+docsCacheTests =
+  [ runTest "module docs cache round-trips under modules" testDocsCacheRoundTrip
+  , runTest "module docs cache invalidates changed inputs" testDocsCacheInvalidation
+  , runTest "module docs manifest merges entries and ignores corruption" testDocsCacheManifestAndCorruption
+  , runTest "memory compilation persists module docs" testCompilationPersistsDocsCache
+  ]
+
+testDocsCacheRoundTrip :: IO Bool
+testDocsCacheRoundTrip = do
+  root <- uniqueRoot
+  let moduleName = Name.fromChars "Ui.Input"
+      sourcePath = root FilePath.</> "src" FilePath.</> "Ui" FilePath.</> "Input.elm"
+      source = BSChar8.pack "module Ui.Input exposing (value)\n\nvalue = 1\n"
+      docsModule = emptyDocsModule moduleName "Input documentation"
+      dependencies = []
+  writeElmApp root
+  Dir.createDirectoryIfMissing True (FilePath.takeDirectory sourcePath)
+  BS.writeFile sourcePath source
+  wroteModule <- DocsCache.writeModule root sourcePath source dependencies False docsModule
+  configHash <- docsConfigHash root
+  wroteManifest <- DocsCache.updateManifest root configHash [] [(sourcePath, docsModule)]
+  cached <- DocsCache.readModule root moduleName
+  manifest <- DocsCache.readManifest root
+  moduleFiles <- Dir.listDirectory (DocsCache.modulesDirectory root)
+  pure $
+    wroteModule
+      && wroteManifest
+      && case cached of
+           Just entry ->
+             DocsCache.cachedModuleName entry == "Ui.Input"
+               && DocsCache.cachedSourcePath entry == "src" FilePath.</> "Ui" FilePath.</> "Input.elm"
+               && cachedDocsModuleName entry == moduleName
+               && DocsCache.matchesInputs entry source dependencies False
+           Nothing -> False
+       && case maybe [] DocsCache.manifestEntries manifest of
+            [entry] ->
+              DocsCache.manifestModuleName entry == "Ui.Input"
+                && DocsCache.manifestSourcePath entry == "src" FilePath.</> "Ui" FilePath.</> "Input.elm"
+                && DocsCache.manifestModuleFile entry == "modules" FilePath.</> "Ui-Input.json"
+                && not (null (DocsCache.manifestModuleHash entry))
+            _ -> False
+      && moduleFiles == ["Ui-Input.json"]
+
+testDocsCacheInvalidation :: IO Bool
+testDocsCacheInvalidation = do
+  root <- uniqueRoot
+  let moduleName = Name.fromChars "Ui.Events"
+      sourcePath = root FilePath.</> "src" FilePath.</> "Ui" FilePath.</> "Events.elm"
+      source = BSChar8.pack "module Ui.Events exposing (onClick)\n\nonClick = 1\n"
+      dependencies = []
+      changedDependencies = [Name.fromChars "Dependency"]
+  wrote <- DocsCache.writeModule root sourcePath source dependencies False (emptyDocsModule moduleName "Events")
+  cached <- DocsCache.readModule root moduleName
+  pure $
+    wrote
+      && case cached of
+           Just entry ->
+             DocsCache.matchesInputs entry source dependencies False
+               && not (DocsCache.matchesInputs entry (source <> BSChar8.pack "-- changed\n") dependencies False)
+               && not (DocsCache.matchesInputs entry source changedDependencies False)
+               && not (DocsCache.matchesInputs entry source dependencies True)
+           Nothing -> False
+
+testDocsCacheManifestAndCorruption :: IO Bool
+testDocsCacheManifestAndCorruption = do
+  root <- uniqueRoot
+  let moduleA = Name.fromChars "A"
+      moduleB = Name.fromChars "B"
+      pathA = root FilePath.</> "src" FilePath.</> "A.elm"
+      pathB = root FilePath.</> "src" FilePath.</> "B.elm"
+      docsA = emptyDocsModule moduleA "A"
+      docsB = emptyDocsModule moduleB "B"
+  writeElmApp root
+  let sourceA = BSChar8.pack "module A exposing (..)\n"
+      sourceB = BSChar8.pack "module B exposing (..)\n"
+  Dir.createDirectoryIfMissing True (FilePath.takeDirectory pathA)
+  BS.writeFile pathA sourceA
+  BS.writeFile pathB sourceB
+  _ <- DocsCache.writeModule root pathA sourceA [] False docsA
+  _ <- DocsCache.writeModule root pathB sourceB [] False docsB
+  configHash <- docsConfigHash root
+  first <- DocsCache.updateManifest root configHash [] [(pathA, docsA)]
+  second <- DocsCache.updateManifest root configHash [] [(pathB, docsB)]
+  manifest <- DocsCache.readManifest root
+  Dir.removeFile pathA
+  pruned <- DocsCache.updateManifest root configHash [] []
+  prunedManifest <- DocsCache.readManifest root
+  removedModuleFile <- fmap not (Dir.doesFileExist (DocsCache.modulePath root moduleA))
+  BS.writeFile (DocsCache.modulePath root moduleB) (BSChar8.pack "not json")
+  corrupted <- DocsCache.readModule root moduleB
+  pure $
+    first
+      && second
+      && maybe [] (map DocsCache.manifestModuleName . DocsCache.manifestEntries) manifest == ["A", "B"]
+      && pruned
+      && maybe [] (map DocsCache.manifestModuleName . DocsCache.manifestEntries) prunedManifest == ["B"]
+      && removedModuleFile
+      && maybe True (const False) corrupted
+
+docsConfigHash :: FilePath -> IO String
+docsConfigHash root =
+  DocsCache.fingerprintBytes <$> BS.readFile (root FilePath.</> "elm.json")
+
+emptyDocsModule :: Name.Name -> String -> Docs.Module
+emptyDocsModule moduleName comment =
+  Docs.Module moduleName (JsonString.fromChars comment) Map.empty Map.empty Map.empty Map.empty
+
+cachedDocsModuleName :: DocsCache.CachedModule -> Name.Name
+cachedDocsModuleName cached =
+  case DocsCache.cachedDocs cached of
+    Docs.Module moduleName _ _ _ _ _ -> moduleName
+
+testCompilationPersistsDocsCache :: IO Bool
+testCompilationPersistsDocsCache = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+      moduleName = Name.fromChars "Main"
+      flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+  writeElmApp root
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainPath optimizationRuntimeElm
+  (result, _) <- MemoryCompile.compile root (NE.List ("src" FilePath.</> "Main.elm") []) flags Nothing
+  cached <- DocsCache.readModule root moduleName
+  manifest <- DocsCache.readManifest root
+  pure $
+    either (const False) (const True) result
+      && maybe False ((== moduleName) . cachedDocsModuleName) cached
+      && maybe [] (map DocsCache.manifestModuleName . DocsCache.manifestEntries) manifest == ["Main"]
 
 versionTests :: [NamedTest]
 versionTests =

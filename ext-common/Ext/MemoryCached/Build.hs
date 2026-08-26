@@ -57,6 +57,8 @@ import qualified Ext.Log
 import qualified Watchtower.Live.Client as Client
 import qualified Control.Concurrent.STM as STM
 import qualified Ext.Dev.Docs
+import qualified Ext.Docs.Cache as DocsCache
+import qualified Modify
 
 -- File caching helpers
 import qualified Ext.MemoryCached.Details as Details
@@ -470,7 +472,14 @@ compile flags (Build.Env key root projectType _ buildID _ _) docsNeed (Details.L
               then case Ext.Dev.Docs.fromArtifacts (Compile.Artifacts canonical annotations objects) of
                      Right d -> Just d
                      Left _ -> Nothing
-              else Nothing
+               else Nothing
+
+      mapM_
+        (\docsModule -> do
+          _ <- DocsCache.writeModule root path source deps (Modify.uiSourceMap (CompileHelpers.modifications flags)) docsModule
+          pure ()
+        )
+        docsMaybe
 
       let localizer = Reporting.Render.Type.Localizer.fromModule modul
       let hoverIndex =

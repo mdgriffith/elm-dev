@@ -216,6 +216,7 @@ Executable elm-dev
         Ext.DependencyManager
         Ext.DependencySize
         Ext.DependencyManager.Cli
+        Ext.Docs.Cache
         Ext.ElmFormat
         Ext.CompileHelpers.Generic
         Ext.CompileHelpers.Disk
@@ -539,6 +540,7 @@ Test-Suite elm-dev-tests
         Ext.DependencyManager
         Ext.DependencySize
         Ext.DependencyManager.Cli
+        Ext.Docs.Cache
         Ext.Dev
         Ext.Dev.Docs
         Ext.Dev.EntryPoints
