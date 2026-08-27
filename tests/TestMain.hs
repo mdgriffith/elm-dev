@@ -75,7 +75,6 @@ import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Outline as Outline
 import qualified Elm.Package as Package
 import qualified Elm.Version as ElmVersion
-import qualified Ext.Docs.Cache as DocsCache
 import qualified Ext.DependencyManager as DependencyManager
 import qualified Ext.DependencySize as DependencySize
 import qualified Ext.DependencyManager.Cli as DependencyCli
@@ -93,15 +92,17 @@ import qualified Text.Read as Read
 
 main :: IO ()
 main = do
+  Environment.setEnv "MODE" "memory"
+  Environment.unsetEnv "ELM_DEV_TRACE_DB"
   fileCacheResults <- sequence fileCacheTests
-  docsCacheResults <- sequence docsCacheTests
+  docsResults <- sequence docsTests
   versionResults <- sequence versionTests
   generationResults <- sequence generationTests
   optimizationResults <- sequence optimizationTests
   mcpResults <- sequence mcpTests
   daemonResults <- sequence daemonTests
   dependencyResults <- sequence dependencyTests
-  let results = fileCacheResults ++ docsCacheResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults ++ daemonResults ++ dependencyResults
+  let results = fileCacheResults ++ docsResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults ++ daemonResults ++ dependencyResults
       failures = [name | (name, False) <- results]
   if null failures
     then do
@@ -129,13 +130,16 @@ fileCacheTests =
   , runTest "removeDir clears cached descendants recursively" testRemoveDirClearsDescendants
   ]
 
-docsCacheTests :: [NamedTest]
-docsCacheTests =
-  [ runTest "module docs cache round-trips under modules" testDocsCacheRoundTrip
-  , runTest "module docs cache invalidates changed inputs" testDocsCacheInvalidation
-  , runTest "memory compilation persists module docs" testCompilationPersistsDocsCache
+docsTests :: [NamedTest]
+docsTests =
+  [ runTest "normal memory compilation returns module docs" testNormalCompilationReturnsDocs
   , runTest "project docs snapshot respects version and flags" testDocsSnapshotFreshness
   , runTest "project docs snapshots remain isolated" testDocsSnapshotProjectIsolation
+  , runTest "normal compile publishes fresh snapshot and file docs" testCompilePublishesDocs
+  , runTest "ensureProjectDocs reconstructs a removed snapshot from file info" testEnsureProjectDocsReconstructsSnapshot
+  , runTest "restart rebuilds docs from normal analysis without sidecars" testRestartRebuildsDocsInMemory
+  , runTest "incremental compile replaces changed docs and retains unchanged docs" testIncrementalCompileUpdatesDocs
+  , runTest "deleting a module removes snapshot and file docs" testDeletedModuleRemovesDocs
   ]
 
 testDocsSnapshotFreshness :: IO Bool
@@ -166,94 +170,152 @@ testDocsSnapshotProjectIsolation = do
   modulesB <- DocsSnapshot.modulesForProject rootB
   pure (Map.keys modulesA == [pathA] && Map.keys modulesB == [pathB])
 
-testDocsCacheRoundTrip :: IO Bool
-testDocsCacheRoundTrip = do
-  root <- uniqueRoot
-  let moduleName = Name.fromChars "Ui.Input"
-      sourcePath = root FilePath.</> "src" FilePath.</> "Ui" FilePath.</> "Input.elm"
-      source = BSChar8.pack "module Ui.Input exposing (value)\n\nvalue = 1\n"
-      docsModule = emptyDocsModule moduleName "Input documentation"
-      dependencies = []
-      buildId = 7
-  writeElmApp root
-  Dir.createDirectoryIfMissing True (FilePath.takeDirectory sourcePath)
-  BS.writeFile sourcePath source
-  wroteModule <- DocsCache.writeModule root sourcePath source dependencies False buildId docsModule
-  cached <- DocsCache.readModule root moduleName
-  moduleFiles <- Dir.listDirectory (DocsCache.modulesDirectory root)
-  pure $
-    wroteModule
-      && case cached of
-           Just entry ->
-             DocsCache.cachedModuleName entry == "Ui.Input"
-               && DocsCache.cachedSourcePath entry == "src" FilePath.</> "Ui" FilePath.</> "Input.elm"
-               && cachedDocsModuleName entry == moduleName
-               && DocsCache.matchesInputs entry source dependencies False buildId
-           Nothing -> False
-      && moduleFiles == ["Ui-Input.json"]
-
-testDocsCacheInvalidation :: IO Bool
-testDocsCacheInvalidation = do
-  root <- uniqueRoot
-  let moduleName = Name.fromChars "Ui.Events"
-      sourcePath = root FilePath.</> "src" FilePath.</> "Ui" FilePath.</> "Events.elm"
-      source = BSChar8.pack "module Ui.Events exposing (onClick)\n\nonClick = 1\n"
-      dependencies = []
-      changedDependencies = [Name.fromChars "Dependency"]
-      buildId = 11
-  wrote <- DocsCache.writeModule root sourcePath source dependencies False buildId (emptyDocsModule moduleName "Events")
-  cached <- DocsCache.readModule root moduleName
-  pure $
-    wrote
-      && case cached of
-           Just entry ->
-             DocsCache.matchesInputs entry source dependencies False buildId
-               && not (DocsCache.matchesInputs entry (source <> BSChar8.pack "-- changed\n") dependencies False buildId)
-               && not (DocsCache.matchesInputs entry source changedDependencies False buildId)
-               && not (DocsCache.matchesInputs entry source dependencies True buildId)
-               && not (DocsCache.matchesInputs entry source dependencies False (buildId + 1))
-           Nothing -> False
-
 emptyDocsModule :: Name.Name -> String -> Docs.Module
 emptyDocsModule moduleName comment =
   Docs.Module moduleName (JsonString.fromChars comment) Map.empty Map.empty Map.empty Map.empty
 
-cachedDocsModuleName :: DocsCache.CachedModule -> Name.Name
-cachedDocsModuleName cached =
-  case DocsCache.cachedDocs cached of
-    Docs.Module moduleName _ _ _ _ _ -> moduleName
-
-testCompilationPersistsDocsCache :: IO Bool
-testCompilationPersistsDocsCache = do
+testNormalCompilationReturnsDocs :: IO Bool
+testNormalCompilationReturnsDocs = do
   root <- uniqueRoot
   let srcDir = root FilePath.</> "src"
       mainPath = srcDir FilePath.</> "Main.elm"
-      moduleName = Name.fromChars "Main"
       flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
   writeElmApp root
   Dir.createDirectoryIfMissing True srcDir
   writeFile mainPath optimizationRuntimeElm
   (normalResult, normalFileInfo) <- MemoryCompile.compile root (NE.List ("src" FilePath.</> "Main.elm") []) flags Nothing
-  cacheAfterNormalCompile <- Dir.doesFileExist (DocsCache.modulePath root moduleName)
-  (docsResult, _) <- MemoryCompile.compileWithDocs root (NE.List ("src" FilePath.</> "Main.elm") []) flags Nothing
-  firstCached <- DocsCache.readModule root moduleName
-  (cachedResult, cachedFileInfo) <- MemoryCompile.compileWithDocs root (NE.List ("src" FilePath.</> "Main.elm") []) flags Nothing
-  secondCached <- DocsCache.readModule root moduleName
   pure $
     either (const False) (const True) normalResult
-      && not cacheAfterNormalCompile
       && any hasModuleDocs (Map.elems normalFileInfo)
-      && either (const False) (const True) docsResult
-      && either (const False) (const True) cachedResult
-      && maybe False ((== moduleName) . cachedDocsModuleName) firstCached
-      && maybe False ((== moduleName) . cachedDocsModuleName) secondCached
-      && fmap DocsCache.cachedBuildId firstCached == fmap DocsCache.cachedBuildId secondCached
-      && any hasModuleDocs (Map.elems cachedFileInfo)
   where
     hasModuleDocs info =
       case Client.docs info of
         Just (Docs.Module name _ _ _ _ _) -> name == Name.fromChars "Main"
         Nothing -> False
+
+testCompilePublishesDocs :: IO Bool
+testCompilePublishesDocs = do
+  (root, mainPath, otherPath, state, projectCache) <- docsLifecycleProject "Main initial" "Other initial"
+  result <- CompileState.compile state "test.docs.publish" projectCache []
+  snapshot <- freshDocsSnapshot root docsLifecycleFlags
+  fileInfo <- Client.getAllFileInfos state
+  sidecarExists <- Dir.doesDirectoryExist (root FilePath.</> "elm-stuff" FilePath.</> "0.19.1" FilePath.</> "elm-dev-docs")
+  pure $
+    either (const False) (const True) result
+      && fmap docsComments snapshot == Just (Map.fromList [(mainPath, "Main initial"), (otherPath, "Other initial")])
+      && docsComments (Map.mapMaybe Client.docs fileInfo) == Map.fromList [(mainPath, "Main initial"), (otherPath, "Other initial")]
+      && not sidecarExists
+
+testEnsureProjectDocsReconstructsSnapshot :: IO Bool
+testEnsureProjectDocsReconstructsSnapshot = do
+  (root, _, _, state, projectCache) <- docsLifecycleProject "Main current" "Other current"
+  result <- CompileState.compile state "test.docs.reconstruct.initial" projectCache []
+  fileInfo <- Client.getAllFileInfos state
+  DocsSnapshot.remove root
+  _ <- CompileState.ensureProjectDocs state "test.docs.reconstruct" projectCache
+  snapshot <- freshDocsSnapshot root docsLifecycleFlags
+  pure $
+    either (const False) (const True) result
+      && fmap docsComments snapshot == Just (docsComments (Map.mapMaybe Client.docs fileInfo))
+
+testRestartRebuildsDocsInMemory :: IO Bool
+testRestartRebuildsDocsInMemory = do
+  (root, mainPath, otherPath, state, projectCache) <- docsLifecycleProject "Main restart" "Other restart"
+  initial <- CompileState.compile state "test.docs.restart.initial" projectCache []
+  DocsSnapshot.remove root
+  (restartedState, restartedProjectCache, _) <- twoEntrypointProject root docsLifecycleFlags
+  restarted <- CompileState.compile restartedState "test.docs.restart.rebuild" restartedProjectCache []
+  snapshot <- freshDocsSnapshot root docsLifecycleFlags
+  fileInfo <- Client.getAllFileInfos restartedState
+  let expected = Map.fromList [(mainPath, "Main restart"), (otherPath, "Other restart")]
+  pure $
+    either (const False) (const True) initial
+      && either (const False) (const True) restarted
+      && fmap docsComments snapshot == Just expected
+      && docsComments (Map.mapMaybe Client.docs fileInfo) == expected
+
+testIncrementalCompileUpdatesDocs :: IO Bool
+testIncrementalCompileUpdatesDocs = do
+  (root, mainPath, otherPath, state, projectCache) <- docsLifecycleProject "Main before" "Other stable"
+  initial <- CompileState.compile state "test.docs.incremental.initial" projectCache []
+  writeFile mainPath (documentedWorkerElm "Main" "Main after" False)
+  updated <- CompileState.compile state "test.docs.incremental.updated" projectCache [mainPath]
+  snapshot <- freshDocsSnapshot root docsLifecycleFlags
+  fileInfo <- Client.getAllFileInfos state
+  let expected = Map.fromList [(mainPath, "Main after"), (otherPath, "Other stable")]
+  pure $
+    either (const False) (const True) initial
+      && either (const False) (const True) updated
+      && fmap docsComments snapshot == Just expected
+      && docsComments (Map.mapMaybe Client.docs fileInfo) == expected
+
+testDeletedModuleRemovesDocs :: IO Bool
+testDeletedModuleRemovesDocs = do
+  (root, mainPath, otherPath, state, projectCache) <- docsLifecycleProject "Main" "Other"
+  let sharedPath = root FilePath.</> "src" FilePath.</> "Shared.elm"
+  writeFile mainPath (documentedWorkerElm "Main" "Main" True)
+  writeFile otherPath (documentedWorkerElm "Other" "Other" True)
+  writeFile sharedPath (documentedValueElm "Shared" "Shared docs")
+  initial <- CompileState.compile state "test.docs.delete.initial" projectCache []
+  initialSnapshot <- DocsSnapshot.modulesForProject root
+  initialFileInfo <- Client.getAllFileInfos state
+  writeFile mainPath (documentedWorkerElm "Main" "Main" False)
+  writeFile otherPath (documentedWorkerElm "Other" "Other" False)
+  Dir.removeFile sharedPath
+  FileCache.delete sharedPath
+  updated <- CompileState.compile state "test.docs.delete.updated" projectCache [mainPath, otherPath, sharedPath]
+  snapshot <- DocsSnapshot.modulesForProject root
+  fileInfo <- Client.getAllFileInfos state
+  pure $
+    either (const False) (const True) initial
+      && either (const False) (const True) updated
+      && Map.member sharedPath initialSnapshot
+      && Map.member sharedPath initialFileInfo
+      && not (Map.member sharedPath snapshot)
+      && not (Map.member sharedPath fileInfo)
+
+docsLifecycleFlags :: CompileHelpers.Flags
+docsLifecycleFlags =
+  CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+
+docsLifecycleProject :: String -> String -> IO (FilePath, FilePath, FilePath, Client.State, Client.ProjectCache)
+docsLifecycleProject mainComment otherComment = do
+  tempRoot <- uniqueRoot
+  writeElmApp tempRoot
+  root <- Dir.canonicalizePath tempRoot
+  let srcDir = root FilePath.</> "src"
+      mainPath = srcDir FilePath.</> "Main.elm"
+      otherPath = srcDir FilePath.</> "Other.elm"
+  Dir.createDirectoryIfMissing True srcDir
+  writeFile mainPath (documentedWorkerElm "Main" mainComment False)
+  writeFile otherPath (documentedWorkerElm "Other" otherComment False)
+  (state, projectCache, _) <- twoEntrypointProject root docsLifecycleFlags
+  pure (root, mainPath, otherPath, state, projectCache)
+
+freshDocsSnapshot :: FilePath -> CompileHelpers.Flags -> IO (Maybe (Map.Map FilePath Docs.Module))
+freshDocsSnapshot root flags = do
+  versions <- Versions.readVersions root
+  DocsSnapshot.lookupFresh root (Versions.fsVersion versions) flags
+
+docsComments :: Map.Map FilePath Docs.Module -> Map.Map FilePath String
+docsComments =
+  Map.map (\(Docs.Module _ comment _ _ _ _) -> Text.unpack (Text.strip (Text.pack (JsonString.toChars comment))))
+
+documentedWorkerElm :: String -> String -> Bool -> String
+documentedWorkerElm moduleName comment importsShared =
+  let source = workerElm moduleName importsShared
+   in unlines (take 1 (lines source) ++ ["", "{-| " ++ comment ++ " -}"] ++ drop 1 (lines source))
+
+documentedValueElm :: String -> String -> String
+documentedValueElm moduleName comment =
+  unlines
+    [ "module " ++ moduleName ++ " exposing (value)"
+    , ""
+    , "{-| " ++ comment ++ " -}"
+    , ""
+    , "value : Int"
+    , "value = 1"
+    ]
 
 versionTests :: [NamedTest]
 versionTests =
@@ -2614,7 +2676,6 @@ testNoOutputEntrypointsBatch = do
   (state, projectCache, compileResult) <- twoEntrypointProject root flags
   result <- CompileState.compile state "test.no-output-batch" projectCache []
   stored <- STM.readTVarIO compileResult
-  docsCacheExists <- or <$> mapM (Dir.doesFileExist . DocsCache.modulePath root . Name.fromChars) ["Main", "Other", "Shared"]
   let hasAnalysisInfo info = Maybe.isJust (Client.docs info) && Maybe.isJust (Client.canonicalAst info)
   pure
     ( case (analysisResult, result, stored) of
@@ -2625,7 +2686,6 @@ testNoOutputEntrypointsBatch = do
               entrypoint == mainPath
                 && Map.size analysisFileInfo == 3
                 && all hasAnalysisInfo (Map.elems analysisFileInfo)
-                && not docsCacheExists
         _ -> False
     )
 

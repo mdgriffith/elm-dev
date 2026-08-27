@@ -1,5 +1,7 @@
 module Watchtower.State.DocsSnapshot
   ( publish
+  , remove
+  , exists
   , lookupFresh
   , modulesForProject
   , allModules
@@ -26,6 +28,15 @@ publish :: FilePath -> Int -> CompileHelpers.Flags -> Map.Map FilePath Docs.Modu
 publish root version flags modules =
   STM.atomically $
     STM.modifyTVar' snapshots (Map.insert root (Snapshot version flags modules))
+
+remove :: FilePath -> IO ()
+remove root =
+  STM.atomically $
+    STM.modifyTVar' snapshots (Map.delete root)
+
+exists :: FilePath -> IO Bool
+exists root =
+  Map.member root <$> STM.readTVarIO snapshots
 
 lookupFresh :: FilePath -> Int -> CompileHelpers.Flags -> IO (Maybe (Map.Map FilePath Docs.Module))
 lookupFresh root version flags = do

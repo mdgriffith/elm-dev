@@ -13,6 +13,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.List as List
+import qualified Data.Map.Strict as Map
 import qualified Data.NonEmptyList as NE
 import qualified Elm.Outline
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
@@ -33,6 +34,7 @@ import qualified System.FilePath as FilePath
 import qualified Watchtower.Live.Client as Client
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.State.Compile
+import qualified Watchtower.State.DocsSnapshot as DocsSnapshot
 import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
 import qualified Data.Set as Set
@@ -163,7 +165,7 @@ upsertWithWatchRoot :: Client.State -> FilePath -> (FilePath -> IO ()) -> Compil
 upsertWithWatchRoot = upsertWithWatchRootHelp True
 
 upsertWithWatchRootHelp :: Bool -> Client.State -> FilePath -> (FilePath -> IO ()) -> CompileHelpers.Flags -> FilePath -> NE.List FilePath -> IO (Either UpsertError Client.ProjectCache)
-upsertWithWatchRootHelp replaceEntrypoints state@(Client.State mClients mProjects _ _ _ _ _ _ _) watchRoot invalidateDiscovery flags root entrypoints = do
+upsertWithWatchRootHelp replaceEntrypoints state@(Client.State _ mProjects mFileInfo _ _ _ _ _ _) watchRoot invalidateDiscovery flags root entrypoints = do
   canonicalRoot <- Dir.canonicalizePath root
   canonicalWatchRoot <- Dir.canonicalizePath watchRoot
   normalizedEntrypoints <- normalizeEntrypoints canonicalRoot entrypoints
@@ -223,7 +225,7 @@ upsertWithWatchRootHelp replaceEntrypoints state@(Client.State mClients mProject
               mTest <- STM.newTVarIO Nothing
               let newProjectCache = Client.ProjectCache newProject docsInfo flags mCompileResult mTest
 
-              (_isNew, project) <- STM.atomically $ do
+              (projectChanged, project) <- STM.atomically $ do
                 existingProjects' <- STM.readTVar mProjects
                 case List.find (Client.matchingProject newProjectCache) existingProjects' of
                   Just existingProject -> do
@@ -231,15 +233,23 @@ upsertWithWatchRootHelp replaceEntrypoints state@(Client.State mClients mProject
                       Nothing -> do
                         pure (False, existingProject)
                       Just updatedProjectCache -> do
+                        let Client.ProjectCache existingProj _ _ existingCompileResult _ = existingProject
                         let updatedProjects =
                               updatedProjectCache : List.filter (not . Client.matchingProject newProjectCache) existingProjects'
+                        -- Flags and roots shape the canonical AST and docs, so both normal
+                        -- compilation and in-memory analysis must restart together.
+                        STM.writeTVar existingCompileResult Client.NotCompiled
+                        currentFileInfo <- STM.readTVar mFileInfo
+                        STM.writeTVar mFileInfo (Map.filterWithKey (\path _ -> not (Ext.Dev.Project.contains path existingProj)) currentFileInfo)
                         STM.writeTVar mProjects updatedProjects
-                        pure (False, updatedProjectCache)
+                        pure (True, updatedProjectCache)
                   Nothing -> do
                         STM.writeTVar mProjects (newProjectCache : existingProjects')
                         pure (True, newProjectCache)
 
               registerTraceProject state project
+              Monad.when projectChanged $
+                DocsSnapshot.remove canonicalRoot
 
               Ext.Filewatch.watch
                     canonicalWatchRoot

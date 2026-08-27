@@ -1,6 +1,6 @@
 module Ext.CompileHelpers.Memory
   ( compile
-  , compileWithDocs
+  , compileFullAnalysis
   , compileDevelopmentSizes
   , allPackageArtifacts
   )
@@ -57,13 +57,13 @@ debug =
 
 -- Returns (either compile result or reactor error, and the per-file info map).
 compile :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo)
-compile = compileWithDocsMode Ext.MemoryCached.Build.SkipDocs
+compile = compileWithAnalysisMode False
 
-compileWithDocs :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo)
-compileWithDocs = compileWithDocsMode Ext.MemoryCached.Build.LoadDocs
+compileFullAnalysis :: FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo)
+compileFullAnalysis = compileWithAnalysisMode True
 
-compileWithDocsMode :: Ext.MemoryCached.Build.DocsMode -> FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo)
-compileWithDocsMode docsMode root paths (CompileHelpers.Flags mode output debuggerMode) packagesVar = do
+compileWithAnalysisMode :: Bool -> FilePath -> NE.List FilePath -> CompileHelpers.Flags -> Maybe (STM.TVar (Map.Map Elm.Package.Name Watchtower.Live.Client.PackageInfo)) -> IO (Either Exit.Reactor CompileHelpers.CompilationResult, Map.Map FilePath Watchtower.Live.Client.FileInfo)
+compileWithAnalysisMode fullAnalysis root paths (CompileHelpers.Flags mode output debuggerMode) packagesVar = do
     Dir.withCurrentDirectory root $
       BW.withScope $ \scope -> do
         let compilationFlags = CompileHelpers.compilationModsFromFlags mode
@@ -74,7 +74,7 @@ compileWithDocsMode docsMode root paths (CompileHelpers.Flags mode output debugg
             pure (Left (Exit.ReactorBadDetails detailsErr), Map.empty)
           Right details -> do
             -- Build artifacts while collecting per-file info, even on failure
-            (eitherArtifacts, fileInfoByPath) <- Ext.MemoryCached.Build.fromPathsMemoryCached docsMode packagesVar compilationFlags Reporting.silent root details paths
+            (eitherArtifacts, fileInfoByPath) <- Ext.MemoryCached.Build.fromPathsMemoryCached fullAnalysis packagesVar compilationFlags Reporting.silent root details paths
             case eitherArtifacts of
               Left buildProblem ->
                 pure (Left (Exit.ReactorBadBuild buildProblem), fileInfoByPath)
@@ -92,7 +92,7 @@ compileDevelopmentSizes root paths packagesVar =
       case detailsEither of
         Left detailsErr -> pure (Left (Exit.ReactorBadDetails detailsErr))
         Right details -> do
-          (eitherArtifacts, _) <- Ext.MemoryCached.Build.fromPathsMemoryCached Ext.MemoryCached.Build.SkipDocs packagesVar (CompileHelpers.compilationModsFromFlags CompileHelpers.Dev) Reporting.silent root details paths
+          (eitherArtifacts, _) <- Ext.MemoryCached.Build.fromPathsMemoryCached False packagesVar (CompileHelpers.compilationModsFromFlags CompileHelpers.Dev) Reporting.silent root details paths
           case eitherArtifacts of
             Left buildProblem -> pure (Left (Exit.ReactorBadBuild buildProblem))
             Right artifacts -> Task.run (CompileHelpers.generateDevelopmentSizes root details artifacts)
