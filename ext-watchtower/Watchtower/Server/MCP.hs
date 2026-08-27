@@ -3050,22 +3050,16 @@ renderPackageDocsText state pkgName mExplicitVersion mRoot = do
           pure (Right body)
 
 localModulesForProject :: Client.State -> Client.ProjectCache -> IO [(FilePath, Docs.Module)]
-localModulesForProject _state pc = do
-  modules <- DocsSnapshot.modulesForProject (Ext.Dev.Project.getRoot (projectFromCache pc))
-  pure (List.sortOn (moduleSortName . snd) (Map.toList modules))
-
-moduleSortName :: Docs.Module -> String
-moduleSortName (Docs.Module name _ _ _ _ _) = Name.toChars name
+localModulesForProject _state pc =
+  DocsSnapshot.listedModulesForProject (Ext.Dev.Project.getRoot (projectFromCache pc))
 
 findLocalModuleDocsInProject :: Client.State -> Client.ProjectCache -> Name.Name -> IO (Maybe (FilePath, Docs.Module))
-findLocalModuleDocsInProject state pc wantName = do
-  modules <- localModulesForProject state pc
-  pure (List.find (\(_, Docs.Module name _ _ _ _ _) -> name == wantName) modules)
+findLocalModuleDocsInProject _state pc wantName =
+  DocsSnapshot.lookupModuleForProject (Ext.Dev.Project.getRoot (projectFromCache pc)) wantName
 
 findLocalModuleDocs :: Client.State -> Name.Name -> IO (Maybe (FilePath, Docs.Module))
-findLocalModuleDocs _state wantName = do
-  modules <- DocsSnapshot.allModules
-  pure (List.find (\(_, Docs.Module name _ _ _ _ _) -> name == wantName) modules)
+findLocalModuleDocs _state wantName =
+  DocsSnapshot.lookupModule wantName
 
 findPackageModuleDocs :: Client.State -> Name.Name -> IO (Maybe (Pkg.Name, Docs.Module))
 findPackageModuleDocs state wantName = do

@@ -26,6 +26,7 @@ import qualified Ext.Test.Generate as TestGenerate
 import qualified Ext.Test.Parse as TestParse
 import qualified Ext.Test.Runner as TestRunner
 import qualified Data.Map.Strict as Map
+import qualified Data.Map.Lazy as LazyMap
 import qualified Data.Maybe as Maybe
 import qualified Data.Name as Name
 import qualified Data.NonEmptyList as NE
@@ -134,7 +135,11 @@ docsTests :: [NamedTest]
 docsTests =
   [ runTest "normal memory compilation returns module docs" testNormalCompilationReturnsDocs
   , runTest "project docs snapshot respects version and flags" testDocsSnapshotFreshness
+  , runTest "project docs snapshot supports direct name and path lookup" testDocsSnapshotDirectLookup
+  , runTest "direct docs lookup does not force unrelated modules" testDocsSnapshotLookupIsSelective
   , runTest "project docs snapshots remain isolated" testDocsSnapshotProjectIsolation
+  , runTest "docs snapshot republish updates both indexes atomically" testDocsSnapshotRepublish
+  , runTest "project docs module listing is sorted by module name" testDocsSnapshotListingOrder
   , runTest "normal compile publishes fresh snapshot and file docs" testCompilePublishesDocs
   , runTest "ensureProjectDocs reconstructs a removed snapshot from file info" testEnsureProjectDocsReconstructsSnapshot
   , runTest "restart rebuilds docs from normal analysis without sidecars" testRestartRebuildsDocsInMemory
@@ -149,7 +154,7 @@ testDocsSnapshotFreshness = do
       changedFlags = CompileHelpers.Flags CompileHelpers.Debug CompileHelpers.NoOutput CompileHelpers.DebuggerNone
       path = root FilePath.</> "src" FilePath.</> "Main.elm"
       docsModule = emptyDocsModule (Name.fromChars "Main") "Main docs"
-  DocsSnapshot.publish root 3 flags (Map.singleton path docsModule)
+  DocsSnapshot.publish root 3 flags (Map.singleton path (Name.fromChars "Main", docsModule))
   current <- DocsSnapshot.lookupFresh root 3 flags
   staleVersion <- DocsSnapshot.lookupFresh root 4 flags
   staleFlags <- DocsSnapshot.lookupFresh root 3 changedFlags
@@ -158,21 +163,110 @@ testDocsSnapshotFreshness = do
 testDocsSnapshotProjectIsolation :: IO Bool
 testDocsSnapshotProjectIsolation = do
   rootA <- uniqueRoot
-  rootB <- uniqueRoot
-  let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+  let rootB = rootA ++ "-other"
+      flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
       pathA = rootA FilePath.</> "src" FilePath.</> "Shared.elm"
       pathB = rootB FilePath.</> "src" FilePath.</> "Shared.elm"
       docsA = emptyDocsModule (Name.fromChars "Shared") "Project A"
       docsB = emptyDocsModule (Name.fromChars "Shared") "Project B"
-  DocsSnapshot.publish rootA 1 flags (Map.singleton pathA docsA)
-  DocsSnapshot.publish rootB 1 flags (Map.singleton pathB docsB)
+  DocsSnapshot.publish rootA 1 flags (Map.singleton pathA (Name.fromChars "Shared", docsA))
+  DocsSnapshot.publish rootB 1 flags (Map.singleton pathB (Name.fromChars "Shared", docsB))
   modulesA <- DocsSnapshot.modulesForProject rootA
   modulesB <- DocsSnapshot.modulesForProject rootB
-  pure (Map.keys modulesA == [pathA] && Map.keys modulesB == [pathB])
+  foundA <- DocsSnapshot.lookupModuleForProject rootA (Name.fromChars "Shared")
+  foundB <- DocsSnapshot.lookupModuleForProject rootB (Name.fromChars "Shared")
+  pure
+    ( Map.keys modulesA == [pathA]
+        && Map.keys modulesB == [pathB]
+        && fmap (docsComment . snd) foundA == Just "Project A"
+        && fmap (docsComment . snd) foundB == Just "Project B"
+    )
+
+testDocsSnapshotDirectLookup :: IO Bool
+testDocsSnapshotDirectLookup = do
+  root <- uniqueRoot
+  let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+      name = Name.fromChars ("Direct" ++ filter (`elem` ['0'..'9']) root)
+      path = root FilePath.</> "src" FilePath.</> "Direct.elm"
+      docsModule = emptyDocsModule name "Direct docs"
+  DocsSnapshot.publish root 1 flags (Map.singleton path (name, docsModule))
+  byName <- DocsSnapshot.lookupModuleForProject root name
+  byPath <- Map.lookup path <$> DocsSnapshot.modulesForProject root
+  unscoped <- DocsSnapshot.lookupModule name
+  pure
+    ( fmap fst byName == Just path
+        && fmap docsComment byPath == Just "Direct docs"
+        && fmap fst unscoped == Just path
+    )
+
+testDocsSnapshotLookupIsSelective :: IO Bool
+testDocsSnapshotLookupIsSelective = do
+  root <- uniqueRoot
+  let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+      targetName = Name.fromChars "Target"
+      otherName = Name.fromChars "Other"
+      targetPath = root FilePath.</> "src" FilePath.</> "Target.elm"
+      otherPath = root FilePath.</> "src" FilePath.</> "Other.elm"
+      unevaluatedDocs label = error (label ++ " docs were forced") :: Docs.Module
+      entries = LazyMap.fromList
+        [ (otherPath, (otherName, unevaluatedDocs "unrelated"))
+        , (targetPath, (targetName, unevaluatedDocs "target"))
+        ]
+  result <- (Exception.try (do
+    DocsSnapshot.publish root 1 flags entries
+    found <- DocsSnapshot.lookupModuleForProject root targetName
+    Exception.evaluate (fmap fst found)) :: IO (Either Exception.SomeException (Maybe FilePath)))
+  pure $ case result of
+    Right (Just path) -> path == targetPath
+    _ -> False
+
+testDocsSnapshotRepublish :: IO Bool
+testDocsSnapshotRepublish = do
+  root <- uniqueRoot
+  let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+      oldName = Name.fromChars "Old"
+      removedName = Name.fromChars "Removed"
+      renamedName = Name.fromChars "Renamed"
+      renamedPath = root FilePath.</> "src" FilePath.</> "Renamed.elm"
+      removedPath = root FilePath.</> "src" FilePath.</> "Removed.elm"
+  DocsSnapshot.publish root 1 flags (Map.fromList
+    [ (renamedPath, (oldName, emptyDocsModule oldName "old"))
+    , (removedPath, (removedName, emptyDocsModule removedName "removed"))
+    ])
+  DocsSnapshot.publish root 2 flags (Map.singleton renamedPath (renamedName, emptyDocsModule renamedName "new"))
+  old <- DocsSnapshot.lookupModuleForProject root oldName
+  removed <- DocsSnapshot.lookupModuleForProject root removedName
+  renamed <- DocsSnapshot.lookupModuleForProject root renamedName
+  paths <- DocsSnapshot.modulesForProject root
+  pure
+    ( Maybe.isNothing old
+        && Maybe.isNothing removed
+        && fmap fst renamed == Just renamedPath
+        && Map.keys paths == [renamedPath]
+    )
+
+testDocsSnapshotListingOrder :: IO Bool
+testDocsSnapshotListingOrder = do
+  root <- uniqueRoot
+  let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+      aName = Name.fromChars "A"
+      zName = Name.fromChars "Z"
+      aPath = root FilePath.</> "src" FilePath.</> "Z-path.elm"
+      zPath = root FilePath.</> "src" FilePath.</> "A-path.elm"
+  DocsSnapshot.publish root 1 flags (Map.fromList
+    [ (zPath, (zName, emptyDocsModule zName "z"))
+    , (aPath, (aName, emptyDocsModule aName "a"))
+    ])
+  listed <- DocsSnapshot.listedModulesForProject root
+  pure (map fst listed == [aPath, zPath])
 
 emptyDocsModule :: Name.Name -> String -> Docs.Module
 emptyDocsModule moduleName comment =
   Docs.Module moduleName (JsonString.fromChars comment) Map.empty Map.empty Map.empty Map.empty
+
+docsComment :: Docs.Module -> String
+docsComment (Docs.Module _ comment _ _ _ _) =
+  Text.unpack (Text.strip (Text.pack (JsonString.toChars comment)))
 
 testNormalCompilationReturnsDocs :: IO Bool
 testNormalCompilationReturnsDocs = do
@@ -241,12 +335,16 @@ testIncrementalCompileUpdatesDocs = do
   writeFile mainPath (documentedWorkerElm "Main" "Main after" False)
   updated <- CompileState.compile state "test.docs.incremental.updated" projectCache [mainPath]
   snapshot <- freshDocsSnapshot root docsLifecycleFlags
+  mainByName <- DocsSnapshot.lookupModuleForProject root (Name.fromChars "Main")
+  otherByName <- DocsSnapshot.lookupModuleForProject root (Name.fromChars "Other")
   fileInfo <- Client.getAllFileInfos state
   let expected = Map.fromList [(mainPath, "Main after"), (otherPath, "Other stable")]
   pure $
     either (const False) (const True) initial
       && either (const False) (const True) updated
       && fmap docsComments snapshot == Just expected
+      && fmap (docsComment . snd) mainByName == Just "Main after"
+      && fmap (docsComment . snd) otherByName == Just "Other stable"
       && docsComments (Map.mapMaybe Client.docs fileInfo) == expected
 
 testDeletedModuleRemovesDocs :: IO Bool
@@ -265,6 +363,7 @@ testDeletedModuleRemovesDocs = do
   FileCache.delete sharedPath
   updated <- CompileState.compile state "test.docs.delete.updated" projectCache [mainPath, otherPath, sharedPath]
   snapshot <- DocsSnapshot.modulesForProject root
+  deletedByName <- DocsSnapshot.lookupModuleForProject root (Name.fromChars "Shared")
   fileInfo <- Client.getAllFileInfos state
   pure $
     either (const False) (const True) initial
@@ -272,6 +371,7 @@ testDeletedModuleRemovesDocs = do
       && Map.member sharedPath initialSnapshot
       && Map.member sharedPath initialFileInfo
       && not (Map.member sharedPath snapshot)
+      && Maybe.isNothing deletedByName
       && not (Map.member sharedPath fileInfo)
 
 docsLifecycleFlags :: CompileHelpers.Flags
@@ -2872,7 +2972,7 @@ testUpdateProjectFileInfo = do
       stalePath = root FilePath.</> "src" FilePath.</> "Old.elm"
       keptPath = root FilePath.</> "src" FilePath.</> "Main.elm"
       otherPath = "/tmp/project-b/src/Other.elm"
-      mkFileInfo = Client.FileInfo [] Nothing Nothing Nothing Nothing
+      mkFileInfo = Client.FileInfo [] Nothing Nothing Nothing Nothing Nothing
       current = Map.fromList [(stalePath, mkFileInfo), (keptPath, mkFileInfo), (otherPath, mkFileInfo)]
       latest = Map.fromList [(keptPath, mkFileInfo)]
       updated = CompileState.updateProjectFileInfo proj True (Right ()) current latest

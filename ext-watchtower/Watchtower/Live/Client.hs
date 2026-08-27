@@ -268,6 +268,7 @@ type Client = Watchtower.Websocket.Client Watching
 
 data FileInfo = FileInfo
   { warnings :: [Warning.Warning]
+  , moduleName :: Maybe ModuleName.Raw
   , docs :: Maybe Docs.Module
   , localizer :: Maybe Reporting.Render.Type.Localizer.Localizer
   , canonicalAst :: Maybe Can.Module

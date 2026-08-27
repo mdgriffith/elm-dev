@@ -41,6 +41,8 @@ import qualified System.IO.Unsafe as Unsafe
 import qualified Control.Concurrent as Concurrent
 import qualified Control.Exception as Exception
 import qualified Ext.Trace as PerfTrace
+import qualified Elm.Docs as Docs
+import qualified Elm.ModuleName as ModuleName
 -- no docs fetching needed from Ext.Dev; docs come from CompileProxy
 
 
@@ -268,12 +270,16 @@ publishDocsSnapshotIfCurrent mergeExisting projectRoot fsSnapshot flags fileInfo
   Monad.when (Versions.fsVersion current == fsSnapshot) $ do
     existing <-
       if mergeExisting
-        then DocsSnapshot.modulesForProject projectRoot
+        then DocsSnapshot.entriesForProject projectRoot
         else pure Map.empty
-    let combined = Map.union (Map.mapMaybe Client.docs fileInfoByPath) existing
+    let combined = Map.union (Map.mapMaybe docsEntry fileInfoByPath) existing
     existingPaths <- Monad.filterM Ext.FileCache.exists (Map.keys combined)
     let retained = Set.fromList existingPaths
     DocsSnapshot.publish projectRoot fsSnapshot flags (Map.filterWithKey (\path _ -> Set.member path retained) combined)
+
+docsEntry :: Client.FileInfo -> Maybe (ModuleName.Raw, Docs.Module)
+docsEntry info =
+  (,) <$> Client.moduleName info <*> Client.docs info
 
 projectFileInfo :: Project.Project -> Map.Map FilePath Client.FileInfo -> Map.Map FilePath Client.FileInfo
 projectFileInfo proj =

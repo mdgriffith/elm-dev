@@ -453,8 +453,8 @@ compile flags (Build.Env key root projectType _ buildID _ _) (Details.Local path
       let localizer = Reporting.Render.Type.Localizer.fromModule modul
       let hoverIndex =
             Client.makeHoverIndex <$> CompileHelpers.typeAtOf canonical
-      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.docs = docsMaybe, Client.localizer = Just localizer, Client.canonicalAst = Just canonical, Client.hoverIndex = hoverIndex }))
       let name = Src.getName modul
+      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = combinedWarnings, Client.moduleName = Just name, Client.docs = docsMaybe, Client.localizer = Just localizer, Client.canonicalAst = Just canonical, Client.hoverIndex = hoverIndex }))
       let iface = I.fromModule pkg canonical annotations
       let elmi = Stuff.elmi root name
       File.writeBinary (Stuff.elmo root name) objects
@@ -474,7 +474,7 @@ compile flags (Build.Env key root projectType _ buildID _ _) (Details.Local path
                return (Build.RNew local iface objects docsMaybe)
 
     Left err -> do
-      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.canonicalAst = Nothing, Client.hoverIndex = Nothing }))
+      modifyMVar_ fileInfoVar (pure . Map.insert path (Client.FileInfo { Client.warnings = warnings, Client.moduleName = Just (Src.getName modul), Client.docs = Nothing, Client.localizer = Just (Reporting.Render.Type.Localizer.fromModule modul), Client.canonicalAst = Nothing, Client.hoverIndex = Nothing }))
       return $ Build.RProblem $
         Error.Module (Src.getName modul) path time source err
 
