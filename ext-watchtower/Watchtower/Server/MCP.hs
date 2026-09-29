@@ -16,6 +16,7 @@ module Watchtower.Server.MCP
   , dependencyTreeJsonForTests
   , legacyInstallResponseForTests
   , docsQueriesNeedProjectForTests
+  , availableToolsForTests
   ) where
 
 {-
@@ -63,6 +64,7 @@ import qualified Gen.Templates as Templates
 import GHC.Generics
 import qualified Stuff
 import System.FilePath ((</>))
+import qualified System.FilePath as FilePath
 import qualified System.Process as Process
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -119,6 +121,7 @@ import qualified GHC.Stats as RTS
 
 availableTools :: [MCP.Tool]
 availableTools =
+  map requireAbsoluteDir
   [ toolScaffoldElmApp
   , toolScaffoldElmPackage
   , toolCheck
@@ -129,9 +132,45 @@ availableTools =
   , toolTestInstall
   ]
 
+-- MCP requests have no implicit client working directory. Never interpret a
+-- relative dir against the (potentially shared) server process's cwd.
+validateDirArgument :: JSON.Object -> Either Text ()
+validateDirArgument args =
+  case KeyMap.lookup "dir" args of
+    Nothing -> Right ()
+    Just (JSON.String dir) | FilePath.isAbsolute (Text.unpack dir) -> Right ()
+    _ -> Left "dir must be an absolute filesystem path to the Elm project (for example /Users/me/project/app). Relative paths are not resolved against the client's workspace. Omit dir to use the focused project where supported."
+
+requireAbsoluteDir :: MCP.Tool -> MCP.Tool
+requireAbsoluteDir tool =
+  tool
+    { MCP.call = \args state emit connId ->
+        case validateDirArgument args of
+          Left msg -> pure (errTxt msg)
+          Right () -> MCP.call tool args state emit connId
+    , MCP.toolInputSchema = describeDir (MCP.toolInputSchema tool)
+    }
+  where
+    adjust key update fields =
+      case KeyMap.lookup key fields of
+        Nothing -> fields
+        Just value -> KeyMap.insert key (update value) fields
+    describeDir (JSON.Object schema) =
+      JSON.Object (adjust "properties" describeProperties schema)
+    describeDir schema = schema
+    describeProperties (JSON.Object properties) =
+      JSON.Object (adjust "dir" describeField properties)
+    describeProperties properties = properties
+    describeField (JSON.Object field) =
+      JSON.Object (KeyMap.insert "description" (JSON.String "Absolute filesystem path to the Elm project. Relative paths are rejected. When optional, omit to use the focused project.") field)
+    describeField field = field
+
 availableToolNamesForTests :: [Text]
 availableToolNamesForTests =
   map MCP.toolName availableTools
+
+availableToolsForTests :: [MCP.Tool]
+availableToolsForTests = availableTools
 
 availableToolSchemasForTests :: [(Text, JSON.Value)]
 availableToolSchemasForTests =
@@ -2808,13 +2847,15 @@ resolveDiagnosticsProjectFromArgs args state connId =
 resolveProjectFromDirArg :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Either Text Client.ProjectCache)
 resolveProjectFromDirArg args state connId =
   case getStringArg args "dir" of
+    Just _ | Left msg <- validateDirArgument args -> pure (Left msg)
     Just dir -> do
       canonical <- Dir.canonicalizePath dir
-      Watchtower.State.Discover.discover state canonical
+      errors <- Watchtower.State.Discover.discoverWithErrors state canonical
       existing <- Client.getExistingProject canonical state
       case existing of
         Right (pc, _) -> pure (Right pc)
-        Left _ -> pure (Left ("No Elm project found for dir: " <> Text.pack canonical))
+        Left _ -> pure (Left (Text.intercalate "\n\n"
+          (("No Elm project found for dir: " <> Text.pack canonical) : map Text.pack errors)))
     Nothing -> do
       ProjectLookup.resolveProjectFromSession Nothing connId state
 
@@ -2973,19 +3014,7 @@ resolveDocsProjectFromArgs args state connId = do
 
 resolveDocsProjectCacheFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Either Text (Maybe Client.ProjectCache))
 resolveDocsProjectCacheFromArgs args state connId =
-  case getStringArg args "dir" of
-    Just dir -> do
-      canonical <- Dir.canonicalizePath dir
-      Watchtower.State.Discover.discover state canonical
-      existing <- Client.getExistingProject canonical state
-      case existing of
-        Right (pc, _) -> pure (Right (Just pc))
-        Left _ -> pure (Left ("No Elm project found for dir: " <> Text.pack canonical))
-    Nothing -> do
-      resolved <- ProjectLookup.resolveProjectFromSession Nothing connId state
-      case resolved of
-        Left msg -> pure (Left msg)
-        Right pc -> pure (Right (Just pc))
+  fmap (fmap Just) (resolveProjectFromDirArg args state connId)
 
 docsRootFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Maybe FilePath)
 docsRootFromArgs args state connId =

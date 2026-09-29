@@ -16,6 +16,7 @@ module Ext.Dev.Project
     unusedModuleForFile,
     unusedModuleForFileAtVersion,
     discover,
+    discoverWithErrors,
     isExcludedDirectoryName,
     decodeProject,
     UnusedModule (..),
@@ -374,8 +375,15 @@ Ultimately we want to:
 -}
 discover :: FilePath -> IO [Project]
 discover projectBase = do
+  (projects, errors) <- discoverWithErrors projectBase
+  mapM_ (Ext.Log.log Ext.Log.Live) errors
+  pure projects
+
+-- Keep reasons for rejected projects so callers can distinguish absence from failure.
+discoverWithErrors :: FilePath -> IO ([Project], [String])
+discoverWithErrors projectBase = do
   canonicalBase <- Dir.canonicalizePath projectBase
-  searchProjectHelp canonicalBase [] canonicalBase
+  searchProjectHelp canonicalBase ([], []) canonicalBase
 
 isExcludedDirectoryName :: FilePath -> Bool
 isExcludedDirectoryName name =
@@ -394,7 +402,7 @@ listDirectoriesSafe path = Exception.try $ do
     then Dir.listDirectory path
     else return []
 
-searchProjectHelp :: FilePath -> [Project] -> FilePath -> IO [Project]
+searchProjectHelp :: FilePath -> ([Project], [String]) -> FilePath -> IO ([Project], [String])
 searchProjectHelp projectRoot projs root = do
   if root /= projectRoot && isExcludedDirectoryName (FP.takeFileName root)
     then pure projs
@@ -404,16 +412,19 @@ searchProjectHelp projectRoot projs root = do
       newProjects <-
         if elmJsonExists
           then do
-            if elmDevJsonExists
+            generationResult <- if elmDevJsonExists
               then do
                 Ext.Log.log Ext.Log.Live ("elm.dev.json found for " <> root)
                 Gen.Generate.run root
               else pure (Right ())
               
-            maybeProject <- captureProjectIfEntrypoints projectRoot root
-            case maybeProject of
-              Nothing -> pure projs
-              Just project -> pure (project : projs)
+            projectResult <- case generationResult of
+              Left err -> pure (Left ("Code generation failed:\n" <> err))
+              Right () -> captureProjectIfEntrypoints projectRoot root
+            let (projects, errors) = projs
+            case projectResult of
+              Left err -> pure (projects, (root <> ": " <> err) : errors)
+              Right project -> pure (project : projects, errors)
           else pure projs
 
       dirResult <- listDirectoriesSafe root
@@ -423,8 +434,8 @@ searchProjectHelp projectRoot projs root = do
           dirs <- Monad.filterM Dir.doesDirectoryExist paths
           Monad.foldM (searchProjectHelp projectRoot) newProjects dirs
         Left err -> do
-          _ <- Ext.Log.log Ext.Log.Live ("Error " <> show err)
-          pure newProjects
+          let (projects, errors) = newProjects
+          pure (projects, (root <> ": " <> show err) : errors)
 
 {-
 
@@ -433,7 +444,7 @@ searchProjectHelp projectRoot projs root = do
  Otherwise, if this is an application, we look for a `Main.elm`
 
 -}
-captureProjectIfEntrypoints :: FilePath -> FilePath -> IO (Maybe Project)
+captureProjectIfEntrypoints :: FilePath -> FilePath -> IO (Either String Project)
 captureProjectIfEntrypoints projectRoot elmJsonRoot = do
   canonicalProjectRoot <- Dir.canonicalizePath projectRoot
   canonicalElmJsonRoot <- Dir.canonicalizePath elmJsonRoot
@@ -446,9 +457,9 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
       canonicalEntrypoints <- traverse Dir.canonicalizePath foundEntrypoints
       case canonicalEntrypoints of
         [] ->
-          pure Nothing
+          pure (Left "No application entrypoints found. Expected a parseable Elm module that defines and exposes main in a source directory. Check entrypoint syntax and source-directories in elm.json.")
         (x:xs) ->
-          pure (Just (Project canonicalElmJsonRoot canonicalProjectRoot (NE.List x xs) absoluteSrcDirsList 0))
+          pure (Right (Project canonicalElmJsonRoot canonicalProjectRoot (NE.List x xs) absoluteSrcDirsList 0))
     Right (Elm.Outline.Pkg pkg) -> do
       case Elm.Outline._pkg_exposed pkg of
         Elm.Outline.ExposedList rawModNameList ->
@@ -458,8 +469,8 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
             canonicalSrc <- Dir.canonicalizePath (canonicalElmJsonRoot </> "src")
             let srcDirs = [canonicalSrc]
             case paths of
-              [] -> pure Nothing
-              (x:xs) -> pure (Just (Project canonicalElmJsonRoot canonicalProjectRoot (NE.List x xs) srcDirs 0))
+              [] -> pure (Left "No package entrypoints found: elm.json exposes no modules.")
+              (x:xs) -> pure (Right (Project canonicalElmJsonRoot canonicalProjectRoot (NE.List x xs) srcDirs 0))
         Elm.Outline.ExposedDict dict ->
           do
             let pathsUncanon = concatMap (\(_, modList) -> rawModuleNameToPackagePath canonicalElmJsonRoot <$> modList) dict
@@ -467,14 +478,10 @@ captureProjectIfEntrypoints projectRoot elmJsonRoot = do
             canonicalSrc <- Dir.canonicalizePath (canonicalElmJsonRoot </> "src")
             let srcDirs = [canonicalSrc]
             case paths of
-              [] -> pure Nothing
-              (x:xs) -> pure (Just (Project canonicalElmJsonRoot canonicalProjectRoot (NE.List x xs) srcDirs 0))
-    Left err -> do
-      Ext.Log.log
-          Ext.Log.Live
-          ("Skipping: " <> canonicalElmJsonRoot <> " Elm Outline Error")
-      -- Exit.toString (Exit.toOutlineReport err)
-      pure Nothing
+              [] -> pure (Left "No package entrypoints found: elm.json exposes no modules.")
+              (x:xs) -> pure (Right (Project canonicalElmJsonRoot canonicalProjectRoot (NE.List x xs) srcDirs 0))
+    Left err ->
+      pure (Left (Exit.toString (Exit.toOutlineReport err)))
 
 
 rawModuleNameToPackagePath :: FilePath -> ModuleName.Raw -> FilePath

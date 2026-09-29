@@ -148,7 +148,7 @@ normalizeEntrypoints root entrypoints = do
           then FilePath.normalise p
           else FilePath.normalise (absRoot </> p)
   case entrypoints of
-    NE.List ep eps -> pure (NE.List (toAbs ep) (map toAbs eps))
+    NE.List ep eps -> NE.List <$> Dir.canonicalizePath (toAbs ep) <*> traverse (Dir.canonicalizePath . toAbs) eps
  
 data UpsertError
   = NoElmJson FilePath
@@ -180,8 +180,8 @@ upsertWithWatchRootHelp replaceEntrypoints state@(Client.State _ mProjects mFile
       srcDirs <- case outline of
         Elm.Outline.App appOutline -> do
           let srcDirsList = NE.toList (Elm.Outline._app_source_dirs appOutline)
-          pure (map (Elm.Outline.toAbsolute canonicalRoot) srcDirsList)
-        Elm.Outline.Pkg _ -> pure [canonicalRoot </> "src"]
+          traverse (Dir.canonicalizePath . Elm.Outline.toAbsolute canonicalRoot) srcDirsList
+        Elm.Outline.Pkg _ -> (:[]) <$> Dir.canonicalizePath (canonicalRoot </> "src")
       let normalizedList = NE.toList normalizedEntrypoints
       
       missing <- missingFiles normalizedList

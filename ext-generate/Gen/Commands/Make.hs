@@ -41,6 +41,7 @@ import System.FilePath ((<.>), (</>))
 import qualified System.FilePath as FP
 import qualified System.IO as IO
 import qualified System.Environment as Env
+import qualified System.Exit as ExitCode
 import Terminal ((!), (...), (?))
 import qualified Terminal
 import qualified Terminal.Colors
@@ -83,8 +84,9 @@ run maybeCwd modulesArg (debug, optimize, o2, o3, output, report, hot) = do
   modules <- resolveModules cwd modulesArg
   codegenResult <- Gen.Generate.run cwd
   case codegenResult of
-    Left err ->
+    Left err -> do
       putStrLn err
+      ExitCode.exitFailure
     Right () ->
       if fromMaybe False hot
         then do
@@ -112,7 +114,8 @@ run maybeCwd modulesArg (debug, optimize, o2, o3, output, report, hot) = do
               putStrLn "Daemon not running"
         else
           Dir.withCurrentDirectory cwd $ do
-            Ext.Log.with [Ext.Log.ElmCompilerError] $
+            Ext.Log.setMode Ext.Log.StdOut
+            Ext.Log.with [Ext.Log.ElmCompilerInfo, Ext.Log.ElmCompilerError] $
               Make.run
                 modules
                 ( Make.Flags

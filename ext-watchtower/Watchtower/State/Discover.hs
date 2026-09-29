@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Watchtower.State.Discover (discover, invalidate, discoverTests) where
+module Watchtower.State.Discover (discover, discoverWithErrors, invalidate, discoverTests) where
 
 import qualified Control.Concurrent.STM as STM
 import Control.Monad as Monad
@@ -29,9 +29,10 @@ import qualified System.IO.Unsafe as Unsafe
 import qualified System.FilePath as FilePath
 import qualified Watchtower.State.StartupMetrics as Metrics
 import qualified Data.Set as Set
+import qualified Reporting.Exit as Exit
 
 {-# NOINLINE discoveryCache #-}
-discoveryCache :: MVar.MVar (Map.Map FilePath (MVar.MVar ()))
+discoveryCache :: MVar.MVar (Map.Map FilePath (MVar.MVar [String]))
 discoveryCache = Unsafe.unsafePerformIO (MVar.newMVar Map.empty)
 
 {-# NOINLINE workspaceProjects #-}
@@ -39,7 +40,10 @@ workspaceProjects :: MVar.MVar (Map.Map FilePath (Set.Set FilePath))
 workspaceProjects = Unsafe.unsafePerformIO (MVar.newMVar Map.empty)
 
 discover :: Client.State -> FilePath -> IO ()
-discover state root = do
+discover state root = discoverWithErrors state root >> pure ()
+
+discoverWithErrors :: Client.State -> FilePath -> IO [String]
+discoverWithErrors state root = do
   canonicalRoot <- Dir.canonicalizePath root
   (scanFinished, shouldScan) <- MVar.modifyMVar discoveryCache $ \cached ->
     case Map.lookup canonicalRoot cached of
@@ -51,12 +55,18 @@ discover state root = do
     then Exception.onException
       (do
         Metrics.increment "discovery.scans"
-        discoverUncached state canonicalRoot
-        MVar.putMVar scanFinished ()
+        (registered, errors) <- discoverUncached state canonicalRoot
+        mapM_ (Ext.Log.log Ext.Log.Live) errors
+        -- Share this attempt with current waiters, but retry unsuccessful scans
+        -- on the next request (including partially failed workspace scans).
+        MVar.putMVar scanFinished errors
+        Monad.when (null registered || not (null errors)) $
+          MVar.modifyMVar_ discoveryCache (pure . Map.delete canonicalRoot)
+        pure errors
       )
       (do
         MVar.modifyMVar_ discoveryCache (pure . Map.delete canonicalRoot)
-        MVar.tryPutMVar scanFinished () >>= \_ -> pure ()
+        MVar.tryPutMVar scanFinished ["Project discovery was interrupted; retry the request."] >>= \_ -> pure ()
       )
     else do
       Metrics.increment "discovery.cache_hits"
@@ -77,10 +87,10 @@ containsPath root path =
       rootWithSeparator = FilePath.addTrailingPathSeparator normalizedRoot
   in normalizedPath == normalizedRoot || rootWithSeparator `List.isPrefixOf` normalizedPath
 
-discoverUncached :: Client.State -> FilePath -> IO ()
+discoverUncached :: Client.State -> FilePath -> IO ([Client.ProjectCache], [String])
 discoverUncached state canonicalRoot = do
   Ext.Log.log Ext.Log.Live ("👀 discover requested: " <> canonicalRoot)
-  projects <- Ext.Dev.Project.discover canonicalRoot
+  (projects, errors) <- Ext.Dev.Project.discoverWithErrors canonicalRoot
   Metrics.add "discovery.projects_found" (length projects)
   let discoveredRoots = Set.fromList (map Ext.Dev.Project.getRoot projects)
   removedRoots <- MVar.modifyMVar workspaceProjects $ \known -> do
@@ -99,22 +109,31 @@ discoverUncached state canonicalRoot = do
     then Ext.Log.log Ext.Log.Live "found no projects"
     else Ext.Log.log Ext.Log.Live (("found projects (" ++ canonicalRoot ++ ")") <> Ext.Log.formatList projectTails)
 
-  Monad.foldM_ (initializeProject state canonicalRoot) [] projects
+  Monad.foldM (initializeProject state canonicalRoot) ([], errors) projects
   
 
-initializeProject :: Client.State -> FilePath -> [Client.ProjectCache] -> Ext.Dev.Project.Project -> IO [Client.ProjectCache]
-initializeProject state workspaceRoot accum project = do
+initializeProject :: Client.State -> FilePath -> ([Client.ProjectCache], [String]) -> Ext.Dev.Project.Project -> IO ([Client.ProjectCache], [String])
+initializeProject state workspaceRoot (accum, errors) project = do
   let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
   result <- Watchtower.State.Project.upsertWithWatchRoot state workspaceRoot (invalidate state) flags (Ext.Dev.Project._root project) (Ext.Dev.Project._entrypoints project)
   case result of
-    Left _ ->
-      pure accum
+    Left err ->
+      pure (accum, (Ext.Dev.Project.getRoot project <> ": " <> registrationError err) : errors)
     Right projectCache ->
       do
         -- Populate tests for this project (best-effort)
         discoverTests state projectCache
         registerTraceDiscoveredProject state project projectCache
-        pure (projectCache : accum)
+        pure (projectCache : accum, errors)
+
+registrationError :: Watchtower.State.Project.UpsertError -> String
+registrationError err =
+  case err of
+    Watchtower.State.Project.ElmJsonError outline -> Exit.toString (Exit.toOutlineReport outline)
+    Watchtower.State.Project.NoElmJson root -> "Could not read " <> root <> "/elm.json"
+    Watchtower.State.Project.EntrypointNotFound paths -> "Entrypoint files not found: " <> show paths
+    Watchtower.State.Project.EntrypointOutsideSourceDirs path dirs ->
+      "Entrypoint outside source-directories: " <> path <> "\nSource directories: " <> show dirs
 
 registerTraceDiscoveredProject :: Client.State -> Ext.Dev.Project.Project -> Client.ProjectCache -> IO ()
 registerTraceDiscoveredProject state discoveredProject (Client.ProjectCache cachedProject _ _ _ _) = do

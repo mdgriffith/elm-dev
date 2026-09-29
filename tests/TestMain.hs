@@ -52,6 +52,7 @@ import qualified Watchtower.State.Compile as CompileState
 import qualified Watchtower.State.Versions as Versions
 import qualified Watchtower.State.DocsSnapshot as DocsSnapshot
 import qualified Watchtower.State.Project as ProjectState
+import qualified Watchtower.State.Discover as DiscoverState
 import qualified Watchtower.State.TestJobs as TestJobs
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Server.MCP as MCP
@@ -426,6 +427,9 @@ versionTests =
   , runTest "watch path filter excludes non-Elm build outputs" testWatchPathFilterBuildOutput
   , runTest "watch path filter treats explicit artifact roots as roots" testWatchPathFilterExplicitArtifactRoot
   , runTest "project discovery excludes artifacts and hidden directories" testProjectDiscoveryExclusions
+  , runTest "project registration accepts sibling and symlink source directories" testSiblingSourceRegistration
+  , runTest "failed discovery retries after sources are repaired" testDiscoveryRetry
+  , runTest "discovery reports generation, outline, and entrypoint failures" testDiscoveryErrors
   , runTest "project contains is segment-aware" testProjectContainsSegmentAware
   , runTest "project affectsCompilation is source-aware" testProjectAffectsCompilation
   , runTest "application entrypoints compile as singleton groups" testApplicationEntrypointGroupsSplit
@@ -439,6 +443,7 @@ versionTests =
   , runTest "javascript entrypoints remain independent targets" testOutputEntrypointsRemainIndependent
   , runTest "skipped compile replaces stale project result" testSkippedCompileReplacesStaleResult
   , runTest "open file keeps in-memory precedence over fs watcher" testOpenFileSkipsFilesystemSync
+  , runTest "compile refresh preserves open editor contents" testCompileRefreshPreservesOpenFile
   , runTest "disconnect cleanup removes editor and diagnostics state" testCleanupConnectionState
   , runTest "successful project fileInfo update replaces stale entries" testUpdateProjectFileInfo
   , runTest "duplicate didChange/save/fileChanged content only marks dirty once" testDuplicateChangeEventsMarkDirtyOnce
@@ -447,6 +452,7 @@ versionTests =
 generationTests :: [NamedTest]
 generationTests =
   [ runTest "code generation succeeds with basic config" testGenerateBasicConfig
+  , runTest "code generation repairs missing outputs with unchanged inputs" testGenerateRepairsOutputs
   , runTest "code generation returns generator errors clearly" testGenerateThemeDecodeError
   , runTest "scaffold init stops before writing files when elm.json init fails" testScaffoldInitStopsOnElmJsonFailure
   , runTest "scaffold init surfaces generation failure" testScaffoldInitSurfacesGenerationFailure
@@ -467,6 +473,8 @@ optimizationTests =
 mcpTests :: [NamedTest]
 mcpTests =
   [ runTest "MCP exposes composite tools" testMcpCompositeToolsExposed
+  , runTest "MCP rejects relative dirs before tool execution" testMcpRelativeDirs
+  , runTest "MCP check surfaces discovery errors" testMcpDiscoveryError
   , runTest "MCP hides retired single-purpose tools" testMcpRetiredToolsHidden
   , runTest "MCP tool surface is exact" testMcpToolSurfaceExact
   , runTest "MCP composite schemas advertise tagged unions" testMcpCompositeSchemas
@@ -1445,6 +1453,38 @@ testDaemonStateRoundTrip = do
   pure $ case (JSON.eitherDecode (JSON.encode state), JSON.eitherDecode legacy) of
     (Right decoded, Right legacyDecoded) -> decoded == state && legacyDecoded == state
     _ -> False
+
+testMcpRelativeDirs :: IO Bool
+testMcpRelativeDirs = do
+  state <- Client.initState testUrls
+  results <- sequence
+    [ MCPProtocol.call tool (KeyMap.singleton "dir" (JSON.String dir)) state (\_ -> pure ()) "path-test"
+    | tool <- MCP.availableToolsForTests
+    , dir <- ["app", ".", "../app", ""]
+    ]
+  pure (all rejected results)
+  where
+    rejected (MCPProtocol.ToolCallResponse [MCPProtocol.ToolResponseError _ msg]) =
+      Text.isInfixOf "absolute filesystem path" msg
+    rejected _ = False
+
+testMcpDiscoveryError :: IO Bool
+testMcpDiscoveryError = do
+  root <- uniqueRoot
+  writeElmApp root
+  state <- Client.initState testUrls
+  let args = KeyMap.fromList
+        [ ("dir", JSON.String (Text.pack root))
+        , ("targets", JSON.object ["kind" JSON..= ("all" :: Text.Text)])
+        ]
+  case List.find ((== "check") . MCPProtocol.toolName) MCP.availableToolsForTests of
+    Nothing -> pure False
+    Just tool -> do
+      response <- MCPProtocol.call tool args state (\_ -> pure ()) "discovery-test"
+      pure $ case response of
+        MCPProtocol.ToolCallResponse [MCPProtocol.ToolResponseError _ msg] ->
+          Text.isInfixOf "src" msg && Text.isInfixOf "SOURCE" msg
+        _ -> False
 
 testMcpCompositeToolsExposed :: IO Bool
 testMcpCompositeToolsExposed = do
@@ -2619,6 +2659,65 @@ testProjectDiscoveryExclusions = do
         && map Project.getRoot directArtifact == [canonicalArtifact]
     )
 
+testSiblingSourceRegistration :: IO Bool
+testSiblingSourceRegistration = do
+  root <- uniqueRoot
+  let app = root FilePath.</> "app"
+      sibling = root FilePath.</> "shared"
+      worker = sibling FilePath.</> "Worker.elm"
+      flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+  Dir.createDirectoryIfMissing True app
+  Dir.createDirectoryIfMissing True sibling
+  writeFile worker "module Worker exposing (main)\n\nmain = 1\n"
+  state <- Client.initState testUrls
+  let register src = do
+        writeFile (app FilePath.</> "elm.json")
+          (Text.unpack (Text.replace "[\"src\"]" ("[\"" <> Text.pack src <> "\"]") (Text.pack basicElmJson)))
+        (projects, errors) <- Project.discoverWithErrors app
+        case projects of
+          [project] -> do
+            result <- ProjectState.upsert state flags app (Project._entrypoints project)
+            pure (null errors && either (const False) (const True) result)
+          _ -> pure False
+  siblingOk <- register "../shared"
+  Dir.createDirectoryLink sibling (app FilePath.</> "linked")
+  symlinkOk <- register "linked"
+  -- A file in a similarly named directory must still be rejected.
+  let outside = root FilePath.</> "shared-other" FilePath.</> "Worker.elm"
+  Dir.createDirectoryIfMissing True (FilePath.takeDirectory outside)
+  writeFile outside "module Worker exposing (main)\n\nmain = 1\n"
+  rejected <- ProjectState.upsert state flags app (NE.List outside [])
+  pure (siblingOk && symlinkOk && case rejected of
+    Left (ProjectState.EntrypointOutsideSourceDirs _ _) -> True
+    _ -> False)
+
+testDiscoveryRetry :: IO Bool
+testDiscoveryRetry = do
+  root <- uniqueRoot
+  writeElmApp root
+  state <- Client.initState testUrls
+  first <- DiscoverState.discoverWithErrors state root
+  Dir.createDirectoryIfMissing True (root FilePath.</> "src")
+  writeFile (root FilePath.</> "src/Main.elm") "module Main exposing (main)\n\nmain = 1\n"
+  second <- DiscoverState.discoverWithErrors state root
+  canonical <- Dir.canonicalizePath root
+  registered <- Client.getExistingProject canonical state
+  pure (not (null first) && null second && either (const False) (const True) registered)
+
+testDiscoveryErrors :: IO Bool
+testDiscoveryErrors = do
+  root <- uniqueRoot
+  writeElmApp root
+  (_, outlineErrors) <- Project.discoverWithErrors root
+  Dir.createDirectoryIfMissing True (root FilePath.</> "src")
+  writeFile (root FilePath.</> "src/Main.elm") "module Main exposing (main)\n\nmain =\n"
+  (_, entrypointErrors) <- Project.discoverWithErrors root
+  writeElmDevConfig root invalidThemeElmDevConfig
+  (_, generationErrors) <- Project.discoverWithErrors root
+  pure (any (List.isInfixOf "src") outlineErrors
+    && any (List.isInfixOf "No application entrypoints") entrypointErrors
+    && any (List.isInfixOf "Code generation failed") generationErrors)
+
 testProjectContainsSegmentAware :: IO Bool
 testProjectContainsSegmentAware = do
   let root = "/tmp/app"
@@ -2935,6 +3034,28 @@ testOpenFileSkipsFilesystemSync = do
       shouldSyncClosed = ProjectState.shouldSyncFilesystemPath path (EditorsOpen.fileMarkedClosed connId path editorsOpen)
   pure (not shouldSyncOpen && shouldSyncClosed)
 
+testCompileRefreshPreservesOpenFile :: IO Bool
+testCompileRefreshPreservesOpenFile = do
+  root <- uniqueRoot
+  let srcDir = root FilePath.</> "src"
+      path = srcDir FilePath.</> "Main.elm"
+      diskContents = TextEncoding.encodeUtf8 "module Main exposing (value)\n\nvalue = 1\n"
+      editorContents = TextEncoding.encodeUtf8 "module Main exposing (value)\n\nvalue = 2\n"
+      proj = Project.Project root root (NE.List path []) [srcDir] 1
+      connId = Text.pack "test-conn"
+  Dir.createDirectoryIfMissing True srcDir
+  BS.writeFile path diskContents
+  FileCache.insert path editorContents
+  state <- Client.initState testUrls
+  STM.atomically $ do
+    editors <- STM.readTVar (Client.projectsBeingEdited state)
+    STM.writeTVar (Client.projectsBeingEdited state) (EditorsOpen.fileMarkedOpen connId path editors)
+
+  changed <- CompileState.updateVfsFromFs state proj
+  cached <- FileCache.readUtf8 path
+  FileCache.delete path
+  pure (not changed && cached == editorContents)
+
 testCleanupConnectionState :: IO Bool
 testCleanupConnectionState = do
   state <- Client.initState testUrls
@@ -3166,6 +3287,31 @@ testGenerateBasicConfig = do
   pure $ case result of
     Right () -> generatedMainExists
     Left _ -> False
+
+testGenerateRepairsOutputs :: IO Bool
+testGenerateRepairsOutputs = do
+  root <- uniqueRoot
+  Dir.createDirectoryIfMissing True root
+  writeElmDevConfig root basicElmDevConfig
+  first <- Generate.run root
+  let generated = root FilePath.</> "elm-stuff/generated"
+      mainPath = generated FilePath.</> "Main.elm"
+      templatePath = generated FilePath.</> "Effect.elm"
+      hashPath = generated FilePath.</> "generated.hash"
+  before <- Dir.getModificationTime hashPath
+  unchanged <- Generate.run root
+  after <- Dir.getModificationTime hashPath
+  Dir.removeFile mainPath
+  repairedMain <- Generate.run root
+  mainExists <- Dir.doesFileExist mainPath
+  Dir.removeFile templatePath
+  repairedTemplate <- Generate.run root
+  templateExists <- Dir.doesFileExist templatePath
+  Dir.removeFile (generated FilePath.</> "generated-files.json")
+  repairedManifest <- Generate.run root
+  manifestExists <- Dir.doesFileExist (generated FilePath.</> "generated-files.json")
+  pure (all (== Right ()) [first, unchanged, repairedMain, repairedTemplate, repairedManifest]
+    && before == after && mainExists && templateExists && manifestExists)
 
 testGenerateThemeDecodeError :: IO Bool
 testGenerateThemeDecodeError = do

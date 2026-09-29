@@ -23,6 +23,7 @@ import qualified Json.Encode as Json
 import qualified Reporting.Exit as Exit
 import qualified System.Directory as Dir (withCurrentDirectory, doesFileExist, getDirectoryContents, doesDirectoryExist)
 import qualified Watchtower.Live.Client as Client
+import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Reporting.Warning as Warning
 import qualified Watchtower.Server.DevWS as DevWS
 import qualified Ext.Test.Compile as TestCompile
@@ -78,7 +79,7 @@ compileUntraced fullAnalysis state@(Client.State _ _ mFileInfo mPackages _ _ _ m
         ]
     )
   Dir.withCurrentDirectory projectRoot $ do
-    vfsChangedBeforeCodegen <- updateVfsFromFs proj
+    vfsChangedBeforeCodegen <- updateVfsFromFs state proj
     Monad.when vfsChangedBeforeCodegen $
       STM.atomically $ clearTestResults mTestVar
     versionsBeforeCodegen <- Versions.readVersions projectRoot
@@ -88,7 +89,7 @@ compileUntraced fullAnalysis state@(Client.State _ _ mFileInfo mPackages _ _ _ m
     codegenResult <- Gen.Generate.run projectRoot
     case codegenResult of
       Right () -> do
-        codegenChangedFiles <- updateVfsFromFs proj
+        codegenChangedFiles <- updateVfsFromFs state proj
         Monad.when codegenChangedFiles $
           STM.atomically $ clearTestResults mTestVar
         versionsAfterCodegen <- Versions.readVersions projectRoot
@@ -376,8 +377,8 @@ listElmFilesRecursive dir = do
 -- | Update the virtual file system cache from the real filesystem for a project.
 --   This is very lightweight: it enumerates Elm source files under srcDirs plus key config files,
 --   and upserts any changed files into Ext.FileCache. Returns True if any files changed.
-updateVfsFromFs :: Ext.Dev.Project.Project -> IO Bool
-updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
+updateVfsFromFs :: Client.State -> Ext.Dev.Project.Project -> IO Bool
+updateVfsFromFs (Client.State _ _ _ _ _ _ mEditorsOpen _ _) (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
   elmFilesNested <- Monad.mapM listElmFilesRecursive srcDirs
   let elmFiles = List.concat elmFilesNested
   -- Include test files under projectRoot/tests as part of VFS verification
@@ -387,7 +388,8 @@ updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
         , projectRoot FP.</> "elm.dev.json"
         ]
   existingConfigs <- Monad.filterM Dir.doesFileExist configFiles
-  let files = elmFiles ++ testFiles ++ existingConfigs
+  editorsOpen <- STM.readTVarIO mEditorsOpen
+  let files = filter (`shouldSyncFilesystemPath` editorsOpen) (elmFiles ++ testFiles ++ existingConfigs)
   changed <- Ext.FileCache.handleIfChanged files (\changedPaths -> pure changedPaths)
   case changed of
     [] -> pure False
@@ -397,6 +399,9 @@ updateVfsFromFs (Ext.Dev.Project.Project projectRoot _ _ srcDirs _) = do
       -- bump filesystem version when anything changed
       _ <- Versions.bumpFsVersion projectRoot
       pure True
+  where
+    shouldSyncFilesystemPath path editorsOpen =
+      not (EditorsOpen.isFileOpen path editorsOpen)
 
 ensureProjectFresh :: Client.State -> String -> Client.ProjectCache -> IO Bool
 ensureProjectFresh = ensureProjectFreshWithDocs False
@@ -408,7 +413,7 @@ ensureProjectFreshWithDocs :: Bool -> Client.State -> String -> Client.ProjectCa
 ensureProjectFreshWithDocs loadDocs state traceId pc@(Client.ProjectCache proj _ flags mCompileResult mTestVar) = do
   let projectRoot = Ext.Dev.Project.getRoot proj
   lockResult <- withProjectCompileLockIfAvailable projectRoot $ do
-    vfsChanged <- updateVfsFromFs proj
+    vfsChanged <- updateVfsFromFs state proj
     Monad.when vfsChanged $
       STM.atomically $ clearTestResults mTestVar
     versions <- Versions.readVersions projectRoot

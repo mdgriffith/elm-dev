@@ -107,6 +107,35 @@ isOutOfDateByHash generationPath runConfig = do
       existingHash <- TIO.readFile generationPath
       return (runConfigHash, existingHash /= runConfigHash)
 
+-- The hash describes inputs, not the continued existence of outputs. Keep the
+-- generator's output paths so deleting even one generated file triggers repair.
+outputsExist :: FilePath -> FilePath -> IO Bool
+outputsExist root manifestPath = do
+  exists <- Dir.doesFileExist manifestPath
+  if not exists then pure False else do
+    manifest <- BS.readFile manifestPath
+    case eitherDecodeStrict manifest :: Either String [FilePath] of
+      Left _ -> pure False
+      Right paths -> do
+        generatedExist <- and <$> traverse (Dir.doesFileExist . outputPath root) paths
+        templatesExist <- and <$> traverse templateExists Templates.templates
+        pure (generatedExist && templatesExist)
+  where
+    templateExists template = do
+      let relative = Loader.dir template </> Loader.filename template
+          hiddenPath = root </> "elm-stuff/generated" </> relative
+      case Loader.target template of
+        Loader.ToHidden -> Dir.doesFileExist hiddenPath
+        Loader.Customizable -> do
+          custom <- Dir.doesFileExist (root </> "src/app" </> relative)
+          hidden <- Dir.doesFileExist hiddenPath
+          pure (if custom then not hidden else hidden)
+        _ -> pure True
+
+outputPath :: FilePath -> FilePath -> FilePath
+outputPath root relative =
+  if FP.isAbsolute relative then relative else root </> relative
+
 {-
 
 -}
@@ -117,9 +146,11 @@ run root = do
     ConfigFound configLastModified config -> do
       runConfig <- RunConfig.toRunConfig root config
       let hashPath = root </> "elm-stuff/generated/generated.hash"
+          manifestPath = root </> "elm-stuff/generated/generated-files.json"
 
       (newHash, needsGeneration) <- isOutOfDateByHash hashPath runConfig
-      if needsGeneration
+      complete <- if needsGeneration then pure False else outputsExist root manifestPath
+      if not complete
         then do
           generateResult <- Gen.Generate.generate runConfig
 
@@ -131,16 +162,13 @@ run root = do
               -- Write each file to disk
               Control.Monad.mapM_
                 ( \file -> do
-                    let filePathRel = Gen.Generate.path file
-                    let fullPath =
-                          if FP.isAbsolute filePathRel
-                            then filePathRel
-                            else root </> filePathRel
+                    let fullPath = outputPath root (Gen.Generate.path file)
                     Dir.createDirectoryIfMissing True (FP.takeDirectory fullPath)
                     TIO.writeFile fullPath (Text.pack $ Gen.Generate.contents file)
                 )
                 files
 
+              BSL.writeFile manifestPath (Aeson.encodePretty (map Gen.Generate.path files))
               TIO.writeFile hashPath newHash
 
               return $ Right ()

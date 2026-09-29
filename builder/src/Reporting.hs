@@ -319,15 +319,20 @@ trackBuild style callback =
 
     Terminal mvar ->
       do  chan <- newChan
+          reported <- newEmptyMVar
 
           _ <- forkIO $
             do  takeMVar mvar
                 putStrFlush "Compiling ..."
                 buildLoop chan 0
                 putMVar mvar ()
+                putMVar reported ()
 
           result <- callback (Key (writeChan chan . Left))
           writeChan chan (Right result)
+          -- In particular, --output=/dev/null has no reportGenerate call to
+          -- wait for us. Finish reporting before CLI logging is disabled.
+          readMVar reported
           return result
 
 
