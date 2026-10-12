@@ -25,7 +25,7 @@ jobs:
             ~/.stack
             ~/.ghcup/macos-x86_64
             .stack-work
-          key: ${{ runner.os }}-x86_64-${{ hashFiles('stack.yaml.lock', 'elm-dev.cabal') }}
+          key: ${{ runner.os }}-x86_64-${{ hashFiles('distribution/stack-version', 'stack.yaml', 'stack.yaml.lock', 'elm-dev.cabal') }}
           restore-keys: |
             ${{ runner.os }}-x86_64-
       - run: echo "${HOME}/.local/bin" >> $GITHUB_PATH

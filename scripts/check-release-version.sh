@@ -16,6 +16,12 @@ check_value() {
 
 cd "$ROOT_DIR"
 
+read -r STACK_VERSION < distribution/stack-version
+if ! grep -Fxq "require-stack-version: == $STACK_VERSION" stack.yaml; then
+  echo "Stack version mismatch: stack.yaml must require exactly $STACK_VERSION" >&2
+  exit 1
+fi
+
 check_value "elm-dev.cabal" "$(awk '/^Version:/ { print $2; exit }' elm-dev.cabal)"
 check_value "cabal.project.freeze" "$(awk '/elm-dev ==/ { sub(/.*==/, ""); print; exit }' cabal.project.freeze)"
 check_value "distribution/common.sh" "$(awk -F'"' '/^export version=/ { print $2; exit }' distribution/common.sh)"

@@ -20,11 +20,14 @@ RUN apk add --no-cache \
         zlib-static \
         curl
 
-RUN curl https://downloads.haskell.org/~ghcup/0.1.19.5/x86_64-linux-ghcup-0.1.19.5 -o /usr/local/bin/ghcup && chmod a+x /usr/local/bin/ghcup
+RUN curl -fL https://downloads.haskell.org/~ghcup/0.2.6.2/x86_64-linux-ghcup-0.2.6.2 -o /usr/local/bin/ghcup && chmod a+x /usr/local/bin/ghcup
 
 # Setup GHC
 RUN ghcup install ghc 9.2.8 --set
-RUN ghcup install stack 2.11.1 --set
+COPY distribution/stack-version /tmp/stack-version
+RUN read -r stackVersion < /tmp/stack-version && \
+    ghcup install stack "$stackVersion" --set && \
+    test "$(/root/.ghcup/bin/stack --numeric-version)" = "$stackVersion"
 
 ENV PATH="${PATH}:/root/.ghcup/bin"
 

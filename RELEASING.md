@@ -23,6 +23,26 @@ Always use the exact commit that successfully built on `distribute`.
 
 ## Prerequisites
 
+Local and distribution builds use the Stack version pinned in
+`distribution/stack-version`. `stack.yaml` enforces that exact version; update
+both files together when upgrading the toolchain. Install it locally with:
+
+```bash
+read -r STACK_VERSION < distribution/stack-version
+ghcup install stack "$STACK_VERSION" --set
+test "$(stack --numeric-version)" = "$STACK_VERSION"
+```
+
+After a Stack upgrade, verify Hackage access with a fresh cache as well as running
+the normal build checks. An existing package cache can hide outdated Hackage
+signing keys:
+
+```bash
+STACK_CHECK_ROOT="$(mktemp -d)"
+STACK_ROOT="$STACK_CHECK_ROOT" stack update
+rm -rf "$STACK_CHECK_ROOT"
+```
+
 - npm authentication with publish access to `elm-dev` and
   `@elm_dev_binaries/*`
 - GitHub CLI authentication for `mdgriffith/elm-dev`

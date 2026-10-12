@@ -18,6 +18,12 @@ jobs:
         with:
           submodules: true
 
+      - name: Read Stack version
+        id: stack-version
+        run: |
+          read -r version < distribution/stack-version
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       # First, check if the specific cache exists, so we don't waste ~3m of build
       # time restoring the 1.5GB cache for no reason.
       - uses: actions/cache@v5
@@ -28,7 +34,7 @@ jobs:
             ~\AppData\Local\Programs\stack
             .stack-work
             C:\sr
-          key: ${{ runner.os }}-${{ hashFiles('stack.yaml.lock') }}
+          key: ${{ runner.os }}-${{ hashFiles('distribution/stack-version', 'stack.yaml', 'stack.yaml.lock') }}
 
       # If it doesn't exist, setup our cache action, while also trying to restore
       # a prior broader matching cache if it exists (saves a lot of time if just
@@ -40,7 +46,7 @@ jobs:
             ~\AppData\Local\Programs\stack
             .stack-work
             C:\sr
-          key: ${{ runner.os }}-${{ hashFiles('stack.yaml.lock') }}
+          key: ${{ runner.os }}-${{ hashFiles('distribution/stack-version', 'stack.yaml', 'stack.yaml.lock') }}
           restore-keys: |
             ${{ runner.os }}-
 
@@ -50,7 +56,7 @@ jobs:
         with:
           enable-stack: true
           stack-no-global: true
-          stack-version: 'latest'
+          stack-version: ${{ steps.stack-version.outputs.version }}
 
       # Install just our dependencies, this can take ~30m from scratch and is the
       # most part valuable to cache.
@@ -72,20 +78,30 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: true
-      - uses: haskell-actions/setup@v2.11.0
-        with:
-          enable-stack: true
-          stack-no-global: true
-          stack-version: 'latest'
+
+      - name: Read Stack version
+        id: stack-version
+        shell: bash
+        run: |
+          read -r version < distribution/stack-version
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - uses: actions/cache@v5
         with:
           path: |
             ~\AppData\Local\Programs\stack
             .stack-work
             C:\sr
-          key: ${{ runner.os }}-${{ hashFiles('stack.yaml.lock') }}
+          key: ${{ runner.os }}-${{ hashFiles('distribution/stack-version', 'stack.yaml', 'stack.yaml.lock') }}
           restore-keys: |
             ${{ runner.os }}-
+
+      # Install after restoring caches so an older cached tool cannot win.
+      - uses: haskell-actions/setup@v2.11.0
+        with:
+          enable-stack: true
+          stack-no-global: true
+          stack-version: ${{ steps.stack-version.outputs.version }}
 
       # Use a retry action because inexplicably sometimes stack install stalls
       # indefinitely after the `compiling Main` step, but then succeeds immediately

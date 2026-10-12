@@ -16,16 +16,17 @@ if ! uname -a | grep "Darwin" && uname -a | grep "arm64"; then
   exit 1;
 fi
 
-stackVersion=2.11.1
-isolate=~/.ghcup/$os-$arch
+isolate=~/.ghcup/$os-$arch/$stackVersion
 mkdir -p $isolate
 stack="$isolate/stack"
 
                                                           # Ensure correct arch toolchain is installed, or install it
                                                           # Hopefully in future ghcup has better multi-arch support
-if [ ! -f "$stack" ]; then
+if [ ! -x "$stack" ] || [ "$("$stack" --numeric-version)" != "$stackVersion" ]; then
   ghcup install stack "$stackVersion" --isolate "$isolate" --force
 fi
+
+test "$("$stack" --numeric-version)" = "$stackVersion"
 
 cd "$scriptDir/.."                                        # Move into the project root
 git submodule init && git submodule update

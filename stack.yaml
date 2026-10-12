@@ -1,4 +1,8 @@
 resolver: lts-20.26 # ghc 9.2.8
+# Keep aligned with distribution/stack-version for local and release builds.
+require-stack-version: == 3.11.1
+# GHC 9.2 predates the CLANG64 toolchain now selected by Stack on Windows.
+msys-environment: MINGW64
 system-ghc: false
 ghc-options:
   "$locals": -Wincomplete-patterns -lstdc++

@@ -83,6 +83,27 @@ build_binary_docker() {
 
     mkdir -p "$STACK_ROOT"
 
+    # The container's bundled Stack can predate Hackage key rotations. Use the
+    # shared pin, with a versioned cache and the upstream binary checksum.
+    local stackVersion stackDir stackAsset stackUrl
+    read -r stackVersion < "$compilerRoot/distribution/stack-version"
+    stackDir="/root/cache/stack-bin/$stackVersion"
+    if [ ! -x "$stackDir/stack" ] || [ "$("$stackDir/stack" --numeric-version)" != "$stackVersion" ]; then
+        mkdir -p "$stackDir"
+        stackAsset="stack-$stackVersion-linux-aarch64-bin"
+        stackUrl="https://github.com/commercialhaskell/stack/releases/download/v$stackVersion/$stackAsset"
+        (
+            cd "$stackDir"
+            curl -fL --retry 3 "$stackUrl" -o "$stackAsset"
+            curl -fL --retry 3 "$stackUrl.sha256" -o "$stackAsset.sha256"
+            sha256sum -c "$stackAsset.sha256"
+            chmod +x "$stackAsset"
+            mv "$stackAsset" stack
+        )
+    fi
+    export PATH="$stackDir:$PATH"
+    test "$(stack --numeric-version)" = "$stackVersion"
+
     # Our options required for static linking
     STACKOPTS="--system-ghc --no-install-ghc --allow-different-user"
     GHCOPTS="-j4 +RTS -A256m -RTS -split-sections -optc-Os -optl=-pthread"
