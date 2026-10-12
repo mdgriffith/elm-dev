@@ -2,7 +2,7 @@ module Effect exposing
     ( none, batch, map
     , Effect(..)
     , broadcast
-    , now, nowAfter
+    , now, nowAfter, here, getZoneName
     , sendMsg, sendMsgAfter
     , Expect(..), UrlBase(..)
     , toCmd
@@ -22,7 +22,7 @@ module Effect exposing
 
 # Time
 
-@docs now, nowAfter
+@docs now, nowAfter, here, getZoneName
 
 
 # Callbacks
@@ -93,6 +93,21 @@ nowAfter wait =
     Now (Just wait)
 
 
+{-| Get the local time zone
+-}
+here : (Time.Zone -> msg) -> Effect msg
+here =
+    Here
+
+
+{-| Get the local time zone name, or an offset when a name is unavailable.
+Mirrors `Time.getZoneName`.
+-}
+getZoneName : (Time.ZoneName -> msg) -> Effect msg
+getZoneName =
+    GetZoneName
+
+
 {-| -}
 broadcast : Broadcast.Msg -> Effect msg
 broadcast =
@@ -109,6 +124,8 @@ type Effect msg
     | Generate (Random.Generator msg)
       -- Time
     | Now (Maybe Float) (Time.Posix -> msg)
+    | Here (Time.Zone -> msg)
+    | GetZoneName (Time.ZoneName -> msg)
       -- Focus/Blur
     | Focus String (Result Browser.Dom.Error () -> msg)
     | Blur String (Result Browser.Dom.Error () -> msg)
@@ -137,6 +154,8 @@ type Effect msg
     | File (List String) (File.File -> msg)
     | Files (List String) (File.File -> List File.File -> msg)
     | FileToUrl File.File (String -> msg)
+    | FileToString File.File (String -> msg)
+    | FileToBytes File.File (Bytes.Bytes -> msg)
       -- Loading
     | ViewUpdated (App.View.Region.Operation App.Page.Id.Id)
       -- Browser Navigation
@@ -149,6 +168,7 @@ type Effect msg
     | Back Int
       -- Http
     | HttpRequest (RequestDetails msg)
+    | CancelHttp String
     | SendBroadcast Broadcast.Msg
       -- JS interop
     | SendToWorld
@@ -225,6 +245,14 @@ toCmd options toHttpTarget effect =
             Process.sleep wait
                 |> Task.andThen
                     (\_ -> Time.now)
+                |> Task.perform toMsg
+
+        Here toMsg ->
+            Time.here
+                |> Task.perform toMsg
+
+        GetZoneName toMsg ->
+            Time.getZoneName
                 |> Task.perform toMsg
 
         Focus id toMsg ->
@@ -337,6 +365,17 @@ toCmd options toHttpTarget effect =
         FileToUrl fileData toMsg ->
             File.toUrl fileData
                 |> Task.perform toMsg
+
+        FileToString fileData toMsg ->
+            File.toString fileData
+                |> Task.perform toMsg
+
+        FileToBytes fileData toMsg ->
+            File.toBytes fileData
+                |> Task.perform toMsg
+
+        CancelHttp tracker ->
+            Http.cancel tracker
 
         HttpRequest req ->
             let
@@ -475,6 +514,9 @@ map f effect =
                 , tracker = req.tracker
                 }
 
+        CancelHttp tracker ->
+            CancelHttp tracker
+
         File extensions toMsg ->
             File extensions (toMsg >> f)
 
@@ -484,8 +526,20 @@ map f effect =
         FileToUrl fileData toMsg ->
             FileToUrl fileData (toMsg >> f)
 
+        FileToString fileData toMsg ->
+            FileToString fileData (toMsg >> f)
+
+        FileToBytes fileData toMsg ->
+            FileToBytes fileData (toMsg >> f)
+
         Now maybeWait toMsg ->
             Now maybeWait (toMsg >> f)
+
+        Here toMsg ->
+            Here (toMsg >> f)
+
+        GetZoneName toMsg ->
+            GetZoneName (toMsg >> f)
 
         Generate generator ->
             Generate (Random.map f generator)

@@ -1,5 +1,5 @@
 module Effect.Http exposing
-    ( get, request
+    ( get, request, cancel
     , expectString, expectStringResponse, expectJson, expectBytes, expectWhatever
     )
 
@@ -8,7 +8,7 @@ module Effect.Http exposing
 
 # Http
 
-@docs get, request
+@docs get, request, cancel
 
 @docs Expect, expectString, expectStringResponse, expectJson, expectBytes, expectWhatever
 
@@ -62,6 +62,14 @@ request :
     -> Effect msg
 request options =
     Effect.HttpRequest options
+
+
+{-| Cancel requests with the given tracker. Mirrors `Http.cancel`.
+Set `tracker = Just tracker` when making the requests you want to cancel.
+-}
+cancel : String -> Effect msg
+cancel =
+    Effect.CancelHttp
 
 
 expectString : (Result Http.Error String -> msg) -> Expect msg
