@@ -1,6 +1,8 @@
 // Vite plugin for Elm Dev - ESM build
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { readFile, readdir } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 // import { toColoredTerminalOutput } from './elm-errors-render.js';
 
@@ -54,10 +56,22 @@ function toAbsolute(p) {
     return path.isAbsolute(cleaned) ? cleaned : path.resolve(process.cwd(), cleaned);
 }
 
+function elmDevExecutable() {
+    if (process.platform === 'win32') {
+        // npm's .cmd shim cannot be spawned directly. Use its native binary.
+        try {
+            return createRequire(import.meta.url).resolve(`@elm_dev_binaries/win32_${process.arch}/elm-dev.exe`);
+        } catch {
+            // Standalone installations can provide elm-dev.exe on PATH.
+        }
+    }
+    return 'elm-dev';
+}
+
 async function discoverDevServer() {
     return new Promise((resolve) => {
         log("Starting dev server")
-        const child = spawn('elm-dev', ['dev', 'start'], { shell: true });
+        const child = spawn(elmDevExecutable(), ['dev', 'start']);
         let out = '';
         let err = '';
         let settled = false;
@@ -249,25 +263,117 @@ async function notifyFileChanged(file, serverInfo) {
 }
 
 async function compileWithCli(id, mode) {
+    return wrapCompiledElmCode(id, await compileCliSource(id, mode));
+}
+
+async function compileCliSource(id, mode) {
     // Always compile using an absolute file path
     const absoluteId = toAbsolute(id);
     const args = ['make', absoluteId, '--output=stdout'];
     addModeCliFlag(args, mode);
     return await new Promise((resolve, reject) => {
-        const elmDev = spawn('elm-dev', args, { shell: true });
+        const elmDev = spawn(elmDevExecutable(), args, { cwd: findProjectRootFor(absoluteId) });
         let output = '';
         let error = '';
         elmDev.stdout.on('data', (data) => { output += data.toString(); });
         elmDev.stderr.on('data', (data) => { error += data.toString(); });
-        elmDev.on('close', (code) => {
+        elmDev.on('error', (err) => {
+            reject(new Error(`Could not run elm-dev for ${absoluteId}: ${err.message}`));
+        });
+        elmDev.on('close', (code, signal) => {
             if (code === 0) {
-                const wrappedCode = wrapCompiledElmCode(absoluteId, output);
-                resolve(wrappedCode);
+                if (!output.trim()) {
+                    reject(new Error(`elm-dev returned empty JavaScript for ${absoluteId}`));
+                } else {
+                    resolve(output);
+                }
             } else {
-                reject(new Error(error));
+                reject(new Error(`elm-dev failed compiling ${absoluteId} (${signal || `exit ${code}`}):\n${error || output || 'No compiler diagnostics were returned.'}`));
             }
         });
     });
+}
+
+// Intentionally use a simple matcher for conventional Elm module headers.
+// Multiline headers, comments between header tokens, and module declarations
+// inside block comments are rare enough not to justify a full Elm lexer here.
+// This does not parse comments; the compiler still validates the Elm source.
+async function readElmModuleName(id) {
+    const source = await readFile(id, 'utf8');
+    const match = /^(?:port[ \t]+|effect[ \t]+)?module[ \t]+([\p{Lu}][\p{L}\p{N}_]*(?:\.[\p{Lu}][\p{L}\p{N}_]*)*)(?=[ \t\r\n]|$)/mu.exec(source);
+    if (!match) {
+        throw new Error(
+            `Could not extract the Elm module name from ${id}.\n`
+            + 'The Vite plugin uses a simple header matcher: start the declaration at column 1, '
+            + 'with "module Main" or "port module Main" on the same line '
+            + '(nested names such as Admin.Widget are supported). '
+            + 'Separate the keywords and module name with spaces or tabs, without intervening comments.\n'
+            + 'Use a conventional header such as "module Main exposing (main)". '
+            + 'This matcher does not parse block comments, so avoid module-declaration examples inside them. '
+            + 'These are plugin constraints; the Elm compiler accepts more flexible header formatting.'
+        );
+    }
+    return match[1];
+}
+
+function objectField(node, name) {
+    return node?.type === 'ObjectExpression'
+        ? node.properties.find((property) => property.type === 'Property'
+            && !property.computed && property.kind === 'init'
+            && (property.key.name ?? property.key.value) === name)?.value
+        : undefined;
+}
+
+function wrapProductionCode(context, id, moduleName, code) {
+    // Validate the compiler's export table, without evaluating or rewriting its
+    // program. Fail closed if the compiler output contract ever changes.
+    let ast;
+    try {
+        ast = context.parse(code);
+    } catch (error) {
+        throw new Error(`Invalid JavaScript from elm-dev for ${id}: ${error.message}`);
+    }
+    const invocation = ast.body.length === 1 && ast.body[0].expression;
+    const body = invocation?.type === 'CallExpression'
+        && invocation.callee.type === 'FunctionExpression'
+        && invocation.arguments.length === 1
+        && invocation.arguments[0].type === 'ThisExpression'
+        ? invocation.callee.body.body : [];
+    const exportCalls = body.filter((statement) => statement.type === 'ExpressionStatement'
+        && statement.expression.type === 'CallExpression'
+        && statement.expression.callee.type === 'Identifier'
+        && statement.expression.callee.name === '_Platform_export');
+    let entry = exportCalls.length === 1 ? exportCalls[0].expression.arguments[0] : undefined;
+    for (const segment of moduleName.split('.')) entry = objectField(entry, segment);
+    const init = objectField(entry, 'init');
+    // Elm emits a function for program mains, or a call to VirtualDom.init for
+    // Html mains. The compiler checks the type of main before generating either.
+    if (!init || !['FunctionExpression', 'CallExpression'].includes(init.type)) {
+        throw new Error(`Invalid Elm export for ${id}: expected Elm.${moduleName}.init in compiler output`);
+    }
+    const access = moduleName.split('.').map((part) => `[${JSON.stringify(part)}]`).join('');
+    return `const __elmScope = {};\n(function () {\n${code}\n}).call(__elmScope);\nexport default __elmScope.Elm${access};\n`;
+}
+
+async function watchElmSources(context, id) {
+    const root = findProjectRootFor(id);
+    const configFile = path.join(root, 'elm.json');
+    context.addWatchFile(configFile);
+    const config = JSON.parse(await readFile(configFile, 'utf8'));
+    async function watchDirectory(directory) {
+        context.addWatchFile(directory);
+        for (const entry of await readdir(directory, { withFileTypes: true })) {
+            const filename = path.join(directory, entry.name);
+            if (entry.isDirectory() && !['elm-stuff', 'node_modules', '.git'].includes(entry.name)) {
+                await watchDirectory(filename);
+            } else if (entry.isFile() && entry.name.endsWith('.elm')) {
+                context.addWatchFile(filename);
+            }
+        }
+    }
+    for (const source of config['source-directories'] || ['src']) {
+        await watchDirectory(path.resolve(root, source));
+    }
 }
 
 function invalidateElmModules(server, compilationCache) {
@@ -294,8 +400,12 @@ function invalidateElmModules(server, compilationCache) {
 
 export default function elmDevPlugin(options = {}) {
     const { useDevServer = true, advancedDebugger = false } = options;
-    const mode = normalizeMode(options);
+    let mode = normalizeMode(options);
+    let isBuild = false;
     const compilationCache = new Map();
+    // Vite transforms entries concurrently. Serialize CLI invocations per project
+    // because they write the same elm-stuff cache, even for independent entries.
+    const productionCompilations = new Map();
     let devServer = null;
 
     async function compileElmModule(id) {
@@ -368,11 +478,36 @@ export default function elmDevPlugin(options = {}) {
         name: 'vite-plugin-elm-dev',
         enforce: 'pre',
 
+        configResolved(config) {
+            isBuild = config.command === 'build';
+            mode = normalizeMode({ ...options, mode: options.mode ?? (isBuild ? 'optimize' : 'dev') });
+            if (isBuild && (mode === 'debug' || advancedDebugger)) {
+                throw new Error('elm-dev: vite build does not support the Elm debugger or advancedDebugger. Use mode: "dev" for Debug.log support, or an optimized mode.');
+            }
+        },
+
+        buildStart() {
+            compilationCache.clear();
+            productionCompilations.clear();
+        },
+
+        async buildEnd() {
+            await Promise.allSettled(productionCompilations.values());
+        },
+
+        shouldTransformCachedModule({ id }) {
+            // Build-watch must recompile when an Elm dependency changes, too.
+            if (isBuild && isElmRequest(id)) return true;
+        },
+
         // Resolve Elm module ids to filesystem paths using Vite/Rollup's resolver.
         async resolveId(id, importer) {
             if (!isElmRequest(id)) return null;
             const cleanedId = stripQueryAndHash(id);
             const resolved = await this.resolve(cleanedId, importer, { skipSelf: true });
+            if (isBuild && (!resolved || resolved.external)) {
+                this.error(`Could not resolve Elm entry point ${cleanedId}${importer ? ` imported by ${importer}` : ''}`);
+            }
             return resolved ? resolved.id : cleanedId;
         },
 
@@ -381,7 +516,26 @@ export default function elmDevPlugin(options = {}) {
                 return null;
             }
             if (loggingEnabled) log('load', id);
+            if (isBuild) return readFile(toAbsolute(id), 'utf8');
             return compileElmModule(id);
+        },
+
+        async transform(_source, id) {
+            if (!isElmRequest(id)) return null;
+            if (isBuild) {
+                const absoluteId = toAbsolute(id);
+                // Watch dependencies even when the initial compilation fails.
+                if (this.meta.watchMode) await watchElmSources(this, absoluteId);
+                // Compile first so source errors retain the compiler diagnostics.
+                const root = findProjectRootFor(absoluteId);
+                const previous = productionCompilations.get(root) || Promise.resolve();
+                const compilation = previous.then(() => compileCliSource(absoluteId, mode));
+                productionCompilations.set(root, compilation);
+                const code = await compilation;
+                const moduleName = await readElmModuleName(absoluteId);
+                return { code: wrapProductionCode(this, absoluteId, moduleName, code), map: null };
+            }
+            return null;
         },
 
         async handleHotUpdate(ctx) {

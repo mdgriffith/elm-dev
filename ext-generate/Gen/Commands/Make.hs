@@ -114,7 +114,12 @@ run maybeCwd modulesArg (debug, optimize, o2, o3, output, report, hot) = do
               putStrLn "Daemon not running"
         else
           Dir.withCurrentDirectory cwd $ do
-            Ext.Log.setMode Ext.Log.StdOut
+            -- Keep piped JavaScript/HTML free of compiler progress messages.
+            Ext.Log.setMode $
+              case output of
+                Just (Make.JS Make.Stdout) -> Ext.Log.StdErr
+                Just (Make.Html Make.Stdout) -> Ext.Log.StdErr
+                _ -> Ext.Log.StdOut
             Ext.Log.with [Ext.Log.ElmCompilerInfo, Ext.Log.ElmCompilerError] $
               Make.run
                 modules

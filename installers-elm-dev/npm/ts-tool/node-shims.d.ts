@@ -7,6 +7,19 @@ declare module 'node:fs' {
     export function existsSync(path: string): boolean;
 }
 
+declare module 'node:fs/promises' {
+    export function readFile(path: string, encoding: 'utf8'): Promise<string>;
+    export function readdir(path: string, options: { withFileTypes: true }): Promise<Array<{
+        name: string;
+        isDirectory(): boolean;
+        isFile(): boolean;
+    }>>;
+}
+
+declare module 'node:module' {
+    export function createRequire(filename: string): { resolve(id: string): string };
+}
+
 declare module 'node:path' {
     import * as path from 'path';
     export default path;
@@ -20,4 +33,3 @@ declare module 'ws' {
     const _default: any;
     export default _default;
 }
-

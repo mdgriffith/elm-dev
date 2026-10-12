@@ -91,4 +91,4 @@ waitForProcessInterruptibly processHandle = do
 
 -- Dynamically adjusted by build.sh to make sure haskell doesn't bamboozle us.
 version :: String
-version = "7281c4f681d66237"
+version = "a3d33b1363790899"
