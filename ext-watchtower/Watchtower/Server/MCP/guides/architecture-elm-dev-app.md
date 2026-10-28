@@ -2,6 +2,20 @@
 
 This is a project that uses the Elm Dev App Architecture, which is a framework on top of the standard Elm Architecture.
 
+## Behavioral testing
+
+Read the MCP resource `file://guides/behavioral-specs` for the `elm-spec`
+interaction-list API, test setup, virtual time, external HTTP/port adapters
+(including app-owned Pyre adapters), and customizable test interpreters.
+
+elm-dev supplies the reusable Spec modules. Initialize from the app root using
+`elm-dev test init --install`, write your tests, then run `elm-dev test`.
+Testing sources stay separate from production sources.
+Setup generates runtime support, not starter tests or configuration modules;
+the behavioral-specs guide explains how to write and organize those yourself.
+`--install` explicitly authorizes test-dependency installation through the
+dependency manager; ordinary tests and docs do not modify the app manifest.
+
 ## How it works
 
 Elm Dev has a built-in app architecture that is *optional*, but very useful for most apps.
@@ -159,6 +173,23 @@ Check out the docs for `Listen`, but some examples of what is available by defau
 
 > `elm-dev add listener ListenerName` will add a new listener for you that allows you to send JSON from JS to your Elm app and listen on the Elm side using an incoming port.  Generate it and check out what is generated!
 
+The generated helper takes `{ decoder, onError }`, with
+`onError : { value : Json.Decode.Value, error : Json.Decode.Error } -> msg`.
+It passes the original JSON and structured error to the application for request
+correlation, recovery, or formatting with `.error >> Json.Decode.errorToString`.
+To ignore invalid input, use `onError = \_ -> SubscriptionIgnored`, with an
+application message whose update leaves the model unchanged with `Effect.none`.
+`Listen.LocalStorage.onUpdated` takes the same `onError` field alongside its
+`key` and `decoder`.
+
+At the lower level, `Listen.OnFromJs` stores `{ portName, subscribe, receive }`.
+`subscribe` is the raw incoming port function specialized to
+`(Json.Decode.Value -> Json.Decode.Value) -> Sub Json.Decode.Value`, and
+`receive : Json.Decode.Value -> msg` owns decoding and error handling.
+Production uses `subscribe identity |> Sub.map receive`; behavioral specs invoke
+the same `receive` callback with simulated JSON. `Listen.map` preserves the port
+and subscription function and composes the receive callback.
+
 
 ## Broadcast
 
@@ -186,5 +217,3 @@ Listen.onBoardcast
 ```
 
 This is the main way you can communicate to your `Stores` or `Main` from anywhere in your app.
-
-

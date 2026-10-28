@@ -29,6 +29,7 @@ type alias Model =
 type Msg
     = ControlsUpdated FilePath Controls.Controls
     | PropertyUpdated FilePath String Controls.Value
+    | SubscriptionIgnored
 
 
 get : FilePath -> Model -> Maybe Controls.Controls
@@ -50,6 +51,9 @@ store =
         , update =
             \msg model ->
                 case msg of
+                    SubscriptionIgnored ->
+                        ( model, Effect.none )
+
                     ControlsUpdated filepath controls ->
                         ( { model
                             | controlsByFile =
@@ -74,7 +78,7 @@ store =
         , subscriptions =
             \_ ->
                 Listen.batch
-                    [ Ui.Interactive.Controls.listen (\{ filepath, controls } -> ControlsUpdated filepath controls)
+                    [ Ui.Interactive.Controls.listen (\_ -> SubscriptionIgnored) (\{ filepath, controls } -> ControlsUpdated filepath controls)
                     , Listen.onBroadcast
                         (\msg ->
                             case msg of

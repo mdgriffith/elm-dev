@@ -26,15 +26,19 @@ import Platform.Sub
 port devServer : (Decode.Value -> msg) -> Platform.Sub.Sub msg
 
 
-listen : (Event -> msg) -> Listen.Listen msg
-listen toMsg =
+listen : ({ value : Decode.Value, error : Decode.Error } -> msg) -> (Event -> msg) -> Listen.Listen msg
+listen onError toMsg =
     Listen.OnFromJs
         { portName = "devServer"
-        , subscription =
-            devServer
-                (\val ->
-                    Decode.decodeValue (Decode.map toMsg eventDecoder) val
-                )
+        , subscribe = devServer
+        , receive =
+            \value ->
+                case Decode.decodeValue eventDecoder value of
+                    Ok event ->
+                        toMsg event
+
+                    Err error ->
+                        onError { value = value, error = error }
         }
 
 

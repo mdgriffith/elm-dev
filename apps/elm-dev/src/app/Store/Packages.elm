@@ -127,6 +127,7 @@ store =
         , subscriptions =
             \_ ->
                 Listen.DevServer.listen
+                    (.error >> Json.Decode.errorToString >> IgnoreDevServer)
                     (\event ->
                         case event of
                             Listen.DevServer.PackageUpdated pkg ->
@@ -219,4 +220,3 @@ decodePackage =
                     _ ->
                         Json.Decode.fail "Expected a package"
             )
-

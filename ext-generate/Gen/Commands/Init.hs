@@ -199,8 +199,15 @@ Testing:
   elm-dev test .......... Discover, compile, and run Elm tests
   elm-dev test init ............................ Setup testing
   elm-dev test install <author/project> ..... Install test dep
+  elm-dev test init --install ............... Setup bundled behavioral support
 
 ```
+
+For interaction-list specs supplied by elm-dev, run
+`elm-dev test init --install`. Write your tests and any shared startup helpers
+under `tests/`, then run `elm-dev test`. Setup creates no starter tests or test
+configuration modules. All generated spec runtime modules are
+test-only; no separate elm-spec checkout is required. See [behavioral spec setup and adapters](https://github.com/mdgriffith/elm-dev/blob/main/docs/behavioral-specs.md).
 |]
 
 initElmJson :: FilePath -> IO (Either Exit.Init ())

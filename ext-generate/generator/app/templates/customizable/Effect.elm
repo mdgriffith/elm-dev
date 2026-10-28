@@ -6,6 +6,7 @@ module Effect exposing
     , sendMsg, sendMsgAfter
     , Expect(..), UrlBase(..)
     , toCmd
+    , Body(..), Header, resolveHttpTarget
     )
 
 {-|
@@ -180,14 +181,27 @@ type Effect msg
 
 type alias RequestDetails msg =
     { method : String
-    , headers : List Http.Header
+    , headers : List Header
     , url : String
     , urlBase : Maybe UrlBase
-    , body : Http.Body
+    , body : Body
     , expect : Expect msg
     , timeout : Maybe Float
     , tracker : Maybe String
     }
+
+
+type alias Header =
+    ( String, String )
+
+
+type Body
+    = EmptyBody
+    | StringBody String String
+    | JsonBody Json.Encode.Value
+    | BytesBody String Bytes.Bytes
+    | FileBody File.File
+    | MultipartBody (List Http.Part)
 
 
 {-| This type is here if you want to do something like include special headers for your API
@@ -220,7 +234,7 @@ toCmd :
     ->
         (UrlBase
          ->
-            { headers : List Http.Header
+            { headers : List Header
             , urlBase : String
             }
         )
@@ -379,30 +393,53 @@ toCmd options toHttpTarget effect =
 
         HttpRequest req ->
             let
-                maybeUrlBase =
-                    Maybe.map toHttpTarget req.urlBase
+                target =
+                    resolveHttpTarget toHttpTarget req
             in
             Http.request
                 { method = req.method
-                , body = req.body
-                , url =
-                    case maybeUrlBase of
-                        Nothing ->
-                            req.url
-
-                        Just base ->
-                            joinPath base.urlBase req.url
-                , headers =
-                    case maybeUrlBase of
-                        Nothing ->
-                            req.headers
-
-                        Just base ->
-                            req.headers ++ base.headers
+                , body = toHttpBody req.body
+                , url = target.url
+                , headers = List.map (\( name, value ) -> Http.header name value) target.headers
                 , expect = toHttpExpect req.expect
                 , timeout = req.timeout
                 , tracker = req.tracker
                 }
+
+
+resolveHttpTarget :
+    (UrlBase -> { headers : List Header, urlBase : String })
+    -> { request | urlBase : Maybe UrlBase, headers : List Header, url : String }
+    -> { headers : List Header, url : String }
+resolveHttpTarget toTarget request =
+    case Maybe.map toTarget request.urlBase of
+        Nothing ->
+            { headers = request.headers, url = request.url }
+
+        Just base ->
+            { headers = request.headers ++ base.headers, url = joinPath base.urlBase request.url }
+
+
+toHttpBody : Body -> Http.Body
+toHttpBody body =
+    case body of
+        EmptyBody ->
+            Http.emptyBody
+
+        StringBody contentType value ->
+            Http.stringBody contentType value
+
+        JsonBody value ->
+            Http.jsonBody value
+
+        BytesBody contentType value ->
+            Http.bytesBody contentType value
+
+        FileBody value ->
+            Http.fileBody value
+
+        MultipartBody parts ->
+            Http.multipartBody parts
 
 
 joinPath : String -> String -> String

@@ -437,6 +437,8 @@ testAlias =
             , ( "update", Type.function [ types.msg, types.testModel ] (Type.tuple types.testModel (types.effectWith types.msg)) )
             , ( "onUrlRequest", Type.function [ Gen.Browser.annotation_.urlRequest ] types.msg )
             , ( "onUrlChange", Type.function [ Gen.Url.annotation_.url ] types.msg )
+            , ( "subscriptions", Type.function [ types.testModel ] (Gen.Listen.annotation_.listen types.msg) )
+            , ( "callbacks", testCallbacksType )
             ]
         )
         |> Elm.exposeConstructor
@@ -469,6 +471,16 @@ test getPageInit loadPage =
                       )
                     , ( "view", Elm.apply (Elm.val "view") [ config ] )
                     , ( "update", Elm.apply (Elm.val "update") [ config ] )
+                    , ( "subscriptions", Elm.apply (Elm.val "getSubscriptions") [ config ] )
+                    , ( "callbacks"
+                      , Elm.record
+                            [ ( "preload", Elm.val "Preload" )
+                            , ( "viewRequested", Elm.val "ViewUpdated" )
+                            , ( "broadcast", Elm.val "Broadcast" )
+                            , ( "dropPageCache", Elm.val "PageCacheCleared" )
+                            , ( "ignore", Elm.val "SubscriptionEventIgnored" )
+                            ]
+                      )
                     , ( "onUrlChange"
                       , Elm.fn (Elm.Arg.varWith "url" Gen.Url.annotation_.url)
                             (\url ->
@@ -1059,11 +1071,21 @@ routeToView stores regionId pageId pageInfo =
         )
 
 
+testCallbacksType =
+    Type.record
+        [ ( "preload", Type.function [ types.pageId ] types.msg )
+        , ( "viewRequested", Type.function [ types.regionOperation ] types.msg )
+        , ( "broadcast", Type.function [ types.broadcast ] types.msg )
+        , ( "dropPageCache", types.msg )
+        , ( "ignore", Type.function [ Type.string ] types.msg )
+        ]
+
+
 getSubscriptions : List Options.App.Store -> List Options.App.PageUsage -> Elm.Declaration
 getSubscriptions stores pages =
     Elm.declaration "getSubscriptions"
         (Elm.fn2
-            (Elm.Arg.varWith "config" types.frameSub)
+            (Elm.Arg.varWith "config" types.frameListeners)
             (Elm.Arg.varWith "model" types.model)
             (\config model ->
                 Gen.Listen.batch
@@ -1120,7 +1142,7 @@ getSubscriptions stores pages =
             )
             |> Elm.withType
                 (Type.function
-                    [ types.frameSub
+                    [ types.frameListeners
                     , types.model
                     ]
                     (Gen.Listen.annotation_.listen types.msg)

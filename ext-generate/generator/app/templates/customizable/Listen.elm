@@ -55,7 +55,8 @@ type Listen msg
       --
     | OnFromJs
         { portName : String
-        , subscription : Platform.Sub.Sub (Result Json.Decode.Error msg)
+        , subscribe : (Json.Decode.Value -> Json.Decode.Value) -> Platform.Sub.Sub Json.Decode.Value
+        , receive : Json.Decode.Value -> msg
         }
 
 
@@ -120,8 +121,8 @@ map func sub =
         OnFromJs fromJs ->
             OnFromJs
                 { portName = fromJs.portName
-                , subscription =
-                    Sub.map (Result.map func) fromJs.subscription
+                , subscribe = fromJs.subscribe
+                , receive = fromJs.receive >> func
                 }
 
 
@@ -181,16 +182,8 @@ toSubscription options sub =
             Sub.none
 
         OnFromJs fromJs ->
-            fromJs.subscription
-                |> Sub.map
-                    (\result ->
-                        case result of
-                            Ok success ->
-                                success
-
-                            Err err ->
-                                options.ignore (Json.Decode.errorToString err)
-                    )
+            fromJs.subscribe identity
+                |> Sub.map fromJs.receive
 
 
 {-| You shouldn't need to use this directly, it's used by some code that elm-prefab generates.

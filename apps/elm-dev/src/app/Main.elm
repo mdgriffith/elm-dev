@@ -53,7 +53,7 @@ main =
         , update = update
         , subscriptions =
             \stores model ->
-                Listen.DevServer.listen DevServerReceived
+                Listen.DevServer.listen (\_ -> SubscriptionIgnored) DevServerReceived
         , toCmd = toCmd
         , toSub = toSub
         , view =
@@ -126,12 +126,16 @@ type Msg
     | UrlChanged Url.Url
     | HealthReceived (Result Http.Error String)
     | DevServerReceived Listen.DevServer.Event
+    | SubscriptionIgnored
 
 
 {-| -}
 update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect Msg )
 update stores msg model =
     case msg of
+        SubscriptionIgnored ->
+            ( model, Effect.none )
+
         UrlRequested (Browser.Internal url) ->
             ( model, Effect.Nav.pushUrl (Url.toString url) )
 

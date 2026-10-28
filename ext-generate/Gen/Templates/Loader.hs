@@ -4,6 +4,7 @@ module Gen.Templates.Loader
     ( Gen.Templates.Loader.read
     , Template(..)
     , Target(..)
+    , getFilesRecursive
     ) where
 
 
@@ -21,7 +22,9 @@ data Target = ToJs
             | ToHidden 
             | ToSrc 
             | Customizable 
-            | OneOff
+             | OneOff
+             | TestHidden
+             | TestCustomizable
             deriving (Show, Eq, Lift)
 
 toFilePath :: Target -> String
@@ -31,6 +34,8 @@ toFilePath ToHidden = ".hidden"
 toFilePath ToSrc = "src"
 toFilePath Customizable = "custom"
 toFilePath OneOff = "src"
+toFilePath TestHidden = "elm-stuff/generated-tests"
+toFilePath TestCustomizable = "tests"
 
 data Template = Template 
     { target :: Target
@@ -63,6 +68,8 @@ parseTemplatePath path = case filter (not . null) $ splitPath path of
     parseTarget "toSrc" = Just ToSrc
     parseTarget "customizable" = Just Customizable
     parseTarget "oneOff" = Just OneOff
+    parseTarget "testHidden" = Just TestHidden
+    parseTarget "testCustomizable" = Just TestCustomizable
     parseTarget _ = Nothing
     
     splitDirAndFile :: [String] -> (String, String)

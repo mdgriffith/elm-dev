@@ -238,6 +238,8 @@ Executable elm-dev
         Ext.Test.Introspect
         Ext.Test.Generate
         Ext.Test.Compile
+        Ext.Test.Spec
+        Gen.Commands.Spec
         Ext.Test.Runner
         Ext.Test.Parse
         Ext.Test.Templates.Loader
@@ -574,6 +576,8 @@ Test-Suite elm-dev-tests
         Ext.Sanity
         Ext.Sentry
         Ext.Test.Compile
+        Ext.Test.Spec
+        Gen.Commands.Spec
         Ext.Test.Discover
         Ext.Test.Generate
         Ext.Test.Install
@@ -692,7 +696,10 @@ Test-Suite elm-dev-tests
         Watchtower.Live.Client
         Watchtower.Live.Compile
         Watchtower.Server.DevWS
+        Watchtower.Server.Daemon
         Watchtower.Server.Daemon.State
+        Watchtower.Server.Dev
+        Watchtower.Server.Run
         Watchtower.Server.JSONRPC
         Watchtower.Server.MCP
         Watchtower.Server.MCP.Docs
@@ -716,7 +723,9 @@ Test-Suite elm-dev-tests
         Watchtower.Websocket
         Watchtower.StaticAssets
 
-    ghc-options: -O0 -Wall -dynamic-too
+    -- The fixture worker accepts the production worker environment but does not
+    -- need its threaded RTS flags. Keep the main regression runner non-threaded.
+    ghc-options: -O0 -Wall -dynamic-too -rtsopts=ignoreAll
 
     build-depends:
         ansi-terminal,

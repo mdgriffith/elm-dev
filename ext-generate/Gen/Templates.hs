@@ -20,14 +20,13 @@ import qualified Data.Char as Char
 
 -- The actual templates list, populated at compile time
 templates :: [Gen.Templates.Loader.Template]
-templates = $(TH.runIO 
-                (Gen.Templates.Loader.read
-                    "ext-generate/generator" 
-                    [ "app"
-                    , "assets"
-                    , "theme/templates"
-                    ]
-                ) >>= TH.lift
+templates = $(do
+                paths <- TH.runIO (concat <$> mapM Gen.Templates.Loader.getFilesRecursive
+                    ["ext-generate/generator/app", "ext-generate/generator/assets", "ext-generate/generator/theme/templates"])
+                mapM_ TH.qAddDependentFile paths
+                loaded <- TH.runIO $ Gen.Templates.Loader.read
+                    "ext-generate/generator" ["app", "assets", "theme/templates"]
+                TH.lift loaded
              )
 
 
@@ -140,4 +139,4 @@ writeGroupCustomizable target src hiddenSrc = do
 
 -- Version.  Iterate when we change the templates
 version :: String
-version = "a3d33b1363790899"
+version = "434ff17ca9f5d65d"

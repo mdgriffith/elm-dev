@@ -5,6 +5,7 @@ module Watchtower.Server.MCP.Guides
   , architectureElmPackageMd
   , architectureElmAppMd
   , wellFormedElmCodeMd
+  , behavioralSpecsMd
   ) where
 
 import qualified Data.ByteString as BS
@@ -20,7 +21,7 @@ import System.FilePath ((</>))
 
 -- | Embed variant guides
 architectureElmDevAppRaw :: BS.ByteString
-architectureElmDevAppRaw = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-watchtower" </> "Watchtower" </> "Server" </> "MCP" </> "guides" </> "architecture-elm-dev-app.md")) )
+architectureElmDevAppRaw = $(FileEmbed.embedFile "ext-watchtower/Watchtower/Server/MCP/guides/architecture-elm-dev-app.md")
 
 architectureElmPackageRaw :: BS.ByteString
 architectureElmPackageRaw = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-watchtower" </> "Watchtower" </> "Server" </> "MCP" </> "guides" </> "architecture-elm-package.md")) )
@@ -47,6 +48,11 @@ wellFormedElmCodeRaw = $( FileEmbed.bsToExp =<< TH.runIO (BS.readFile ("ext-watc
 -- | Decoded markdown text for use in MCP responses
 wellFormedElmCodeMd :: T.Text
 wellFormedElmCodeMd = T.decodeUtf8 wellFormedElmCodeRaw
+
+
+-- Embed the canonical guide so installed MCP servers need no repository files.
+behavioralSpecsMd :: T.Text
+behavioralSpecsMd = T.decodeUtf8 $(FileEmbed.embedFile "docs/behavioral-specs.md")
 
 
 version :: String

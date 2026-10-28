@@ -1,6 +1,7 @@
 module Effect.Http exposing
     ( get, request, cancel
     , expectString, expectStringResponse, expectJson, expectBytes, expectWhatever
+    , bytesBody, emptyBody, fileBody, header, jsonBody, multipartBody, stringBody
     )
 
 {-|
@@ -14,10 +15,13 @@ module Effect.Http exposing
 
 -}
 
+import Bytes
 import Bytes.Decode
 import Effect exposing (Effect)
+import File
 import Http
 import Json.Decode
+import Json.Encode
 
 
 type alias Expect msg =
@@ -31,7 +35,7 @@ get url expect =
         , headers = []
         , url = url
         , urlBase = Nothing
-        , body = Http.emptyBody
+        , body = emptyBody
         , expect = expect
         , timeout = Nothing
         , tracker = Nothing
@@ -51,10 +55,10 @@ You should now have a new module called `Effect.Github` that you can use to make
 -}
 request :
     { method : String
-    , headers : List Http.Header
+    , headers : List Effect.Header
     , url : String
     , urlBase : Maybe Effect.UrlBase
-    , body : Http.Body
+    , body : Effect.Body
     , expect : Expect msg
     , timeout : Maybe Float
     , tracker : Maybe String
@@ -97,3 +101,38 @@ expectBytes =
 expectWhatever : (Result Http.Error () -> msg) -> Expect msg
 expectWhatever =
     Effect.ExpectWhatever
+
+
+header : String -> String -> Effect.Header
+header =
+    Tuple.pair
+
+
+emptyBody : Effect.Body
+emptyBody =
+    Effect.EmptyBody
+
+
+stringBody : String -> String -> Effect.Body
+stringBody =
+    Effect.StringBody
+
+
+jsonBody : Json.Encode.Value -> Effect.Body
+jsonBody =
+    Effect.JsonBody
+
+
+bytesBody : String -> Bytes.Bytes -> Effect.Body
+bytesBody =
+    Effect.BytesBody
+
+
+fileBody : File.File -> Effect.Body
+fileBody =
+    Effect.FileBody
+
+
+multipartBody : List Http.Part -> Effect.Body
+multipartBody =
+    Effect.MultipartBody

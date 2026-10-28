@@ -104,6 +104,7 @@ store =
         , subscriptions =
             \_ ->
                 Listen.DevServer.listen
+                    (.error >> Json.Decode.errorToString >> IgnoreDevServer)
                     (\event ->
                         case event of
                             Listen.DevServer.PackageUpdated pkg ->
@@ -136,4 +137,3 @@ requestMissingForProject project model =
     missingPaths
         |> List.map (\file -> Effect.Ask.moduleRequested { dir = project.projectRoot, file = file })
         |> Effect.batch
-

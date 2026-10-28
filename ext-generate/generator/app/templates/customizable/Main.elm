@@ -1,4 +1,4 @@
-module Main exposing (main)
+module Main exposing (config, httpTarget, main)
 
 {-| -}
 
@@ -27,56 +27,59 @@ type alias Model =
 {-| -}
 main : App.App Model Msg
 main =
-    App.app
-        { init =
-            \stores flags url ->
-                loadUrl url { urlNotFound = False }
-        , onUrlRequest = UrlRequested
-        , onUrlChange = UrlChanged
-        , update = update
-        , subscriptions =
-            \stores model ->
-                Listen.none
-        , toCmd = toCmd
-        , toSub = toSub
-        , view =
-            \stores toAppMsg model regions ->
-                if model.urlNotFound then
-                    -- Globally, this url was not found
-                    { title = "Not found"
-                    , body = [ Html.text "Not found" ]
-                    }
+    App.app config
 
-                else
-                    case regions.primary of
-                        Nothing ->
-                            { title = "Nothing"
-                            , body = [ Html.text "" ]
-                            }
 
-                        Just (App.Loading _) ->
-                            { title = "Loading"
-                            , body = [ Html.text "Loading" ]
-                            }
+config =
+    { init =
+        \stores flags url ->
+            loadUrl url { urlNotFound = False }
+    , onUrlRequest = UrlRequested
+    , onUrlChange = UrlChanged
+    , update = update
+    , subscriptions =
+        \stores model ->
+            Listen.none
+    , toCmd = toCmd
+    , toSub = toSub
+    , view =
+        \stores toAppMsg model regions ->
+            if model.urlNotFound then
+                -- Globally, this url was not found
+                { title = "Not found"
+                , body = [ Html.text "Not found" ]
+                }
 
-                        Just App.NotFound ->
-                            { title = "Not found"
-                            , body = [ Html.text "Not found" ]
-                            }
+            else
+                case regions.primary of
+                    Nothing ->
+                        { title = "Nothing"
+                        , body = [ Html.text "" ]
+                        }
 
-                        Just (App.Error error) ->
-                            -- error is a type you control that lives at App.Page.Error
-                            { title = "Not found"
-                            , body = [ Html.text "Not found" ]
-                            }
+                    Just (App.Loading _) ->
+                        { title = "Loading"
+                        , body = [ Html.text "Loading" ]
+                        }
 
-                        Just (App.View page) ->
-                            { title = page.title
-                            , body =
-                                [ page.body
-                                ]
-                            }
-        }
+                    Just App.NotFound ->
+                        { title = "Not found"
+                        , body = [ Html.text "Not found" ]
+                        }
+
+                    Just (App.Error error) ->
+                        -- error is a type you control that lives at App.Page.Error
+                        { title = "Not found"
+                        , body = [ Html.text "Not found" ]
+                        }
+
+                    Just (App.View page) ->
+                        { title = page.title
+                        , body =
+                            [ page.body
+                            ]
+                        }
+    }
 
 
 type Msg
@@ -130,22 +133,22 @@ toSub stores options model sub =
 
 toCmd : App.Stores.Stores -> App.CmdOptions Msg -> Model -> Effect.Effect (App.Msg Msg) -> Cmd (App.Msg Msg)
 toCmd stores options model effect =
-    Effect.toCmd options
-        (\urlBase ->
-            case urlBase of
-                Effect.UrlApi ->
-                    { headers = []
-                    , urlBase = ""
-                    }
+    Effect.toCmd options httpTarget effect
 
-                Effect.UrlStaticFile ->
-                    { headers = []
-                    , urlBase = ""
-                    }
 
-                Effect.UrlCustom base ->
-                    { headers = []
-                    , urlBase = base
-                    }
-        )
-        effect
+httpTarget urlBase =
+    case urlBase of
+        Effect.UrlApi ->
+            { headers = []
+            , urlBase = ""
+            }
+
+        Effect.UrlStaticFile ->
+            { headers = []
+            , urlBase = ""
+            }
+
+        Effect.UrlCustom base ->
+            { headers = []
+            , urlBase = base
+            }

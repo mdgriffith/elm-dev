@@ -17,6 +17,7 @@ module Watchtower.Server.MCP
   , legacyInstallResponseForTests
   , docsQueriesNeedProjectForTests
   , availableToolsForTests
+  , availableResourcesForTests
   ) where
 
 {-
@@ -51,6 +52,7 @@ import qualified Elm.Docs as Docs
 import qualified Ext.Common
 import qualified Ext.CompileMode
 import qualified Ext.CompileProxy
+import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Ext.FileProxy
 import qualified Ext.Dev.Project
 import qualified Ext.Test.Install as TestInstall
@@ -60,6 +62,9 @@ import qualified Ext.Reporting.Error
 import qualified Gen.Commands.Init as GenInit
 import qualified Gen.Config as Config
 import qualified Gen.Generate
+import qualified Gen.Commands.Spec
+import qualified Ext.Test.Spec as SpecSupport
+import qualified Ext.Test.Compile as TestCompile
 import qualified Gen.Templates as Templates
 import GHC.Generics
 import qualified Stuff
@@ -994,7 +999,7 @@ runDocsQueryUntraced args state connId resolvedProject (index, value) =
                     Right (ModuleResolved _ maybePath maybePkg docsMod) -> do
                       let meta = DocsRender.ModuleMeta moduleName (fmap (Ext.Dev.Project.getRoot . projectFromCache) maybeProject) maybePath (fmap (Text.pack . Pkg.toChars) maybePkg)
                       pure (xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", "module"), ("module", moduleName), ("status", "ok")] ++ maybeRootAttrs maybeProject) (DocsRender.renderModule meta docsMod))
-                    Left _ -> pure (docsError index "module" [("module", moduleName)] ("No module found named " <> moduleName))
+                    Left problem -> pure (docsError index "module" [("module", moduleName)] problem)
         Just "file" ->
           case stringField query "file" of
             Nothing -> pure (docsError index "file" [] "Missing file.")
@@ -1026,7 +1031,7 @@ runDocsQueryUntraced args state connId resolvedProject (index, value) =
                               valueText = Text.pack (Name.toChars valName)
                               meta = DocsRender.ValueMeta moduleText valueText (fmap (Ext.Dev.Project.getRoot . projectFromCache) maybeProject) maybePath (fmap (Text.pack . Pkg.toChars) maybePkg)
                           pure (xmlBlock "docs" ([("index", Text.pack (show index)), ("kind", "value"), ("value", valueName), ("status", "ok")] ++ maybeRootAttrs maybeProject) (DocsRender.renderValue meta docsMod valName))
-                        Left _ -> pure (docsError index "value" [("value", valueName)] ("No value found that matches " <> valueName))
+                        Left problem -> pure (docsError index "value" [("value", valueName)] problem)
         Just "search" ->
           case stringField query "query" of
             Nothing -> pure (docsError index "search" [] "Missing query.")
@@ -1783,7 +1788,7 @@ jsonText = Data.Text.Encoding.decodeUtf8 . LBS.toStrict . JSON.encode
 toolAdd :: MCP.Tool
 toolAdd = MCP.Tool
   { MCP.toolName = "add"
-  , MCP.toolDescription = "Add multiple elm-dev artifacts in one call. additions is an array of tagged unions: page, store, effect, listener, theme."
+  , MCP.toolDescription = "Add elm-dev artifacts: page, store, effect, listener, theme, or spec setup. Spec setup shares the CLI implementation; dependency installation requires installDependencies: true."
   , MCP.toolInputSchema =
       JSON.object
         [ "type" .= ("object" :: Text)
@@ -1794,7 +1799,7 @@ toolAdd = MCP.Tool
                 ]
             , Key.fromText "additions" .= JSON.object
                 [ "type" .= ("array" :: Text)
-                , "description" .= ("Tagged additions: { kind: \"page\", url }, { kind: \"store\", module }, { kind: \"effect\", module }, { kind: \"listener\", module }, { kind: \"theme\" }" :: Text)
+                , "description" .= ("Tagged additions: { kind: \"page\", url }, { kind: \"store\", module }, { kind: \"effect\", module }, { kind: \"listener\", module }, { kind: \"theme\" }, { kind: \"spec\", installDependencies?: Bool }. Spec and Spec.Program are bundled; no local library path is needed. Dependency installation defaults to false." :: Text)
                 , "items" .= JSON.object [ "type" .= ("object" :: Text) ]
                 ]
             ]
@@ -1814,11 +1819,23 @@ toolAdd = MCP.Tool
   }
 
 runOneAdd :: Client.ProjectCache -> (Int, JSON.Value) -> IO Text
-runOneAdd (Client.ProjectCache proj _ _ _ _) (index, value) =
+runOneAdd (Client.ProjectCache proj _ _ _ testVar) (index, value) =
   case value of
     JSON.Object addition -> do
       let dir = Ext.Dev.Project.getRoot proj
       case stringField addition "kind" of
+        Just "spec" ->
+          if maybe False (\v -> case v of JSON.Bool _ -> False; _ -> True) (KeyMap.lookup "installDependencies" addition)
+              || KeyMap.member "source" addition
+          then pure (addError index "spec" [] "Spec is bundled with elm-dev; omit source. installDependencies must be a boolean.")
+          else do
+            let install = case KeyMap.lookup "installDependencies" addition of Just (JSON.Bool enabled) -> enabled; _ -> False
+            result <- Gen.Commands.Spec.setup dir install
+            case result of
+              Left problem -> pure (addError index "spec" [] (Text.pack problem))
+              Right message -> do
+                Control.Concurrent.STM.atomically (Watchtower.State.Compile.clearTestResults testVar)
+                pure (xmlBlock "add" [("index", Text.pack (show index)), ("kind", "spec"), ("status", "ok"), ("root", Text.pack dir)] (Text.pack message))
         Just "page" ->
           case stringField addition "url" of
             Nothing -> pure (addError index "page" [] "Missing url.")
@@ -2235,6 +2252,7 @@ availableResources =
   , resourceProjectList
   , resourceArchitecture
   , resourceWellFormedElmCode
+  , resourceBehavioralSpecs
   -- , resourceDiagnostics
   , resourceFileDocs
   , resourceModuleGraph
@@ -2244,6 +2262,22 @@ availableResources =
   ]
 
 -- Toplevel resource values with inline readers
+
+availableResourcesForTests :: [MCP.Resource]
+availableResourcesForTests = availableResources
+
+
+resourceBehavioralSpecs :: MCP.Resource
+resourceBehavioralSpecs =
+  MCP.Resource
+    { MCP.resourceUri = Uri.pattern "file" [Uri.s "guides", Uri.s "behavioral-specs"] []
+    , MCP.resourceName = "Behavioral Specs"
+    , MCP.resourceDescription = Just "Use elm-spec with generated apps: setup, interaction lists, virtual time, HTTP/port adapters (including Pyre), customization, and migration."
+    , MCP.resourceMimeType = Just "text/markdown"
+    , MCP.resourceAnnotations = Just (MCP.Annotations [MCP.AudienceAssistant] MCP.High Nothing)
+    , MCP.read = \req _state _emit _connId ->
+        pure (MCP.ReadResourceResponse [MCP.markdown req Guides.behavioralSpecsMd])
+    }
 
 resourceOverview :: MCP.Resource
 resourceOverview =
@@ -3005,12 +3039,9 @@ compileDocsProject state pc = do
 
 resolveDocsProjectFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Either Text (Maybe Client.ProjectCache))
 resolveDocsProjectFromArgs args state connId = do
-  resolved <- resolveDocsProjectCacheFromArgs args state connId
-  case resolved of
-    Left msg -> pure (Left msg)
-    Right maybeProject -> do
-      maybe (pure ()) (compileDocsProject state) maybeProject
-      pure (Right maybeProject)
+  -- Module/file/value queries compile their actual target in the correct context.
+  -- Overview/list queries explicitly request a project snapshot when needed.
+  resolveDocsProjectCacheFromArgs args state connId
 
 resolveDocsProjectCacheFromArgs :: JSON.Object -> Client.State -> JSONRPC.ConnectionId -> IO (Either Text (Maybe Client.ProjectCache))
 resolveDocsProjectCacheFromArgs args state connId =
@@ -3080,7 +3111,14 @@ renderPackageDocsText state pkgName mExplicitVersion mRoot = do
 
 localModulesForProject :: Client.State -> Client.ProjectCache -> IO [(FilePath, Docs.Module)]
 localModulesForProject _state pc =
-  DocsSnapshot.listedModulesForProject (Ext.Dev.Project.getRoot (projectFromCache pc))
+  do
+    let root = Ext.Dev.Project.getRoot (projectFromCache pc)
+    _ <- Watchtower.State.Compile.ensureProjectDocs _state "mcp.docs.list" pc
+    production <- DocsSnapshot.listedModulesForProject root
+    tests <- DocsSnapshot.listedModulesForProject (root </> "elm-stuff/elm-dev-test")
+    sources <- SpecSupport.applicationSources root
+    normalSources <- either (const (pure [])) SpecSupport.canonicalSources sources
+    pure (production ++ filter (\(path, _) -> not (any (containsFile path) normalSources)) tests)
 
 findLocalModuleDocsInProject :: Client.State -> Client.ProjectCache -> Name.Name -> IO (Maybe (FilePath, Docs.Module))
 findLocalModuleDocsInProject _state pc wantName =
@@ -3135,28 +3173,109 @@ resolveModuleSpecScoped :: Client.State -> Maybe Client.ProjectCache -> ModuleSp
 resolveModuleSpecScoped state maybeProject spec =
   case spec of
     ModuleByName wantName -> do
-      mLocal <- case maybeProject of
-        Just pc -> findLocalModuleDocsInProject state pc wantName
-        Nothing -> findLocalModuleDocs state wantName
-      case mLocal of
-        Just (fp, m) -> pure (Right (ModuleResolved wantName (Just fp) Nothing m))
+      case maybeProject of
+        Just pc -> do
+          let root = Ext.Dev.Project.getRoot (projectFromCache pc)
+          sources <- docsSourceDirectories root
+          case sources of
+            Left problem -> pure (Left problem)
+            Right (production, testing) -> do
+              found <- SpecSupport.resolveModule (production ++ testing) wantName
+              case found of
+                Just path -> compileLocalDocs state root production path
+                Nothing | Name.toChars wantName `elem` ["Spec", "Spec.Program"] -> do
+                  ready <- SpecSupport.readiness root
+                  pure (Left (either Text.pack (const "The bundled Spec module could not be resolved. Run elm-dev test init to regenerate test support.") ready))
+                Nothing | Name.toChars wantName == "ProgramTest" || "SimulatedEffect." `List.isPrefixOf` Name.toChars wantName ->
+                  programTestDocs state root wantName
+                Nothing -> packageFallback wantName
         Nothing -> do
-          mPkg <- findPackageModuleDocs state wantName
-          case mPkg of
-            Just (pkgName, m) -> pure (Right (ModuleResolved wantName Nothing (Just pkgName) m))
-            Nothing -> pure (Left "module not found")
+          local <- findLocalModuleDocs state wantName
+          case local of
+            Just (path, docs) -> pure (Right (ModuleResolved wantName (Just path) Nothing docs))
+            Nothing -> packageFallback wantName
 
     ModuleByFilePath fp -> do
-      projectResult <- Client.getExistingProject fp state
-      case projectResult of
-        Left _ -> pure (Left "file not associated with a known project")
-        Right (pc, _) -> do
-          _ <- Watchtower.State.Compile.ensureProjectDocs state "mcp.module_by_filepath" pc
-          modules <- DocsSnapshot.modulesForProject (Ext.Dev.Project.getRoot (projectFromCache pc))
-          case Map.lookup fp modules of
-            Just m@(Docs.Module name _ _ _ _ _) ->
-              pure (Right (ModuleResolved name (Just fp) Nothing m))
-            _ -> pure (Left "no docs for file")
+      project <- case maybeProject of
+        Just pc -> pure (Right pc)
+        Nothing -> fmap (fmap fst) (Client.getExistingProject fp state)
+      case project of
+        Left _ -> pure (Left "File is not associated with a known project. Supply the owning app's absolute dir for test-only files.")
+        Right pc -> do
+          let root = Ext.Dev.Project.getRoot (projectFromCache pc)
+          sources <- docsSourceDirectories root
+          case sources of
+            Left problem -> pure (Left problem)
+            Right (production, testing) -> do
+              canonical <- Dir.canonicalizePath fp
+              identities <- SpecSupport.canonicalSources (production ++ testing)
+              if any (containsFile canonical) identities then compileLocalDocs state root production canonical
+              else pure (Left "File is outside this project's production and configured test sources.")
+  where
+    packageFallback name = do
+      found <- findPackageModuleDocs state name
+      pure $ case found of
+        Just (package, docs) -> Right (ModuleResolved name Nothing (Just package) docs)
+        Nothing -> Left ("No local module or loaded dependency module named " <> Text.pack (Name.toChars name))
+
+
+containsFile :: FilePath -> FilePath -> Bool
+containsFile file directory = (FilePath.addTrailingPathSeparator directory) `List.isPrefixOf` file
+
+docsSourceDirectories :: FilePath -> IO (Either Text ([FilePath], [FilePath]))
+docsSourceDirectories root = do
+  production <- SpecSupport.applicationSources root
+  extra <- SpecSupport.sourceDirectories root
+  pure $ case (production, extra) of
+    (Right normal, Right configured) -> Right (normal, [root </> "tests", root </> "elm-stuff/generated-tests"] ++ configured)
+    (Left problem, _) -> Left (Text.pack problem)
+    (_, Left problem) -> Left (Text.pack problem)
+
+compileLocalDocs :: Client.State -> FilePath -> [FilePath] -> FilePath -> IO (Either Text ModuleResolved)
+compileLocalDocs state root production path = do
+  identities <- SpecSupport.canonicalSources production
+  canonical <- Dir.canonicalizePath path
+  let isTest = not (any (containsFile canonical) identities)
+      context = if isTest then root </> "elm-stuff/elm-dev-test" else root
+  prepared <- if isTest then TestCompile.prepare root [canonical] else pure (Right ())
+  case prepared of
+    Left problem -> pure (Left (Text.pack problem))
+    Right () -> do
+      Ext.CompileMode.setModeMemory
+      let flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+      (result, infos) <- Dir.withCurrentDirectory context $
+        Ext.CompileProxy.compileFullAnalysis context (NE.List canonical []) flags (Just (Client.packages state))
+      case result of
+        Left problem -> pure (Left ("Cannot compile documentation in " <> Text.pack context <> ":\n" <> Text.pack (Exit.toString (Exit.reactorToReport problem))))
+        Right _ -> do
+          entries <- mapM (\(file, info) -> do
+            key <- Dir.canonicalizePath file
+            pure (key, info)) (Map.toList infos)
+          let docsEntries = Map.fromList [(file, (name, docs)) | (file, info) <- entries, Just name <- [Client.moduleName info], Just docs <- [Client.docs info]]
+          -- Test docs have a separate owner, never overwrite the production snapshot.
+          if isTest then do
+            previous <- DocsSnapshot.entriesForProject context
+            DocsSnapshot.publish context 0 flags (Map.union docsEntries previous)
+          else pure ()
+          pure $ case Map.lookup canonical docsEntries of
+            Just (name, docs) -> Right (ModuleResolved name (Just canonical) Nothing docs)
+            Nothing -> Left ("Compilation succeeded but did not produce docs for " <> Text.pack canonical)
+
+programTestDocs :: Client.State -> FilePath -> Name.Name -> IO (Either Text ModuleResolved)
+programTestDocs state root name = do
+  outline <- Elm.Outline.read root
+  let version = case outline of
+        Right (Elm.Outline.App app) -> Map.lookup SpecSupport.programTestPackage (Map.unions [Elm.Outline._app_deps_direct app, Elm.Outline._app_test_direct app, Elm.Outline._app_deps_indirect app, Elm.Outline._app_test_indirect app])
+        _ -> Nothing
+  case version of
+    Nothing -> pure (Left "avh4/elm-program-test is not installed in this app. Use explicit spec setup with installDependencies: true; documentation requests do not install packages.")
+    Just installed -> do
+      loaded <- loadPackageDocsForTool state SpecSupport.programTestPackage (Just installed) (Just root)
+      pure $ case loaded of
+        Left problem -> Left problem
+        Right modules -> case Map.lookup name modules of
+          Just docs -> Right (ModuleResolved name Nothing (Just SpecSupport.programTestPackage) docs)
+          Nothing -> Left "The installed elm-program-test version does not expose this module."
 
 renderDocsModules :: Maybe Client.ProjectCache -> Maybe (Either a Elm.Outline.Outline) -> [(FilePath, Docs.Module)] -> Map.Map Pkg.Name Client.PackageInfo -> Text
 renderDocsModules maybeProject maybeOutline localDocs pkgs =

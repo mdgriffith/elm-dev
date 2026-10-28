@@ -183,6 +183,7 @@ type ConfigType
     | UpdateConfig
     | FullConfig
     | TestConfig
+    | ListenerConfig
 
 
 toConfig configType =
@@ -224,7 +225,7 @@ toConfig configType =
                         effectType
                     )
               )
-            , ( [ SubscriptionConfig, UpdateConfig, TestConfig ]
+            , ( [ SubscriptionConfig, UpdateConfig, TestConfig, ListenerConfig ]
               , "subscriptions"
               , Type.function
                     [ storesType
@@ -257,7 +258,7 @@ toConfig configType =
                     ]
                     (Gen.Platform.Cmd.annotation_.cmd appMsg)
               )
-            , ( [ SubscriptionConfig, UpdateConfig, TestConfig ]
+            , ( [ SubscriptionConfig ]
               , "toSub"
               , Type.function
                     [ storesType
@@ -402,6 +403,8 @@ types =
         toConfig UpdateConfig
     , frameSub =
         toConfig SubscriptionConfig
+    , frameListeners =
+        toConfig ListenerConfig
     , frameTest =
         toConfig TestConfig
     , pageModel = Type.named [] "PageModel"

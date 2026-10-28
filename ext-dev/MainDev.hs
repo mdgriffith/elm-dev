@@ -50,6 +50,7 @@ import qualified Ext.Log
 import qualified File
 import qualified Gen.Commands
 import qualified Gen.Commands.Make
+import qualified Gen.Commands.Spec
 import qualified Json.Decode
 import Json.Encode ((==>))
 import qualified Json.Encode
@@ -1072,8 +1073,8 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
   where
     seedFlag = CommandParser.flagWithArg "seed" "Random seed for fuzz tests" (Text.Read.readMaybe)
     fuzzFlag = CommandParser.flagWithArg "fuzz" "Number of fuzz runs per test" (Text.Read.readMaybe)
-    parseFlags = CommandParser.parseFlag2 seedFlag fuzzFlag
-    runCmd _ (maybeSeed, maybeFuzz) =  Ext.Log.withAllBut [Ext.Log.Performance] $ do
+    parseFlags = CommandParser.parseFlag3 seedFlag fuzzFlag (CommandParser.flagWithArg "glob" "Exposed test value to run, e.g. HomeSpec.tests" Just)
+    runCmd _ (maybeSeed, maybeFuzz, maybeGlob) =  Ext.Log.withAllBut [Ext.Log.Performance] $ do
       -- Ext.Log.setMode Ext.Log.StdOut
       -- Ext.CompileMode.setModeMemory
       -- Ext.Log.log Ext.Log.Misc "Running test command"
@@ -1082,43 +1083,48 @@ testCommand = CommandParser.command ["test"] "Discover, compile, and run Elm tes
         Nothing -> IO.hPutStrLn IO.stderr "Could not find project root"
         Just root -> do
           startPs <- CPUTime.getCPUTime
-          result <- Ext.Test.Runner.run Nothing Nothing maybeSeed maybeFuzz root
+          result <- Ext.Test.Runner.run Nothing (fmap (:[]) maybeGlob) maybeSeed maybeFuzz root
           case result of
             Left e -> case e of
-              Ext.Test.Runner.TimedOut waited -> IO.hPutStrLn IO.stderr ("Timed out running tests after " <> show waited <> "s")
-              Ext.Test.Runner.RunFailed msg -> IO.hPutStrLn IO.stderr msg
+              Ext.Test.Runner.TimedOut waited -> IO.hPutStrLn IO.stderr ("Timed out running tests after " <> show waited <> "s") >> Exit.exitFailure
+              Ext.Test.Runner.RunFailed msg -> IO.hPutStrLn IO.stderr msg >> Exit.exitFailure
             Right runResults -> do
               endPs <- CPUTime.getCPUTime
               let durationMs :: Int
                   durationMs = fromInteger ((endPs - startPs) `div` 1000000000)
               putStrLn (Ext.Test.Result.Report.renderReportsWithDuration True (Just durationMs) (Just (Ext.Test.Runner.seed runResults)) (Just (Ext.Test.Runner.fuzz runResults)) (Ext.Test.Runner.reports runResults))
+              Monad.when (Ext.Test.Runner.summaryFailed (Ext.Test.Runner.tiSummary (Ext.Test.Runner.info runResults)) > 0) Exit.exitFailure
 
 
 -- elm-dev test init
 testInitCommand :: CommandParser.Command
 testInitCommand = CommandParser.command ["test","init"] "Set up testing" testGroup CommandParser.noArg parseFlags runCmd
   where
-    parseFlags = CommandParser.noFlag
-    runCmd _ _ = do
+    parseFlags = CommandParser.parseFlag
+      (CommandParser.flag "install" "Explicitly install required test dependencies through the dependency manager")
+    runCmd _ installDependencies = do
       Ext.CompileMode.setModeMemory
       maybeRoot <- Stuff.findRoot
       case maybeRoot of
         Nothing -> IO.hPutStrLn IO.stderr "Could not find project root"
         Just root -> do
-          -- Install elm-explorations/test into test-dependencies
-          result <- Ext.Test.Install.installTestDependency (Pkg.toName (Utf8.fromChars "elm-explorations") "test")
-          case result of
-            Left _ -> IO.hPutStrLn IO.stderr "Failed to install elm-explorations/test"
-            Right _ -> pure ()
-          -- Write tests/Example.elm if it does not exist
-          let testsDir = root Path.</> "tests"
-          Dir.createDirectoryIfMissing True testsDir
-          let examplePath = testsDir Path.</> "Example.elm"
-          exists <- Dir.doesFileExist examplePath
-          if exists
-            then pure ()
-            else BS.writeFile examplePath TestTemplates.exampleElm
-          putStrLn "\nCheck out the documentation for getting started at https://package.elm-lang.org/packages/elm-explorations/test/latest"
+          generatedApp <- Dir.doesFileExist (root Path.</> "elm.dev.json")
+          if generatedApp then do
+            result <- Gen.Commands.Spec.setup root (Data.Maybe.fromMaybe False installDependencies)
+            case result of
+              Left problem -> IO.hPutStrLn IO.stderr problem >> Exit.exitFailure
+              Right message -> putStrLn message
+          else do
+            result <- Ext.Test.Install.installTestDependency (Pkg.toName (Utf8.fromChars "elm-explorations") "test")
+            case result of
+              Left _ -> IO.hPutStrLn IO.stderr "Failed to install elm-explorations/test" >> Exit.exitFailure
+              Right _ -> pure ()
+            let testsDir = root Path.</> "tests"
+            Dir.createDirectoryIfMissing True testsDir
+            let examplePath = testsDir Path.</> "Example.elm"
+            exists <- Dir.doesFileExist examplePath
+            Monad.unless exists (BS.writeFile examplePath TestTemplates.exampleElm)
+            putStrLn "\nCheck out the documentation for getting started at https://package.elm-lang.org/packages/elm-explorations/test/latest"
 
 
 -- elm-dev test install <author/project>

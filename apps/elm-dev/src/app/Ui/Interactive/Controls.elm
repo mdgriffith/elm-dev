@@ -21,23 +21,28 @@ port onControlsUpdated : (Decode.Value -> msg) -> Sub msg
 
 
 listen :
-    ({ filepath : String, controls : Controls.Controls } -> msg)
+    ({ value : Decode.Value, error : Decode.Error } -> msg)
+    -> ({ filepath : String, controls : Controls.Controls } -> msg)
     -> Listen.Listen msg
-listen toMsg =
+listen onError toMsg =
     let
         decoder =
             Decode.map2
                 (\filepath controls -> toMsg { filepath = filepath, controls = controls })
                 (Decode.field "filepath" Decode.string)
                 (Decode.field "controls" Controls.decode)
-
-        decodeValue value =
-            Decode.decodeValue decoder value
     in
     Listen.OnFromJs
         { portName = "onControlsUpdated"
-        , subscription =
-            onControlsUpdated decodeValue
+        , subscribe = onControlsUpdated
+        , receive =
+            \value ->
+                case Decode.decodeValue decoder value of
+                    Ok msg ->
+                        msg
+
+                    Err error ->
+                        onError { value = value, error = error }
         }
 
 

@@ -25,6 +25,7 @@ type alias Model =
 
 type Msg
     = DevServerReceived Listen.DevServer.Event
+    | SubscriptionIgnored
 
 
 store : App.Store.Store Msg Model
@@ -46,6 +47,9 @@ store =
         , update =
             \msg model ->
                 case msg of
+                    SubscriptionIgnored ->
+                        ( model, Effect.none )
+
                     DevServerReceived event ->
                         case event of
                             Listen.DevServer.ServerStatusUpdated { status } ->
@@ -69,7 +73,6 @@ store =
         , subscriptions =
             \_ ->
                 Listen.batch
-                    [ Listen.DevServer.listen DevServerReceived
+                    [ Listen.DevServer.listen (\_ -> SubscriptionIgnored) DevServerReceived
                     ]
         }
-

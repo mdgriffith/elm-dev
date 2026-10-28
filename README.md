@@ -2,6 +2,9 @@
 
 Elm Dev is a version of the Elm compiler that is made to support editing tools.
 
+For generated applications, see [behavioral specs](docs/behavioral-specs.md) for
+interaction-list tests, virtual time, and application-owned data adapters.
+
 Not to be confused with Elm itself which lives here: https://elm-lang.org/
 
 This package is for toolmakers, so if you're just starting out using Elm, you likely don't need this tool directly.

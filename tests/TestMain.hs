@@ -3,7 +3,7 @@
 
 module Main where
 
-import Control.Monad (when)
+import Control.Monad (when, unless)
 import qualified Control.Concurrent as Concurrent
 import qualified Control.Concurrent.MVar as MVar
 import qualified Control.Concurrent.STM as STM
@@ -22,6 +22,7 @@ import qualified Ext.Filewatch as Filewatch
 import qualified Ext.Test.Result as TestResult
 import qualified Ext.Test.Result.Report as TestReport
 import qualified Ext.Test.Compile as TestCompile
+import qualified Ext.Test.Spec as SpecSupport
 import qualified Ext.Test.Generate as TestGenerate
 import qualified Ext.Test.Parse as TestParse
 import qualified Ext.Test.Runner as TestRunner
@@ -57,6 +58,11 @@ import qualified Watchtower.State.TestJobs as TestJobs
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Server.MCP as MCP
 import qualified Watchtower.Server.Daemon.State as DaemonState
+import qualified Watchtower.Server.Daemon as Daemon
+import qualified Watchtower.Server.Run as ServerRun
+import qualified Network.Socket as Socket
+import qualified System.IO as IO
+import qualified Ext.Log
 import qualified AST.Canonical as Canonical
 import qualified Reporting.Annotation as Annotation
 import qualified System.Exit as Exit
@@ -94,6 +100,27 @@ import qualified Text.Read as Read
 
 main :: IO ()
 main = do
+  args <- Environment.getArgs
+  case args of
+    ["dev", "serve", "--silent"] -> do
+      -- Other regression fixtures may have changed the test parent's cwd to a
+      -- scratch directory. Give this disposable daemon a stable private cwd.
+      launchRoot <- Environment.getEnv "ELM_DEV_TEST_DAEMON_CWD"
+      Dir.setCurrentDirectory launchRoot
+      -- Assert that the background launcher provided real OS streams, not just
+      -- logical Haskell stdin/stdout Handles pointing at closed descriptors.
+      input <- BS.hGet IO.stdin 1
+      unless (BS.null input) (fail "Expected null-device stdin")
+      IO.hPutStrLn IO.stdout "daemon stdio probe"
+      IO.hFlush IO.stdout
+      Ext.Log.setMode Ext.Log.Silent
+      Daemon.allocateServeParams >>= Daemon.serve
+    ["__elm-dev-test-worker", _, responsePath] ->
+      BS.writeFile responsePath successWorkerResponse
+    _ -> runTests
+
+runTests :: IO ()
+runTests = do
   Environment.setEnv "MODE" "memory"
   Environment.unsetEnv "ELM_DEV_TRACE_DB"
   fileCacheResults <- sequence fileCacheTests
@@ -473,6 +500,7 @@ optimizationTests =
 mcpTests :: [NamedTest]
 mcpTests =
   [ runTest "MCP exposes composite tools" testMcpCompositeToolsExposed
+  , runTest "MCP serves behavioral spec documentation without a focused project" testMcpBehavioralSpecsGuide
   , runTest "MCP rejects relative dirs before tool execution" testMcpRelativeDirs
   , runTest "MCP check surfaces discovery errors" testMcpDiscoveryError
   , runTest "MCP hides retired single-purpose tools" testMcpRetiredToolsHidden
@@ -492,6 +520,13 @@ mcpTests =
   , runTest "hover type index preserves region annotations" testHoverIndexPreservesAnnotations
   , runTest "test aggregator rewrites refresh cached source" testAggregatorRewriteRefreshesCache
   , runTest "package test manifest is persisted as an application" testPackageTestManifestIsPersistedAsApplication
+  , runTest "spec sources and generated harness remain test-only" testSpecSourcesRemainTestOnly
+  , runTest "test source directories deduplicate relative and symlink aliases" testCanonicalSpecSourceDirectories
+  , runTest "spec readiness reports missing setup without changing the manifest" testSpecReadinessIsReadOnly
+  , runTest "MCP local docs use the test context and preserve compilation errors" testMcpTestContextDocs
+  , runTest "consumer spec MCP docs resolve with the configured app" testConsumerSpecDocs
+  , runTest "consumer specs execute in the isolated MCP test worker" testConsumerSpecWorker
+  , runTest "missing local spec sources report their path" testMissingSpecSourceReportsPath
   , runTest "test discovery preserves exposed declaration casing" testDiscoveryPreservesExposedDeclarationCasing
   , runTest "test reports decode and render exported-value durations" testReportDuration
   , runTest "JavaScript cancellation does not fail during stdin cleanup" testJavascriptCancellation
@@ -504,6 +539,7 @@ mcpTests =
 daemonTests :: [NamedTest]
 daemonTests =
   [ runTest "daemon state round-trips and ignores legacy fields" testDaemonStateRoundTrip
+  , runTest "detached daemon can capture isolated worker output" testDetachedDaemonWorker
   ]
 
 dependencyTests :: [NamedTest]
@@ -1454,6 +1490,57 @@ testDaemonStateRoundTrip = do
     (Right decoded, Right legacyDecoded) -> decoded == state && legacyDecoded == state
     _ -> False
 
+-- Exercise the real background startup path and its TCP MCP handler. Calling
+-- runIsolatedWith from this test process alone retains normal terminal streams
+-- and misses the descriptor reuse caused by a daemon launched with NoStream.
+testDetachedDaemonWorker :: IO Bool
+testDetachedDaemonWorker =
+  Temp.withSystemTempDirectory "elm-dev-detached-worker" $ \root ->
+    withEnvironmentVariable "ELM_DEV_HOME" (root FilePath.</> "home") $
+    withEnvironmentVariable "ELM_DEV_TEST_DAEMON_CWD" root $ do
+      let project = root FilePath.</> "project"
+      writeElmApp project
+      Dir.createDirectoryIfMissing True (project FilePath.</> "src")
+      BS.writeFile (project FilePath.</> "src/Main.elm") "module Main exposing (main)\nimport Platform\nmain = Platform.worker { init = \\_ -> ( (), Cmd.none ), update = \\_ model -> ( model, Cmd.none ), subscriptions = \\_ -> Sub.none }\n"
+      Exception.bracket Daemon.start (\_ -> Daemon.stop) $ \daemon -> do
+        addresses <- Socket.getAddrInfo Nothing (Just (Daemon.domain daemon)) (Just (show (Daemon.mcpPort daemon)))
+        let address = head addresses
+        Exception.bracket (Socket.socket (Socket.addrFamily address) Socket.Stream Socket.defaultProtocol) Socket.close $ \socket -> do
+          Socket.connect socket (Socket.addrAddress address)
+          handle <- Socket.socketToHandle socket IO.ReadWriteMode
+          IO.hSetBuffering handle IO.NoBuffering
+          result <- Timeout.timeout (20 * 1000000) $ do
+            _ <- daemonRequest handle 1 "initialize" (JSON.object
+              [ "protocolVersion" JSON..= ("2024-11-05" :: String)
+              , "capabilities" JSON..= JSON.object []
+              , "clientInfo" JSON..= JSON.object ["name" JSON..= ("detached-worker-test" :: String), "version" JSON..= ("1" :: String)]
+              ])
+            responses <- mapM (\requestId -> daemonRequest handle requestId "tools/call" (JSON.object
+              [ "name" JSON..= ("check" :: String)
+              , "arguments" JSON..= JSON.object
+                  [ "dir" JSON..= project
+                  , "tests" JSON..= JSON.object ["kind" JSON..= ("all" :: String), "waitSeconds" JSON..= (5 :: Int)]
+                  ]
+              ])) [2..4]
+            let passed = all (List.isInfixOf "worker result" . LazyChar8.unpack) responses
+            unless passed (mapM_ (putStrLn . LazyChar8.unpack) responses)
+            pure passed
+          IO.hClose handle
+          pure (result == Just True)
+
+daemonRequest :: IO.Handle -> Int -> String -> JSON.Value -> IO LazyChar8.ByteString
+daemonRequest handle requestId method params = do
+  ServerRun.sendWithContentLengthHandle handle (JSON.encode (JSON.object
+    [ "jsonrpc" JSON..= ("2.0" :: String), "id" JSON..= requestId, "method" JSON..= method, "params" JSON..= params ]))
+  let receive = do
+        response <- ServerRun.readHandleMessage handle
+        case response of
+          Nothing -> fail "Detached daemon disconnected"
+          Just bytes -> case JSON.eitherDecode bytes of
+            Right (JSON.Object object) | KeyMap.lookup "id" object == Just (JSON.toJSON requestId) -> pure bytes
+            _ -> receive
+  receive
+
 testMcpRelativeDirs :: IO Bool
 testMcpRelativeDirs = do
   state <- Client.initState testUrls
@@ -1485,6 +1572,21 @@ testMcpDiscoveryError = do
         MCPProtocol.ToolCallResponse [MCPProtocol.ToolResponseError _ msg] ->
           Text.isInfixOf "src" msg && Text.isInfixOf "SOURCE" msg
         _ -> False
+
+testMcpBehavioralSpecsGuide :: IO Bool
+testMcpBehavioralSpecsGuide = do
+  state <- Client.initState testUrls
+  case List.find ((== "Behavioral Specs") . MCPProtocol.resourceName) MCP.availableResourcesForTests of
+    Nothing -> pure False
+    Just resource -> do
+      response <- MCPProtocol.read resource
+        (MCPProtocol.ReadResourceRequest "file://guides/behavioral-specs") state (\_ -> pure ()) "spec-guide-test"
+      pure $ case MCPProtocol.readResourceContents response of
+        [content] -> MCPProtocol.resourceContentUri content == "file://guides/behavioral-specs"
+          && all (`Text.isInfixOf` MCPProtocol.resourceContentText content)
+            ["test init --install", "Spec.outgoingPort", "Spec.advanceTime", "pyreStoreOut", "customize App.Spec.Effect"]
+        _ -> False
+
 
 testMcpCompositeToolsExposed :: IO Bool
 testMcpCompositeToolsExposed = do
@@ -1859,6 +1961,173 @@ testPackageTestManifestIsPersistedAsApplication =
     pure $ case (result, generated) of
       (Right (), Right (Outline.App _)) -> exists
       _ -> False
+
+
+testSpecSourcesRemainTestOnly :: IO Bool
+testSpecSourcesRemainTestOnly =
+  Temp.withSystemTempDirectory "elm-dev-spec-sources" $ \root -> do
+    writeElmPackage root
+    mapM_ (Dir.createDirectoryIfMissing True . (root FilePath.</>))
+      ["src", "tests", "spec-library", "elm-stuff/generated-tests"]
+    original <- BS.readFile (root FilePath.</> "elm.json")
+    BS.writeFile (root FilePath.</> "elm.spec.json") "{\"source-directories\":[\"spec-library\"]}"
+    result <- TestCompile.regenerateTestElmJsonPersisted root
+    generated <- BS.readFile (TestGenerate.generatedDir root FilePath.</> "elm.json")
+    unchanged <- BS.readFile (root FilePath.</> "elm.json")
+    pure $ case result of
+      Right () -> original == unchanged
+        && "spec-library" `BS.isInfixOf` generated
+        && "../generated-tests" `BS.isInfixOf` generated
+      _ -> False
+
+
+testCanonicalSpecSourceDirectories :: IO Bool
+testCanonicalSpecSourceDirectories =
+  Temp.withSystemTempDirectory "elm-dev-canonical-test-sources" $ \root -> do
+    let source = root FilePath.</> "elm-stuff/generated-tests"
+    Dir.createDirectoryIfMissing True source
+    Dir.createDirectoryIfMissing True (root FilePath.</> "elm-stuff/elm-dev-test")
+    Dir.createDirectoryLink source (root FilePath.</> "linked-tests")
+    paths <- SpecSupport.canonicalSources
+      [source, root FilePath.</> "elm-stuff/elm-dev-test/../generated-tests", root FilePath.</> "linked-tests"]
+    expected <- Dir.canonicalizePath source
+    Dir.createDirectoryIfMissing True (root FilePath.</> "src")
+    Dir.createDirectoryIfMissing True (root FilePath.</> "tests")
+    let manifest = TextEncoding.encodeUtf8 (Text.replace
+          "\"source-directories\": [\"src\"]"
+          "\"source-directories\": [\"src\", \"linked-tests\"]"
+          (Text.pack basicElmJson))
+    BS.writeFile (root FilePath.</> "elm.json") manifest
+    result <- TestCompile.regenerateTestElmJsonPersisted root
+    outline <- case result of
+      Left _ -> pure Nothing
+      Right () -> Just <$> Outline.read (TestGenerate.generatedDir root)
+    after <- BS.readFile (root FilePath.</> "elm.json")
+    case (result, outline) of
+      (Right (), Just (Right (Outline.App app))) -> do
+        let generatedRoot = TestGenerate.generatedDir root
+            emitted = map (Outline.toAbsolute generatedRoot) (NE.toList (Outline._app_source_dirs app))
+        identities <- traverse Dir.canonicalizePath emitted
+        pure (paths == [expected] && length identities == length (List.nub identities)
+          && length (filter (== expected) identities) == 1 && manifest == after)
+      _ -> pure False
+
+
+testSpecReadinessIsReadOnly :: IO Bool
+testSpecReadinessIsReadOnly =
+  Temp.withSystemTempDirectory "elm-dev-readonly-spec-preflight" $ \root -> do
+    writeElmApp root
+    Dir.createDirectoryIfMissing True (root FilePath.</> "src")
+    Dir.createDirectoryIfMissing True (root FilePath.</> "tests")
+    let target = root FilePath.</> "tests/Smoke.elm"
+    BS.writeFile target "module Smoke exposing (tests)\nimport App.Spec\ntests = App.Spec.start\n"
+    original <- BS.readFile (root FilePath.</> "elm.json")
+    result <- SpecSupport.checkEntrypoints root [target]
+    after <- BS.readFile (root FilePath.</> "elm.json")
+    configured <- Dir.doesFileExist (root FilePath.</> "elm.spec.json")
+    pure $ case result of
+      Left problem -> "--install" `List.isInfixOf` problem && original == after && not configured
+      Right () -> False
+
+
+testMcpTestContextDocs :: IO Bool
+testMcpTestContextDocs =
+  Temp.withSystemTempDirectory "elm-dev-mcp-test-docs" $ \root -> do
+    writeElmApp root
+    Dir.createDirectoryIfMissing True (root FilePath.</> "src")
+    Dir.createDirectoryIfMissing True (root FilePath.</> "tests")
+    BS.writeFile (root FilePath.</> "src/Main.elm") "module Main exposing (main)\nimport Platform\nmain = Platform.worker { init = \\_ -> ( (), Cmd.none ), update = \\_ model -> ( model, Cmd.none ), subscriptions = \\_ -> Sub.none }\n"
+    BS.writeFile (root FilePath.</> "tests/TestHelper.elm") "module TestHelper exposing (answer)\nanswer : Int\nanswer = 42\n"
+    BS.writeFile (root FilePath.</> "tests/BrokenHelper.elm") "module BrokenHelper exposing (answer)\nanswer : Int\nanswer = \"wrong type\"\n"
+    state <- Client.initState testUrls
+    original <- BS.readFile (root FilePath.</> "elm.json")
+    case List.find ((== "docs") . MCPProtocol.toolName) MCP.availableToolsForTests of
+      Nothing -> pure False
+      Just tool -> do
+        response <- MCPProtocol.call tool (KeyMap.fromList
+          [ ("dir", JSON.String (Text.pack root))
+          , ("queries", JSON.toJSON
+              [ JSON.object ["kind" JSON..= ("module" :: Text.Text), "module" JSON..= ("TestHelper" :: Text.Text)]
+              , JSON.object ["kind" JSON..= ("value" :: Text.Text), "value" JSON..= ("TestHelper.answer" :: Text.Text)]
+              , JSON.object ["kind" JSON..= ("file" :: Text.Text), "file" JSON..= (root FilePath.</> "tests/TestHelper.elm")]
+              , JSON.object ["kind" JSON..= ("module" :: Text.Text), "module" JSON..= ("BrokenHelper" :: Text.Text)]
+              ])
+          ]) state (\_ -> pure ()) "test-docs-context"
+        after <- BS.readFile (root FilePath.</> "elm.json")
+        pure $ case response of
+          MCPProtocol.ToolCallResponse [MCPProtocol.ToolResponseText _ body] -> original == after
+            && Text.count "status=\"ok\"" body == 3
+            && "answer" `Text.isInfixOf` body
+            && "TYPE MISMATCH" `Text.isInfixOf` body
+            && not ("No module found named BrokenHelper" `Text.isInfixOf` body)
+          _ -> False
+
+
+testConsumerSpecDocs :: IO Bool
+testConsumerSpecDocs = do
+  consumer <- Environment.lookupEnv "ELM_DEV_SPEC_CONSUMER"
+  case consumer of
+    Nothing -> pure True
+    Just root -> do
+      state <- Client.initState testUrls
+      before <- BS.readFile (root FilePath.</> "elm.json")
+      setupWorked <- case List.find ((== "add") . MCPProtocol.toolName) MCP.availableToolsForTests of
+        Nothing -> pure False
+        Just tool -> do
+          result <- MCPProtocol.call tool (KeyMap.fromList
+            [ ("dir", JSON.String (Text.pack root))
+            , ("additions", JSON.toJSON [JSON.object ["kind" JSON..= ("spec" :: Text.Text)]])
+            ]) state (\_ -> pure ()) "consumer-spec-setup"
+          pure $ case result of
+            MCPProtocol.ToolCallResponse [MCPProtocol.ToolResponseText _ body] -> "status=\"ok\"" `Text.isInfixOf` body
+              && "Application elm.json unchanged" `Text.isInfixOf` body
+            _ -> False
+      case List.find ((== "docs") . MCPProtocol.toolName) MCP.availableToolsForTests of
+        Nothing -> pure False
+        Just tool -> do
+          response <- MCPProtocol.call tool (KeyMap.fromList
+            [ ("dir", JSON.String (Text.pack root))
+            , ("queries", JSON.toJSON
+                [ JSON.object ["kind" JSON..= ("module" :: Text.Text), "module" JSON..= ("App.Spec" :: Text.Text)]
+                , JSON.object ["kind" JSON..= ("module" :: Text.Text), "module" JSON..= ("Spec" :: Text.Text)]
+                , JSON.object ["kind" JSON..= ("value" :: Text.Text), "value" JSON..= ("Spec.Program.start" :: Text.Text)]
+                , JSON.object ["kind" JSON..= ("module" :: Text.Text), "module" JSON..= ("ProgramTest" :: Text.Text)]
+                , JSON.object ["kind" JSON..= ("file" :: Text.Text), "file" JSON..= (root FilePath.</> "tests/AppSpecHarnessTest.elm")]
+                ])
+            ]) state (\_ -> pure ()) "consumer-spec-docs"
+          after <- BS.readFile (root FilePath.</> "elm.json")
+          pure $ case response of
+            MCPProtocol.ToolCallResponse [MCPProtocol.ToolResponseText _ body] -> setupWorked && before == after && Text.count "status=\"ok\"" body == 5
+            _ -> False
+
+
+testConsumerSpecWorker :: IO Bool
+testConsumerSpecWorker = do
+  consumer <- Environment.lookupEnv "ELM_DEV_SPEC_CONSUMER"
+  binary <- Environment.lookupEnv "ELM_DEV_SPEC_BIN"
+  case (consumer, binary) of
+    (Just root, Just executable) -> do
+      result <- TestRunner.runIsolatedWith executable (Just 60) (Just ["LoreBehaviorSpec.login"]) (Just 12345) (Just 100) root
+      case result of
+        Right success -> do
+          let passed = TestRunner.summaryTotal (TestRunner.isolatedSummary success) == 2
+                && TestRunner.summaryFailed (TestRunner.isolatedSummary success) == 0
+          unless passed (putStrLn (TestRunner.isolatedRendered success))
+          pure passed
+        Left (TestRunner.RunFailed problem) -> putStrLn problem >> pure False
+        Left (TestRunner.TimedOut seconds) -> putStrLn ("Consumer spec worker timed out after " ++ show seconds ++ " seconds") >> pure False
+    _ -> pure True
+
+
+testMissingSpecSourceReportsPath :: IO Bool
+testMissingSpecSourceReportsPath =
+  Temp.withSystemTempDirectory "elm-dev-missing-spec-source" $ \root -> do
+    writeElmPackage root
+    BS.writeFile (root FilePath.</> "elm.spec.json") "{\"source-directories\":[\"missing-spec-library\"]}"
+    result <- Exception.try (TestCompile.regenerateTestElmJsonPersisted root)
+    pure $ case result of
+      Left problem -> "missing-spec-library" `List.isInfixOf` show (problem :: IOError)
+      Right _ -> False
 
 
 testDiscoveryPreservesExposedDeclarationCasing :: IO Bool
@@ -3225,6 +3494,10 @@ testIsolatedTestLauncherRepeatedRuns =
 #endif
 
 
+successWorkerResponse :: BS.ByteString
+successWorkerResponse = "{\"status\":\"ok\",\"rendered\":\"worker result\",\"testFiles\":[\"tests/Suite.elm\"],\"total\":1,\"passed\":1,\"failed\":0,\"failures\":[],\"seed\":1,\"fuzz\":2,\"durationMs\":3}"
+
+
 #ifndef mingw32_HOST_OS
 withWorkerScript :: String -> (FilePath -> IO a) -> IO a
 withWorkerScript script action =
@@ -3247,7 +3520,7 @@ successWorkerScript = unlines
   , "[ \"$1\" = \"__elm-dev-test-worker\" ] || exit 40"
   , "case \"$GHCRTS\" in *-M1024m*) ;; *) exit 41 ;; esac"
   , "case \"$NODE_OPTIONS\" in *--max-old-space-size=768*) ;; *) exit 42 ;; esac"
-  , "printf '%s' '{\"status\":\"ok\",\"rendered\":\"worker result\",\"testFiles\":[\"tests/Suite.elm\"],\"total\":1,\"passed\":1,\"failed\":0,\"failures\":[],\"seed\":1,\"fuzz\":2,\"durationMs\":3}' > \"$3\""
+  , "printf '%s' '" ++ BSChar8.unpack successWorkerResponse ++ "' > \"$3\""
   ]
 
 

@@ -9,6 +9,7 @@ import Data.Aeson (FromJSON (..), ToJSON, eitherDecodeStrict, object, withObject
 import qualified Data.Aeson.Encode.Pretty as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Digest.Pure.SHA as SHA
 import Data.Function ((&))
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
@@ -97,9 +98,14 @@ instance FromJSON GeneratorSummary where
         <$> obj .:? "generated"
         <*> obj .:? "errors"
 
+implementationHash :: Text.Text
+implementationHash = Text.pack (SHA.showDigest (SHA.sha1 (BSL.fromStrict (BS.concat
+    (Javascript.generatorJs : map Loader.content Templates.templates)))))
+
+
 isOutOfDateByHash :: FilePath -> RunConfig.RunConfig -> IO (Text.Text, Bool)
 isOutOfDateByHash generationPath runConfig = do
-  let runConfigHash = RunConfig.toHash runConfig
+  let runConfigHash = RunConfig.toHash runConfig <> ":" <> implementationHash
   exists <- Dir.doesFileExist generationPath
   if not exists
     then return (runConfigHash, True) -- No hash file, so we need to generate
@@ -130,6 +136,11 @@ outputsExist root manifestPath = do
           custom <- Dir.doesFileExist (root </> "src/app" </> relative)
           hidden <- Dir.doesFileExist hiddenPath
           pure (if custom then not hidden else hidden)
+        Loader.TestHidden -> Dir.doesFileExist (root </> "elm-stuff/generated-tests" </> relative)
+        Loader.TestCustomizable -> do
+          custom <- Dir.doesFileExist (root </> "tests" </> relative)
+          hidden <- Dir.doesFileExist (root </> "elm-stuff/generated-tests" </> relative)
+          pure (if custom then not hidden else hidden)
         _ -> pure True
 
 outputPath :: FilePath -> FilePath -> FilePath
@@ -156,6 +167,8 @@ run root = do
 
           Templates.writeGroupCustomizable Loader.Customizable (root </> "src/app") (root </> "elm-stuff/generated")
           Templates.writeGroup Loader.ToHidden (root </> "elm-stuff/generated")
+          Templates.writeGroup Loader.TestHidden (root </> "elm-stuff/generated-tests")
+          Templates.writeGroupCustomizable Loader.TestCustomizable (root </> "tests") (root </> "elm-stuff/generated-tests")
 
           case generateResult of
             Right files -> do

@@ -43,6 +43,7 @@ import qualified Data.ByteString.UTF8 as UTF8
 import qualified Ext.Test.Templates.Loader as Templates
 import qualified Ext.Log
 import qualified Gen.Javascript as Javascript
+import qualified Gen.Generate as AppGenerate
 import qualified Ext.Test.Result
 import qualified System.Timeout as Timeout
 import qualified Data.Time.Clock as Time
@@ -393,6 +394,14 @@ processDetails stdout stderr
 -- Returns (JSON test result bytes, discovered tests, discovered test files).
 runNode :: Maybe [String] -> Int -> Int -> FilePath -> IO (Either Javascript.RunError (BS.ByteString, [(ModuleName.Raw, Name.Name)], [FilePath]))
 runNode mGlobs seed runs root = do
+  generated <- AppGenerate.run root
+  case generated of
+    Left problem -> pure (Left (Javascript.Other problem))
+    Right () -> runPreparedNode mGlobs seed runs root
+
+
+runPreparedNode :: Maybe [String] -> Int -> Int -> FilePath -> IO (Either Javascript.RunError (BS.ByteString, [(ModuleName.Raw, Name.Name)], [FilePath]))
+runPreparedNode mGlobs seed runs root = do
   BackgroundWriter.withScope $ \scope -> do
     Ext.CompileMode.setModeMemory
     testFiles <- Discover.discoverTestFiles root

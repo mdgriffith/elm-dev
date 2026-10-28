@@ -159,15 +159,23 @@ start = startProcess
 startProcess :: IO StateInfo
 startProcess = do
   exe <- Env.getExecutablePath
-  let cp = (Process.proc exe ["dev","serve","--silent"])
-              { Process.std_in = Process.NoStream
-              , Process.std_out = Process.NoStream
+  -- Keep descriptors 0 and 1 valid even though this is a detached process.
+  -- NoStream closes them, allowing the threaded RTS to reuse those numbers for
+  -- its event-manager descriptors. Later stdio/file capture can then fail with
+  -- EBADF (including the MCP test worker's withBinaryFile stdout capture).
+  IO.withBinaryFile nullDevice IO.ReadMode $ \input ->
+    IO.withBinaryFile nullDevice IO.WriteMode $ \output -> do
+      let cp = (Process.proc exe ["dev","serve","--silent"])
+              { Process.std_in = Process.UseHandle input
+              , Process.std_out = Process.UseHandle output
               , Process.std_err = Process.Inherit
 #if !defined(mingw32_HOST_OS)
               , Process.new_session = True
 #endif
               }
-  _ <- Process.createProcess cp
+      -- The surrounding withBinaryFile scopes own these handles.
+      _ <- Process.createProcess_ "elm-dev daemon" cp
+      pure ()
   -- Wait for state.json to appear and for services to become healthy
   let waitLoop n = do
         ms <- status
@@ -177,6 +185,13 @@ startProcess = do
             Concurrent.threadDelay 200000 -- 200ms
             waitLoop (n - 1)
   waitLoop (50 :: Int)
+
+nullDevice :: FilePath
+#if defined(mingw32_HOST_OS)
+nullDevice = "NUL"
+#else
+nullDevice = "/dev/null"
+#endif
 
 -- | Blocking daemon server: start services and keep running
 serve :: ServeParams -> IO ()

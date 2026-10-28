@@ -393,7 +393,7 @@ customizeTemplate moduleName = do
   let maybeTemplate =
         Data.List.find
           ( \t ->
-              Gen.Templates.Loader.target t == Gen.Templates.Loader.Customizable
+              Gen.Templates.Loader.target t `elem` [Gen.Templates.Loader.Customizable, Gen.Templates.Loader.TestCustomizable]
                 && moduleName == Gen.Templates.Loader.elmModuleName t
           )
           Gen.Templates.templates
@@ -405,8 +405,10 @@ customizeTemplate moduleName = do
     Just template -> do
       -- Write template to configSrc folder
       let contents = Data.Text.Encoding.decodeUtf8 (Gen.Templates.Loader.content template)
-      let targetPath = cwd </> Config.elmSrc </> moduleFilePath
-      let relativePath = Config.elmSrc </> moduleFilePath
+      let isTest = Gen.Templates.Loader.target template == Gen.Templates.Loader.TestCustomizable
+      let sourceDir = if isTest then "tests" else Config.elmSrc
+      let targetPath = cwd </> sourceDir </> moduleFilePath
+      let relativePath = sourceDir </> moduleFilePath
 
       -- Check if file already exists
       targetExists <- Dir.doesFileExist targetPath
@@ -421,7 +423,7 @@ customizeTemplate moduleName = do
         TIO.writeFile targetPath contents
 
         -- Check and remove corresponding file in ToHidden directory
-        let hiddenPath = cwd </> "elm-stuff/generated" </> moduleFilePath
+        let hiddenPath = cwd </> (if isTest then "elm-stuff/generated-tests" else "elm-stuff/generated") </> moduleFilePath
         hiddenExists <- Dir.doesFileExist hiddenPath
         when hiddenExists $ do
           Dir.removeFile hiddenPath
@@ -435,7 +437,7 @@ printCustomizableTemplates :: IO ()
 printCustomizableTemplates = do
   let customizableTemplates =
         List.sortBy (\a b -> compare (Gen.Templates.Loader.elmModuleName a) (Gen.Templates.Loader.elmModuleName b)) $
-          filter (\t -> Gen.Templates.Loader.target t == Gen.Templates.Loader.Customizable) Gen.Templates.templates
+          filter (\t -> Gen.Templates.Loader.target t `elem` [Gen.Templates.Loader.Customizable, Gen.Templates.Loader.TestCustomizable]) Gen.Templates.templates
   putStrLn "Available customizable templates:\n"
   mapM_ (\t -> putStrLn $ "  " ++ Terminal.Colors.green (Gen.Templates.Loader.elmModuleName t)) customizableTemplates
 

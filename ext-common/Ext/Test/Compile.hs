@@ -3,33 +3,34 @@ module Ext.Test.Compile
   , compile
   , regenerateTestElmJson
   , regenerateTestElmJsonPersisted
+  , prepare
   ) where
 
 import qualified BackgroundWriter
-import qualified Control.Concurrent.MVar as MVar
+import qualified Data.Aeson as JSON
+import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
-import qualified Data.Maybe as Maybe
 import qualified Data.NonEmptyList as NE
-import           Control.Applicative ((<|>))
 import qualified Data.Set as Set
 import qualified Ext.FileProxy as File
-import qualified Elm.Interface as I
-import qualified Elm.ModuleName as ModuleName
 import qualified Elm.Package as Pkg
 import qualified Elm.Outline as Outline
 import qualified Elm.Version as V
 import qualified Elm.Constraint as Con
 import qualified Ext.CompileHelpers.Generic as CompileHelpers
 import qualified Ext.CompileProxy as CompileProxy
-import qualified Reporting
 import qualified Reporting.Exit as Exit
 import qualified System.Directory as Dir
 import System.FilePath ((</>))
 import qualified System.FilePath as FP
 import qualified Deps.Solver as Solver
 import qualified Ext.Test.Generate as Generate
+import qualified Ext.Test.Spec as Spec
+import qualified Control.Exception as Exception
 import qualified System.Environment as Env
 import qualified System.Exit as SystemExit
 import qualified System.IO as IO
@@ -45,9 +46,26 @@ generateTestJsonIfNone root = do
   Dir.createDirectoryIfMissing True testRoot
   let testElmJsonPath = testRoot </> "elm.json"
   exists <- Dir.doesFileExist testElmJsonPath
-  if exists
-    then pure (Right ())
-    else regenerateTestElmJsonPersisted root
+  inputs <- testManifestInputs root
+  let inputsPath = testRoot </> "inputs.hash"
+  hasInputs <- Dir.doesFileExist inputsPath
+  previous <- if hasInputs then BS.readFile inputsPath else pure BS.empty
+  let stale = not exists || inputs /= previous
+  if stale then regenerateTestElmJsonPersisted root else pure (Right ())
+
+
+-- Include absence/presence as well as contents so removing local-source config
+-- or creating the generated test directory also refreshes an existing manifest.
+testManifestInputs :: FilePath -> IO BS.ByteString
+testManifestInputs root = do
+  manifest <- File.readUtf8 (root </> "elm.json")
+  configured <- Dir.doesFileExist (root </> "elm.spec.json")
+  spec <- if configured then File.readUtf8 (root </> "elm.spec.json") else pure BS.empty
+  resolved <- Spec.sourceDirectories root >>= either (ioError . userError) pure
+  generated <- Dir.doesDirectoryExist (root </> "elm-stuff/generated-tests")
+  let contract = [(Pkg.toChars name, Con.toChars constraint) | (name, constraint) <- Map.toList Spec.requirements]
+  pure (BS8.pack (SHA.showDigest (SHA.sha1
+    (LBS.fromStrict manifest <> JSON.encode (configured, generated, resolved, contract) <> LBS.fromStrict spec))))
 
 -- Always (re)generate the test elm.json under root/elm-stuff/elm-dev-test from project's elm.json at root.
 regenerateTestElmJson :: FilePath -> IO (Either Exit.Reactor ())
@@ -73,15 +91,17 @@ regenerateTestElmJson root = do
 
 
 regenerateTestElmJsonPersisted :: FilePath -> IO (Either Exit.Reactor ())
-regenerateTestElmJsonPersisted root =
-  do  result <- regenerateTestElmJson root
-      case result of
-        Left problem -> pure (Left problem)
-        Right () ->
-          do  let path = Generate.generatedDir root </> "elm.json"
-              bytes <- File.readUtf8 path
-              File.writeUtf8AllTheWayToDisk path bytes
-              pure (Right ())
+regenerateTestElmJsonPersisted root = do
+  result <- regenerateTestElmJson root
+  case result of
+    Left problem -> pure (Left problem)
+    Right () -> do
+      let path = Generate.generatedDir root </> "elm.json"
+      bytes <- File.readUtf8 path
+      File.writeUtf8AllTheWayToDisk path bytes
+      inputs <- testManifestInputs root
+      File.writeUtf8AllTheWayToDisk (Generate.generatedDir root </> "inputs.hash") inputs
+      pure (Right ())
 
 
 -- For getting compilation status quickly
@@ -105,18 +125,27 @@ compile root entrypoints = do
 compileRunner :: FilePath -> NE.List FilePath -> IO (Either String BS.ByteString)
 compileRunner root entrypoints = do
   let testRoot = Generate.generatedDir root
-  genR <- generateTestJsonIfNone root
+  genR <- prepare root (NE.toList entrypoints)
   case genR of
-    Left err -> pure (Left (Exit.toString (Exit.reactorToReport err)))
+    Left err -> pure (Left err)
     Right () ->
       Temp.withSystemTempFile "elm-dev-test-runner.js" $ \outputPath outputHandle -> do
         IO.hClose outputHandle
         executable <- Env.getExecutablePath
+        environment <- Env.getEnvironment
+        compilerRts <- Env.lookupEnv "ELM_DEV_TEST_COMPILER_GHCRTS"
         let relativeEntrypoints = map (FP.makeRelative testRoot) (NE.toList entrypoints)
+            -- Compilation of a whole app plus program-test needs more heap than
+            -- the lightweight test worker. Do not inherit its 1GiB runtime cap.
+            -- This is an isolated batch compiler with persisted inputs, not the
+            -- editor's in-memory analysis session. Reuse disk build artifacts.
+            compilerEnvironment = [("GHCRTS", maybe "-M2048m -N2" id compilerRts), ("MODE", "disk")]
+              ++ filter (\(key, _) -> key /= "GHCRTS" && key /= "MODE") environment
             process =
               (Process.proc executable ("make" : relativeEntrypoints ++ ["--output=" ++ outputPath]))
-                { Process.cwd = Just testRoot
-                , Process.std_in = Process.NoStream
+                 { Process.cwd = Just testRoot
+                 , Process.std_in = Process.NoStream
+                 , Process.env = Just compilerEnvironment
                 }
         (exitCode, stdout, stderr) <- Process.readCreateProcessWithExitCode process ""
         case exitCode of
@@ -129,17 +158,39 @@ compileRunner root entrypoints = do
 
 
 
--- Write a rewritten elm.json for tests under testRoot
+-- Shared by CLI, MCP test execution, and test-context documentation.
+prepare :: FilePath -> [FilePath] -> IO (Either String ())
+prepare root paths = do
+  checked <- Spec.checkEntrypoints root paths
+  case checked of
+    Left problem -> pure (Left problem)
+    Right () -> do
+      result <- Exception.try (generateTestJsonIfNone root)
+      pure $ case result of
+        Left problem -> Left (show (problem :: Exception.IOException))
+        Right (Left problem) -> Left (Exit.toString (Exit.reactorToReport problem))
+        Right (Right ()) -> Right ()
+
+
+-- Write only the derived manifest. Never mutate root/elm.json here.
 writeTestElmJson :: FilePath -> Outline.AppOutline -> IO ()
 writeTestElmJson testRoot (Outline.AppOutline _ srcDirs depsDirect depsIndirect testDirect testIndirect) = do
+  let root = FP.takeDirectory (FP.takeDirectory testRoot)
+  configured <- Spec.sourceDirectories root
+  extraSources <- either (ioError . userError) pure configured
+  generatedTests <- Dir.doesDirectoryExist (root </> "elm-stuff/generated-tests")
   let rewriteSrcDir srcDir =
         case srcDir of
           Outline.AbsoluteSrcDir dir -> Outline.AbsoluteSrcDir dir
           Outline.RelativeSrcDir dir -> Outline.RelativeSrcDir ("../../" </> dir)
-  let newSrcDirsList = fmap rewriteSrcDir (NE.toList srcDirs)
-                      ++ [ Outline.RelativeSrcDir ("../../" </> "tests")
-                         , Outline.RelativeSrcDir (".")
-                         ]
+  let candidates = fmap rewriteSrcDir (NE.toList srcDirs)
+                       ++ [ Outline.RelativeSrcDir ("../../" </> "tests")
+                          , Outline.RelativeSrcDir (".")
+                          ]
+                       ++ (if generatedTests then [Outline.RelativeSrcDir "../generated-tests"] else [])
+                       ++ map Outline.AbsoluteSrcDir extraSources
+  identities <- traverse (Dir.canonicalizePath . Outline.toAbsolute testRoot) candidates
+  let newSrcDirsList = map fst (List.nubBy (\a b -> snd a == snd b) (zip candidates identities))
   let newSrcDirs = case newSrcDirsList of
         [] -> error "No source directories found in elm.json"
         (d:ds) -> NE.List d ds
@@ -148,102 +199,29 @@ writeTestElmJson testRoot (Outline.AppOutline _ srcDirs depsDirect depsIndirect 
   let allPinned = Map.unions [depsDirect, depsIndirect, testDirect, testIndirect]
   let baseConstraints = Map.map Con.exactly allPinned
   let constraintsWithRequired =
-        Map.insert randomPkg Con.anything $
-        Map.insert Pkg.json Con.anything baseConstraints
-  envR <- Solver.initEnv
-  case envR of
-    Left _regProblem -> do
-      -- Fallback: keep original deps layout (still includes json requirement check elsewhere)
-      let mergedDirect0 = Map.union depsDirect testDirect
-      let mergedIndirect = Map.union depsIndirect testIndirect
-      let jsonVersion =
-            Maybe.fromMaybe (V.Version 1 1 3)
-              ( Map.lookup Pkg.json mergedDirect0
-                <|> Map.lookup Pkg.json mergedIndirect
-              )
-      let randomVersion =
-            Maybe.fromMaybe V.one
-              ( Map.lookup randomPkg mergedDirect0
-                <|> Map.lookup randomPkg mergedIndirect
-              )
-      let mergedDirect =
-            Map.insert Pkg.json jsonVersion
-            (Map.insert randomPkg randomVersion mergedDirect0)
-      let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs mergedDirect mergedIndirect Map.empty Map.empty)
-      Outline.write testRoot newOutline
-    Right (Solver.Env cache _ connection registry) -> do
-      verifyR <- Solver.verify cache connection registry constraintsWithRequired
-      case verifyR of
-        Solver.Ok detailsMap -> do
-          let solutionVersions = Map.map (\(Solver.Details v _) -> v) detailsMap
-          -- Put test dependencies into normal dependencies for the test elm.json
-          let directNames =
-                Set.unions
-                  [ Set.fromList (Map.keys depsDirect)
-                  , Set.fromList (Map.keys testDirect)
-                  , Set.fromList [Pkg.json, randomPkg]
-                  ]
-          let newDirect = Map.filterWithKey (\k _ -> Set.member k directNames) solutionVersions
-          let newIndirect = Map.difference solutionVersions newDirect
-          let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs newDirect newIndirect Map.empty Map.empty)
-          Outline.write testRoot newOutline
-        Solver.NoSolution -> do
-          -- Fallback to previous approach if solver cannot find a solution
-          let mergedDirect0 = Map.union depsDirect testDirect
-          let mergedIndirect = Map.union depsIndirect testIndirect
-          let jsonVersion =
-                Maybe.fromMaybe (V.Version 1 1 3)
-                  ( Map.lookup Pkg.json mergedDirect0
-                    <|> Map.lookup Pkg.json mergedIndirect
-                  )
-          let randomVersion =
-                Maybe.fromMaybe V.one
-                  ( Map.lookup randomPkg mergedDirect0
-                    <|> Map.lookup randomPkg mergedIndirect
-                  )
-          let mergedDirect =
-                Map.insert Pkg.json jsonVersion
-                (Map.insert randomPkg randomVersion mergedDirect0)
-          let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs mergedDirect mergedIndirect Map.empty Map.empty)
-          Outline.write testRoot newOutline
-        Solver.NoOfflineSolution -> do
-          -- Same fallback as above
-          let mergedDirect0 = Map.union depsDirect testDirect
-          let mergedIndirect = Map.union depsIndirect testIndirect
-          let jsonVersion =
-                Maybe.fromMaybe (V.Version 1 1 3)
-                  ( Map.lookup Pkg.json mergedDirect0
-                    <|> Map.lookup Pkg.json mergedIndirect
-                  )
-          let randomVersion =
-                Maybe.fromMaybe V.one
-                  ( Map.lookup randomPkg mergedDirect0
-                    <|> Map.lookup randomPkg mergedIndirect
-                  )
-          let mergedDirect =
-                Map.insert Pkg.json jsonVersion
-                (Map.insert randomPkg randomVersion mergedDirect0)
-          let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs mergedDirect mergedIndirect Map.empty Map.empty)
-          Outline.write testRoot newOutline
-        Solver.Err _exit -> do
-          -- Same fallback as above
-          let mergedDirect0 = Map.union depsDirect testDirect
-          let mergedIndirect = Map.union depsIndirect testIndirect
-          let jsonVersion =
-                Maybe.fromMaybe (V.Version 1 1 3)
-                  ( Map.lookup Pkg.json mergedDirect0
-                    <|> Map.lookup Pkg.json mergedIndirect
-                  )
-          let randomVersion =
-                Maybe.fromMaybe V.one
-                  ( Map.lookup randomPkg mergedDirect0
-                    <|> Map.lookup randomPkg mergedIndirect
-                  )
-          let mergedDirect =
-                Map.insert Pkg.json jsonVersion
-                (Map.insert randomPkg randomVersion mergedDirect0)
-          let newOutline = Outline.App (Outline.AppOutline V.compiler newSrcDirs mergedDirect mergedIndirect Map.empty Map.empty)
-          Outline.write testRoot newOutline
+        Map.insertWith (\_ pinned -> pinned) randomPkg Con.anything $
+        Map.insertWith (\_ pinned -> pinned) Pkg.json Con.anything baseConstraints
+      directNames = Set.fromList (Map.keys depsDirect ++ Map.keys testDirect ++ Map.keys Spec.requirements ++ [Pkg.json, randomPkg])
+      writeResolved solutionVersions = do
+        let newDirect = Map.filterWithKey (\name _ -> Set.member name directNames) solutionVersions
+            newIndirect = Map.difference solutionVersions newDirect
+        Outline.write testRoot (Outline.App (Outline.AppOutline V.compiler newSrcDirs newDirect newIndirect Map.empty Map.empty))
+  -- Normal applications already carry a fully pinned dependency closure. Reuse
+  -- it exactly; a test run should not resolve a new version of an installed package.
+  if all (`Map.member` allPinned) [Pkg.json, randomPkg] then writeResolved allPinned
+  else do
+    envR <- Solver.initEnv
+    case envR of
+      Left problem -> failDetails (Exit.DetailsCannotGetRegistry problem)
+      Right (Solver.Env cache _ connection registry) -> do
+        verifyR <- Solver.verify cache connection registry constraintsWithRequired
+        case verifyR of
+          Solver.Ok detailsMap -> writeResolved (Map.map (\(Solver.Details version _) -> version) detailsMap)
+          Solver.NoSolution -> failDetails Exit.DetailsNoSolution
+          Solver.NoOfflineSolution -> failDetails Exit.DetailsNoOfflineSolution
+          Solver.Err problem -> failDetails (Exit.DetailsSolverProblem problem)
+  where
+    failDetails problem = ioError (userError (Exit.toString (Exit.reactorToReport (Exit.ReactorBadDetails problem))))
 
 
 -- Convert a package outline to an application outline with pinned dependency versions

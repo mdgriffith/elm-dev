@@ -45,6 +45,7 @@ type alias Model =
 type Msg
     = TypeClicked String
     | DevServerReceived Listen.DevServer.Event
+    | SubscriptionIgnored
     | InteractiveChanged { filepath : String, key : String, value : Data.Controls.Value }
 
 
@@ -100,6 +101,9 @@ init pageId params stores maybeCached =
 update : App.Stores.Stores -> Msg -> Model -> ( Model, Effect Msg )
 update stores msg model =
     case msg of
+        SubscriptionIgnored ->
+            ( model, Effect.none )
+
         TypeClicked name ->
             ( model
             , case Docs.Ref.Get.lookup name stores of
@@ -142,7 +146,7 @@ update stores msg model =
 
 subscriptions : App.Stores.Stores -> Model -> Listen Msg
 subscriptions shared model =
-    Listen.DevServer.listen DevServerReceived
+    Listen.DevServer.listen (\_ -> SubscriptionIgnored) DevServerReceived
 
 
 view : App.View.Region.Id -> App.Stores.Stores -> Model -> App.View.View Msg
@@ -176,7 +180,6 @@ view viewId shared model =
             , let
                 maybeRoot =
                     Maybe.map .projectRoot maybeProject
-
               in
               case ( maybeRoot, shared.devServer.base ) of
                 ( Just root, Just baseUrl ) ->

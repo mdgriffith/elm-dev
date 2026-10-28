@@ -25,11 +25,21 @@ import Listen
 port {{name_decapitalized}} : (Json.Decode.Value -> msg) -> Platform.Sub.Sub msg
 
 
-listen : Json.Decode.Decoder msg -> Listen.Listen msg
+listen :
+    { decoder : Json.Decode.Decoder msg
+    , onError : { value : Json.Decode.Value, error : Json.Decode.Error } -> msg
+    }
+    -> Listen.Listen msg
 listen options =
     Listen.OnFromJs
         { portName = "{{name_decapitalized}}"
-        , subscription =
-            {{name_decapitalized}}
-                (Json.Decode.decodeValue options.decoder)
+        , subscribe = {{name_decapitalized}}
+        , receive =
+            \value ->
+                case Json.Decode.decodeValue options.decoder value of
+                    Ok msg ->
+                        msg
+
+                    Err error ->
+                        options.onError { value = value, error = error }
         }
