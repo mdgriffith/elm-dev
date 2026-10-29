@@ -314,7 +314,7 @@ schemaProjectPlus extras =
                         , "description" .= (desc :: Text)
                         ]) extras
     fields :: [(Key.Key, JSON.Value)]
-    fields = extraPairs
+    fields = rootDirSchema : extraPairs
     requiredFields :: [Text]
     requiredFields = fmap fst extras
   in
@@ -323,6 +323,86 @@ schemaProjectPlus extras =
     , "properties" .= JSON.object fields
     , "required" .= requiredFields
     ]
+
+-- Keep nested argument shapes machine-readable as well as documented.
+schemaType :: Text -> JSON.Value
+schemaType kind = JSON.object ["type" .= kind]
+
+schemaObject :: [(Key.Key, JSON.Value)] -> [Text] -> JSON.Value
+schemaObject properties required = JSON.object
+  [ "type" .= ("object" :: Text)
+  , "properties" .= JSON.object properties
+  , "required" .= required
+  ]
+
+schemaVariant :: Text -> [(Key.Key, JSON.Value)] -> [Text] -> JSON.Value
+schemaVariant kind properties required = schemaObject
+  (("kind" .= JSON.object ["type" .= ("string" :: Text), "enum" .= [kind]]) : properties)
+  ("kind" : required)
+
+schemaUnion :: Text -> [JSON.Value] -> JSON.Value
+schemaUnion description variants = JSON.object
+  [ "type" .= ("object" :: Text)
+  , "description" .= description
+  , "oneOf" .= variants
+  ]
+
+schemaArray :: JSON.Value -> JSON.Value
+schemaArray items = JSON.object ["type" .= ("array" :: Text), "items" .= items]
+
+schemaCheckTargets :: JSON.Value
+schemaCheckTargets = schemaUnion
+  "Tagged union: { kind: \"all\" } or { kind: \"only\", targets: [{ kind: \"project\" } | { kind: \"file\", file } | { kind: \"module\", module }] }"
+  [ schemaVariant "all" [] []
+  , schemaVariant "only"
+      ["targets" .= schemaArray (schemaUnion "Diagnostic targets"
+        [ schemaVariant "project" [] []
+        , schemaVariant "file" ["file" .= schemaType "string"] ["file"]
+        , schemaVariant "module" ["module" .= schemaType "string"] ["module"]
+        ])] ["targets"]
+  ]
+
+schemaCheckTests :: JSON.Value
+schemaCheckTests = schemaUnion
+  "Start one background test job with kind all or only. glob matches exposed top-level Test values by qualified Elm name, for example AppSpatialInteractionTest.tests, AppSpatialInteractionTest.*, or *.tests; it does not match test labels or file paths. Defaults: wait 5 seconds (maximum 20), execute the job for up to 900 seconds."
+  [ schemaVariant "all" timing []
+  , schemaVariant "only"
+      (("runs" .= JSON.object
+        [ "type" .= ("array" :: Text)
+        , "minItems" .= (1 :: Int)
+        , "items" .= schemaObject
+            [ "glob" .= schemaType "string"
+            , "fuzz" .= schemaType "integer"
+            , "seed" .= schemaType "integer"
+            , "timeoutSeconds" .= schemaType "integer"
+            ] []
+        ]) : timing) ["runs"]
+  ]
+  where
+    timing = ["waitSeconds" .= schemaType "integer", "executionTimeoutSeconds" .= schemaType "integer"]
+
+schemaDocsQueries :: JSON.Value
+schemaDocsQueries = schemaUnion "Tagged docs queries"
+  [ schemaVariant "project" [] []
+  , schemaVariant "modules" [] []
+  , schemaVariant "module" ["module" .= schemaType "string"] ["module"]
+  , schemaVariant "file" ["file" .= schemaType "string"] ["file"]
+  , schemaVariant "value" ["value" .= schemaType "string"] ["value"]
+  , schemaVariant "search"
+      ["query" .= schemaType "string", "package" .= schemaType "string", "version" .= schemaType "string"] ["query"]
+  , schemaVariant "package"
+      ["package" .= schemaType "string", "version" .= schemaType "string"] ["package"]
+  ]
+
+schemaAdditions :: JSON.Value
+schemaAdditions = schemaUnion "Tagged additions"
+  [ schemaVariant "page" ["url" .= schemaType "string"] ["url"]
+  , schemaVariant "store" ["module" .= schemaType "string"] ["module"]
+  , schemaVariant "effect" ["module" .= schemaType "string"] ["module"]
+  , schemaVariant "listener" ["module" .= schemaType "string"] ["module"]
+  , schemaVariant "theme" [] []
+  , schemaVariant "spec" ["installDependencies" .= schemaType "boolean"] []
+  ]
 
 schemaDocsTool :: [(Text, Text)] -> [(Text, Text)] -> JSON.Value
 schemaDocsTool required optional =
@@ -604,16 +684,29 @@ toolCheck = MCP.Tool
                 [ "type" .= ("integer" :: Text)
                 , "description" .= ("Maximum diagnostics per diagnostic target. Defaults to 100." :: Text)
                 ]
-            , Key.fromText "targets" .= JSON.object
-                [ "type" .= ("object" :: Text)
-                , "description" .= ("Tagged union: { kind: \"all\" } or { kind: \"only\", targets: [{ kind: \"project\" } | { kind: \"file\", file } | { kind: \"module\", module }] }" :: Text)
-                ]
-            , Key.fromText "tests" .= JSON.object
-                [ "type" .= ("object" :: Text)
-                , "description" .= ("Start one background test job: { kind: \"all\", waitSeconds?, executionTimeoutSeconds? } or { kind: \"only\", runs: [{ glob?, fuzz?, seed?, timeoutSeconds? }], waitSeconds?, executionTimeoutSeconds? }. glob matches exposed top-level Test values by qualified Elm name, for example \"AppSpatialInteractionTest.tests\", \"AppSpatialInteractionTest.*\", or \"*.tests\"; it does not match test labels or file paths. Defaults: wait 5 seconds (maximum 20), execute the job for up to 900 seconds." :: Text)
-                ]
+            , Key.fromText "targets" .= schemaCheckTargets
+            , Key.fromText "tests" .= schemaCheckTests
             , Key.fromText "testJobs" .= JSON.object
                 [ "type" .= ("array" :: Text)
+                , "items" .= JSON.object
+                    [ "type" .= ("object" :: Text)
+                    , "oneOf" .=
+                        [ JSON.object
+                            [ "properties" .= JSON.object
+                                [ "kind" .= JSON.object ["type" .= ("string" :: Text), "enum" .= (["status"] :: [Text])]
+                                , "runId" .= JSON.object ["type" .= ("string" :: Text)]
+                                ]
+                            , "required" .= (["kind"] :: [Text])
+                            ]
+                        , JSON.object
+                            [ "properties" .= JSON.object
+                                [ "kind" .= JSON.object ["type" .= ("string" :: Text), "enum" .= (["cancel"] :: [Text])]
+                                , "runId" .= JSON.object ["type" .= ("string" :: Text)]
+                                ]
+                            , "required" .= (["kind", "runId"] :: [Text])
+                            ]
+                        ]
+                    ]
                 , "description" .= ("Inspect or cancel background test jobs: [{ kind: \"status\", runId? } | { kind: \"cancel\", runId }]. Omit runId from status to list recent jobs." :: Text)
                 ]
             ]
@@ -927,7 +1020,7 @@ toolDocs = MCP.Tool
             , Key.fromText "queries" .= JSON.object
                 [ "type" .= ("array" :: Text)
                 , "description" .= ("Tagged docs queries: { kind: \"project\" }, { kind: \"modules\" }, { kind: \"module\", module }, { kind: \"file\", file }, { kind: \"value\", value }, { kind: \"search\", query, package?, version? }, { kind: \"package\", package, version? }" :: Text)
-                , "items" .= JSON.object [ "type" .= ("object" :: Text) ]
+                , "items" .= schemaDocsQueries
                 ]
             ]
         , "required" .= (["queries"] :: [Text])
@@ -1800,7 +1893,7 @@ toolAdd = MCP.Tool
             , Key.fromText "additions" .= JSON.object
                 [ "type" .= ("array" :: Text)
                 , "description" .= ("Tagged additions: { kind: \"page\", url }, { kind: \"store\", module }, { kind: \"effect\", module }, { kind: \"listener\", module }, { kind: \"theme\" }, { kind: \"spec\", installDependencies?: Bool }. Spec and Spec.Program are bundled; no local library path is needed. Dependency installation defaults to false." :: Text)
-                , "items" .= JSON.object [ "type" .= ("object" :: Text) ]
+                , "items" .= schemaAdditions
                 ]
             ]
         , "required" .= (["additions"] :: [Text])

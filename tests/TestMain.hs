@@ -506,6 +506,9 @@ mcpTests =
   , runTest "MCP hides retired single-purpose tools" testMcpRetiredToolsHidden
   , runTest "MCP tool surface is exact" testMcpToolSurfaceExact
   , runTest "MCP composite schemas advertise tagged unions" testMcpCompositeSchemas
+  , runTest "MCP testJobs schema declares status and cancel action objects" testMcpTestJobsSchema
+  , runTest "MCP exposed schemas define nested objects and array elements" testMcpNestedSchemas
+  , runTest "MCP install schemas expose optional project directories" testMcpInstallSchemas
   , runTest "MCP docs resolves local projects only when needed" testMcpDocsProjectResolution
   , runTest "MCP stale test summaries can be cleared" testMcpClearTestResults
   , runTest "MCP XML blocks preserve tag attributes and body" testMcpXmlBlockShape
@@ -1657,6 +1660,56 @@ testMcpCompositeSchemas = do
         && schemaRequires "operation" schemas "dependencies"
         && schemaDescriptionMentions ["author/project", "MAJOR"] schemas "dependencies" "packages"
   pure (docsOk && addOk && checkOk && dependenciesOk)
+
+testMcpTestJobsSchema :: IO Bool
+testMcpTestJobsSchema =
+  pure $ Maybe.fromMaybe False $ do
+    schema <- lookup "check" MCP.availableToolSchemasForTests
+    props <- objectProperties schema
+    JSON.Object jobs <- KeyMap.lookup "testJobs" props
+    JSON.Object items <- KeyMap.lookup "items" jobs
+    JSON.Array alternatives <- KeyMap.lookup "oneOf" items
+    let actionMatches kind required action =
+          case objectProperties action of
+            Just actionProps ->
+              KeyMap.lookup "kind" actionProps == Just (JSON.object
+                ["type" JSON..= ("string" :: Text.Text), "enum" JSON..= [kind :: Text.Text]])
+                && KeyMap.lookup "runId" actionProps == Just (JSON.object ["type" JSON..= ("string" :: Text.Text)])
+                && objectRequired action == Just (map JSON.String required)
+            Nothing -> False
+    pure (KeyMap.lookup "type" jobs == Just (JSON.String "array")
+      && KeyMap.lookup "type" items == Just (JSON.String "object")
+      && case Foldable.toList alternatives of
+        [status, cancel] -> actionMatches "status" ["kind"] status
+          && actionMatches "cancel" ["kind", "runId"] cancel
+        _ -> False)
+
+testMcpNestedSchemas :: IO Bool
+testMcpNestedSchemas = pure (all (complete . snd) MCP.availableToolSchemasForTests)
+  where
+    complete (JSON.Object schema) =
+      let properties = case KeyMap.lookup "properties" schema of
+            Just (JSON.Object fields) -> all complete (KeyMap.elems fields)
+            _ -> False
+          variants = case KeyMap.lookup "oneOf" schema of
+            Just (JSON.Array choices) -> not (null choices) && all complete choices
+            _ -> False
+      in case KeyMap.lookup "type" schema of
+        Just (JSON.String "array") -> maybe False complete (KeyMap.lookup "items" schema)
+        Just (JSON.String "object") -> properties || variants
+        Just (JSON.String kind) -> kind `elem` ["string", "integer", "boolean", "number"]
+        -- oneOf branches may inherit their object type from the parent.
+        Nothing -> properties || variants
+        _ -> False
+    complete _ = False
+
+testMcpInstallSchemas :: IO Bool
+testMcpInstallSchemas = pure (all valid ["install", "test_install"])
+  where
+    schemas = MCP.availableToolSchemasForTests
+    valid tool = schemaHasProperty "dir" schemas tool
+      && not (schemaRequires "dir" schemas tool)
+      && schemaRequires "package" schemas tool
 
 testMcpDocsProjectResolution :: IO Bool
 testMcpDocsProjectResolution = do
