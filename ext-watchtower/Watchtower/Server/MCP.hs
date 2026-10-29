@@ -2977,12 +2977,22 @@ resolveProjectFromDirArg args state connId =
     Just _ | Left msg <- validateDirArgument args -> pure (Left msg)
     Just dir -> do
       canonical <- Dir.canonicalizePath dir
-      errors <- Watchtower.State.Discover.discoverWithErrors state canonical
-      existing <- Client.getExistingProject canonical state
-      case existing of
-        Right (pc, _) -> pure (Right pc)
-        Left _ -> pure (Left (Text.intercalate "\n\n"
-          (("No Elm project found for dir: " <> Text.pack canonical) : map Text.pack errors)))
+      projects <- Control.Concurrent.STM.readTVarIO (Client.projects state)
+      -- Selecting a registered root must not rescan its entire workspace. A
+      -- partially failed discovery (for example a nested test fixture) is not
+      -- cached, so rediscovering here can repeatedly parse thousands of files.
+      -- Only use an exact root: an owning parent must not hide a new nested app.
+      -- Configuration changes still refresh registration through the watcher's
+      -- discovery-invalidation callback; callers retain their freshness checks.
+      case Client.findByRoot canonical projects of
+        Just pc -> pure (Right pc)
+        Nothing -> do
+          errors <- Watchtower.State.Discover.discoverWithErrors state canonical
+          existing <- Client.getExistingProject canonical state
+          case existing of
+            Right (pc, _) -> pure (Right pc)
+            Left _ -> pure (Left (Text.intercalate "\n\n"
+              (("No Elm project found for dir: " <> Text.pack canonical) : map Text.pack errors)))
     Nothing -> do
       ProjectLookup.resolveProjectFromSession Nothing connId state
 

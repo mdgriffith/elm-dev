@@ -55,6 +55,7 @@ import qualified Watchtower.State.DocsSnapshot as DocsSnapshot
 import qualified Watchtower.State.Project as ProjectState
 import qualified Watchtower.State.Discover as DiscoverState
 import qualified Watchtower.State.TestJobs as TestJobs
+import qualified Watchtower.State.StartupMetrics as StartupMetrics
 import qualified Watchtower.Server.LSP.EditorsOpen as EditorsOpen
 import qualified Watchtower.Server.MCP as MCP
 import qualified Watchtower.Server.Daemon.State as DaemonState
@@ -503,6 +504,9 @@ mcpTests =
   , runTest "MCP serves behavioral spec documentation without a focused project" testMcpBehavioralSpecsGuide
   , runTest "MCP rejects relative dirs before tool execution" testMcpRelativeDirs
   , runTest "MCP check surfaces discovery errors" testMcpDiscoveryError
+  , runTest "MCP registered dirs bypass partial discovery retries and canonical aliases" testMcpRegisteredDirReuse
+  , runTest "MCP discovers unregistered nested dirs instead of reusing their parent" testMcpNestedDirDiscovery
+  , runTest "MCP registered dirs retain discovery configuration invalidation" testMcpDirInvalidation
   , runTest "MCP hides retired single-purpose tools" testMcpRetiredToolsHidden
   , runTest "MCP tool surface is exact" testMcpToolSurfaceExact
   , runTest "MCP composite schemas advertise tagged unions" testMcpCompositeSchemas
@@ -1575,6 +1579,112 @@ testMcpDiscoveryError = do
         MCPProtocol.ToolCallResponse [MCPProtocol.ToolResponseError _ msg] ->
           Text.isInfixOf "src" msg && Text.isInfixOf "SOURCE" msg
         _ -> False
+
+-- A package lookup exercises project selection without compiling the app.
+requestMcpProjectDocs :: Client.State -> FilePath -> IO ()
+requestMcpProjectDocs state root =
+  case List.find ((== "docs") . MCPProtocol.toolName) MCP.availableToolsForTests of
+    Nothing -> fail "Missing docs tool"
+    Just tool -> do
+      _ <- MCPProtocol.call tool (KeyMap.fromList
+        [ ("dir", JSON.String (Text.pack root))
+        , ("queries", JSON.toJSON [JSON.object ["kind" JSON..= ("value" :: Text.Text), "value" JSON..= ("List.map" :: Text.Text)]])
+        ]) state (\_ -> pure ()) "dir-reuse-test"
+      pure ()
+
+discoveryScans :: IO (Maybe JSON.Value)
+discoveryScans = do
+  metrics <- StartupMetrics.snapshot
+  pure $ case metrics of
+    JSON.Object fields -> KeyMap.lookup "discovery.scans" fields
+    _ -> Nothing
+
+writeDiscoveryApp :: FilePath -> IO ()
+writeDiscoveryApp root = do
+  writeElmApp root
+  Dir.createDirectoryIfMissing True (root FilePath.</> "src")
+  BS.writeFile (root FilePath.</> "src/Main.elm") "module Main exposing (main)\n\nmain = 1\n"
+
+withMcpDiscoveryRoot :: (FilePath -> IO a) -> IO a
+withMcpDiscoveryRoot action = do
+  root <- uniqueRoot
+  canonical <- Dir.canonicalizePath root
+  -- These are lookup/invalidation tests, not OS watcher tests. Reserve their
+  -- watch root so registration cannot start asynchronous compile callbacks that
+  -- race later tests for the package registry lock in this non-threaded runner.
+  blocker <- MVar.newEmptyMVar :: IO (MVar.MVar ())
+  thread <- Concurrent.forkIO (MVar.takeMVar blocker)
+  roots <- MVar.newMVar [canonical]
+  MVar.modifyMVar_ Filewatch.activeWatchers
+    (pure . Map.insert canonical (Filewatch.ActiveWatcher thread roots))
+  action root `Exception.finally`
+    MVar.modifyMVar_ Filewatch.activeWatchers (\watchers -> do
+      let (owned, remaining) = Map.partitionWithKey (\path _ -> Filewatch.covers canonical path) watchers
+      mapM_ (Concurrent.killThread . Filewatch.watcherThread) (Map.elems owned)
+      pure remaining)
+
+testMcpRegisteredDirReuse :: IO Bool
+testMcpRegisteredDirReuse = withMcpDiscoveryRoot $ \root -> do
+  let app = root FilePath.</> "app"
+      broken = app FilePath.</> "fixtures/broken"
+      alias = root FilePath.</> "alias"
+  writeDiscoveryApp app
+  writeElmApp broken
+  Dir.createDirectoryLink app alias
+  state <- Client.initState testUrls
+  requestMcpProjectDocs state app
+  canonical <- Dir.canonicalizePath app
+  projects <- STM.readTVarIO (Client.projects state)
+  case Client.findByRoot canonical projects of
+    Nothing -> pure False
+    Just pc -> do
+      -- Discovery resets this field, even when project registration is unchanged.
+      STM.atomically $ STM.writeTVar (Client.test pc)
+        (Just (Client.TestInfo ["retained.elm"] (Just (Client.TestResults 1 1 0 [])) Nothing))
+      before <- discoveryScans
+      mapM_ (requestMcpProjectDocs state) [app, alias, app FilePath.</> "src/.."]
+      after <- discoveryScans
+      retained <- STM.readTVarIO (Client.test pc)
+      pure (before == after && case retained of
+        Just info -> Client.testFiles info == ["retained.elm"]
+        Nothing -> False)
+
+testMcpNestedDirDiscovery :: IO Bool
+testMcpNestedDirDiscovery = withMcpDiscoveryRoot $ \root -> do
+  let nested = root FilePath.</> "nested"
+      flags = CompileHelpers.Flags CompileHelpers.Dev CompileHelpers.NoOutput CompileHelpers.DebuggerNone
+  writeDiscoveryApp root
+  writeDiscoveryApp nested
+  state <- Client.initState testUrls
+  registered <- ProjectState.upsert state flags root (NE.List (root FilePath.</> "src/Main.elm") [])
+  requestMcpProjectDocs state nested
+  canonical <- Dir.canonicalizePath nested
+  projects <- STM.readTVarIO (Client.projects state)
+  pure (either (const False) (const True) registered
+    && Maybe.isJust (Client.findByRoot canonical projects))
+
+testMcpDirInvalidation :: IO Bool
+testMcpDirInvalidation = withMcpDiscoveryRoot $ \root -> do
+  writeDiscoveryApp root
+  let alternate = root FilePath.</> "alternate"
+  Dir.createDirectoryIfMissing True alternate
+  BS.writeFile (alternate FilePath.</> "Main.elm") "module Main exposing (main)\n\nmain = 2\n"
+  state <- Client.initState testUrls
+  requestMcpProjectDocs state root
+  canonical <- Dir.canonicalizePath root
+  -- The watcher synchronizes config into the VFS before invoking invalidation.
+  -- Reproduce that callback directly without relying on asynchronous FS events.
+  FileCache.insert (canonical FilePath.</> "elm.json")
+    (TextEncoding.encodeUtf8 (Text.replace "[\"src\"]" "[\"alternate\"]" (Text.pack basicElmJson)))
+  DiscoverState.invalidate state (canonical FilePath.</> "elm.json")
+  before <- discoveryScans
+  requestMcpProjectDocs state canonical
+  after <- discoveryScans
+  projects <- STM.readTVarIO (Client.projects state)
+  pure (before == after && case Client.findByRoot canonical projects of
+    Just pc -> Project._srcDirs (Client.project pc) == [canonical FilePath.</> "alternate"]
+      && NE.toList (Project._entrypoints (Client.project pc)) == [canonical FilePath.</> "alternate/Main.elm"]
+    Nothing -> False)
 
 testMcpBehavioralSpecsGuide :: IO Bool
 testMcpBehavioralSpecsGuide = do
