@@ -72,6 +72,8 @@ import qualified System.FilePath as FilePath
 import qualified System.Process as Process
 import qualified Data.List as List
 import qualified Data.IORef as IORef
+import qualified GHC.Conc as Conc
+import qualified System.Mem as Mem
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEncoding
 import qualified Data.Time.Clock.POSIX as POSIX
@@ -118,6 +120,7 @@ main = do
       Daemon.allocateServeParams >>= Daemon.serve
     ["__elm-dev-test-worker", _, responsePath] ->
       BS.writeFile responsePath successWorkerResponse
+    ["--filewatch-tests"] -> sequence filewatchTests >>= reportTestResults
     _ -> runTests
 
 runTests :: IO ()
@@ -131,9 +134,13 @@ runTests = do
   optimizationResults <- sequence optimizationTests
   mcpResults <- sequence mcpTests
   daemonResults <- sequence daemonTests
+  filewatchResults <- sequence filewatchTests
   dependencyResults <- sequence dependencyTests
-  let results = fileCacheResults ++ docsResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults ++ daemonResults ++ dependencyResults
-      failures = [name | (name, False) <- results]
+  reportTestResults (fileCacheResults ++ docsResults ++ versionResults ++ generationResults ++ optimizationResults ++ mcpResults ++ daemonResults ++ filewatchResults ++ dependencyResults)
+
+reportTestResults :: [(String, Bool)] -> IO ()
+reportTestResults results = do
+  let failures = [name | (name, False) <- results]
   if null failures
     then do
       putStrLn ("All tests passed (" ++ show (length results) ++ ")")
@@ -1613,15 +1620,13 @@ withMcpDiscoveryRoot action = do
   -- watch root so registration cannot start asynchronous compile callbacks that
   -- race later tests for the package registry lock in this non-threaded runner.
   blocker <- MVar.newEmptyMVar :: IO (MVar.MVar ())
-  thread <- Concurrent.forkIO (MVar.takeMVar blocker)
+  stopped <- MVar.newEmptyMVar
+  callbackThread <- MVar.newMVar Nothing
+  thread <- Concurrent.forkIO (MVar.readMVar blocker `Exception.finally` MVar.putMVar stopped ())
   roots <- MVar.newMVar [canonical]
   MVar.modifyMVar_ Filewatch.activeWatchers
-    (pure . Map.insert canonical (Filewatch.ActiveWatcher thread roots))
-  action root `Exception.finally`
-    MVar.modifyMVar_ Filewatch.activeWatchers (\watchers -> do
-      let (owned, remaining) = Map.partitionWithKey (\path _ -> Filewatch.covers canonical path) watchers
-      mapM_ (Concurrent.killThread . Filewatch.watcherThread) (Map.elems owned)
-      pure remaining)
+    (pure . Map.insert canonical (Filewatch.ActiveWatcher thread roots blocker stopped callbackThread))
+  action root `Exception.finally` stopTestWatchers canonical
 
 testMcpRegisteredDirReuse :: IO Bool
 testMcpRegisteredDirReuse = withMcpDiscoveryRoot $ \root -> do
@@ -3030,12 +3035,193 @@ testVersionsBumpAndSet = do
   versions <- Versions.readVersions root
   pure (Versions.fsVersion versions == 2 && Versions.compileVersion versions == 1)
 
+filewatchTests :: [NamedTest]
+filewatchTests =
+  [ runTest "OS watcher delivers events while its owner blocks, including after GC" testWatcherBlockedDelivery
+  , runTest "parent watcher replacement joins child cleanup without holding the registry lock" testWatcherReplacementCleanup
+  , runTest "watcher shutdown is prompt, idempotent, and stops event delivery" testWatcherShutdown
+  , runTest "asynchronous watcher cancellation releases its manager and debounce worker" testWatcherCancellation
+  , runTest "watcher callback can replace its own subscription without joining itself" testWatcherSelfReplacement
+  ]
+
+stopTestWatchers :: FilePath -> IO ()
+stopTestWatchers root = do
+  owned <- MVar.modifyMVar Filewatch.activeWatchers $ \watchers -> do
+    let (removed, remaining) = Map.partitionWithKey (\path _ -> Filewatch.covers root path) watchers
+    pure (remaining, Map.elems removed)
+  Filewatch.stopWatchers owned
+
+withFilewatchTestRoot :: (FilePath -> IO a) -> IO a
+withFilewatchTestRoot action =
+  Temp.withSystemTempDirectory "elm-dev-filewatch" $ \directory -> do
+    root <- Dir.canonicalizePath directory
+    action root `Exception.finally` stopTestWatchers root
+
+testWatcher :: FilePath -> IO Filewatch.ActiveWatcher
+testWatcher root = do
+  watchers <- MVar.readMVar Filewatch.activeWatchers
+  maybe (fail ("No watcher for " ++ root)) pure (Map.lookup root watchers)
+
+awaitWatcherCondition :: IO Bool -> IO Bool
+awaitWatcherCondition condition = do
+  let wait = do
+        ready <- condition
+        if ready then pure () else Concurrent.threadDelay 1000 >> wait
+  result <- Timeout.timeout 2000000 wait
+  pure (result == Just ())
+
+watcherIsBlocked :: FilePath -> IO Bool
+watcherIsBlocked root = do
+  watcher <- testWatcher root
+  status <- Conc.threadStatus (Filewatch.watcherThread watcher)
+  pure $ case status of
+    Conc.ThreadBlocked _ -> True
+    _ -> False
+
+watcherChecks :: [(String, Bool)] -> IO Bool
+watcherChecks checks = do
+  let failures = [name | (name, False) <- checks]
+  unless (null failures) (putStrLn ("Watcher checks failed: " ++ List.intercalate ", " failures))
+  pure (null failures)
+
+-- Registration is asynchronous. Retry real filesystem writes until the OS has
+-- delivered an event, rather than assuming a fixed startup delay is sufficient.
+writeUntilObserved :: FilePath -> IO Bool -> IO Bool
+writeUntilObserved path observed = do
+  let write revision = do
+        BS.writeFile path (BSChar8.pack ("module Probe exposing (value)\nvalue = " ++ show revision ++ "\n"))
+        Concurrent.threadDelay 250000
+        ready <- observed
+        if ready then pure () else write (revision + 1)
+  result <- Timeout.timeout 5000000 (write (0 :: Int))
+  pure (result == Just ())
+
+takeWatchedPath :: STM.TChan [FilePath] -> FilePath -> IO Bool
+takeWatchedPath events path = STM.atomically $ do
+  let consume = do
+        next <- STM.tryReadTChan events
+        case next of
+          Nothing -> pure False
+          Just paths -> if path `elem` paths then pure True else consume
+  consume
+
+testWatcherBlockedDelivery :: IO Bool
+testWatcherBlockedDelivery = withFilewatchTestRoot $ \root -> do
+  events <- STM.newTChanIO
+  let path = root FilePath.</> "Probe.elm"
+  Filewatch.watch root (STM.atomically . STM.writeTChan events)
+  delivered <- writeUntilObserved path (takeWatchedPath events path)
+  blocked <- awaitWatcherCondition (watcherIsBlocked root)
+  sequence_ (replicate 3 Mem.performMajorGC)
+  blockedAfterGc <- awaitWatcherCondition (watcherIsBlocked root)
+  deliveredAfterGc <- writeUntilObserved path (takeWatchedPath events path)
+  watcherChecks [("delivery", delivered), ("blocked", blocked), ("blocked after GC", blockedAfterGc), ("delivery after GC", deliveredAfterGc)]
+
+testWatcherReplacementCleanup :: IO Bool
+testWatcherReplacementCleanup = withFilewatchTestRoot $ \root -> do
+  let child = root FilePath.</> "child"
+      path = child FilePath.</> "Probe.elm"
+  Dir.createDirectoryIfMissing True child
+  entered <- MVar.newEmptyMVar
+  release <- MVar.newEmptyMVar
+  childCount <- IORef.newIORef (0 :: Int)
+  parentEvents <- STM.newTChanIO
+  let callback _ = do
+        IORef.modifyIORef' childCount (+ 1)
+        _ <- MVar.tryPutMVar entered ()
+        MVar.readMVar release
+        -- Parent replacement must release the registry lock before joining this
+        -- callback; otherwise this ordinary re-registration would deadlock.
+        Filewatch.watch child (\_ -> pure ())
+  Filewatch.watch child callback
+  old <- testWatcher child
+  childDelivered <- writeUntilObserved path (fmap not (MVar.isEmptyMVar entered))
+  replacement <- MVar.newEmptyMVar :: IO (MVar.MVar (Either Exception.SomeException ()))
+  let replace = do
+        result <- Exception.try (Filewatch.watch root (STM.atomically . STM.writeTChan parentEvents))
+        MVar.putMVar replacement result
+  Exception.bracket (Concurrent.forkIO replace) Concurrent.killThread $ \_ ->
+    (do
+      published <- awaitWatcherCondition (Map.member root <$> MVar.readMVar Filewatch.activeWatchers)
+      _ <- MVar.tryPutMVar release ()
+      completed <- Timeout.timeout 2000000 (MVar.readMVar replacement)
+      stopped <- not <$> MVar.isEmptyMVar (Filewatch.watcherStopped old)
+      before <- IORef.readIORef childCount
+      parentDelivered <- writeUntilObserved path (takeWatchedPath parentEvents path)
+      after <- IORef.readIORef childCount
+      watchers <- MVar.readMVar Filewatch.activeWatchers
+      roots <- maybe (pure []) (MVar.readMVar . Filewatch.registeredRoots) (Map.lookup root watchers)
+      watcherChecks
+        [ ("child delivery", childDelivered), ("parent published", published)
+        , ("child stopped", stopped), ("parent delivery", parentDelivered)
+        , ("no old callbacks", before == after), ("child root replaced", not (Map.member child watchers))
+        , ("child root retained", child `elem` roots)
+        , ("replacement finished", case completed of Just (Right ()) -> True; _ -> False)
+        ]
+    ) `Exception.finally` (MVar.tryPutMVar release () >> pure ())
+
+testWatcherShutdown :: IO Bool
+testWatcherShutdown = withFilewatchTestRoot $ \root -> do
+  events <- STM.newTChanIO
+  let path = root FilePath.</> "Probe.elm"
+  Filewatch.watch root (STM.atomically . STM.writeTChan events)
+  delivered <- writeUntilObserved path (takeWatchedPath events path)
+  blocked <- awaitWatcherCondition (watcherIsBlocked root)
+  watcher <- testWatcher root
+  stopped <- Timeout.timeout 2000000 (stopTestWatchers root)
+  stoppedAgain <- Timeout.timeout 2000000 (Filewatch.stopWatcher watcher)
+  _ <- takeWatchedPath events path
+  BS.writeFile path "module Probe exposing (value)\nvalue = 99\n"
+  Concurrent.threadDelay 300000
+  deliveredAfterStop <- takeWatchedPath events path
+  watcherChecks [("delivery", delivered), ("blocked", blocked), ("shutdown", stopped == Just ()), ("idempotent stop", stoppedAgain == Just ()), ("no events after stop", not deliveredAfterStop)]
+
+testWatcherCancellation :: IO Bool
+testWatcherCancellation = withFilewatchTestRoot $ \root -> do
+  events <- STM.newTChanIO
+  let path = root FilePath.</> "Probe.elm"
+  Filewatch.watch root (STM.atomically . STM.writeTChan events)
+  delivered <- writeUntilObserved path (takeWatchedPath events path)
+  blocked <- awaitWatcherCondition (watcherIsBlocked root)
+  watcher <- testWatcher root
+  stopped <- Timeout.timeout 2000000 $ do
+    Concurrent.killThread (Filewatch.watcherThread watcher)
+    MVar.readMVar (Filewatch.watcherStopped watcher)
+  stopping <- not <$> MVar.isEmptyMVar (Filewatch.watcherLifetime watcher)
+  _ <- takeWatchedPath events path
+  BS.writeFile path "module Probe exposing (value)\nvalue = 100\n"
+  Concurrent.threadDelay 300000
+  deliveredAfterStop <- takeWatchedPath events path
+  watcherChecks [("delivery", delivered), ("blocked", blocked), ("cancelled", stopped == Just ()), ("lifetime ended", stopping), ("no events after cancellation", not deliveredAfterStop)]
+
+testWatcherSelfReplacement :: IO Bool
+testWatcherSelfReplacement = withFilewatchTestRoot $ \root -> do
+  let child = root FilePath.</> "child"
+      path = child FilePath.</> "Probe.elm"
+  Dir.createDirectoryIfMissing True child
+  finished <- MVar.newEmptyMVar
+  release <- MVar.newEmptyMVar
+  parentEvents <- STM.newTChanIO
+  Filewatch.watch child $ \_ -> do
+    MVar.readMVar release
+    Filewatch.watch root (STM.atomically . STM.writeTChan parentEvents)
+    _ <- MVar.tryPutMVar finished ()
+    pure ()
+  old <- testWatcher child
+  MVar.putMVar release ()
+  replaced <- writeUntilObserved path (fmap not (MVar.isEmptyMVar finished))
+  stopped <- Timeout.timeout 2000000 (MVar.readMVar (Filewatch.watcherStopped old))
+  delivered <- writeUntilObserved path (takeWatchedPath parentEvents path)
+  watcherChecks [("self replacement", replaced), ("old owner stopped", stopped == Just ()), ("replacement delivery", delivered)]
+
 testWatchPathFilterRelevant :: IO Bool
 testWatchPathFilterRelevant = do
   let ok1 = ProjectState.isRelevantWatchedPath "/tmp/app/src/Main.elm"
       ok2 = ProjectState.isRelevantWatchedPath "/tmp/app/elm.json"
       ok3 = ProjectState.isRelevantWatchedPath "/tmp/app/elm.dev.json"
-  pure (ok1 && ok2 && ok3)
+      rootFiles = all (Filewatch.shouldTriggerPathRelativeTo "/tmp/app")
+        ["/tmp/app/Main.elm", "/tmp/app/elm.json", "/tmp/app/elm.dev.json"]
+  pure (ok1 && ok2 && ok3 && rootFiles)
 
 testWatchPathFilterElmStuff :: IO Bool
 testWatchPathFilterElmStuff = do
