@@ -9,7 +9,10 @@ name: Build MacOS arm64
 jobs:
   build:
     name: Build MacOS arm64
-    runs-on: macos-latest
+    # GHC 9.2.8's toolchain is incompatible with the SDK 27 stubs on latest.
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
       - name: Install SSH key
         uses: shimataro/ssh-key-action@v2.8.1
@@ -19,19 +22,27 @@ jobs:
           known_hosts: ${{ secrets.KNOWN_HOSTS }}
           if_key_exists: replace
       - uses: actions/checkout@v6
+      - name: Select pinned Apple toolchain and SDK
+        run: |
+          test -d "$DEVELOPER_DIR"
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+          echo "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin" >> "$GITHUB_PATH"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
       - uses: actions/cache@v5
         with:
           path: |
             ~/.stack
             ~/.ghcup/macos-arm64
             .stack-work
-          key: ${{ runner.os }}-arm64-${{ hashFiles('distribution/stack-version', 'stack.yaml', 'stack.yaml.lock', 'elm-dev.cabal') }}
+          key: ${{ runner.os }}-macos15-xcode16.4-arm64-${{ hashFiles('distribution/stack-version', 'stack.yaml', 'stack.yaml.lock', 'elm-dev.cabal') }}
           restore-keys: |
-            ${{ runner.os }}-arm64-
+            ${{ runner.os }}-macos15-xcode16.4-arm64-
       - run: echo "${HOME}/.local/bin" >> $GITHUB_PATH
       - name: Run distribution script
         run: |
           mkdir -p ~/.local/bin
-          curl https://downloads.haskell.org/~ghcup/aarch64-apple-darwin-ghcup -o ~/.local/bin/ghcup && chmod a+x ~/.local/bin/ghcup
+          curl --fail --location --retry 3 --retry-delay 5 --retry-all-errors https://downloads.haskell.org/~ghcup/aarch64-apple-darwin-ghcup -o ~/.local/bin/ghcup
+          chmod a+x ~/.local/bin/ghcup
           cd distribution
           ./build-macos-arm64.sh

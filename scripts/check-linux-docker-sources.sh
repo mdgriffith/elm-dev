@@ -26,6 +26,19 @@ for source_dir in "${source_dirs[@]}"; do
   fi
 done
 
+# Template Haskell also reads files outside the Haskell source directories.
+compile_time_files=(
+  installers-elm-dev/npm/package.json
+  docs/behavioral-specs.md
+)
+
+for input_file in "${compile_time_files[@]}"; do
+  if [[ ! -f "$ROOT_DIR/$input_file" ]] || ! grep -Fxq "COPY $input_file $input_file" "$DOCKERFILE"; then
+    echo "Linux Docker build context is missing compile-time input: $input_file" >&2
+    exit 1
+  fi
+done
+
 if ! grep -Fq 'COPY stack.yaml.lock ./' "$DOCKERFILE"; then
   echo "Linux x86_64 Docker build does not copy the Stack lockfile" >&2
   exit 1

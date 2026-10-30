@@ -31,10 +31,11 @@ test "$("$stack" --numeric-version)" = "$stackVersion"
 cd "$scriptDir/.."                                        # Move into the project root
 git submodule init && git submodule update
 
-$stack install --local-bin-path $dist
+install_stack_with_retry "$stack" "$dist"
 
 cp $dist/$project $bin                                    # Copy built binary to dist
 strip $bin                                                # Strip symbols to reduce binary size (90M -> 56M)
+"$bin" --version-full
 file $bin
 ls -alh $bin
 echo "put $bin $project/$project-next-$os-$arch" | sftp -i ~/.ssh/id_ed25519 -P 22 github@apps.lamdera.com

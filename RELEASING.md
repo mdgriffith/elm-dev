@@ -51,6 +51,18 @@ rm -rf "$STACK_CHECK_ROOT"
 - Node.js 18 or newer
 - Bun only when publishing the independently versioned VS Code extension
 
+The macOS distribution workflows pin macOS 15 runners (`macos-15` for ARM64 and
+`macos-15-intel` for x64) and Xcode 16.4. They export that Xcode's `SDKROOT` and
+put its toolchain first on PATH before Stack installs GHC. GHC 9.2.8 cannot use
+the SDK 27 text stubs encountered on the moving `macos-latest` image. Cache keys
+and restore prefixes include the pinned OS/Xcode combination, so incompatible
+GHC/setup caches are not reused when changing toolchains.
+
+Mac builds retry failed `stack install` commands up to three times, reusing completed
+work to tolerate transient Hackage/DNS failures. Persistent failures still stop
+the build before stripping or uploading a binary. Successful builds execute the
+stripped binary with `--version-full` before uploading it.
+
 Confirm authentication before starting:
 
 ```bash
@@ -82,6 +94,11 @@ Run release validation:
 stack test elm-dev:elm-dev-tests
 npm run test-dependencies:network
 ```
+
+The Linux Docker-source check covers Haskell source directories and external
+compile-time inputs, including the npm version manifest and
+`docs/behavioral-specs.md`. Keep the Docker `COPY` instructions and this check
+aligned when adding embedded assets.
 
 If generator inputs changed, regenerate and commit their artifacts before
 triggering distribution builds:

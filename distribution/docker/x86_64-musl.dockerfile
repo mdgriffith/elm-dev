@@ -61,6 +61,7 @@ COPY reactor reactor
 COPY terminal terminal
 COPY LICENSE ./
 COPY installers-elm-dev/npm/package.json installers-elm-dev/npm/package.json
+COPY docs/behavioral-specs.md docs/behavioral-specs.md
 
 COPY ext-common ext-common
 COPY ext-debug ext-debug
